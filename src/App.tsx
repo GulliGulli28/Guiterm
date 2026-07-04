@@ -125,12 +125,15 @@ export default function App() {
   useEffect(() => {
     const bg = BG_THEMES[preferences.uiBg ?? "slate"];
     if (!bg) return;
+    const mode = preferences.colorMode ?? "dark";
+    const shade = bg[mode];
     const root = document.documentElement;
-    root.style.setProperty("--c-bg", bg.bg);
-    root.style.setProperty("--c-bg2", bg.bg2);
-    root.style.setProperty("--c-bg3", bg.bg3);
-    root.style.setProperty("--c-border", bg.border);
-  }, [preferences.uiBg]);
+    root.style.setProperty("--c-bg", shade.bg);
+    root.style.setProperty("--c-bg2", shade.bg2);
+    root.style.setProperty("--c-bg3", shade.bg3);
+    root.style.setProperty("--c-border", shade.border);
+    root.dataset.mode = mode;
+  }, [preferences.uiBg, preferences.colorMode]);
 
   // ── Notifications ────────────────────────────────────────────────────────
   const pushNotification = useCallback((kind: NotificationKind, message: string) => {
@@ -274,7 +277,7 @@ export default function App() {
 
   if (!workspace) {
     return (
-      <div className="flex h-screen w-screen flex-col overflow-hidden bg-[var(--c-bg)] text-slate-100">
+      <div className="flex h-screen w-screen flex-col overflow-hidden bg-[var(--c-bg)] text-[var(--c-text)]">
         <TitleBar
           sidebarVisible={sidebarVisible}
           onToggleSidebar={() => setSidebarVisible((v) => !v)}
@@ -283,7 +286,7 @@ export default function App() {
           onClearAllNotifications={clearAllNotifications}
           onMarkAllNotificationsRead={markAllNotificationsRead}
         />
-        <div className="flex flex-1 items-center justify-center text-slate-400">Chargement…</div>
+        <div className="flex flex-1 items-center justify-center text-[var(--c-text-secondary)]">Chargement…</div>
       </div>
     );
   }
@@ -291,7 +294,7 @@ export default function App() {
   const showRightPanel = !!(editingHost || editingGroup);
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-[var(--c-bg)] text-slate-100">
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-[var(--c-bg)] text-[var(--c-text)]">
       {/* Transparent overlay during any drag — prevents xterm canvas from stealing mouse events */}
       {isDragging && <div className="fixed inset-0 z-[9999] cursor-col-resize" />}
       {paletteOpen && <CommandPalette commands={paletteCommands} onClose={() => setPaletteOpen(false)} />}
@@ -376,12 +379,12 @@ export default function App() {
         <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
           {tabs.length === 0 ? (
             <div className="flex flex-1 select-none flex-col items-center justify-center gap-4">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl border border-[var(--c-border)] bg-[var(--c-bg2)]">
-                <IconTerminal size={28} className="text-slate-700" />
+              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--c-bg2)]">
+                <IconTerminal size={28} className="text-[var(--c-text-faint)]" />
               </div>
               <div className="text-center">
-                <p className="text-sm text-slate-500">Aucun terminal ouvert</p>
-                <p className="mt-0.5 text-xs text-slate-600">Choisissez un hôte dans la barre latérale</p>
+                <p className="text-[13px] text-[var(--c-text-muted)]">Aucun terminal ouvert</p>
+                <p className="mt-0.5 text-xs text-[var(--c-text-faint)]">Choisissez un hôte dans la barre latérale</p>
               </div>
             </div>
           ) : (
@@ -396,11 +399,11 @@ export default function App() {
                   if (tab.status === "placeholder") {
                     return (
                       <div key={tab.id} className={isActive ? "absolute inset-0 flex select-none flex-col items-center justify-center gap-3" : "hidden"}>
-                        <div className="flex h-12 w-12 items-center justify-center rounded-2xl border border-[var(--c-border)] bg-[var(--c-bg2)] text-slate-600">
+                        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--c-bg2)] text-[var(--c-text-faint)]">
                           <IconTerminal size={22} />
                         </div>
-                        <p className="text-sm text-slate-400">{tab.label}</p>
-                        <p className="text-xs text-slate-600">Session restaurée — non reconnectée</p>
+                        <p className="text-[13px] text-[var(--c-text-secondary)]">{tab.label}</p>
+                        <p className="text-xs text-[var(--c-text-faint)]">Session restaurée — non reconnectée</p>
                         <button
                           onClick={() => reconnectTab(tab.id)}
                           className="rounded-md bg-[var(--c-accent)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--c-accent-hover)]"

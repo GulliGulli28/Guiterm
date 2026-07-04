@@ -67,7 +67,7 @@ export function Sidebar(props: SidebarProps) {
               className={`relative flex h-9 w-9 items-center justify-center rounded-lg transition-all duration-150 ${
                 active
                   ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]"
-                  : "text-slate-600 hover:bg-slate-800/70 hover:text-slate-300"
+                  : "text-[var(--c-text-faint)] hover:bg-white/5 hover:text-[var(--c-text-secondary)]"
               }`}
             >
               {active && (
@@ -84,7 +84,7 @@ export function Sidebar(props: SidebarProps) {
             className={`relative flex h-9 w-9 items-center justify-center rounded-lg transition-all duration-150 ${
               panel === "settings"
                 ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]"
-                : "text-slate-600 hover:bg-slate-800/70 hover:text-slate-300"
+                : "text-[var(--c-text-faint)] hover:bg-white/5 hover:text-[var(--c-text-secondary)]"
             }`}
           >
             {panel === "settings" && (

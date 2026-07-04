@@ -76,8 +76,8 @@ export function TabBar({ tabs, activeTabId, splitOpen, onSelect, onClose, onTogg
                 isActive
                   ? "bg-[var(--c-accent)] text-white"
                   : tab.status === "placeholder"
-                    ? "border border-dashed border-slate-700 text-slate-500 hover:bg-slate-800"
-                    : "bg-[var(--c-bg3)] text-slate-300 hover:bg-slate-700"
+                    ? "border border-dashed border-[var(--c-border)] text-[var(--c-text-muted)] hover:bg-white/5"
+                    : "bg-[var(--c-bg3)] text-[var(--c-text-secondary)] hover:bg-white/5"
               } ${draggedId === tab.id ? "opacity-60" : ""}`}
               title={tab.status === "placeholder" ? "Session restaurée — cliquez pour reconnecter" : undefined}
             >
@@ -100,7 +100,7 @@ export function TabBar({ tabs, activeTabId, splitOpen, onSelect, onClose, onTogg
         className={`flex shrink-0 items-center justify-center rounded-md p-1.5 transition-colors ${
           splitOpen
             ? "bg-[var(--c-accent)] text-white"
-            : "text-slate-400 hover:bg-[var(--c-bg3)] hover:text-slate-200"
+            : "text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)] hover:text-[var(--c-text)]"
         }`}
       >
         <IconSplit size={15} />

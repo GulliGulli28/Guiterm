@@ -62,13 +62,13 @@ function SnippetForm({
   return (
     <div className="space-y-1.5">
       {/* Mode toggle */}
-      <div className="flex rounded-md bg-slate-800 p-0.5">
+      <div className="flex rounded-md bg-[var(--c-bg2)] p-0.5">
         {(["snippet", "script"] as Mode[]).map((m) => (
           <button
             key={m}
             onClick={() => switchMode(m)}
             className={`flex-1 rounded py-1 text-xs font-medium transition-colors ${
-              mode === m ? "bg-[var(--c-accent)] text-white" : "text-slate-400 hover:text-slate-200"
+              mode === m ? "bg-[var(--c-accent)] text-white" : "text-[var(--c-text-secondary)] hover:text-[var(--c-text)]"
             }`}
           >
             {m === "snippet" ? "Snippet" : "Script"}
@@ -93,10 +93,10 @@ function SnippetForm({
           className={`${inputClass} font-mono`}
         />
       ) : (
-        <div className="overflow-hidden rounded-md border border-slate-700 bg-slate-800 focus-within:border-[var(--c-accent)] focus-within:ring-1 focus-within:ring-[var(--c-accent)]">
-          <div className="flex items-center gap-2 border-b border-slate-700/80 px-2.5 py-1">
-            <span className="font-mono text-[10px] text-slate-500">bash</span>
-            <span className="ml-auto text-[10px] text-slate-600">Ctrl+Entrée pour valider</span>
+        <div className="overflow-hidden rounded-md bg-[var(--c-bg2)] focus-within:ring-1 focus-within:ring-[var(--c-accent)]">
+          <div className="flex items-center gap-2 border-b border-[var(--c-border)] px-2.5 py-1">
+            <span className="font-mono text-[10px] text-[var(--c-text-muted)]">bash</span>
+            <span className="ml-auto text-[10px] text-[var(--c-text-faint)]">Ctrl+Entrée pour valider</span>
           </div>
           <textarea
             ref={textareaRef}
@@ -105,7 +105,7 @@ function SnippetForm({
             onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) submit(); }}
             placeholder={"#!/bin/bash\n\n# Votre script ici…"}
             rows={6}
-            className="w-full resize-none overflow-hidden bg-transparent px-2.5 py-2 font-mono text-xs text-slate-100 placeholder:text-slate-600 focus:outline-none"
+            className="w-full resize-none overflow-hidden bg-transparent px-2.5 py-2 font-mono text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] focus:outline-none"
           />
         </div>
       )}
@@ -119,7 +119,7 @@ function SnippetForm({
         </button>
         <button
           onClick={onCancel}
-          className="flex items-center justify-center rounded-md bg-slate-700 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-600"
+          className="flex items-center justify-center rounded-md bg-[var(--c-bg2)] px-2.5 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
         >
           <IconClose size={12} />
         </button>
@@ -152,7 +152,7 @@ function SnippetCard({
 
   if (editing) {
     return (
-      <div className="rounded-lg border border-[var(--c-accent)]/40 bg-[var(--c-bg3)]/40 p-2.5">
+      <div className="rounded-lg bg-[var(--c-bg3)] p-2.5 ring-1 ring-[var(--c-accent)]/40">
         <SnippetForm
           initialName={snippet.name}
           initialCommand={snippet.command}
@@ -167,8 +167,8 @@ function SnippetCard({
   if (promptValues) {
     const submit = () => { onRun(fillVariables(snippet.command, promptValues)); setPromptValues(null); };
     return (
-      <div className="rounded-lg border border-[var(--c-accent)]/40 bg-[var(--c-bg3)]/40 p-2.5">
-        <p className="mb-1.5 truncate text-sm font-medium text-slate-100">{snippet.name}</p>
+      <div className="rounded-lg bg-[var(--c-bg3)] p-2.5 ring-1 ring-[var(--c-accent)]/40">
+        <p className="mb-1.5 truncate text-[14px] font-medium text-[var(--c-text)]">{snippet.name}</p>
         <div className="space-y-1.5">
           {variables.map((name) => (
             <input
@@ -185,7 +185,7 @@ function SnippetCard({
             <button onClick={submit} className="flex flex-1 items-center justify-center gap-1 rounded-md bg-[var(--c-accent)] py-1.5 text-xs font-medium text-white hover:bg-[var(--c-accent-hover)]">
               <IconPlay size={11} /> Exécuter
             </button>
-            <button onClick={() => setPromptValues(null)} className="flex items-center justify-center rounded-md bg-slate-700 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-600">
+            <button onClick={() => setPromptValues(null)} className="flex items-center justify-center rounded-md bg-[var(--c-bg2)] px-2.5 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5">
               <IconClose size={12} />
             </button>
           </div>
@@ -195,9 +195,9 @@ function SnippetCard({
   }
 
   return (
-    <div className="rounded-lg border border-[var(--c-border)] bg-[var(--c-bg3)]/40 p-2.5">
+    <div className="rounded-lg bg-[var(--c-bg3)]/40 p-2.5 transition-colors hover:bg-[var(--c-bg3)]">
       <div className="flex items-start justify-between gap-2">
-        <p className="truncate text-sm font-medium text-slate-100">{snippet.name}</p>
+        <p className="truncate text-[14px] font-medium text-[var(--c-text)]">{snippet.name}</p>
         <div className="flex shrink-0 gap-1">
           {variables.length > 0 && (
             <span title={`Variables : ${variables.join(", ")}`} className="rounded bg-sky-900/50 px-1.5 py-0.5 text-[10px] font-medium text-sky-300">
@@ -205,13 +205,13 @@ function SnippetCard({
             </span>
           )}
           <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-            isScript ? "bg-violet-900/50 text-violet-300" : "bg-slate-700/60 text-slate-400"
+            isScript ? "bg-violet-900/50 text-violet-300" : "bg-[var(--c-bg2)] text-[var(--c-text-secondary)]"
           }`}>
             {isScript ? "script" : "snippet"}
           </span>
         </div>
       </div>
-      <pre className="mt-1 line-clamp-3 whitespace-pre-wrap font-mono text-xs text-slate-400">
+      <pre className="mt-1 line-clamp-3 whitespace-pre-wrap font-mono text-xs text-[var(--c-text-muted)]">
         {snippet.command}
       </pre>
 
@@ -224,7 +224,7 @@ function SnippetCard({
         </button>
         <button
           onClick={() => setEditing(true)}
-          className="flex flex-1 basis-[68px] items-center justify-center gap-1 rounded-md bg-slate-700 px-1 py-1.5 text-xs text-slate-300 hover:bg-slate-600"
+          className="flex flex-1 basis-[68px] items-center justify-center gap-1 rounded-md bg-[var(--c-bg2)] px-1 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
         >
           <IconEdit size={11} /> Éditer
         </button>
@@ -238,7 +238,7 @@ function SnippetCard({
         ) : (
           <button
             onClick={() => setConfirmDelete(true)}
-            className="flex flex-1 basis-[68px] items-center justify-center gap-1 rounded-md bg-slate-700 px-1 py-1.5 text-xs text-rose-300 hover:bg-rose-900/60"
+            className="flex flex-1 basis-[68px] items-center justify-center gap-1 rounded-md bg-[var(--c-bg2)] px-1 py-1.5 text-xs text-rose-400 hover:bg-rose-900/60"
           >
             <IconTrash size={11} />
           </button>
@@ -247,7 +247,7 @@ function SnippetCard({
       {confirmDelete && (
         <button
           onClick={() => setConfirmDelete(false)}
-          className="mt-1 w-full rounded-md py-1 text-xs text-slate-500 hover:text-slate-300"
+          className="mt-1 w-full rounded-md py-1 text-xs text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)]"
         >
           Annuler la suppression
         </button>
@@ -270,13 +270,13 @@ export function SnippetsPanel({ workspace, onAddSnippet, onUpdateSnippet, onDele
             className={`flex w-full items-center justify-center gap-1.5 rounded-md border py-1.5 text-xs font-medium transition-colors ${
               showForm
                 ? "border-[var(--c-accent)] bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]"
-                : "border-dashed border-slate-700 text-slate-400 hover:border-[var(--c-accent)] hover:text-[var(--c-accent-text)]"
+                : "border-dashed border-[var(--c-border)] text-[var(--c-text-muted)] hover:border-[var(--c-accent)] hover:text-[var(--c-accent-text)]"
             }`}
           >
             <IconPlus size={13} /> Ajouter
           </button>
           {showForm && (
-            <div className="mt-2 rounded-lg border border-[var(--c-border)] bg-[var(--c-bg3)]/40 p-2.5">
+            <div className="mt-2 rounded-lg bg-[var(--c-bg3)]/40 p-2.5">
               <SnippetForm
                 submitLabel="Enregistrer"
                 onSubmit={(name, command) => { onAddSnippet(name, command); setShowForm(false); }}
@@ -296,11 +296,11 @@ export function SnippetsPanel({ workspace, onAddSnippet, onUpdateSnippet, onDele
           />
         ))}
         {workspace.snippets.length === 0 && !showForm && (
-          <p className="px-1 py-4 text-center text-sm text-slate-500">Aucun snippet</p>
+          <p className="px-1 py-4 text-center text-[13px] text-[var(--c-text-muted)]">Aucun snippet</p>
         )}
       </div>
     </div>
   );
 }
 
-const inputClass = "w-full rounded-md bg-slate-800 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[var(--c-accent)]";
+const inputClass = "w-full rounded-md bg-[var(--c-bg2)] px-2 py-1.5 text-[13px] text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent)]";

@@ -23,21 +23,47 @@ export const ACCENT_COLORS: Record<UiAccent, AccentColorEntry> = {
 };
 
 export type UiBg = "slate" | "gray" | "zinc" | "black" | "navy";
+export type ColorMode = "dark" | "light";
 
-export interface BgThemeEntry {
-  label: string;
+export interface BgShade {
   bg: string;
   bg2: string;
   bg3: string;
   border: string;
 }
 
+export interface BgThemeEntry {
+  label: string;
+  dark: BgShade;
+  light: BgShade;
+}
+
 export const BG_THEMES: Record<UiBg, BgThemeEntry> = {
-  slate: { label: "Ardoise",   bg: "#020617", bg2: "#0f172a", bg3: "#1e293b", border: "#1e293b" },
-  gray:  { label: "Gris",     bg: "#030712", bg2: "#111827", bg3: "#1f2937", border: "#1f2937" },
-  zinc:  { label: "Zinc",     bg: "#09090b", bg2: "#18181b", bg3: "#27272a", border: "#27272a" },
-  black: { label: "Noir pur", bg: "#000000", bg2: "#0d0d0d", bg3: "#1a1a1a", border: "#262626" },
-  navy:  { label: "Marine",   bg: "#020c1b", bg2: "#0d1b2e", bg3: "#1a3148", border: "#1e3a52" },
+  slate: {
+    label: "Ardoise",
+    dark:  { bg: "#020617", bg2: "#0f172a", bg3: "#1e293b", border: "#1e293b" },
+    light: { bg: "#f8fafc", bg2: "#f1f5f9", bg3: "#e2e8f0", border: "#cbd5e1" },
+  },
+  gray: {
+    label: "Gris",
+    dark:  { bg: "#030712", bg2: "#111827", bg3: "#1f2937", border: "#1f2937" },
+    light: { bg: "#f9fafb", bg2: "#f3f4f6", bg3: "#e5e7eb", border: "#d1d5db" },
+  },
+  zinc: {
+    label: "Zinc",
+    dark:  { bg: "#09090b", bg2: "#18181b", bg3: "#27272a", border: "#27272a" },
+    light: { bg: "#fafafa", bg2: "#f4f4f5", bg3: "#e4e4e7", border: "#d4d4d8" },
+  },
+  black: {
+    label: "Noir pur",
+    dark:  { bg: "#000000", bg2: "#0d0d0d", bg3: "#1a1a1a", border: "#262626" },
+    light: { bg: "#ffffff", bg2: "#f5f5f5", bg3: "#ebebeb", border: "#d9d9d9" },
+  },
+  navy: {
+    label: "Marine",
+    dark:  { bg: "#020c1b", bg2: "#0d1b2e", bg3: "#1a3148", border: "#1e3a52" },
+    light: { bg: "#f0f4f8", bg2: "#e1e9f0", bg3: "#cdd9e5", border: "#b8c9da" },
+  },
 };
 
 export interface AppPreferences {
@@ -47,6 +73,7 @@ export interface AppPreferences {
   sftpFontSize: number;
   uiAccent: UiAccent;
   uiBg: UiBg;
+  colorMode: ColorMode;
   notifyOnDisconnect: boolean;
   notifyOnTransferDone: boolean;
   keyboardShortcuts: Record<string, string>;
@@ -199,6 +226,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   sftpFontSize: 13,
   uiAccent: "indigo",
   uiBg: "slate",
+  colorMode: "dark",
   notifyOnDisconnect: true,
   notifyOnTransferDone: true,
   keyboardShortcuts: defaultShortcuts(),

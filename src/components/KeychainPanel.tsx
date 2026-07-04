@@ -58,13 +58,13 @@ export function KeychainPanel({ workspace, onAddKey, onDeleteKey, onRenameKey }:
             className={`flex w-full items-center justify-center gap-1.5 rounded-md border py-1.5 text-xs font-medium transition-colors ${
               showForm
                 ? "border-[var(--c-accent)] bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]"
-                : "border-dashed border-slate-700 text-slate-400 hover:border-[var(--c-accent)] hover:text-[var(--c-accent-text)]"
+                : "border-dashed border-[var(--c-border)] text-[var(--c-text-muted)] hover:border-[var(--c-accent)] hover:text-[var(--c-accent-text)]"
             }`}
           >
             <IconPlus size={13} /> Ajouter une clé
           </button>
           {showForm && (
-            <div className="mt-2 space-y-2 rounded-lg border border-[var(--c-border)] bg-[var(--c-bg3)]/40 p-2.5">
+            <div className="mt-2 space-y-2 rounded-lg bg-[var(--c-bg3)]/40 p-2.5">
               {error && <p className="rounded-md bg-rose-950 px-2 py-1 text-xs text-rose-300">{error}</p>}
               <input
                 value={name}
@@ -78,11 +78,11 @@ export function KeychainPanel({ workspace, onAddKey, onDeleteKey, onRenameKey }:
                   value={path}
                   onChange={(e) => setPath(e.target.value)}
                   placeholder="Chemin vers la clé privée"
-                  className={`${inputClass} min-w-0 flex-1`}
+                  className={`${inputClass} min-w-0 flex-1 font-mono`}
                 />
                 <button
                   onClick={browse}
-                  className="flex shrink-0 items-center justify-center rounded-md bg-slate-700 px-2.5 py-1.5 text-slate-400 hover:bg-slate-600 hover:text-slate-200"
+                  className="flex shrink-0 items-center justify-center rounded-md bg-[var(--c-bg2)] px-2.5 py-1.5 text-[var(--c-text-muted)] hover:bg-white/5 hover:text-[var(--c-text-secondary)]"
                   title="Parcourir"
                 >
                   <IconFolder size={14} />
@@ -98,7 +98,7 @@ export function KeychainPanel({ workspace, onAddKey, onDeleteKey, onRenameKey }:
                 />
                 <button
                   onClick={() => setShowPassphrase((v) => !v)}
-                  className="shrink-0 rounded-md bg-slate-700 px-2.5 py-1.5 text-xs text-slate-400 hover:bg-slate-600"
+                  className="shrink-0 rounded-md bg-[var(--c-bg2)] px-2.5 py-1.5 text-xs text-[var(--c-text-muted)] hover:bg-white/5"
                 >
                   {showPassphrase ? "Cacher" : "Voir"}
                 </button>
@@ -112,7 +112,7 @@ export function KeychainPanel({ workspace, onAddKey, onDeleteKey, onRenameKey }:
                 </button>
                 <button
                   onClick={() => { setShowForm(false); setError(null); setName(""); setPath(""); setPassphrase(""); }}
-                  className="flex items-center justify-center rounded-md bg-slate-700 px-2.5 py-1.5 text-slate-300 hover:bg-slate-600"
+                  className="flex items-center justify-center rounded-md bg-[var(--c-bg2)] px-2.5 py-1.5 text-[var(--c-text-secondary)] hover:bg-white/5"
                 >
                   <IconClose size={12} />
                 </button>
@@ -121,10 +121,10 @@ export function KeychainPanel({ workspace, onAddKey, onDeleteKey, onRenameKey }:
           )}
         </div>
         {workspace.keychain.length === 0 && (
-          <p className="px-1 py-4 text-center text-sm text-slate-500">Aucune clé enregistrée</p>
+          <p className="px-1 py-4 text-center text-[13px] text-[var(--c-text-muted)]">Aucune clé enregistrée</p>
         )}
         {workspace.keychain.map((key: PrivateKey) => (
-          <div key={key.id} className="group rounded-lg border border-[var(--c-border)] bg-[var(--c-bg3)]/40 p-2.5">
+          <div key={key.id} className="group rounded-lg bg-[var(--c-bg3)]/40 p-2.5 transition-colors hover:bg-[var(--c-bg3)]">
             <div className="flex items-center gap-2">
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--c-accent-dim)]">
                 <IconKeychain size={13} className="text-[var(--c-accent-text)]" />
@@ -140,29 +140,29 @@ export function KeychainPanel({ workspace, onAddKey, onDeleteKey, onRenameKey }:
                       if (e.key === "Escape") setEditingName(null);
                     }}
                     autoFocus
-                    className="w-full rounded-md bg-slate-800 px-1.5 py-0.5 text-sm font-medium text-slate-100 focus:outline-none focus:ring-1 focus:ring-[var(--c-accent)]"
+                    className="w-full rounded-md bg-[var(--c-bg2)] px-1.5 py-0.5 text-[14px] font-medium text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent)]"
                   />
                 ) : (
-                  <p className="truncate text-sm font-medium text-slate-200">{key.name}</p>
+                  <p className="truncate text-[14px] font-medium text-[var(--c-text)]">{key.name}</p>
                 )}
                 {key.content ? (
                   <p className="mt-0.5 text-[10px] text-emerald-500">Contenu intégré ✓</p>
                 ) : (
-                  <p className="mt-0.5 truncate font-mono text-[10px] text-slate-500" title={key.path}>{key.path}</p>
+                  <p className="mt-0.5 truncate font-mono text-[10px] text-[var(--c-text-muted)]" title={key.path}>{key.path}</p>
                 )}
               </div>
-              <div className="flex shrink-0 items-center gap-0.5 opacity-0 group-hover:opacity-100 transition-opacity">
+              <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100">
                 <button
                   onClick={() => setEditingName({ id: key.id, draft: key.name })}
                   title="Renommer"
-                  className="flex items-center rounded p-1 text-slate-500 hover:bg-slate-700 hover:text-slate-200"
+                  className="flex items-center rounded p-1 text-[var(--c-text-muted)] hover:bg-white/5 hover:text-[var(--c-text-secondary)]"
                 >
                   <IconEdit size={12} />
                 </button>
                 <button
                   onClick={() => onDeleteKey(key.id)}
                   title="Supprimer"
-                  className="flex items-center rounded p-1 text-slate-500 hover:bg-rose-900/60 hover:text-rose-300"
+                  className="flex items-center rounded p-1 text-[var(--c-text-muted)] hover:bg-rose-900/60 hover:text-rose-300"
                 >
                   <IconTrash size={12} />
                 </button>
@@ -175,4 +175,4 @@ export function KeychainPanel({ workspace, onAddKey, onDeleteKey, onRenameKey }:
   );
 }
 
-const inputClass = "w-full rounded-md bg-slate-800 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[var(--c-accent)]";
+const inputClass = "w-full rounded-md bg-[var(--c-bg2)] px-2 py-1.5 text-[13px] text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent)]";

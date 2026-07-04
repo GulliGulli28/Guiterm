@@ -122,11 +122,7 @@ export function HostsPanel({
       <div
         key={host.id}
         style={{ marginLeft: depth * 14 }}
-        className={`group rounded-lg border transition-colors ${
-          menuOpen
-            ? "border-[var(--c-accent-dim)] bg-[var(--c-bg3)]"
-            : "border-[var(--c-border)] bg-[var(--c-bg3)]/40 hover:border-[var(--c-accent-dim)] hover:bg-[var(--c-bg3)]"
-        }`}
+        className={`group rounded-lg transition-colors ${menuOpen ? "bg-[var(--c-bg3)]" : "bg-[var(--c-bg3)]/40 hover:bg-[var(--c-bg3)]"}`}
       >
         {/* Header row */}
         <div className="flex items-stretch">
@@ -145,14 +141,14 @@ export function HostsPanel({
                 <span
                   title={hostStatus[host.id] ? "En ligne" : "Hors ligne"}
                   className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[var(--c-bg2)] ${
-                    hostStatus[host.id] ? "bg-emerald-500" : "bg-slate-600"
+                    hostStatus[host.id] ? "bg-emerald-500" : "bg-[var(--c-text-faint)]"
                   }`}
                 />
               )}
             </div>
             <div className="min-w-0 flex-1">
-              <div className="truncate text-sm font-medium text-slate-100">{host.label}</div>
-              <div className="truncate text-[11px] text-slate-500">
+              <div className="truncate text-[14px] font-medium text-[var(--c-text)]">{host.label}</div>
+              <div className="truncate font-mono text-[11px] text-[var(--c-text-muted)]">
                 {host.username}@{host.address}{host.port !== 22 ? `:${host.port}` : ""}
               </div>
             </div>
@@ -160,10 +156,10 @@ export function HostsPanel({
           {/* Menu toggle */}
           <button
             onClick={(e) => { e.stopPropagation(); setOpenMenuHostId(menuOpen ? null : host.id); }}
-            className={`flex shrink-0 items-center px-2 transition-all ${
+            className={`flex shrink-0 items-center px-2 transition-all focus-visible:opacity-100 ${
               menuOpen
-                ? "text-slate-200"
-                : "text-slate-500 opacity-0 group-hover:opacity-100 hover:text-slate-200"
+                ? "text-[var(--c-text-secondary)]"
+                : "text-[var(--c-text-faint)] opacity-0 hover:text-[var(--c-text-secondary)] group-hover:opacity-100 group-focus-within:opacity-100"
             }`}
             title="Options"
           >
@@ -175,7 +171,7 @@ export function HostsPanel({
         {host.tags.length > 0 && (
           <div className="flex flex-wrap gap-1 px-2.5 pb-2">
             {host.tags.map((tag) => (
-              <span key={tag} className="rounded-full bg-slate-700/60 px-1.5 py-0.5 text-[10px] text-slate-400">
+              <span key={tag} className="rounded-full bg-[var(--c-bg2)] px-1.5 py-0.5 text-[10px] text-[var(--c-text-secondary)]">
                 {tag}
               </span>
             ))}
@@ -184,16 +180,16 @@ export function HostsPanel({
 
         {/* Expanded actions */}
         {menuOpen && (
-          <div className="flex flex-wrap gap-1 border-t border-[var(--c-border)] p-2">
+          <div className="flex flex-wrap gap-1 p-2 pt-0">
             <button
               onClick={() => { onEditHost(host); setOpenMenuHostId(null); }}
-              className="flex flex-1 basis-[80px] items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-slate-300 hover:bg-slate-700/60"
+              className="flex flex-1 basis-[80px] items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
             >
               <IconEdit size={12} /> Éditer
             </button>
             <button
               onClick={() => { handleExportHost(host); setOpenMenuHostId(null); }}
-              className="flex flex-1 basis-[80px] items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-slate-300 hover:bg-slate-700/60"
+              className="flex flex-1 basis-[80px] items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
             >
               <IconUpload size={12} /> Exporter
             </button>
@@ -211,37 +207,37 @@ export function HostsPanel({
       <div key={group.id} className="space-y-1">
         <div
           style={{ marginLeft: depth * 14 }}
-          className="group flex items-center gap-0.5 rounded-md px-1 py-1 hover:bg-slate-800/60"
+          className="group flex items-center gap-0.5 rounded-md px-1 py-1 hover:bg-white/5"
         >
-          <button onClick={() => toggleGroup(group.id)} className="flex w-4 shrink-0 items-center justify-center text-slate-500">
+          <button onClick={() => toggleGroup(group.id)} className="flex w-4 shrink-0 items-center justify-center text-[var(--c-text-muted)]">
             {expanded ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
           </button>
-          <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-sm font-medium text-slate-300">
+          <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-[13px] font-medium text-[var(--c-text-secondary)]">
             {group.icon ? (
               <HostIcon iconId={group.icon} customIcons={workspace.customIcons} size={16} />
             ) : (
-              <IconFolder size={14} className="text-slate-500" />
+              <IconFolder size={14} className="text-[var(--c-text-muted)]" />
             )}
             {group.name}
           </span>
           <button
             onClick={() => onNewHostInGroup(group.id)}
             title="Nouvel hôte dans ce dossier"
-            className="flex items-center p-1 text-slate-500 opacity-0 hover:text-[var(--c-accent-text)] group-hover:opacity-100"
+            className="flex items-center p-1 text-[var(--c-text-muted)] opacity-0 hover:text-[var(--c-accent-text)] focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
           >
             <IconHosts size={12} />
           </button>
           <button
             onClick={() => onNewGroupUnder(group.id)}
             title="Nouveau sous-dossier"
-            className="flex items-center p-1 text-slate-500 opacity-0 hover:text-[var(--c-accent-text)] group-hover:opacity-100"
+            className="flex items-center p-1 text-[var(--c-text-muted)] opacity-0 hover:text-[var(--c-accent-text)] focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
           >
             <IconFolder size={12} />
           </button>
           <button
             onClick={() => onEditGroup(group)}
             title="Modifier ce dossier"
-            className="flex items-center p-1 text-slate-500 opacity-0 hover:text-slate-200 group-hover:opacity-100"
+            className="flex items-center p-1 text-[var(--c-text-muted)] opacity-0 hover:text-[var(--c-text-secondary)] focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
           >
             <IconEdit size={12} />
           </button>
@@ -261,14 +257,14 @@ export function HostsPanel({
       {/* Search — first for discoverability */}
       <div className="relative">
         <div className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center">
-          <IconSearch size={13} className="text-slate-500" />
+          <IconSearch size={13} className="text-[var(--c-text-muted)]" />
         </div>
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && quickSSH) handleQuickConnect(); }}
           placeholder="Rechercher ou ssh user@hôte…"
-          className="w-full rounded-md bg-[var(--c-bg3)] pl-8 pr-3 py-1.5 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[var(--c-accent)]"
+          className="w-full rounded-md bg-[var(--c-bg3)] pl-8 pr-3 py-1.5 text-[13px] text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent)]"
         />
       </div>
 
@@ -278,23 +274,23 @@ export function HostsPanel({
           {showAddMenu && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setShowAddMenu(false)} />
-              <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-lg border border-slate-700 bg-[var(--c-bg2)] py-1 shadow-xl">
+              <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-lg bg-[var(--c-bg2)] py-1 shadow-[var(--shadow-lg)]">
                 <button
                   onClick={() => { onNewHost(); setShowAddMenu(false); }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-200 hover:bg-[var(--c-bg3)]"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)]"
                 >
                   <IconPlus size={14} /> Nouvel hôte
                 </button>
                 <button
                   onClick={() => { onNewGroup(); setShowAddMenu(false); }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-200 hover:bg-[var(--c-bg3)]"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)]"
                 >
                   <IconFolder size={14} /> Nouveau dossier
                 </button>
                 <div className="my-1 border-t border-[var(--c-border)]" />
                 <button
                   onClick={() => { handleImportHost(); setShowAddMenu(false); }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-sm text-slate-200 hover:bg-[var(--c-bg3)]"
+                  className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)]"
                 >
                   <IconDownload size={14} /> Importer un hôte
                 </button>
@@ -306,7 +302,7 @@ export function HostsPanel({
             className={`flex w-full items-center justify-center gap-1.5 rounded-md border py-1.5 text-xs font-medium transition-colors ${
               showAddMenu
                 ? "border-[var(--c-accent)] bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]"
-                : "border-dashed border-slate-700 text-slate-400 hover:border-[var(--c-accent)] hover:text-[var(--c-accent-text)]"
+                : "border-dashed border-[var(--c-border)] text-[var(--c-text-muted)] hover:border-[var(--c-accent)] hover:text-[var(--c-accent-text)]"
             }`}
           >
             <IconPlus size={13} />
@@ -316,7 +312,7 @@ export function HostsPanel({
         <button
           onClick={onOpenLocalTerminal}
           title="Ouvrir un terminal local"
-          className="flex shrink-0 items-center justify-center rounded-md border border-dashed border-slate-700 px-3 py-1.5 text-slate-400 hover:border-[var(--c-accent)] hover:text-[var(--c-accent-text)]"
+          className="flex shrink-0 items-center justify-center rounded-md border border-dashed border-[var(--c-border)] px-3 py-1.5 text-[var(--c-text-muted)] hover:border-[var(--c-accent)] hover:text-[var(--c-accent-text)]"
         >
           <IconKeyboard size={15} />
         </button>
@@ -327,10 +323,10 @@ export function HostsPanel({
         {quickSSH && (
           <button
             onClick={handleQuickConnect}
-            className="flex w-full items-center gap-2 rounded-lg border border-[var(--c-accent-dim)] bg-[var(--c-accent-dim)] px-3 py-2 text-left text-sm text-[var(--c-accent-text)] hover:bg-[var(--c-accent)] hover:text-white"
+            className="flex w-full items-center gap-2 rounded-lg border border-[var(--c-accent-dim)] bg-[var(--c-accent-dim)] px-3 py-2 text-left text-[13px] text-[var(--c-accent-text)] hover:bg-[var(--c-accent)] hover:text-white"
           >
             <IconFlash size={13} className="shrink-0" />
-            <span className="min-w-0 truncate">
+            <span className="min-w-0 truncate font-mono">
               <span className="font-medium">{quickSSH.username}@{quickSSH.address}</span>
               {quickSSH.port !== 22 && <span className="opacity-70">:{quickSSH.port}</span>}
             </span>
@@ -340,7 +336,7 @@ export function HostsPanel({
         {hostsIn(null).map((h) => renderHost(h, 0))}
         {childGroups(null).map((g) => renderGroup(g, 0))}
         {!quickSSH && workspace.hosts.length === 0 && workspace.groups.length === 0 && (
-          <p className="px-1 py-4 text-center text-sm text-slate-500">Aucun hôte enregistré</p>
+          <p className="px-1 py-4 text-center text-[13px] text-[var(--c-text-muted)]">Aucun hôte enregistré</p>
         )}
       </div>
     </div>

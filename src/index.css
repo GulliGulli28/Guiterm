@@ -18,6 +18,29 @@ html {
   --c-bg2: #0f172a;
   --c-bg3: #1e293b;
   --c-border: #1e293b;
+
+  /* Text hierarchy — shared across all background families, varies by mode only. */
+  --c-text: #e2e8f0;
+  --c-text-secondary: #94a3b8;
+  --c-text-muted: #64748b;
+  --c-text-faint: #475569;
+
+  /* Elevation — floating elements (popovers, modals, palette) get a real shadow
+     instead of a border; static cards use a surface-tone lift, no shadow. */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.6);
+}
+
+:root[data-mode="light"] {
+  --c-text: #0f172a;
+  --c-text-secondary: #475569;
+  --c-text-muted: #64748b;
+  --c-text-faint: #94a3b8;
+
+  --shadow-sm: 0 1px 2px rgba(15, 23, 42, 0.06);
+  --shadow-md: 0 4px 12px rgba(15, 23, 42, 0.1);
+  --shadow-lg: 0 12px 32px rgba(15, 23, 42, 0.16);
 }
 
 html,

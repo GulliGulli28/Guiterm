@@ -70,7 +70,7 @@ export function GroupTreePicker({
           type="button"
           onClick={(e) => pick(e, group.id)}
           style={{ paddingLeft: `${8 + depth * 16}px` }}
-          className={`flex w-full items-center gap-1.5 py-1.5 pr-3 text-left text-sm transition-colors hover:bg-slate-700 ${isSelected ? "bg-slate-700 text-white" : "text-slate-200"}`}
+          className={`flex w-full items-center gap-1.5 py-1.5 pr-3 text-left text-sm transition-colors hover:bg-white/5 ${isSelected ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-secondary)]"}`}
         >
           {group.icon ? (
             <HostIcon iconId={group.icon} customIcons={customIcons} size={13} />
@@ -91,7 +91,7 @@ export function GroupTreePicker({
         ref={btnRef}
         type="button"
         onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (open) setOpen(false); else openDropdown(); }}
-        className="flex w-full items-center justify-between gap-2 rounded-md bg-[var(--c-bg3)] px-3 py-2 text-left text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+        className="flex w-full items-center justify-between gap-2 rounded-md bg-[var(--c-bg3)] px-3 py-2 text-left text-sm text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
       >
         <span className="flex min-w-0 items-center gap-1.5 truncate">
           {selected ? (
@@ -104,21 +104,21 @@ export function GroupTreePicker({
               <span className="truncate">{selected.name}</span>
             </>
           ) : (
-            <span className="text-slate-400">{placeholder}</span>
+            <span className="text-[var(--c-text-muted)]">{placeholder}</span>
           )}
         </span>
-        <span className="shrink-0 text-[10px] text-slate-500">{open ? "▴" : "▾"}</span>
+        <span className="shrink-0 text-[10px] text-[var(--c-text-muted)]">{open ? "▴" : "▾"}</span>
       </button>
 
       {open && (
         <>
           <div className="fixed inset-0 z-[9998]" onClick={() => setOpen(false)} />
-          <div style={dropdownStyle} className="overflow-hidden rounded-md border border-slate-700 bg-[var(--c-bg2)] shadow-2xl">
+          <div style={dropdownStyle} className="overflow-hidden rounded-md bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]">
             <div className="max-h-52 overflow-y-auto py-1">
               <button
                 type="button"
                 onClick={(e) => pick(e, null)}
-                className={`flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-sm transition-colors hover:bg-slate-700 ${!value ? "bg-slate-700 text-white" : "text-slate-400"}`}
+                className={`flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-sm transition-colors hover:bg-white/5 ${!value ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-secondary)]"}`}
               >
                 <span className="text-[11px]">🏠</span>
                 <span>{placeholder}</span>
@@ -126,7 +126,7 @@ export function GroupTreePicker({
               </button>
               {childrenOf(null).map((g) => renderNode(g, 0))}
               {groups.filter((g) => g.id !== excludeId).length === 0 && (
-                <p className="px-3 py-2 text-xs text-slate-500">Aucun dossier créé</p>
+                <p className="px-3 py-2 text-xs text-[var(--c-text-muted)]">Aucun dossier créé</p>
               )}
             </div>
           </div>

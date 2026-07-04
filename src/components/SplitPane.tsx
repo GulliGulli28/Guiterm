@@ -21,11 +21,11 @@ export function SplitPane({ workspace, preferences }: SplitPaneProps) {
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <div className="flex shrink-0 items-center gap-2 border-b border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1.5">
-        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-slate-500">Panneau 2</span>
+        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-[var(--c-text-muted)]">Panneau 2</span>
         <select
           value={source}
           onChange={(e) => setSource(e.target.value as SplitSource)}
-          className="flex-1 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+          className="flex-1 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-sm text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
         >
           <option value="local">Terminal local</option>
           {workspace.hosts.map((h) => (
@@ -40,7 +40,7 @@ export function SplitPane({ workspace, preferences }: SplitPaneProps) {
           ) : host ? (
             <TerminalTab key={source} host={host} isActive={true} preferences={preferences} />
           ) : (
-            <div className="flex flex-1 items-center justify-center text-sm text-slate-500">Hôte introuvable</div>
+            <div className="flex flex-1 items-center justify-center text-sm text-[var(--c-text-muted)]">Hôte introuvable</div>
           )}
         </div>
       </div>

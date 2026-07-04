@@ -73,12 +73,12 @@ export function IconPicker({ value, customIcons, onSelect, onWorkspaceUpdate, on
   const filteredBuiltin = BUILTIN_ICONS.filter((i) => i.category === category);
 
   const btnClass = (active: boolean) =>
-    `rounded px-2 py-1 text-xs font-medium transition-colors ${active ? "bg-[var(--c-accent)] text-white" : "text-slate-400 hover:bg-slate-700 hover:text-slate-200"}`;
+    `rounded px-2 py-1 text-xs font-medium transition-colors ${active ? "bg-[var(--c-accent)] text-white" : "text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"}`;
 
   return (
     <div
       ref={ref}
-      className="absolute z-50 mt-1 w-72 rounded-xl border border-slate-700 bg-[var(--c-bg2)] p-3 shadow-2xl"
+      className="absolute z-50 mt-1 w-72 rounded-xl bg-[var(--c-bg2)] p-3 shadow-[var(--shadow-lg)]"
     >
       {/* Tab row */}
       <div className="mb-2.5 flex items-center gap-1">
@@ -117,11 +117,11 @@ export function IconPicker({ value, customIcons, onSelect, onWorkspaceUpdate, on
                 className={`flex flex-col items-center gap-0.5 rounded p-1.5 transition-colors ${
                   value === icon.id
                     ? "ring-2 ring-[var(--c-accent-text)] bg-[var(--c-accent-dim)]"
-                    : "hover:bg-slate-800"
+                    : "hover:bg-white/5"
                 }`}
               >
                 {icon.render(28)}
-                <span className="w-full truncate text-center text-[9px] leading-tight text-slate-400">
+                <span className="w-full truncate text-center text-[9px] leading-tight text-[var(--c-text-secondary)]">
                   {icon.name}
                 </span>
               </button>
@@ -140,12 +140,12 @@ export function IconPicker({ value, customIcons, onSelect, onWorkspaceUpdate, on
           {importing && importDataUrl ? (
             <div className="space-y-2">
               <div className="flex items-center gap-2">
-                <img src={importDataUrl} width={40} height={40} className="rounded border border-slate-700 object-contain" alt="" />
+                <img src={importDataUrl} width={40} height={40} className="rounded bg-[var(--c-bg3)] object-contain" alt="" />
                 <input
                   value={importName}
                   onChange={(e) => setImportName(e.target.value)}
                   placeholder="Nom de l'icône"
-                  className="flex-1 rounded-md bg-slate-800 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                  className="flex-1 rounded-md bg-[var(--c-bg3)] px-2 py-1.5 text-sm text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
                 />
               </div>
               <div className="flex gap-1.5">
@@ -157,7 +157,7 @@ export function IconPicker({ value, customIcons, onSelect, onWorkspaceUpdate, on
                 </button>
                 <button
                   onClick={() => { setImporting(false); setImportDataUrl(null); }}
-                  className="rounded-md bg-slate-700 px-3 py-1.5 text-xs text-slate-300 hover:bg-slate-600"
+                  className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
                 >
                   Annuler
                 </button>
@@ -166,7 +166,7 @@ export function IconPicker({ value, customIcons, onSelect, onWorkspaceUpdate, on
           ) : (
             <>
               {customIcons.length === 0 && !importing && (
-                <p className="py-3 text-center text-xs text-slate-500">Aucune icône personnalisée</p>
+                <p className="py-3 text-center text-xs text-[var(--c-text-muted)]">Aucune icône personnalisée</p>
               )}
               <div className="grid grid-cols-5 gap-1">
                 {customIcons.map((icon) => (
@@ -177,11 +177,11 @@ export function IconPicker({ value, customIcons, onSelect, onWorkspaceUpdate, on
                     className={`flex flex-col items-center gap-0.5 rounded p-1.5 transition-colors ${
                       value === icon.id
                         ? "ring-2 ring-[var(--c-accent-text)] bg-[var(--c-accent-dim)]"
-                        : "hover:bg-slate-800"
+                        : "hover:bg-white/5"
                     }`}
                   >
                     <img src={icon.dataUrl} width={28} height={28} className="rounded object-contain" alt={icon.name} />
-                    <span className="w-full truncate text-center text-[9px] leading-tight text-slate-400">
+                    <span className="w-full truncate text-center text-[9px] leading-tight text-[var(--c-text-secondary)]">
                       {icon.name}
                     </span>
                   </button>
@@ -189,7 +189,7 @@ export function IconPicker({ value, customIcons, onSelect, onWorkspaceUpdate, on
               </div>
               <button
                 onClick={startImport}
-                className="mt-2 w-full rounded-md border border-dashed border-slate-700 py-1.5 text-xs text-slate-400 hover:border-[var(--c-accent)] hover:text-[var(--c-accent-text)]"
+                className="mt-2 w-full rounded-md border border-dashed border-[var(--c-border)] py-1.5 text-xs text-[var(--c-text-muted)] hover:border-[var(--c-accent)] hover:text-[var(--c-accent-text)]"
               >
                 + Importer une icône
               </button>

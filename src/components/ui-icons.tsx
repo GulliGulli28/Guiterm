@@ -16,7 +16,7 @@ export function IconSnippets({ size = 16, className }: P) {
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
       <path d="M5.5 5L2.5 8L5.5 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
       <path d="M10.5 5L13.5 8L10.5 11" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
-      <path d="M9 3L7 13" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+      <path d="M9 3L7 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
     </svg>
   );
 }
@@ -198,7 +198,7 @@ export function IconSearch({ size = 16, className }: P) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
       <circle cx="7" cy="7" r="4.5" stroke="currentColor" strokeWidth="1.25" />
-      <path d="M11 11l3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+      <path d="M11 11l3 3" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
     </svg>
   );
 }
@@ -214,7 +214,7 @@ export function IconPlay({ size = 16, className }: P) {
 export function IconPalette({ size = 16, className }: P) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
-      <path d="M8 1.5c-3.6 0-6.5 2.75-6.5 6.15 0 2.55 2 3.85 3.6 3.85.75 0 .95-.4.95-.85s-.25-.65-.25-1.2c0-.55.45-1 1.05-1h1.6c2 0 3.55-1.4 3.55-3.5 0-2.4-1.9-3.45-4-3.45Z" stroke="currentColor" strokeWidth="1.1" strokeLinejoin="round" />
+      <path d="M8 1.5c-3.6 0-6.5 2.75-6.5 6.15 0 2.55 2 3.85 3.6 3.85.75 0 .95-.4.95-.85s-.25-.65-.25-1.2c0-.55.45-1 1.05-1h1.6c2 0 3.55-1.4 3.55-3.5 0-2.4-1.9-3.45-4-3.45Z" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round" />
       <circle cx="4.6" cy="7.4" r="0.75" fill="currentColor" />
       <circle cx="6.4" cy="4.9" r="0.75" fill="currentColor" />
       <circle cx="9.6" cy="4.9" r="0.75" fill="currentColor" />
@@ -228,6 +228,23 @@ export function IconShield({ size = 16, className }: P) {
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
       <path d="M8 1.5l5.5 2v4c0 3.5-2.3 5.9-5.5 7-3.2-1.1-5.5-3.5-5.5-7v-4L8 1.5Z" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round" />
       <path d="M5.8 8l1.6 1.6 2.8-3.2" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function IconSun({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <circle cx="8" cy="8" r="3" stroke="currentColor" strokeWidth="1.25" />
+      <path d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.2 3.2l1.1 1.1M11.7 11.7l1.1 1.1M3.2 12.8l1.1-1.1M11.7 4.3l1.1-1.1" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+export function IconMoon({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path d="M13.5 9.8A5.8 5.8 0 0 1 6.2 2.5a5.8 5.8 0 1 0 7.3 7.3Z" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round" />
     </svg>
   );
 }

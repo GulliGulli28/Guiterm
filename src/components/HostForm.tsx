@@ -167,8 +167,8 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
 
   return (
     <div className="flex flex-1 flex-col overflow-y-auto p-4">
-      <div className="w-full space-y-4 rounded-xl border border-[var(--c-border)] bg-[var(--c-bg2)] p-5">
-        <h2 className="text-lg font-semibold text-slate-100">{host ? "Modifier l'hôte" : "Nouvel hôte"}</h2>
+      <div className="w-full space-y-4 rounded-xl bg-[var(--c-bg2)] p-5 shadow-[var(--shadow-md)]">
+        <h2 className="text-[16px] font-semibold text-[var(--c-text)]">{host ? "Modifier l'hôte" : "Nouvel hôte"}</h2>
 
         {error && <p className="rounded-md bg-rose-950 px-3 py-2 text-sm text-rose-300">{error}</p>}
 
@@ -179,17 +179,17 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
         <Field label="Icône">
           <div className="relative">
             <div className="flex items-center gap-2">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-700 bg-slate-800">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[var(--c-bg3)]">
                 {icon ? (
                   <HostIcon iconId={icon} customIcons={workspace.customIcons} size={24} />
                 ) : (
-                  <span className="text-lg text-slate-500">🖥</span>
+                  <span className="text-lg text-[var(--c-text-muted)]">🖥</span>
                 )}
               </div>
               <button
                 type="button"
                 onClick={() => setShowIconPicker((v) => !v)}
-                className="rounded-md bg-slate-800 px-3 py-2 text-xs text-slate-300 hover:bg-slate-700"
+                className="rounded-md bg-[var(--c-bg3)] px-3 py-2 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
               >
                 {icon ? "Changer l'icône" : "Choisir une icône"}
               </button>
@@ -216,10 +216,10 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
         </Field>
 
         <Field label="Adresse">
-          <input value={address} onChange={(e) => setAddress(e.target.value)} className={inputClass} />
+          <input value={address} onChange={(e) => setAddress(e.target.value)} className={`${inputClass} font-mono`} />
         </Field>
         <Field label="Port">
-          <input value={port} onChange={(e) => setPort(e.target.value)} inputMode="numeric" className={inputClass} />
+          <input value={port} onChange={(e) => setPort(e.target.value)} inputMode="numeric" className={`${inputClass} font-mono`} />
         </Field>
         <Field label="Utilisateur">
           <input value={username} onChange={(e) => setUsername(e.target.value)} className={inputClass} />
@@ -238,15 +238,15 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
         </Field>
 
         {authKind === "agent" && (
-          <label className="flex items-start gap-2 rounded-md border border-[var(--c-border)] bg-slate-800/40 p-2.5">
+          <label className="flex items-start gap-2 rounded-md bg-[var(--c-bg3)]/60 p-2.5">
             <input
               type="checkbox"
               checked={agentForward}
               onChange={(e) => setAgentForward(e.target.checked)}
               className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--c-accent)]"
             />
-            <span className="text-xs text-slate-400">
-              <span className="font-medium text-slate-300">Transférer l'agent SSH vers cet hôte</span>
+            <span className="text-xs text-[var(--c-text-muted)]">
+              <span className="font-medium text-[var(--c-text-secondary)]">Transférer l'agent SSH vers cet hôte</span>
               <br />
               L'hôte distant pourra utiliser vos clés locales pour rebondir ailleurs (ex. un autre bastion, un dépôt Git),
               sans qu'elles ne quittent votre machine. N'activez que pour des hôtes de confiance : un hôte compromis
@@ -276,14 +276,14 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
                 <input
                   value={keyPath}
                   onChange={(e) => { setKeyPath(e.target.value); setKeyId(null); setKeyPrompt(null); }}
-                  className={`${inputClass} flex-1`}
+                  className={`${inputClass} flex-1 font-mono`}
                   placeholder="~/.ssh/id_ed25519"
                 />
                 <button
                   type="button"
                   onClick={browseKey}
                   title="Parcourir le système de fichiers"
-                  className="shrink-0 rounded-md bg-slate-700 px-2.5 py-2 text-sm text-slate-200 hover:bg-slate-600"
+                  className="shrink-0 rounded-md bg-[var(--c-bg3)] px-2.5 py-2 text-sm text-[var(--c-text-secondary)] hover:bg-white/5"
                 >
                   📂
                 </button>
@@ -294,13 +294,13 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
                 </p>
               )}
               {keyPrompt && (
-                <div className="mt-2 space-y-2 rounded-md border border-[var(--c-accent-dim)] bg-[var(--c-accent-dim)] p-2.5">
+                <div className="mt-2 space-y-2 rounded-md bg-[var(--c-accent-dim)] p-2.5">
                   <p className="text-xs text-[var(--c-accent-text)]">Enregistrer cette clé dans le trousseau ?</p>
                   <input
                     value={keyPromptName}
                     onChange={(e) => setKeyPromptName(e.target.value)}
                     placeholder="Nom de la clé"
-                    className="w-full rounded-md bg-slate-800 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                    className="w-full rounded-md bg-[var(--c-bg3)] px-2 py-1.5 text-sm text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
                   />
                   <div className="flex gap-1.5">
                     <button
@@ -313,7 +313,7 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
                     <button
                       type="button"
                       onClick={() => setKeyPrompt(null)}
-                      className="rounded-md bg-slate-700 px-2 py-1.5 text-xs text-slate-300 hover:bg-slate-600"
+                      className="rounded-md bg-[var(--c-bg3)] px-2 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
                     >
                       Sans enregistrer
                     </button>
@@ -330,22 +330,22 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
         )}
 
         <Field label="Chaîne de bastions">
-          <div className="space-y-1 rounded-md border border-slate-700 bg-slate-800 p-2">
-            {jumpVia.length === 0 && <p className="py-0.5 text-xs text-slate-500">Connexion directe (aucun bastion)</p>}
+          <div className="space-y-1 rounded-md bg-[var(--c-bg3)] p-2">
+            {jumpVia.length === 0 && <p className="py-0.5 text-xs text-[var(--c-text-muted)]">Connexion directe (aucun bastion)</p>}
             {jumpVia.map((id, i) => {
               const h = workspace.hosts.find((host) => host.id === id);
               return (
-                <div key={id} className="flex items-center gap-1.5 rounded bg-slate-700/60 px-2 py-1">
-                  <span className="w-4 shrink-0 text-center text-[10px] text-slate-500">{i + 1}</span>
-                  <span className="min-w-0 flex-1 truncate text-sm text-slate-200">{h?.label ?? id}</span>
-                  <button type="button" onClick={() => moveUp(i)} disabled={i === 0} className="px-0.5 text-slate-400 disabled:opacity-20 hover:text-slate-100">↑</button>
-                  <button type="button" onClick={() => moveDown(i)} disabled={i === jumpVia.length - 1} className="px-0.5 text-slate-400 disabled:opacity-20 hover:text-slate-100">↓</button>
+                <div key={id} className="flex items-center gap-1.5 rounded bg-[var(--c-bg2)] px-2 py-1">
+                  <span className="w-4 shrink-0 text-center text-[10px] text-[var(--c-text-muted)]">{i + 1}</span>
+                  <span className="min-w-0 flex-1 truncate text-sm text-[var(--c-text)]">{h?.label ?? id}</span>
+                  <button type="button" onClick={() => moveUp(i)} disabled={i === 0} className="px-0.5 text-[var(--c-text-secondary)] disabled:opacity-20 hover:text-[var(--c-text)]">↑</button>
+                  <button type="button" onClick={() => moveDown(i)} disabled={i === jumpVia.length - 1} className="px-0.5 text-[var(--c-text-secondary)] disabled:opacity-20 hover:text-[var(--c-text)]">↓</button>
                   <button type="button" onClick={() => removeJump(i)} className="px-0.5 text-rose-400 hover:text-rose-200">✕</button>
                 </div>
               );
             })}
             {choices.length > 0 && (
-              <select value="" onChange={(e) => addJump(e.target.value)} className="mt-1 w-full rounded-md bg-slate-700 px-2 py-1.5 text-sm text-slate-300 focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]">
+              <select value="" onChange={(e) => addJump(e.target.value)} className="mt-1 w-full rounded-md bg-[var(--c-bg2)] px-2 py-1.5 text-sm text-[var(--c-text-secondary)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]">
                 <option value="" disabled>+ Ajouter un bastion…</option>
                 {choices.map((h) => (
                   <option key={h.id} value={h.id}>{h.label}</option>
@@ -365,22 +365,22 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
         </Field>
 
         <Field label="Snippets au démarrage">
-          <div className="space-y-1 rounded-md border border-slate-700 bg-slate-800 p-2">
-            {startupSnippets.length === 0 && <p className="py-0.5 text-xs text-slate-500">Aucun snippet au démarrage</p>}
+          <div className="space-y-1 rounded-md bg-[var(--c-bg3)] p-2">
+            {startupSnippets.length === 0 && <p className="py-0.5 text-xs text-[var(--c-text-muted)]">Aucun snippet au démarrage</p>}
             {startupSnippets.map((id, i) => {
               const s = workspace.snippets.find((sn) => sn.id === id);
               return (
-                <div key={id} className="flex items-center gap-1.5 rounded bg-slate-700/60 px-2 py-1">
-                  <span className="w-4 shrink-0 text-center text-[10px] text-slate-500">{i + 1}</span>
-                  <span className="min-w-0 flex-1 truncate text-sm text-slate-200">{s?.name ?? id}</span>
-                  <button type="button" onClick={() => moveSnippetUp(i)} disabled={i === 0} className="px-0.5 text-slate-400 disabled:opacity-20 hover:text-slate-100">↑</button>
-                  <button type="button" onClick={() => moveSnippetDown(i)} disabled={i === startupSnippets.length - 1} className="px-0.5 text-slate-400 disabled:opacity-20 hover:text-slate-100">↓</button>
+                <div key={id} className="flex items-center gap-1.5 rounded bg-[var(--c-bg2)] px-2 py-1">
+                  <span className="w-4 shrink-0 text-center text-[10px] text-[var(--c-text-muted)]">{i + 1}</span>
+                  <span className="min-w-0 flex-1 truncate text-sm text-[var(--c-text)]">{s?.name ?? id}</span>
+                  <button type="button" onClick={() => moveSnippetUp(i)} disabled={i === 0} className="px-0.5 text-[var(--c-text-secondary)] disabled:opacity-20 hover:text-[var(--c-text)]">↑</button>
+                  <button type="button" onClick={() => moveSnippetDown(i)} disabled={i === startupSnippets.length - 1} className="px-0.5 text-[var(--c-text-secondary)] disabled:opacity-20 hover:text-[var(--c-text)]">↓</button>
                   <button type="button" onClick={() => removeStartupSnippet(i)} className="px-0.5 text-rose-400 hover:text-rose-200">✕</button>
                 </div>
               );
             })}
             {snippetChoices.length > 0 && (
-              <select value="" onChange={(e) => addStartupSnippet(e.target.value)} className="mt-1 w-full rounded-md bg-slate-700 px-2 py-1.5 text-sm text-slate-300 focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]">
+              <select value="" onChange={(e) => addStartupSnippet(e.target.value)} className="mt-1 w-full rounded-md bg-[var(--c-bg2)] px-2 py-1.5 text-sm text-[var(--c-text-secondary)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]">
                 <option value="" disabled>+ Ajouter un snippet…</option>
                 {snippetChoices.map((s) => (
                   <option key={s.id} value={s.id}>{s.name}</option>
@@ -391,33 +391,33 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
         </Field>
 
         <Field label="Variables d'environnement">
-          <div className="space-y-1.5 rounded-md border border-slate-700 bg-slate-800 p-2">
-            {envVars.length === 0 && <p className="py-0.5 text-xs text-slate-500">Aucune variable définie</p>}
+          <div className="space-y-1.5 rounded-md bg-[var(--c-bg3)] p-2">
+            {envVars.length === 0 && <p className="py-0.5 text-xs text-[var(--c-text-muted)]">Aucune variable définie</p>}
             {envVars.map((v, i) => (
               <div key={i} className="flex gap-1.5">
                 <input
                   value={v.key}
                   onChange={(e) => setEnvKey(i, e.target.value)}
                   placeholder="NOM"
-                  className="w-28 shrink-0 rounded-md bg-slate-700 px-2 py-1.5 font-mono text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                  className="w-28 shrink-0 rounded-md bg-[var(--c-bg2)] px-2 py-1.5 font-mono text-xs text-[var(--c-text)] placeholder:font-sans placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
                 />
                 <input
                   value={v.value}
                   onChange={(e) => setEnvValue(i, e.target.value)}
                   placeholder="valeur"
-                  className="min-w-0 flex-1 rounded-md bg-slate-700 px-2 py-1.5 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                  className="min-w-0 flex-1 rounded-md bg-[var(--c-bg2)] px-2 py-1.5 font-mono text-xs text-[var(--c-text)] placeholder:font-sans placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
                 />
                 <button type="button" onClick={() => removeEnvVar(i)} className="shrink-0 px-1.5 text-rose-400 hover:text-rose-200">✕</button>
               </div>
             ))}
-            <button type="button" onClick={addEnvVar} className="mt-0.5 w-full rounded-md bg-slate-700/60 py-1 text-xs text-slate-400 hover:bg-slate-700 hover:text-slate-200">
+            <button type="button" onClick={addEnvVar} className="mt-0.5 w-full rounded-md bg-[var(--c-bg2)]/60 py-1 text-xs text-[var(--c-text-muted)] hover:bg-[var(--c-bg2)] hover:text-[var(--c-text-secondary)]">
               + Ajouter une variable
             </button>
           </div>
         </Field>
 
         <Field label="Étiquettes">
-          <div className="flex flex-wrap gap-1.5 rounded-md border border-[var(--c-border)] bg-slate-800 p-2">
+          <div className="flex flex-wrap gap-1.5 rounded-md bg-[var(--c-bg3)] p-2">
             {tags.map((tag) => (
               <span key={tag} className="flex items-center gap-1 rounded-full bg-[var(--c-accent-dim)] px-2 py-0.5 text-xs text-[var(--c-accent-text)]">
                 {tag}
@@ -437,7 +437,7 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
               }}
               onBlur={addTag}
               placeholder="Ajouter une étiquette…"
-              className="min-w-[8rem] flex-1 bg-transparent text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none"
+              className="min-w-[8rem] flex-1 bg-transparent text-sm text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none"
             />
           </div>
         </Field>
@@ -446,15 +446,15 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
           <button onClick={submit} className="flex-1 rounded-md bg-[var(--c-accent)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--c-accent-hover)]">
             Enregistrer
           </button>
-          <button onClick={onCancel} className="flex-1 rounded-md bg-slate-800 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-slate-700">
+          <button onClick={onCancel} className="flex-1 rounded-md bg-[var(--c-bg3)] px-3 py-2 text-sm font-medium text-[var(--c-text-secondary)] hover:bg-white/5">
             Annuler
           </button>
         </div>
 
         {host && onDeleteHost && (
-          <div className="border-t border-[var(--c-border)] pt-3">
+          <div className="pt-3">
             {confirmDelete ? (
-              <div className="space-y-2 rounded-lg border border-rose-900/50 bg-rose-950/30 p-3">
+              <div className="space-y-2 rounded-lg bg-rose-950/30 p-3">
                 <p className="text-sm text-rose-300">Supprimer cet hôte définitivement ?</p>
                 <div className="flex gap-2">
                   <button
@@ -465,7 +465,7 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
                   </button>
                   <button
                     onClick={() => setConfirmDelete(false)}
-                    className="flex-1 rounded-md bg-slate-800 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-slate-700"
+                    className="flex-1 rounded-md bg-[var(--c-bg3)] px-3 py-2 text-sm font-medium text-[var(--c-text-secondary)] hover:bg-white/5"
                   >
                     Annuler
                   </button>
@@ -474,7 +474,7 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
             ) : (
               <button
                 onClick={() => setConfirmDelete(true)}
-                className="flex w-full items-center justify-center gap-2 rounded-md border border-rose-900/50 py-2 text-sm text-rose-400 hover:bg-rose-950/40 hover:text-rose-300"
+                className="flex w-full items-center justify-center gap-2 rounded-md py-2 text-sm text-rose-400 hover:bg-rose-950/40 hover:text-rose-300"
               >
                 <IconTrash size={13} /> Supprimer cet hôte
               </button>
@@ -486,12 +486,12 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
   );
 }
 
-const inputClass = "w-full rounded-md bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]";
+const inputClass = "w-full rounded-md bg-[var(--c-bg3)] px-3 py-2 text-sm text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <label className="block space-y-1">
-      <span className="text-xs font-medium text-slate-400">{label}</span>
+      <span className="text-xs font-medium text-[var(--c-text-muted)]">{label}</span>
       {children}
     </label>
   );

@@ -44,8 +44,8 @@ export function GroupForm({ workspace, group, onCancel, onSave, onDeleteGroup, o
 
   return (
     <div className="flex flex-1 flex-col overflow-y-auto p-4">
-      <div className="w-full space-y-4 rounded-xl border border-[var(--c-border)] bg-[var(--c-bg2)] p-5">
-        <h2 className="text-lg font-semibold text-slate-100">
+      <div className="w-full space-y-4 rounded-xl bg-[var(--c-bg2)] p-5 shadow-[var(--shadow-md)]">
+        <h2 className="text-[16px] font-semibold text-[var(--c-text)]">
           {group.id ? "Modifier le dossier" : "Nouveau dossier"}
         </h2>
 
@@ -53,10 +53,10 @@ export function GroupForm({ workspace, group, onCancel, onSave, onDeleteGroup, o
 
         {/* Icon */}
         <div className="space-y-1">
-          <span className="text-xs font-medium text-slate-400">Icône</span>
+          <span className="text-xs font-medium text-[var(--c-text-secondary)]">Icône</span>
           <div className="relative">
             <div className="flex items-center gap-2">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md border border-slate-700 bg-slate-800">
+              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[var(--c-bg3)]">
                 {icon ? (
                   <HostIcon iconId={icon} customIcons={workspace.customIcons} size={24} />
                 ) : (
@@ -66,7 +66,7 @@ export function GroupForm({ workspace, group, onCancel, onSave, onDeleteGroup, o
               <button
                 type="button"
                 onClick={() => setShowIconPicker((v) => !v)}
-                className="rounded-md bg-slate-800 px-3 py-2 text-xs text-slate-300 hover:bg-slate-700"
+                className="rounded-md bg-[var(--c-bg3)] px-3 py-2 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
               >
                 {icon ? "Changer l'icône" : "Choisir une icône"}
               </button>
@@ -94,20 +94,20 @@ export function GroupForm({ workspace, group, onCancel, onSave, onDeleteGroup, o
 
         {/* Name */}
         <div className="space-y-1">
-          <span className="text-xs font-medium text-slate-400">Nom</span>
+          <span className="text-xs font-medium text-[var(--c-text-secondary)]">Nom</span>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
             placeholder="Mon dossier"
-            className="w-full rounded-md bg-slate-800 px-3 py-2 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+            className="w-full rounded-md bg-[var(--c-bg3)] px-3 py-2 text-sm text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
             autoFocus
           />
         </div>
 
         {/* Parent folder */}
         <div className="space-y-1">
-          <span className="text-xs font-medium text-slate-400">Dossier parent</span>
+          <span className="text-xs font-medium text-[var(--c-text-secondary)]">Dossier parent</span>
           <GroupTreePicker
             groups={workspace.groups}
             value={parentId}
@@ -126,7 +126,7 @@ export function GroupForm({ workspace, group, onCancel, onSave, onDeleteGroup, o
           </button>
           <button
             onClick={onCancel}
-            className="flex-1 rounded-md bg-slate-800 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-slate-700"
+            className="flex-1 rounded-md bg-[var(--c-bg3)] px-3 py-2 text-sm font-medium text-[var(--c-text)] hover:bg-white/5"
           >
             Annuler
           </button>
@@ -135,7 +135,7 @@ export function GroupForm({ workspace, group, onCancel, onSave, onDeleteGroup, o
         {group.id && onDeleteGroup && (
           <div className="border-t border-[var(--c-border)] pt-3">
             {confirmDelete ? (
-              <div className="space-y-2 rounded-lg border border-rose-900/50 bg-rose-950/30 p-3">
+              <div className="space-y-2 rounded-lg bg-rose-950/30 p-3">
                 <p className="text-sm text-rose-300">Supprimer ce dossier définitivement ?</p>
                 <div className="flex gap-2">
                   <button
@@ -146,7 +146,7 @@ export function GroupForm({ workspace, group, onCancel, onSave, onDeleteGroup, o
                   </button>
                   <button
                     onClick={() => setConfirmDelete(false)}
-                    className="flex-1 rounded-md bg-slate-800 px-3 py-2 text-sm font-medium text-slate-200 hover:bg-slate-700"
+                    className="flex-1 rounded-md bg-[var(--c-bg3)] px-3 py-2 text-sm font-medium text-[var(--c-text)] hover:bg-white/5"
                   >
                     Annuler
                   </button>
@@ -155,7 +155,7 @@ export function GroupForm({ workspace, group, onCancel, onSave, onDeleteGroup, o
             ) : (
               <button
                 onClick={() => setConfirmDelete(true)}
-                className="flex w-full items-center justify-center gap-2 rounded-md border border-rose-900/50 py-2 text-sm text-rose-400 hover:bg-rose-950/40 hover:text-rose-300"
+                className="flex w-full items-center justify-center gap-2 rounded-md py-2 text-sm text-rose-400 hover:bg-rose-950/40 hover:text-rose-300"
               >
                 <IconTrash size={13} /> Supprimer ce dossier
               </button>

@@ -33,7 +33,7 @@ export function CommandPalette({ commands, onClose }: CommandPaletteProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 pt-[15vh]" onClick={onClose}>
       <div
-        className="w-full max-w-lg overflow-hidden rounded-lg border border-slate-700 bg-[var(--c-bg2)] shadow-2xl"
+        className="w-full max-w-lg overflow-hidden rounded-lg bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]"
         onClick={(e) => e.stopPropagation()}
       >
         <input
@@ -48,21 +48,21 @@ export function CommandPalette({ commands, onClose }: CommandPaletteProps) {
             if (e.key === "Enter") { e.preventDefault(); runAt(activeIndex); }
           }}
           placeholder="Tapez une commande… (se connecter, fermer l'onglet, paramètres…)"
-          className="w-full border-b border-[var(--c-border)] bg-transparent px-4 py-3 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none"
+          className="w-full border-b border-[var(--c-border)] bg-transparent px-4 py-3 text-[14px] text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none"
         />
         <div className="sidebar-scroll max-h-80 overflow-y-auto py-1">
-          {filtered.length === 0 && <p className="px-4 py-6 text-center text-sm text-slate-500">Aucun résultat</p>}
+          {filtered.length === 0 && <p className="px-4 py-6 text-center text-sm text-[var(--c-text-muted)]">Aucun résultat</p>}
           {filtered.map((cmd, i) => (
             <button
               key={cmd.id}
               onClick={() => runAt(i)}
               onMouseEnter={() => setActiveIndex(i)}
               className={`flex w-full items-center justify-between gap-2 px-4 py-2 text-left text-sm transition-colors ${
-                i === activeIndex ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-slate-300"
+                i === activeIndex ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-secondary)]"
               }`}
             >
               <span className="truncate">{cmd.label}</span>
-              {cmd.hint && <span className="shrink-0 rounded bg-slate-700/60 px-1.5 py-0.5 text-[10px] text-slate-400">{cmd.hint}</span>}
+              {cmd.hint && <span className="shrink-0 rounded bg-[var(--c-bg3)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--c-text-muted)]">{cmd.hint}</span>}
             </button>
           ))}
         </div>

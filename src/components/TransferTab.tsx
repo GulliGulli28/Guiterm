@@ -310,7 +310,7 @@ export function TransferTab({ host, workspace, preferences, onError }: TransferT
           onMouseDown={onDividerDrag}
           className="group relative flex w-1 shrink-0 cursor-col-resize items-center justify-center"
         >
-          <div className="h-full w-px bg-slate-800 transition-colors group-hover:bg-[var(--c-accent)]" />
+          <div className="h-full w-px bg-[var(--c-border)] transition-colors group-hover:bg-[var(--c-accent)]" />
         </div>
         <div ref={rightPaneRef} className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <PaneView side="right" pane={state.right} workspace={workspace} fontSize={fontSize} onNavigate={navigate} onSourceChange={changeSource} onCopy={copy} onMkdir={mkdir} onRename={rename} onRemove={remove} onChmod={chmod} />
@@ -323,18 +323,18 @@ export function TransferTab({ host, workspace, preferences, onError }: TransferT
             const pct = t.bytesTotal > 0 ? Math.round((t.bytesDone / t.bytesTotal) * 100) : t.status === "done" ? 100 : 0;
             return (
               <div key={t.id} className="flex items-center gap-2 text-xs">
-                <span className="w-40 shrink-0 truncate text-slate-400">
+                <span className="w-40 shrink-0 truncate text-[var(--c-text-secondary)]">
                   {t.status === "error" ? `Échec : ${t.error}` : t.status === "done" ? "Terminé" : "Envoi…"}
                 </span>
-                <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-slate-700">
+                <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--c-bg3)]">
                   <div
                     className={`h-full rounded-full transition-all ${t.status === "error" ? "bg-rose-500" : t.status === "done" ? "bg-emerald-500" : "bg-[var(--c-accent)]"}`}
                     style={{ width: `${pct}%` }}
                   />
                 </div>
-                <span className="w-9 shrink-0 text-right tabular-nums text-slate-500">{pct}%</span>
+                <span className="w-9 shrink-0 text-right font-mono tabular-nums text-[var(--c-text-muted)]">{pct}%</span>
                 {t.status === "active" && (
-                  <button onClick={() => api.cancelTransfer(t.id)} className="shrink-0 text-slate-500 hover:text-rose-300" title="Annuler">
+                  <button onClick={() => api.cancelTransfer(t.id)} className="shrink-0 text-[var(--c-text-muted)] hover:text-rose-300" title="Annuler">
                     <IconClose size={11} />
                   </button>
                 )}
@@ -382,7 +382,7 @@ function ColHeader({
   return (
     <button
       onClick={() => onSort(colKey)}
-      className={`flex items-center gap-0.5 whitespace-nowrap text-left text-[11px] font-medium transition-colors hover:text-slate-200 ${active ? "text-[var(--c-accent-text)]" : "text-slate-500"} ${className ?? ""}`}
+      className={`flex items-center gap-0.5 whitespace-nowrap text-left text-[11px] font-medium transition-colors hover:text-[var(--c-text)] ${active ? "text-[var(--c-accent-text)]" : "text-[var(--c-text-muted)]"} ${className ?? ""}`}
     >
       {label}
       <span className="text-[9px] opacity-80">{active ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</span>
@@ -465,14 +465,14 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
             const v = e.target.value;
             onSourceChange(side, v === "local" ? { kind: "local" } : { kind: "remote", hostId: v });
           }}
-          className="rounded-md bg-slate-800 px-2 py-1 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+          className="rounded-md bg-[var(--c-bg3)] px-2 py-1 text-sm text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
         >
           <option value="local">Local</option>
           {workspace.hosts.map((h) => (
             <option key={h.id} value={h.id}>{h.label}</option>
           ))}
         </select>
-        {pane.status === "connecting" && <span className="text-xs text-slate-500">connexion…</span>}
+        {pane.status === "connecting" && <span className="text-xs text-[var(--c-text-muted)]">connexion…</span>}
       </div>
 
       {pane.status === "failed" && (
@@ -487,12 +487,12 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
           <div className="flex items-center gap-2 border-b border-[var(--c-border)] px-2 py-1.5">
             <button
               onClick={() => onNavigate(side, parentPath(pane.cwd))}
-              className="shrink-0 rounded px-2 py-0.5 text-sm text-slate-400 hover:bg-slate-700 hover:text-slate-100"
+              className="shrink-0 rounded px-2 py-0.5 text-sm text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
               title="Dossier parent"
             >
               ↑
             </button>
-            <span className="min-w-0 flex-1 truncate font-mono text-xs text-slate-400" title={pane.cwd}>
+            <span className="min-w-0 flex-1 truncate font-mono text-xs text-[var(--c-text-secondary)]" title={pane.cwd}>
               {pane.cwd}
             </span>
             <div className="flex shrink-0 items-center gap-1">
@@ -501,11 +501,11 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
                 onChange={(e) => setGotoPath(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter") { onNavigate(side, gotoPath); setGotoPath(""); } }}
                 placeholder="Aller à…"
-                className="w-28 rounded-md bg-slate-800 px-2 py-0.5 text-xs text-slate-100 placeholder:text-slate-600 focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                className="w-28 rounded-md bg-[var(--c-bg3)] px-2 py-0.5 font-mono text-xs text-[var(--c-text)] placeholder:font-sans placeholder:text-[var(--c-text-faint)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
               />
               <button
                 onClick={() => { onNavigate(side, gotoPath); setGotoPath(""); }}
-                className="rounded-md bg-slate-800 px-2 py-0.5 text-xs text-slate-400 hover:bg-slate-700 hover:text-slate-100"
+                className="rounded-md bg-[var(--c-bg3)] px-2 py-0.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
               >
                 OK
               </button>
@@ -522,10 +522,10 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
                   onChange={(e) => setNewFolderName(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") submitNewFolder(); if (e.key === "Escape") setCreatingFolder(false); }}
                   placeholder="Nom du dossier"
-                  className="min-w-0 flex-1 rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                  className="min-w-0 flex-1 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
                 />
                 <button onClick={submitNewFolder} className="rounded-md bg-[var(--c-accent)] px-2 py-1 text-xs text-white hover:bg-[var(--c-accent-hover)]">Créer</button>
-                <button onClick={() => setCreatingFolder(false)} className="rounded-md bg-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-600">
+                <button onClick={() => setCreatingFolder(false)} className="rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text-secondary)] hover:bg-white/5">
                   <IconClose size={11} />
                 </button>
               </div>
@@ -536,26 +536,26 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
                   value={renameValue}
                   onChange={(e) => setRenameValue(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") submitRename(); if (e.key === "Escape") setRenaming(null); }}
-                  className="min-w-0 flex-1 rounded-md bg-slate-800 px-2 py-1 text-xs text-slate-100 focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                  className="min-w-0 flex-1 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
                 />
                 <button onClick={submitRename} className="rounded-md bg-[var(--c-accent)] px-2 py-1 text-xs text-white hover:bg-[var(--c-accent-hover)]">Renommer</button>
-                <button onClick={() => setRenaming(null)} className="rounded-md bg-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-600">
+                <button onClick={() => setRenaming(null)} className="rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text-secondary)] hover:bg-white/5">
                   <IconClose size={11} />
                 </button>
               </div>
             ) : chmodTarget ? (
               <div className="flex flex-1 items-center gap-1">
-                <span className="shrink-0 truncate text-xs text-slate-400">chmod {chmodTarget}</span>
+                <span className="shrink-0 truncate text-xs text-[var(--c-text-secondary)]">chmod {chmodTarget}</span>
                 <input
                   autoFocus
                   value={chmodValue}
                   onChange={(e) => setChmodValue(e.target.value.replace(/[^0-7]/g, "").slice(0, 4))}
                   onKeyDown={(e) => { if (e.key === "Enter") submitChmod(); if (e.key === "Escape") setChmodTarget(null); }}
                   placeholder="755"
-                  className="w-16 rounded-md bg-slate-800 px-2 py-1 font-mono text-xs text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                  className="w-16 rounded-md bg-[var(--c-bg3)] px-2 py-1 font-mono text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
                 />
                 <button onClick={submitChmod} className="rounded-md bg-[var(--c-accent)] px-2 py-1 text-xs text-white hover:bg-[var(--c-accent-hover)]">Appliquer</button>
-                <button onClick={() => setChmodTarget(null)} className="rounded-md bg-slate-700 px-2 py-1 text-xs text-slate-300 hover:bg-slate-600">
+                <button onClick={() => setChmodTarget(null)} className="rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text-secondary)] hover:bg-white/5">
                   <IconClose size={11} />
                 </button>
               </div>
@@ -564,7 +564,7 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
                 <button
                   onClick={() => setCreatingFolder(true)}
                   title="Nouveau dossier"
-                  className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-slate-400 hover:bg-slate-700 hover:text-slate-200"
+                  className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
                 >
                   <IconFolder size={12} /> Nouveau dossier
                 </button>
@@ -572,7 +572,7 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
                   <button
                     onClick={startRename}
                     title="Renommer"
-                    className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-slate-400 hover:bg-slate-700 hover:text-slate-200"
+                    className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
                   >
                     <IconEdit size={12} /> Renommer
                   </button>
@@ -581,7 +581,7 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
                   <button
                     onClick={() => { setChmodTarget(selectedEntries[0].name); setChmodValue(selectedEntries[0].permissions != null ? (selectedEntries[0].permissions & 0o777).toString(8) : "755"); }}
                     title="Permissions"
-                    className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-slate-400 hover:bg-slate-700 hover:text-slate-200"
+                    className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
                   >
                     <IconShield size={12} /> Permissions
                   </button>
@@ -596,7 +596,7 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
                       >
                         Confirmer
                       </button>
-                      <button onClick={() => setConfirmDelete(false)} className="rounded-md bg-slate-700 px-2 py-1 text-[11px] text-slate-300 hover:bg-slate-600">
+                      <button onClick={() => setConfirmDelete(false)} className="rounded-md bg-[var(--c-bg3)] px-2 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5">
                         Annuler
                       </button>
                     </div>
@@ -642,7 +642,7 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
                 <button
                   onClick={() => entry.isDir && onNavigate(side, joinPath(pane.cwd, entry.name))}
                   className={`flex min-w-0 flex-1 items-center gap-1.5 truncate text-left ${
-                    entry.isDir ? "font-medium text-[var(--c-accent-text)]" : "text-slate-200"
+                    entry.isDir ? "font-medium text-[var(--c-accent-text)]" : "text-[var(--c-text)]"
                   } ${entry.isDir ? "cursor-pointer" : "cursor-default"}`}
                 >
                   <span className="shrink-0 text-[13px]">{entry.isDir ? "📁" : "📄"}</span>
@@ -650,15 +650,15 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
                 </button>
 
                 {/* Modified */}
-                <span className="hidden w-32 shrink-0 text-slate-500 tabular-nums sm:block">
+                <span className="hidden w-32 shrink-0 text-[var(--c-text-muted)] tabular-nums sm:block">
                   {formatDate(entry.modified)}
                 </span>
 
                 {/* Type */}
-                <span className="w-12 shrink-0 text-slate-500">{fileTypeLabel(entry)}</span>
+                <span className="w-12 shrink-0 text-[var(--c-text-muted)]">{fileTypeLabel(entry)}</span>
 
                 {/* Size */}
-                <span className="w-14 shrink-0 text-right tabular-nums text-slate-500">
+                <span className="w-14 shrink-0 text-right tabular-nums text-[var(--c-text-muted)]">
                   {formatSize(entry.size, entry.isDir)}
                 </span>
 
@@ -666,14 +666,14 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
                 <button
                   onClick={() => onCopy(side, entry)}
                   title={entry.isDir ? "Copier le dossier vers l'autre panneau" : "Copier vers l'autre panneau"}
-                  className="w-6 shrink-0 rounded px-0.5 text-center text-slate-600 opacity-0 hover:bg-[var(--c-accent)] hover:text-white group-hover:opacity-100"
+                  className="w-6 shrink-0 rounded px-0.5 text-center text-[var(--c-text-faint)] opacity-0 hover:bg-[var(--c-accent)] hover:text-white focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
                 >
                   {copyLabel}
                 </button>
               </div>
             ))}
             {pane.entries.length === 0 && (
-              <p className="px-2 py-6 text-center text-xs text-slate-500">Dossier vide</p>
+              <p className="px-2 py-6 text-center text-xs text-[var(--c-text-muted)]">Dossier vide</p>
             )}
           </div>
         </>

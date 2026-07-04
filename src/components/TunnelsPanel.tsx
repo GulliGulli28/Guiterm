@@ -63,13 +63,13 @@ export function TunnelsPanel({ workspace, onAddForward, onDeleteForward, onError
             className={`flex w-full items-center justify-center gap-1.5 rounded-md border py-1.5 text-xs font-medium transition-colors ${
               showForm
                 ? "border-[var(--c-accent)] bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]"
-                : "border-dashed border-slate-700 text-slate-400 hover:border-[var(--c-accent)] hover:text-[var(--c-accent-text)]"
+                : "border-dashed border-[var(--c-border)] text-[var(--c-text-muted)] hover:border-[var(--c-accent)] hover:text-[var(--c-accent-text)]"
             }`}
           >
             <IconPlus size={13} /> Ajouter un tunnel
           </button>
           {showForm && (
-            <div className="mt-2 space-y-1.5 rounded-lg border border-[var(--c-border)] bg-[var(--c-bg3)]/40 p-2.5">
+            <div className="mt-2 space-y-1.5 rounded-lg bg-[var(--c-bg3)]/40 p-2.5">
               <select value={hostId} onChange={(e) => setHostId(e.target.value)} className={selectClass}>
                 {workspace.hosts.map((h) => (
                   <option key={h.id} value={h.id}>{h.label}</option>
@@ -80,12 +80,12 @@ export function TunnelsPanel({ workspace, onAddForward, onDeleteForward, onError
                 <option value="remote">Distant (-R)</option>
               </select>
               <div className="flex gap-1.5">
-                <input value={bindAddress} onChange={(e) => setBindAddress(e.target.value)} placeholder="Locale" className={`${inputClass} min-w-0 flex-1`} />
-                <input value={bindPort} onChange={(e) => setBindPort(e.target.value)} placeholder="Port" inputMode="numeric" className={`${inputClass} w-16 shrink-0`} />
+                <input value={bindAddress} onChange={(e) => setBindAddress(e.target.value)} placeholder="Locale" className={`${inputClass} min-w-0 flex-1 font-mono`} />
+                <input value={bindPort} onChange={(e) => setBindPort(e.target.value)} placeholder="Port" inputMode="numeric" className={`${inputClass} w-16 shrink-0 font-mono`} />
               </div>
               <div className="flex gap-1.5">
-                <input value={destAddress} onChange={(e) => setDestAddress(e.target.value)} placeholder="Distante" className={`${inputClass} min-w-0 flex-1`} />
-                <input value={destPort} onChange={(e) => setDestPort(e.target.value)} placeholder="Port" inputMode="numeric" className={`${inputClass} w-16 shrink-0`} />
+                <input value={destAddress} onChange={(e) => setDestAddress(e.target.value)} placeholder="Distante" className={`${inputClass} min-w-0 flex-1 font-mono`} />
+                <input value={destPort} onChange={(e) => setDestPort(e.target.value)} placeholder="Port" inputMode="numeric" className={`${inputClass} w-16 shrink-0 font-mono`} />
               </div>
               <div className="flex gap-1.5">
                 <button onClick={submit} className="flex-1 rounded-md bg-[var(--c-accent)] py-1.5 text-xs font-medium text-white hover:bg-[var(--c-accent-hover)]">
@@ -93,7 +93,7 @@ export function TunnelsPanel({ workspace, onAddForward, onDeleteForward, onError
                 </button>
                 <button
                   onClick={() => setShowForm(false)}
-                  className="flex items-center justify-center rounded-md bg-slate-700 px-2.5 py-1.5 text-xs text-slate-300 hover:bg-slate-600"
+                  className="flex items-center justify-center rounded-md bg-[var(--c-bg2)] px-2.5 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
                 >
                   <IconClose size={12} />
                 </button>
@@ -106,14 +106,14 @@ export function TunnelsPanel({ workspace, onAddForward, onDeleteForward, onError
           const isRunning = running.has(forward.id);
           const isBusy = busy.has(forward.id);
           return (
-            <div key={forward.id} className="rounded-lg border border-[var(--c-border)] bg-[var(--c-bg3)]/40 p-2.5">
-              <p className="text-xs font-medium text-slate-300">
+            <div key={forward.id} className="rounded-lg bg-[var(--c-bg3)]/40 p-2.5">
+              <p className="text-xs font-medium text-[var(--c-text-secondary)]">
                 {forward.kind === "local" ? "Local" : "Distant"}{" "}
-                <span className="font-mono">{forward.bindAddress}:{forward.bindPort}</span>
+                <span className="font-mono text-[var(--c-text)]">{forward.bindAddress}:{forward.bindPort}</span>
                 {" → "}
-                <span className="font-mono">{forward.destAddress}:{forward.destPort}</span>
+                <span className="font-mono text-[var(--c-text)]">{forward.destAddress}:{forward.destPort}</span>
               </p>
-              <p className="mt-0.5 text-[10px] text-slate-500">{hostLabel}</p>
+              <p className="mt-0.5 text-[10px] text-[var(--c-text-muted)]">{hostLabel}</p>
               <div className="mt-2 flex flex-wrap gap-1">
                 <button
                   disabled={isBusy}
@@ -126,7 +126,7 @@ export function TunnelsPanel({ workspace, onAddForward, onDeleteForward, onError
                 </button>
                 <button
                   onClick={() => onDeleteForward(forward.id)}
-                  className="flex flex-1 basis-[80px] items-center justify-center gap-1.5 rounded-md bg-slate-700 px-1.5 py-1.5 text-xs text-rose-300 hover:bg-rose-900/60"
+                  className="flex flex-1 basis-[80px] items-center justify-center gap-1.5 rounded-md bg-[var(--c-bg2)] px-1.5 py-1.5 text-xs text-rose-400 hover:bg-rose-900/60"
                 >
                   <IconTrash size={11} /> Supprimer
                 </button>
@@ -135,12 +135,12 @@ export function TunnelsPanel({ workspace, onAddForward, onDeleteForward, onError
           );
         })}
         {workspace.portForwards.length === 0 && (
-          <p className="px-1 py-4 text-center text-sm text-slate-500">Aucun tunnel configuré</p>
+          <p className="px-1 py-4 text-center text-[13px] text-[var(--c-text-muted)]">Aucun tunnel configuré</p>
         )}
       </div>
     </div>
   );
 }
 
-const inputClass = "w-full rounded-md bg-slate-800 px-2 py-1.5 text-sm text-slate-100 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-[var(--c-accent)]";
-const selectClass = "w-full rounded-md bg-slate-800 px-2 py-1.5 text-sm text-slate-100 focus:outline-none focus:ring-1 focus:ring-[var(--c-accent)]";
+const inputClass = "w-full rounded-md bg-[var(--c-bg2)] px-2 py-1.5 text-[13px] text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent)]";
+const selectClass = "w-full rounded-md bg-[var(--c-bg2)] px-2 py-1.5 text-[13px] text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent)]";
