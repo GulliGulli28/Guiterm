@@ -22,7 +22,7 @@ export const ACCENT_COLORS: Record<UiAccent, AccentColorEntry> = {
   cyan:    { label: "Cyan",     c600: "#0891b2", c500: "#06b6d4", c300: "#67e8f9", dim: "rgba(8,145,178,0.18)"  },
 };
 
-export type UiBg = "slate" | "gray" | "zinc" | "black" | "navy";
+export type UiBg = "slate" | "gray" | "zinc" | "black" | "navy" | "aurora";
 export type ColorMode = "dark" | "light";
 
 export interface BgShade {
@@ -63,6 +63,11 @@ export const BG_THEMES: Record<UiBg, BgThemeEntry> = {
     label: "Marine",
     dark:  { bg: "#020c1b", bg2: "#0d1b2e", bg3: "#1a3148", border: "#1e3a52" },
     light: { bg: "#f0f4f8", bg2: "#e1e9f0", bg3: "#cdd9e5", border: "#b8c9da" },
+  },
+  aurora: {
+    label: "Aurora",
+    dark:  { bg: "#08070d", bg2: "#0d0b14", bg3: "#17131f", border: "#231e30" },
+    light: { bg: "#f8f6fc", bg2: "#f0ecf8", bg3: "#e3dcf1", border: "#cec2e3" },
   },
 };
 
@@ -224,8 +229,8 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   terminalFontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
   terminalFontSize: 14,
   sftpFontSize: 13,
-  uiAccent: "indigo",
-  uiBg: "slate",
+  uiAccent: "violet",
+  uiBg: "aurora",
   colorMode: "dark",
   notifyOnDisconnect: true,
   notifyOnTransferDone: true,

@@ -65,3 +65,22 @@ body,
   scrollbar-color: #334155 transparent;
   padding-right: 6px;
 }
+
+/* Aurora — signature ambient glow behind the whole window. Two soft radial
+   washes in the current accent color, anchored top-left/top-right, fading
+   into the base background. Purely decorative, follows whatever accent the
+   user picks via color-mix so it never fights the chosen theme. */
+.app-aurora-bg {
+  background:
+    radial-gradient(1100px 550px at 12% -12%, color-mix(in srgb, var(--c-accent) 16%, transparent), transparent 60%),
+    radial-gradient(700px 380px at 92% -6%, color-mix(in srgb, var(--c-accent) 9%, transparent), transparent 55%),
+    var(--c-bg);
+}
+
+/* Glow ring — marks the host card matching the currently active tab. */
+.glow-ring {
+  box-shadow:
+    0 0 0 1px var(--c-accent),
+    0 0 0 3px color-mix(in srgb, var(--c-accent) 22%, transparent),
+    0 0 18px 1px color-mix(in srgb, var(--c-accent) 45%, transparent);
+}

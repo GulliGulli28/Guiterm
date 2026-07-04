@@ -16,6 +16,7 @@ interface SidebarProps {
   workspace: Workspace;
   panel: SidebarPanelKind;
   onPanelChange: (panel: SidebarPanelKind) => void;
+  activeHostId?: HostId | null;
   onConnect: (host: Host) => void;
   onOpenTransfer: (host: Host) => void;
   onOpenLocalTerminal: () => void;
@@ -66,13 +67,10 @@ export function Sidebar(props: SidebarProps) {
               title={t.label}
               className={`relative flex h-9 w-9 items-center justify-center rounded-lg transition-all duration-150 ${
                 active
-                  ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]"
+                  ? "bg-[var(--c-accent)] text-white shadow-[0_0_12px_1px_color-mix(in_srgb,var(--c-accent)_55%,transparent)]"
                   : "text-[var(--c-text-faint)] hover:bg-white/5 hover:text-[var(--c-text-secondary)]"
               }`}
             >
-              {active && (
-                <span className="absolute right-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-[var(--c-accent)]" />
-              )}
               <t.Icon size={16} />
             </button>
           );
@@ -83,13 +81,10 @@ export function Sidebar(props: SidebarProps) {
             title="Paramètres"
             className={`relative flex h-9 w-9 items-center justify-center rounded-lg transition-all duration-150 ${
               panel === "settings"
-                ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]"
+                ? "bg-[var(--c-accent)] text-white shadow-[0_0_12px_1px_color-mix(in_srgb,var(--c-accent)_55%,transparent)]"
                 : "text-[var(--c-text-faint)] hover:bg-white/5 hover:text-[var(--c-text-secondary)]"
             }`}
           >
-            {panel === "settings" && (
-              <span className="absolute right-0 top-1.5 bottom-1.5 w-[3px] rounded-full bg-[var(--c-accent)]" />
-            )}
             <IconSettings size={16} />
           </button>
         </div>
@@ -104,6 +99,7 @@ export function Sidebar(props: SidebarProps) {
           {panel === "hosts" && (
             <HostsPanel
               workspace={workspace}
+              activeHostId={props.activeHostId}
               onConnect={props.onConnect}
               onOpenLocalTerminal={props.onOpenLocalTerminal}
               onQuickSSH={props.onQuickSSH}

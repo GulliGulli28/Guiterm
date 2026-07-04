@@ -72,9 +72,9 @@ export function TabBar({ tabs, activeTabId, splitOpen, onSelect, onClose, onTogg
                 setDraggedId(tab.id);
               }}
               onClick={() => { if (!dragState.current?.moved) onSelect(tab.id); }}
-              className={`flex shrink-0 cursor-pointer items-center gap-1.5 rounded-md px-2.5 py-1.5 text-sm transition-colors ${
+              className={`flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg px-2.5 py-1.5 text-sm transition-all ${
                 isActive
-                  ? "bg-[var(--c-accent)] text-white"
+                  ? "bg-[var(--c-accent)] text-white shadow-[0_0_10px_1px_color-mix(in_srgb,var(--c-accent)_45%,transparent)]"
                   : tab.status === "placeholder"
                     ? "border border-dashed border-[var(--c-border)] text-[var(--c-text-muted)] hover:bg-white/5"
                     : "bg-[var(--c-bg3)] text-[var(--c-text-secondary)] hover:bg-white/5"
@@ -97,9 +97,9 @@ export function TabBar({ tabs, activeTabId, splitOpen, onSelect, onClose, onTogg
       <button
         onClick={onToggleSplit}
         title={splitOpen ? "Quitter le mode split" : "Mode split — deux terminaux côte à côte"}
-        className={`flex shrink-0 items-center justify-center rounded-md p-1.5 transition-colors ${
+        className={`flex shrink-0 items-center justify-center rounded-lg p-1.5 transition-all ${
           splitOpen
-            ? "bg-[var(--c-accent)] text-white"
+            ? "bg-[var(--c-accent)] text-white shadow-[0_0_10px_1px_color-mix(in_srgb,var(--c-accent)_45%,transparent)]"
             : "text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)] hover:text-[var(--c-text)]"
         }`}
       >

@@ -12,6 +12,7 @@ import {
 
 interface HostsPanelProps {
   workspace: Workspace;
+  activeHostId?: HostId | null;
   onConnect: (host: Host) => void;
   onOpenLocalTerminal: () => void;
   onNewHost: () => void;
@@ -35,7 +36,7 @@ function parseSSHInput(raw: string): { username: string; address: string; port: 
 }
 
 export function HostsPanel({
-  workspace, onConnect, onOpenLocalTerminal,
+  workspace, activeHostId, onConnect, onOpenLocalTerminal,
   onNewHost, onEditHost, onNewGroup, onNewHostInGroup, onNewGroupUnder,
   onEditGroup, onQuickSSH, onWorkspaceUpdate, onError,
 }: HostsPanelProps) {
@@ -118,21 +119,28 @@ export function HostsPanel({
   // ── Host card ────────────────────────────────────────────────────────────
   const renderHost = (host: Host, depth: number) => {
     const menuOpen = openMenuHostId === host.id;
+    const isActive = host.id === activeHostId;
     return (
       <div
         key={host.id}
         style={{ marginLeft: depth * 14 }}
-        className={`group rounded-lg transition-colors ${menuOpen ? "bg-[var(--c-bg3)]" : "bg-[var(--c-bg3)]/40 hover:bg-[var(--c-bg3)]"}`}
+        className={`group rounded-xl border transition-all ${
+          isActive
+            ? "glow-ring border-transparent bg-[var(--c-bg3)]"
+            : menuOpen
+              ? "border-white/5 bg-[var(--c-bg3)]"
+              : "border-white/5 bg-[var(--c-bg3)]/40 hover:bg-[var(--c-bg3)]"
+        }`}
       >
         {/* Header row */}
         <div className="flex items-stretch">
           {/* Connect zone */}
           <button
             onClick={() => onConnect(host)}
-            className="flex min-w-0 flex-1 items-center gap-2.5 p-2.5 text-left"
+            className="flex min-w-0 flex-1 items-center gap-2.5 p-3 text-left"
             title={`Connecter — ${host.username}@${host.address}:${host.port}`}
           >
-            <div className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--c-accent-dim)]">
+            <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--c-accent-dim)]">
               {host.icon
                 ? <HostIcon iconId={host.icon} customIcons={workspace.customIcons} size={18} />
                 : <IconHosts size={14} className="text-[var(--c-accent-text)]" />
@@ -169,7 +177,7 @@ export function HostsPanel({
 
         {/* Tags */}
         {host.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1 px-2.5 pb-2">
+          <div className="flex flex-wrap gap-1 px-3 pb-2.5">
             {host.tags.map((tag) => (
               <span key={tag} className="rounded-full bg-[var(--c-bg2)] px-1.5 py-0.5 text-[10px] text-[var(--c-text-secondary)]">
                 {tag}
@@ -256,7 +264,7 @@ export function HostsPanel({
     <div className="flex h-full min-w-0 flex-col gap-2">
       {/* Search — first for discoverability */}
       <div className="relative">
-        <div className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center">
+        <div className="pointer-events-none absolute inset-y-0 left-3 flex items-center">
           <IconSearch size={13} className="text-[var(--c-text-muted)]" />
         </div>
         <input
@@ -264,7 +272,7 @@ export function HostsPanel({
           onChange={(e) => setSearch(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && quickSSH) handleQuickConnect(); }}
           placeholder="Rechercher ou ssh user@hôte…"
-          className="w-full rounded-md bg-[var(--c-bg3)] pl-8 pr-3 py-1.5 text-[13px] text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent)]"
+          className="w-full rounded-xl border border-white/5 bg-[var(--c-bg3)] pl-8 pr-3 py-2 text-[13px] text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[var(--c-accent)]"
         />
       </div>
 
@@ -274,7 +282,7 @@ export function HostsPanel({
           {showAddMenu && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setShowAddMenu(false)} />
-              <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-lg bg-[var(--c-bg2)] py-1 shadow-[var(--shadow-lg)]">
+              <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-xl border border-white/5 bg-[var(--c-bg2)] py-1 shadow-[var(--shadow-lg)]">
                 <button
                   onClick={() => { onNewHost(); setShowAddMenu(false); }}
                   className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)]"
@@ -299,10 +307,10 @@ export function HostsPanel({
           )}
           <button
             onClick={() => setShowAddMenu((v) => !v)}
-            className={`flex w-full items-center justify-center gap-1.5 rounded-md border py-1.5 text-xs font-medium transition-colors ${
+            className={`flex w-full items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-semibold text-white shadow-[0_2px_10px_color-mix(in_srgb,var(--c-accent)_35%,transparent)] transition-all ${
               showAddMenu
-                ? "border-[var(--c-accent)] bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]"
-                : "border-dashed border-[var(--c-border)] text-[var(--c-text-muted)] hover:border-[var(--c-accent)] hover:text-[var(--c-accent-text)]"
+                ? "bg-[var(--c-accent-hover)]"
+                : "bg-[var(--c-accent)] hover:bg-[var(--c-accent-hover)] hover:shadow-[0_2px_16px_color-mix(in_srgb,var(--c-accent)_55%,transparent)]"
             }`}
           >
             <IconPlus size={13} />
@@ -312,7 +320,7 @@ export function HostsPanel({
         <button
           onClick={onOpenLocalTerminal}
           title="Ouvrir un terminal local"
-          className="flex shrink-0 items-center justify-center rounded-md border border-dashed border-[var(--c-border)] px-3 py-1.5 text-[var(--c-text-muted)] hover:border-[var(--c-accent)] hover:text-[var(--c-accent-text)]"
+          className="flex shrink-0 items-center justify-center rounded-xl border border-white/5 bg-[var(--c-bg3)] px-3 py-2 text-[var(--c-text-muted)] hover:border-[var(--c-accent)] hover:text-[var(--c-accent-text)]"
         >
           <IconKeyboard size={15} />
         </button>
@@ -323,7 +331,7 @@ export function HostsPanel({
         {quickSSH && (
           <button
             onClick={handleQuickConnect}
-            className="flex w-full items-center gap-2 rounded-lg border border-[var(--c-accent-dim)] bg-[var(--c-accent-dim)] px-3 py-2 text-left text-[13px] text-[var(--c-accent-text)] hover:bg-[var(--c-accent)] hover:text-white"
+            className="flex w-full items-center gap-2 rounded-xl border border-[var(--c-accent-dim)] bg-[var(--c-accent-dim)] px-3 py-2 text-left text-[13px] text-[var(--c-accent-text)] hover:bg-[var(--c-accent)] hover:text-white"
           >
             <IconFlash size={13} className="shrink-0" />
             <span className="min-w-0 truncate font-mono">

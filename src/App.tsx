@@ -277,7 +277,7 @@ export default function App() {
 
   if (!workspace) {
     return (
-      <div className="flex h-screen w-screen flex-col overflow-hidden bg-[var(--c-bg)] text-[var(--c-text)]">
+      <div className="app-aurora-bg flex h-screen w-screen flex-col overflow-hidden text-[var(--c-text)]">
         <TitleBar
           sidebarVisible={sidebarVisible}
           onToggleSidebar={() => setSidebarVisible((v) => !v)}
@@ -292,9 +292,11 @@ export default function App() {
   }
 
   const showRightPanel = !!(editingHost || editingGroup);
+  const activeTab = tabs.find((t) => t.id === activeTabId);
+  const activeHostId = activeTab && activeTab.kind !== "local-terminal" ? activeTab.hostId : null;
 
   return (
-    <div className="flex h-screen w-screen flex-col overflow-hidden bg-[var(--c-bg)] text-[var(--c-text)]">
+    <div className="app-aurora-bg flex h-screen w-screen flex-col overflow-hidden text-[var(--c-text)]">
       {/* Transparent overlay during any drag — prevents xterm canvas from stealing mouse events */}
       {isDragging && <div className="fixed inset-0 z-[9999] cursor-col-resize" />}
       {paletteOpen && <CommandPalette commands={paletteCommands} onClose={() => setPaletteOpen(false)} />}
@@ -339,6 +341,7 @@ export default function App() {
             workspace={workspace}
             panel={sidebarPanel}
             onPanelChange={setSidebarPanel}
+            activeHostId={activeHostId}
             onConnect={(host) => openTab("terminal", host)}
             onOpenTransfer={(host) => openTab("transfer", host)}
             onOpenLocalTerminal={() => openLocalTerminal()}
