@@ -79,6 +79,7 @@ export interface Workspace {
 
 export interface KnownHostEntry {
   identity: string;
+  label: string;
   publicKey: string;
 }
 

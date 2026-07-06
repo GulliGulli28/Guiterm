@@ -87,7 +87,7 @@ export function KnownHostsPanel({ onWorkspaceUpdate, onError }: KnownHostsPanelP
               <IconShield size={15} className="text-[var(--c-accent-text)]" />
             </div>
             <div className="min-w-0 flex-1">
-              <p className="truncate font-mono text-[13px] font-medium text-[var(--c-text)]">{e.identity}</p>
+              <p className="truncate font-mono text-[13px] font-medium text-[var(--c-text)]">{e.label}</p>
               <p className="truncate font-mono text-[10px] text-[var(--c-text-muted)]" title={e.publicKey}>{e.publicKey}</p>
             </div>
             <button

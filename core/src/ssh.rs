@@ -9,7 +9,7 @@ use crate::known_hosts::{self, Verdict};
 use crate::model::{AuthMethod, Host, HostId, Workspace};
 use crate::vault::{self, SecretKind};
 use russh::client::{self, AuthResult};
-use russh::keys::ssh_key::PublicKey;
+use russh::keys::ssh_key::{HashAlg, PublicKey};
 use russh::keys::{PrivateKeyWithHashAlg, decode_secret_key, load_secret_key};
 use russh::{Channel, ChannelMsg, Disconnect};
 use std::collections::HashMap;
@@ -22,19 +22,31 @@ use tokio::sync::mpsc;
 /// by [`AppHandler::server_channel_open_forwarded_tcpip`].
 pub type RemoteForwardRoutes = Arc<Mutex<HashMap<(String, u32), (String, u32)>>>;
 
+/// Details recorded when a server offers a host key that doesn't match the one
+/// previously trusted for this identity, so [`connect`] can turn the otherwise
+/// generic handshake failure into an actionable message.
+#[derive(Debug, Clone)]
+pub struct HostKeyMismatch {
+    pub host_label: String,
+    pub previous_fingerprint: String,
+    pub offered_fingerprint: String,
+}
+
 /// SSH client handler: verifies host keys via trust-on-first-use, and relays
 /// any remote-forwarded ("`ssh -R`") connections the server pushes back to us.
 pub struct AppHandler {
     identity: String,
-    pub host_key_mismatch: Arc<Mutex<bool>>,
+    label: String,
+    pub host_key_mismatch: Arc<Mutex<Option<HostKeyMismatch>>>,
     remote_forward_routes: RemoteForwardRoutes,
 }
 
 impl AppHandler {
-    fn new(identity: String, remote_forward_routes: RemoteForwardRoutes) -> Self {
+    fn new(identity: String, label: String, remote_forward_routes: RemoteForwardRoutes) -> Self {
         Self {
             identity,
-            host_key_mismatch: Arc::new(Mutex::new(false)),
+            label,
+            host_key_mismatch: Arc::new(Mutex::new(None)),
             remote_forward_routes,
         }
     }
@@ -44,10 +56,14 @@ impl client::Handler for AppHandler {
     type Error = russh::Error;
 
     async fn check_server_key(&mut self, server_public_key: &PublicKey) -> Result<bool, Self::Error> {
-        match known_hosts::check_and_trust(&self.identity, server_public_key) {
+        match known_hosts::check_and_trust(&self.identity, &self.label, server_public_key) {
             Ok(Verdict::AlreadyTrusted | Verdict::NewlyTrusted) => Ok(true),
-            Ok(Verdict::Mismatch) => {
-                *self.host_key_mismatch.lock().expect("lock poisoned") = true;
+            Ok(Verdict::Mismatch { previous_fingerprint }) => {
+                *self.host_key_mismatch.lock().expect("lock poisoned") = Some(HostKeyMismatch {
+                    host_label: self.label.clone(),
+                    previous_fingerprint,
+                    offered_fingerprint: server_public_key.fingerprint(HashAlg::Sha256).to_string(),
+                });
                 Ok(false)
             },
             Err(_) => Ok(false),
@@ -131,8 +147,35 @@ impl Connection {
     }
 }
 
+/// Stable identity for known-hosts trust: the workspace host's own ID, not its
+/// address. Private IPs are routinely reused across unrelated environments
+/// (separate VPCs each behind their own bastion), so keying by `address:port`
+/// would make an unrelated machine's key rotation look like this host's, or
+/// vice-versa.
 fn identity_of(host: &Host) -> String {
-    format!("{}:{}", host.address, host.port)
+    host.id.to_string()
+}
+
+fn label_of(host: &Host) -> String {
+    format!("{} ({}:{})", host.label, host.address, host.port)
+}
+
+/// Builds a precise "host key changed" error if `mismatch` was populated during
+/// the handshake, otherwise falls back to `fallback` (the raw connect/handshake error).
+fn mismatch_error(mismatch: &Arc<Mutex<Option<HostKeyMismatch>>>, fallback: impl FnOnce() -> anyhow::Error) -> anyhow::Error {
+    match mismatch.lock().expect("lock poisoned").take() {
+        Some(m) => anyhow::anyhow!(
+            "la clé de l'hôte « {} » a changé : clé précédemment approuvée {}, clé reçue {}. \
+             Si ce changement est inattendu, cela peut indiquer une usurpation (MITM) — vérifiez avant de continuer. \
+             Si vous savez que cette adresse pointe désormais vers une machine différente (par ex. un autre \
+             environnement réutilisant la même IP) ou que l'hôte a été réinstallé, retirez son entrée dans \
+             « Known Hosts » puis reconnectez-vous.",
+            m.host_label,
+            m.previous_fingerprint,
+            m.offered_fingerprint
+        ),
+        None => fallback(),
+    }
 }
 
 async fn authenticate(handle: &mut client::Handle<AppHandler>, host: &Host, workspace: &Workspace) -> anyhow::Result<()> {
@@ -237,9 +280,11 @@ pub async fn connect(workspace: &Workspace, target: HostId) -> anyhow::Result<Co
 
     let first = chain[0];
     let first_routes = if chain.len() == 1 { remote_forward_routes.clone() } else { Default::default() };
-    let mut handle = client::connect(config.clone(), (first.address.as_str(), first.port), AppHandler::new(identity_of(first), first_routes))
+    let first_handler = AppHandler::new(identity_of(first), label_of(first), first_routes);
+    let first_mismatch = first_handler.host_key_mismatch.clone();
+    let mut handle = client::connect(config.clone(), (first.address.as_str(), first.port), first_handler)
         .await
-        .map_err(|e| anyhow::anyhow!("could not reach '{}': {e}", first.label))?;
+        .map_err(|e| mismatch_error(&first_mismatch, || anyhow::anyhow!("could not reach '{}': {e}", first.label)))?;
     authenticate(&mut handle, first, workspace).await?;
 
     let mut hops = vec![handle];
@@ -252,9 +297,11 @@ pub async fn connect(workspace: &Workspace, target: HostId) -> anyhow::Result<Co
             .map_err(|e| anyhow::anyhow!("bastion could not reach '{}': {e}", next.label))?;
         let stream = channel.into_stream();
         let routes = if is_target { remote_forward_routes.clone() } else { Default::default() };
-        let mut next_handle = client::connect_stream(config.clone(), stream, AppHandler::new(identity_of(next), routes))
+        let next_handler = AppHandler::new(identity_of(next), label_of(next), routes);
+        let next_mismatch = next_handler.host_key_mismatch.clone();
+        let mut next_handle = client::connect_stream(config.clone(), stream, next_handler)
             .await
-            .map_err(|e| anyhow::anyhow!("SSH handshake with '{}' failed: {e}", next.label))?;
+            .map_err(|e| mismatch_error(&next_mismatch, || anyhow::anyhow!("SSH handshake with '{}' failed: {e}", next.label)))?;
         authenticate(&mut next_handle, next, workspace).await?;
         hops.push(next_handle);
     }

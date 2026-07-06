@@ -10,6 +10,7 @@ use termius_core::store;
 #[serde(rename_all = "camelCase")]
 pub struct KnownHostEntry {
     pub identity: String,
+    pub label: String,
     pub public_key: String,
 }
 
@@ -17,7 +18,7 @@ pub struct KnownHostEntry {
 pub fn list_known_hosts() -> Vec<KnownHostEntry> {
     known_hosts::list()
         .into_iter()
-        .map(|(identity, public_key)| KnownHostEntry { identity, public_key })
+        .map(|(identity, label, public_key)| KnownHostEntry { identity, label, public_key })
         .collect()
 }
 
