@@ -60,16 +60,14 @@ export function TunnelsPanel({ workspace, onAddForward, onDeleteForward, onError
         <div>
           <button
             onClick={() => setShowForm((v) => !v)}
-            className={`flex w-full items-center justify-center gap-1.5 rounded-md border py-1.5 text-xs font-medium transition-colors ${
-              showForm
-                ? "border-[var(--c-accent)] bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]"
-                : "border-dashed border-[var(--c-border)] text-[var(--c-text-muted)] hover:border-[var(--c-accent)] hover:text-[var(--c-accent-text)]"
+            className={`accent-surface flex w-full items-center justify-center gap-1.5 rounded-xl border py-2 text-xs font-semibold transition-all ${
+              showForm ? "ring-2 ring-white/25" : ""
             }`}
           >
             <IconPlus size={13} /> Ajouter un tunnel
           </button>
           {showForm && (
-            <div className="mt-2 space-y-1.5 rounded-lg bg-[var(--c-bg3)]/40 p-2.5">
+            <div className="mt-2 space-y-1.5 rounded-xl bg-[var(--c-bg3)] p-2.5">
               <select value={hostId} onChange={(e) => setHostId(e.target.value)} className={selectClass}>
                 {workspace.hosts.map((h) => (
                   <option key={h.id} value={h.id}>{h.label}</option>
@@ -88,7 +86,7 @@ export function TunnelsPanel({ workspace, onAddForward, onDeleteForward, onError
                 <input value={destPort} onChange={(e) => setDestPort(e.target.value)} placeholder="Port" inputMode="numeric" className={`${inputClass} w-16 shrink-0 font-mono`} />
               </div>
               <div className="flex gap-1.5">
-                <button onClick={submit} className="flex-1 rounded-md bg-[var(--c-accent)] py-1.5 text-xs font-medium text-white hover:bg-[var(--c-accent-hover)]">
+                <button onClick={submit} className="accent-surface flex-1 rounded-md border py-1.5 text-xs font-medium">
                   Ajouter
                 </button>
                 <button
@@ -106,7 +104,7 @@ export function TunnelsPanel({ workspace, onAddForward, onDeleteForward, onError
           const isRunning = running.has(forward.id);
           const isBusy = busy.has(forward.id);
           return (
-            <div key={forward.id} className="rounded-lg bg-[var(--c-bg3)]/40 p-2.5">
+            <div key={forward.id} className="rounded-xl border border-transparent bg-[var(--c-bg3)] p-2.5 transition-all hover:border-white/15">
               <p className="text-xs font-medium text-[var(--c-text-secondary)]">
                 {forward.kind === "local" ? "Local" : "Distant"}{" "}
                 <span className="font-mono text-[var(--c-text)]">{forward.bindAddress}:{forward.bindPort}</span>
@@ -118,8 +116,8 @@ export function TunnelsPanel({ workspace, onAddForward, onDeleteForward, onError
                 <button
                   disabled={isBusy}
                   onClick={() => toggle(forward.id)}
-                  className={`flex flex-1 basis-[80px] items-center justify-center rounded-md px-1.5 py-1.5 text-xs font-medium text-white disabled:opacity-50 ${
-                    isRunning ? "bg-rose-700 hover:bg-rose-600" : "bg-[var(--c-accent)] hover:bg-[var(--c-accent-hover)]"
+                  className={`flex flex-1 basis-[80px] items-center justify-center rounded-md border px-1.5 py-1.5 text-xs font-medium text-white disabled:opacity-50 ${
+                    isRunning ? "border-transparent bg-rose-700 hover:bg-rose-600" : "accent-surface"
                   }`}
                 >
                   {isRunning ? "Arrêter" : "Démarrer"}

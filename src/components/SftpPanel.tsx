@@ -58,18 +58,18 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
     <div
       key={host.id}
       style={{ marginLeft: depth * 14 }}
-      className="group rounded-lg bg-[var(--c-bg3)]/40 transition-colors hover:bg-[var(--c-bg3)]"
+      className="group rounded-xl border border-transparent bg-[var(--c-bg3)] transition-all hover:border-white/15"
     >
       <div className="flex items-stretch">
         <button
           onClick={() => onOpenTransfer(host)}
-          className="flex min-w-0 flex-1 items-center gap-2.5 p-2.5 text-left"
+          className="flex min-w-0 flex-1 items-center gap-2.5 p-3 text-left"
           title={`Transférer — ${host.username}@${host.address}:${host.port}`}
         >
-          <div className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--c-accent-dim)]">
+          <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[var(--c-accent-dim)]">
             {host.icon
-              ? <HostIcon iconId={host.icon} customIcons={workspace.customIcons} size={18} />
-              : <IconHosts size={14} className="text-[var(--c-accent-text)]" />
+              ? <HostIcon iconId={host.icon} customIcons={workspace.customIcons} size={24} />
+              : <IconHosts size={18} className="text-[var(--c-accent-text)]" />
             }
             {hostStatus[host.id] !== undefined && (
               <span
@@ -93,7 +93,7 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
       </div>
 
       {host.tags.length > 0 && (
-        <div className="flex flex-wrap gap-1 px-2.5 pb-2">
+        <div className="flex flex-wrap gap-1 px-3 pb-2.5">
           {host.tags.map((tag) => (
             <span key={tag} className="rounded-full bg-[var(--c-bg2)] px-1.5 py-0.5 text-[10px] text-[var(--c-text-secondary)]">
               {tag}
@@ -118,9 +118,9 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
           </button>
           <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-[13px] font-medium text-[var(--c-text-secondary)]">
             {group.icon ? (
-              <HostIcon iconId={group.icon} customIcons={workspace.customIcons} size={16} />
+              <HostIcon iconId={group.icon} customIcons={workspace.customIcons} size={20} />
             ) : (
-              <IconFolder size={14} className="text-[var(--c-text-muted)]" />
+              <IconFolder size={18} className="text-[var(--c-text-muted)]" />
             )}
             {group.name}
           </span>
@@ -138,14 +138,14 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
   return (
     <div className="flex h-full min-w-0 flex-col gap-2">
       <div className="relative">
-        <div className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center">
+        <div className="pointer-events-none absolute inset-y-0 left-3 flex items-center">
           <IconSearch size={13} className="text-[var(--c-text-muted)]" />
         </div>
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Rechercher un hôte…"
-          className="w-full rounded-md bg-[var(--c-bg3)] pl-8 pr-3 py-1.5 text-[13px] text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent)]"
+          className="w-full rounded-xl border border-white/5 bg-[var(--c-bg3)] pl-8 pr-3 py-2 text-[13px] text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[var(--c-accent)]"
         />
       </div>
       <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-1 overflow-y-auto">

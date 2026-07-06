@@ -82,7 +82,7 @@ export function KnownHostsPanel({ onWorkspaceUpdate, onError }: KnownHostsPanelP
           <p className="px-1 py-4 text-center text-[13px] text-[var(--c-text-muted)]">Aucune clé d'hôte de confiance pour l'instant</p>
         )}
         {entries.map((e) => (
-          <div key={e.identity} className="group flex items-center gap-2 rounded-lg bg-[var(--c-bg3)]/40 p-2.5 transition-colors hover:bg-[var(--c-bg3)]">
+          <div key={e.identity} className="group flex items-center gap-2 rounded-xl border border-transparent bg-[var(--c-bg3)] p-2.5 transition-all hover:border-white/15">
             <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md bg-[var(--c-accent-dim)]">
               <IconShield size={15} className="text-[var(--c-accent-text)]" />
             </div>
@@ -133,7 +133,7 @@ export function KnownHostsPanel({ onWorkspaceUpdate, onError }: KnownHostsPanelP
               <button
                 onClick={runImport}
                 disabled={importing || !configHosts || selected.size === 0}
-                className="flex-1 rounded-md bg-[var(--c-accent)] py-1.5 text-xs font-medium text-white hover:bg-[var(--c-accent-hover)] disabled:opacity-50"
+                className="accent-surface flex-1 rounded-md border py-1.5 text-xs font-medium disabled:opacity-50"
               >
                 Importer {selected.size > 0 ? `(${selected.size})` : ""}
               </button>

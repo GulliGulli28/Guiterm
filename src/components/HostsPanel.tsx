@@ -124,12 +124,12 @@ export function HostsPanel({
       <div
         key={host.id}
         style={{ marginLeft: depth * 14 }}
-        className={`group rounded-xl border transition-all ${
+        className={`group rounded-xl border bg-[var(--c-bg3)] transition-all ${
           isActive
-            ? "glow-ring border-transparent bg-[var(--c-bg3)]"
+            ? "glow-ring border-transparent"
             : menuOpen
-              ? "border-white/5 bg-[var(--c-bg3)]"
-              : "border-white/5 bg-[var(--c-bg3)]/40 hover:bg-[var(--c-bg3)]"
+              ? "border-white/15"
+              : "border-transparent hover:border-white/15"
         }`}
       >
         {/* Header row */}
@@ -140,10 +140,10 @@ export function HostsPanel({
             className="flex min-w-0 flex-1 items-center gap-2.5 p-3 text-left"
             title={`Connecter — ${host.username}@${host.address}:${host.port}`}
           >
-            <div className="relative flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--c-accent-dim)]">
+            <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[var(--c-accent-dim)]">
               {host.icon
-                ? <HostIcon iconId={host.icon} customIcons={workspace.customIcons} size={18} />
-                : <IconHosts size={14} className="text-[var(--c-accent-text)]" />
+                ? <HostIcon iconId={host.icon} customIcons={workspace.customIcons} size={24} />
+                : <IconHosts size={18} className="text-[var(--c-accent-text)]" />
               }
               {hostStatus[host.id] !== undefined && (
                 <span
@@ -222,9 +222,9 @@ export function HostsPanel({
           </button>
           <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-[13px] font-medium text-[var(--c-text-secondary)]">
             {group.icon ? (
-              <HostIcon iconId={group.icon} customIcons={workspace.customIcons} size={16} />
+              <HostIcon iconId={group.icon} customIcons={workspace.customIcons} size={20} />
             ) : (
-              <IconFolder size={14} className="text-[var(--c-text-muted)]" />
+              <IconFolder size={18} className="text-[var(--c-text-muted)]" />
             )}
             {group.name}
           </span>
@@ -307,10 +307,8 @@ export function HostsPanel({
           )}
           <button
             onClick={() => setShowAddMenu((v) => !v)}
-            className={`flex w-full items-center justify-center gap-1.5 rounded-xl py-2 text-xs font-semibold text-white shadow-[0_2px_10px_color-mix(in_srgb,var(--c-accent)_35%,transparent)] transition-all ${
-              showAddMenu
-                ? "bg-[var(--c-accent-hover)]"
-                : "bg-[var(--c-accent)] hover:bg-[var(--c-accent-hover)] hover:shadow-[0_2px_16px_color-mix(in_srgb,var(--c-accent)_55%,transparent)]"
+            className={`accent-surface flex w-full items-center justify-center gap-1.5 rounded-xl border py-2 text-xs font-semibold transition-all ${
+              showAddMenu ? "ring-2 ring-white/25" : ""
             }`}
           >
             <IconPlus size={13} />
@@ -331,7 +329,7 @@ export function HostsPanel({
         {quickSSH && (
           <button
             onClick={handleQuickConnect}
-            className="flex w-full items-center gap-2 rounded-xl border border-[var(--c-accent-dim)] bg-[var(--c-accent-dim)] px-3 py-2 text-left text-[13px] text-[var(--c-accent-text)] hover:bg-[var(--c-accent)] hover:text-white"
+            className="accent-surface-hover flex w-full items-center gap-2 rounded-xl border border-[var(--c-accent-dim)] bg-[var(--c-accent-dim)] px-3 py-2 text-left text-[13px] text-[var(--c-accent-text)] hover:text-white"
           >
             <IconFlash size={13} className="shrink-0" />
             <span className="min-w-0 truncate font-mono">

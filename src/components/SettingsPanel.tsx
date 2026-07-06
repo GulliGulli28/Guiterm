@@ -164,8 +164,8 @@ export function SettingsPanel({ onWorkspaceUpdate, onError, preferences, onPrefe
                       key={mode}
                       type="button"
                       onClick={() => onPreferencesChange({ ...preferences, colorMode: mode })}
-                      className={`flex min-w-[90px] flex-1 items-center justify-center gap-1.5 rounded-md py-1.5 text-[13px] font-medium transition-colors ${
-                        active ? "bg-[var(--c-accent)] text-white" : "text-[var(--c-text-secondary)] hover:bg-white/5"
+                      className={`flex min-w-[90px] flex-1 items-center justify-center gap-1.5 rounded-md border py-1.5 text-[13px] font-medium transition-all ${
+                        active ? "accent-surface" : "border-transparent text-[var(--c-text-secondary)] hover:bg-white/5"
                       }`}
                     >
                       <Icon size={14} /> {label}

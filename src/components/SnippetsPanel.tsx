@@ -113,7 +113,7 @@ function SnippetForm({
       <div className="flex gap-1.5">
         <button
           onClick={submit}
-          className="flex-1 rounded-md bg-[var(--c-accent)] py-1.5 text-xs font-medium text-white hover:bg-[var(--c-accent-hover)]"
+          className="accent-surface flex-1 rounded-md border py-1.5 text-xs font-medium"
         >
           {submitLabel}
         </button>
@@ -152,7 +152,7 @@ function SnippetCard({
 
   if (editing) {
     return (
-      <div className="rounded-lg bg-[var(--c-bg3)] p-2.5 ring-1 ring-[var(--c-accent)]/40">
+      <div className="rounded-xl bg-[var(--c-bg3)] p-2.5 ring-1 ring-[var(--c-accent)]/40">
         <SnippetForm
           initialName={snippet.name}
           initialCommand={snippet.command}
@@ -167,7 +167,7 @@ function SnippetCard({
   if (promptValues) {
     const submit = () => { onRun(fillVariables(snippet.command, promptValues)); setPromptValues(null); };
     return (
-      <div className="rounded-lg bg-[var(--c-bg3)] p-2.5 ring-1 ring-[var(--c-accent)]/40">
+      <div className="rounded-xl bg-[var(--c-bg3)] p-2.5 ring-1 ring-[var(--c-accent)]/40">
         <p className="mb-1.5 truncate text-[14px] font-medium text-[var(--c-text)]">{snippet.name}</p>
         <div className="space-y-1.5">
           {variables.map((name) => (
@@ -182,7 +182,7 @@ function SnippetCard({
             />
           ))}
           <div className="flex gap-1.5">
-            <button onClick={submit} className="flex flex-1 items-center justify-center gap-1 rounded-md bg-[var(--c-accent)] py-1.5 text-xs font-medium text-white hover:bg-[var(--c-accent-hover)]">
+            <button onClick={submit} className="accent-surface flex flex-1 items-center justify-center gap-1 rounded-md border py-1.5 text-xs font-medium">
               <IconPlay size={11} /> Exécuter
             </button>
             <button onClick={() => setPromptValues(null)} className="flex items-center justify-center rounded-md bg-[var(--c-bg2)] px-2.5 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5">
@@ -195,7 +195,7 @@ function SnippetCard({
   }
 
   return (
-    <div className="rounded-lg bg-[var(--c-bg3)]/40 p-2.5 transition-colors hover:bg-[var(--c-bg3)]">
+    <div className="rounded-xl border border-transparent bg-[var(--c-bg3)] p-2.5 transition-all hover:border-white/15">
       <div className="flex items-start justify-between gap-2">
         <p className="truncate text-[14px] font-medium text-[var(--c-text)]">{snippet.name}</p>
         <div className="flex shrink-0 gap-1">
@@ -218,7 +218,7 @@ function SnippetCard({
       <div className="mt-2 flex flex-wrap gap-1">
         <button
           onClick={handleRunClick}
-          className="flex flex-1 basis-[68px] items-center justify-center gap-1 rounded-md bg-[var(--c-accent)] px-1 py-1.5 text-xs text-white hover:bg-[var(--c-accent-hover)]"
+          className="accent-surface flex flex-1 basis-[68px] items-center justify-center gap-1 rounded-md border px-1 py-1.5 text-xs"
         >
           <IconPlay size={11} /> Exécuter
         </button>
@@ -267,16 +267,14 @@ export function SnippetsPanel({ workspace, onAddSnippet, onUpdateSnippet, onDele
         <div>
           <button
             onClick={() => setShowForm((v) => !v)}
-            className={`flex w-full items-center justify-center gap-1.5 rounded-md border py-1.5 text-xs font-medium transition-colors ${
-              showForm
-                ? "border-[var(--c-accent)] bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]"
-                : "border-dashed border-[var(--c-border)] text-[var(--c-text-muted)] hover:border-[var(--c-accent)] hover:text-[var(--c-accent-text)]"
+            className={`accent-surface flex w-full items-center justify-center gap-1.5 rounded-xl border py-2 text-xs font-semibold transition-all ${
+              showForm ? "ring-2 ring-white/25" : ""
             }`}
           >
             <IconPlus size={13} /> Ajouter
           </button>
           {showForm && (
-            <div className="mt-2 rounded-lg bg-[var(--c-bg3)]/40 p-2.5">
+            <div className="mt-2 rounded-xl bg-[var(--c-bg3)] p-2.5">
               <SnippetForm
                 submitLabel="Enregistrer"
                 onSubmit={(name, command) => { onAddSnippet(name, command); setShowForm(false); }}

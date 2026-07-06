@@ -55,16 +55,14 @@ export function KeychainPanel({ workspace, onAddKey, onDeleteKey, onRenameKey }:
         <div>
           <button
             onClick={() => setShowForm((v) => !v)}
-            className={`flex w-full items-center justify-center gap-1.5 rounded-md border py-1.5 text-xs font-medium transition-colors ${
-              showForm
-                ? "border-[var(--c-accent)] bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]"
-                : "border-dashed border-[var(--c-border)] text-[var(--c-text-muted)] hover:border-[var(--c-accent)] hover:text-[var(--c-accent-text)]"
+            className={`accent-surface flex w-full items-center justify-center gap-1.5 rounded-xl border py-2 text-xs font-semibold transition-all ${
+              showForm ? "ring-2 ring-white/25" : ""
             }`}
           >
             <IconPlus size={13} /> Ajouter une clé
           </button>
           {showForm && (
-            <div className="mt-2 space-y-2 rounded-lg bg-[var(--c-bg3)]/40 p-2.5">
+            <div className="mt-2 space-y-2 rounded-xl bg-[var(--c-bg3)] p-2.5">
               {error && <p className="rounded-md bg-rose-950 px-2 py-1 text-xs text-rose-300">{error}</p>}
               <input
                 value={name}
@@ -106,7 +104,7 @@ export function KeychainPanel({ workspace, onAddKey, onDeleteKey, onRenameKey }:
               <div className="flex gap-1.5">
                 <button
                   onClick={submit}
-                  className="flex-1 rounded-md bg-[var(--c-accent)] py-1.5 text-xs font-medium text-white hover:bg-[var(--c-accent-hover)]"
+                  className="accent-surface flex-1 rounded-md border py-1.5 text-xs font-medium"
                 >
                   Enregistrer
                 </button>
@@ -124,7 +122,7 @@ export function KeychainPanel({ workspace, onAddKey, onDeleteKey, onRenameKey }:
           <p className="px-1 py-4 text-center text-[13px] text-[var(--c-text-muted)]">Aucune clé enregistrée</p>
         )}
         {workspace.keychain.map((key: PrivateKey) => (
-          <div key={key.id} className="group rounded-lg bg-[var(--c-bg3)]/40 p-2.5 transition-colors hover:bg-[var(--c-bg3)]">
+          <div key={key.id} className="group rounded-xl border border-transparent bg-[var(--c-bg3)] p-2.5 transition-all hover:border-white/15">
             <div className="flex items-center gap-2">
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--c-accent-dim)]">
                 <IconKeychain size={13} className="text-[var(--c-accent-text)]" />

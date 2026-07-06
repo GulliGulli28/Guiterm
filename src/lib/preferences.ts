@@ -238,6 +238,14 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   restoreTabsOnLaunch: true,
 };
 
+// Same two-stop aurora wash as `.app-aurora-bg` in index.css, but layered over
+// a caller-supplied base color instead of `--c-bg` — lets the terminal panel
+// keep its own theme color (Dracula, Nord, …) while still showing the glow
+// around the edges instead of a flat opaque rectangle.
+export function auroraLayerBackground(baseColor: string): string {
+  return `radial-gradient(1100px 550px at 12% -12%, color-mix(in srgb, var(--c-accent) 14%, transparent), transparent 60%), radial-gradient(700px 380px at 92% -6%, color-mix(in srgb, var(--c-accent) 8%, transparent), transparent 55%), ${baseColor}`;
+}
+
 const STORAGE_KEY = "gui-termius-prefs";
 
 export function loadPreferences(): AppPreferences {

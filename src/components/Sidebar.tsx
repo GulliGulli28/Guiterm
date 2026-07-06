@@ -65,10 +65,10 @@ export function Sidebar(props: SidebarProps) {
               key={t.key}
               onClick={() => onPanelChange(t.key)}
               title={t.label}
-              className={`relative flex h-9 w-9 items-center justify-center rounded-lg transition-all duration-150 ${
+              className={`relative flex h-9 w-9 items-center justify-center rounded-lg border transition-all duration-150 ${
                 active
-                  ? "bg-[var(--c-accent)] text-white shadow-[0_0_12px_1px_color-mix(in_srgb,var(--c-accent)_55%,transparent)]"
-                  : "text-[var(--c-text-faint)] hover:bg-white/5 hover:text-[var(--c-text-secondary)]"
+                  ? "accent-surface"
+                  : "border-transparent text-[var(--c-text-faint)] hover:bg-white/5 hover:text-[var(--c-text-secondary)]"
               }`}
             >
               <t.Icon size={16} />
@@ -79,10 +79,10 @@ export function Sidebar(props: SidebarProps) {
           <button
             onClick={() => onPanelChange(panel === "settings" ? "hosts" : "settings")}
             title="Paramètres"
-            className={`relative flex h-9 w-9 items-center justify-center rounded-lg transition-all duration-150 ${
+            className={`relative flex h-9 w-9 items-center justify-center rounded-lg border transition-all duration-150 ${
               panel === "settings"
-                ? "bg-[var(--c-accent)] text-white shadow-[0_0_12px_1px_color-mix(in_srgb,var(--c-accent)_55%,transparent)]"
-                : "text-[var(--c-text-faint)] hover:bg-white/5 hover:text-[var(--c-text-secondary)]"
+                ? "accent-surface"
+                : "border-transparent text-[var(--c-text-faint)] hover:bg-white/5 hover:text-[var(--c-text-secondary)]"
             }`}
           >
             <IconSettings size={16} />

@@ -6,7 +6,7 @@ import type { UnlistenFn } from "@tauri-apps/api/event";
 import { api, base64ToBytes, bytesToBase64, onTerminalClosed, onTerminalData } from "../lib/api";
 import type { TerminalTabHandle } from "./TerminalTab";
 import type { AppPreferences } from "../lib/preferences";
-import { TERMINAL_THEMES } from "../lib/preferences";
+import { TERMINAL_THEMES, auroraLayerBackground } from "../lib/preferences";
 import { TerminalSearchBar } from "./TerminalSearchBar";
 
 export { type TerminalTabHandle };
@@ -176,7 +176,7 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
   };
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col p-2" style={{ backgroundColor: bgColor }}>
+    <div className="relative flex min-h-0 flex-1 flex-col p-2" style={{ background: auroraLayerBackground(bgColor) }}>
       {status === "connecting" && <div className="absolute inset-0 flex items-center justify-center text-[var(--c-text-secondary)]">Démarrage du terminal local…</div>}
       {status === "failed" && <div className="absolute inset-0 flex items-center justify-center px-8 text-center text-rose-300">Échec : {error}</div>}
       {searchOpen && <TerminalSearchBar onSearch={handleSearch} onClose={() => { setSearchOpen(false); termRef.current?.focus(); }} />}

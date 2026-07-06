@@ -45,13 +45,20 @@ export function IconKeychain({ size = 16, className }: P) {
 export function IconSettings({ size = 16, className }: P) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
-      <circle cx="8" cy="8" r="2.25" stroke="currentColor" strokeWidth="1.25" />
-      <path
-        d="M8 1.5v1.5M8 13v1.5M1.5 8H3M13 8h1.5M3.2 3.2l1.1 1.1M11.7 11.7l1.1 1.1M3.2 12.8l1.1-1.1M11.7 4.3l1.1-1.1"
-        stroke="currentColor"
-        strokeWidth="1.25"
-        strokeLinecap="round"
-      />
+      {[0, 60, 120, 180, 240, 300].map((angle) => (
+        <rect
+          key={angle}
+          x="7.05"
+          y="0.6"
+          width="1.9"
+          height="2.9"
+          rx="0.7"
+          fill="currentColor"
+          transform={`rotate(${angle} 8 8)`}
+        />
+      ))}
+      <circle cx="8" cy="8" r="3.1" stroke="currentColor" strokeWidth="1.25" fill="none" />
+      <circle cx="8" cy="8" r="1.15" fill="currentColor" />
     </svg>
   );
 }
