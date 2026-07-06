@@ -5,6 +5,7 @@ import type { GroupId, Host, TabMeta, Workspace } from "./lib/types";
 import { Sidebar, type SidebarPanelKind } from "./components/Sidebar";
 import { HostForm } from "./components/HostForm";
 import { TabBar } from "./components/TabBar";
+import { BroadcastBar } from "./components/BroadcastBar";
 import { TerminalTab, type TerminalTabHandle } from "./components/TerminalTab";
 import { LocalTerminalTab } from "./components/LocalTerminalTab";
 import { TransferTab } from "./components/TransferTab";
@@ -19,6 +20,17 @@ import { SHORTCUT_ACTIONS, useGlobalShortcuts } from "./lib/shortcuts";
 import { loadTabs, saveTabs } from "./lib/tabPersistence";
 
 let nextTabId = 0;
+
+function runOnTerminalHandle(handle: TerminalTabHandle, command: string) {
+  if (command.includes("\n")) {
+    // Encode script as base64 and decode+execute in one line so the terminal
+    // only shows a compact command, not the full script content.
+    const b64 = bytesToBase64(new TextEncoder().encode(command));
+    handle.runCommand(`echo '${b64}' | base64 -d | bash`);
+  } else {
+    handle.runCommand(command);
+  }
+}
 
 export default function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
@@ -253,15 +265,20 @@ export default function App() {
     if (!activeTabId) { reportError("Aucun terminal actif pour exécuter ce snippet"); return; }
     const handle = terminalRefs.current.get(activeTabId);
     if (!handle) { reportError("L'onglet actif n'est pas un terminal"); return; }
-    if (command.includes("\n")) {
-      // Encode script as base64 and decode+execute in one line so the terminal
-      // only shows a compact command, not the full script content.
-      const b64 = bytesToBase64(new TextEncoder().encode(command));
-      handle.runCommand(`echo '${b64}' | base64 -d | bash`);
-    } else {
-      handle.runCommand(command);
-    }
+    runOnTerminalHandle(handle, command);
   }, [activeTabId, reportError]);
+
+  // ── Broadcast: send one command to every open terminal at once ──────────
+  const [broadcastMode, setBroadcastMode] = useState(false);
+  const broadcastTargets = tabs.filter((t) => (t.kind === "terminal" || t.kind === "local-terminal") && t.status !== "placeholder");
+
+  const broadcastCommand = useCallback((command: string) => {
+    for (const tab of broadcastTargets) {
+      const handle = terminalRefs.current.get(tab.id);
+      if (handle) runOnTerminalHandle(handle, command);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabs]);
 
   // ── Global keyboard shortcuts + command palette ─────────────────────────
   const shortcutHandlers: Record<string, () => void> = {
@@ -348,10 +365,20 @@ export default function App() {
           tabs={tabs}
           activeTabId={activeTabId}
           splitOpen={splitOpen}
+          broadcastActive={broadcastMode}
           onSelect={setActiveTabId}
           onClose={closeTab}
           onToggleSplit={toggleSplit}
+          onToggleBroadcast={() => setBroadcastMode((v) => !v)}
           onReorder={setTabs}
+        />
+      )}
+
+      {broadcastMode && (
+        <BroadcastBar
+          targetCount={broadcastTargets.length}
+          onSend={broadcastCommand}
+          onClose={() => setBroadcastMode(false)}
         />
       )}
 

@@ -125,6 +125,20 @@ pub async fn pane_chmod(state: State<'_, AppState>, pane_id: String, cwd: String
     Ok(PaneListed { cwd, entries })
 }
 
+/// Reads a small file's whole content for the quick-edit modal — no local temp
+/// file involved. Callers are expected to gate on file size before calling this.
+#[tauri::command]
+pub async fn read_pane_file(state: State<'_, AppState>, pane_id: String, cwd: String, name: String) -> Result<String, String> {
+    let reference = pane_ref(&state, &pane_id)?;
+    transfer::read_text(&reference, &cwd, &name).await.map_err(|e| e.to_string())
+}
+
+#[tauri::command]
+pub async fn write_pane_file(state: State<'_, AppState>, pane_id: String, cwd: String, name: String, content: String) -> Result<(), String> {
+    let reference = pane_ref(&state, &pane_id)?;
+    transfer::write_text(&reference, &cwd, &name, &content).await.map_err(|e| e.to_string())
+}
+
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct TransferProgressEvent {

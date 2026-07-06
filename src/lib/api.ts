@@ -76,6 +76,8 @@ export const api = {
   paneRename: (paneId: string, cwd: string, oldName: string, newName: string) => invoke<PaneListed>("pane_rename", { paneId, cwd, oldName, newName }),
   paneRemove: (paneId: string, cwd: string, entry: Entry) => invoke<PaneListed>("pane_remove", { paneId, cwd, entry }),
   paneChmod: (paneId: string, cwd: string, name: string, mode: number) => invoke<PaneListed>("pane_chmod", { paneId, cwd, name, mode }),
+  readPaneFile: (paneId: string, cwd: string, name: string) => invoke<string>("read_pane_file", { paneId, cwd, name }),
+  writePaneFile: (paneId: string, cwd: string, name: string, content: string) => invoke<void>("write_pane_file", { paneId, cwd, name, content }),
   uploadPaths: (paneId: string, cwd: string, localPaths: string[]) => invoke<string[]>("upload_paths", { paneId, cwd, localPaths }),
   cancelTransfer: (transferId: string) => invoke<void>("cancel_transfer", { transferId }),
 };

@@ -64,6 +64,8 @@ fn main() {
             commands::sftp::pane_rename,
             commands::sftp::pane_remove,
             commands::sftp::pane_chmod,
+            commands::sftp::read_pane_file,
+            commands::sftp::write_pane_file,
             commands::sftp::upload_paths,
             commands::sftp::cancel_transfer,
             commands::forward::start_forward,

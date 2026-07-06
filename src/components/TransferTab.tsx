@@ -5,9 +5,23 @@ import { api, onTransferDone, onTransferError, onTransferProgress } from "../lib
 import type { AppPreferences } from "../lib/preferences";
 import type { Entry, Host, PaneListed, PaneOpened, PaneSource, PaneState, Workspace } from "../lib/types";
 import { IconFolder, IconEdit, IconTrash, IconShield, IconClose } from "./ui-icons";
+import { QuickEditModal } from "./QuickEditModal";
 
 type Side = "left" | "right";
 type PanesState = Record<Side, PaneState>;
+
+// Files above this size don't get a quick-edit button — they'd be unwieldy
+// in a plain textarea and this isn't meant to replace a real editor.
+const QUICK_EDIT_MAX_SIZE = 512 * 1024;
+
+interface EditingFile {
+  side: Side;
+  name: string;
+  content: string;
+  loading: boolean;
+  saving: boolean;
+  error: string | null;
+}
 type SortKey = "name" | "modified" | "type" | "size";
 type SortDir = "asc" | "desc";
 
@@ -180,17 +194,30 @@ export function TransferTab({ host, workspace, preferences, onError }: TransferT
     await openPaneFor(side, source);
   };
 
-  const copy = async (side: Side, entry: Entry) => {
+  const copy = async (side: Side, entries: Entry[]) => {
     const destSide: Side = side === "left" ? "right" : "left";
     const sourceId = paneIds.current[side];
     const destId = paneIds.current[destSide];
-    if (!sourceId || !destId) return;
+    if (!sourceId || !destId || entries.length === 0) return;
     try {
-      const result = await api.copyEntry(sourceId, state[side].cwd, entry, destId, state[destSide].cwd);
-      dispatch({ type: "listed", side: destSide, result });
+      let result: PaneListed | null = null;
+      for (const entry of entries) {
+        result = await api.copyEntry(sourceId, state[side].cwd, entry, destId, state[destSide].cwd);
+      }
+      if (result) dispatch({ type: "listed", side: destSide, result });
     } catch (e) {
       onError(String(e));
     }
+  };
+
+  // ── Drag-and-drop between the two panes ──────────────────────────────────
+  const dragPayload = useRef<{ side: Side; entries: Entry[] } | null>(null);
+  const handleDragStartEntries = (side: Side, entries: Entry[]) => { dragPayload.current = { side, entries }; };
+  const handleDropEntries = (side: Side) => {
+    const payload = dragPayload.current;
+    dragPayload.current = null;
+    if (!payload || payload.side === side) return;
+    copy(payload.side, payload.entries);
   };
 
   const mkdir = async (side: Side, name: string) => {
@@ -230,6 +257,34 @@ export function TransferTab({ host, workspace, preferences, onError }: TransferT
       const result = await api.paneChmod(paneId, state[side].cwd, name, mode);
       dispatch({ type: "listed", side, result });
     } catch (e) { onError(String(e)); }
+  };
+
+  // ── Quick-edit a small text file in place ────────────────────────────────
+  const [editing, setEditing] = useState<EditingFile | null>(null);
+
+  const openEdit = async (side: Side, name: string) => {
+    const paneId = paneIds.current[side];
+    if (!paneId) return;
+    setEditing({ side, name, content: "", loading: true, saving: false, error: null });
+    try {
+      const content = await api.readPaneFile(paneId, state[side].cwd, name);
+      setEditing((prev) => (prev && prev.name === name ? { ...prev, content, loading: false } : prev));
+    } catch (e) {
+      setEditing((prev) => (prev && prev.name === name ? { ...prev, loading: false, error: String(e) } : prev));
+    }
+  };
+
+  const saveEdit = async (content: string) => {
+    if (!editing) return;
+    const paneId = paneIds.current[editing.side];
+    if (!paneId) return;
+    setEditing((prev) => (prev ? { ...prev, saving: true, error: null } : prev));
+    try {
+      await api.writePaneFile(paneId, state[editing.side].cwd, editing.name, content);
+      setEditing(null);
+    } catch (e) {
+      setEditing((prev) => (prev ? { ...prev, saving: false, error: String(e) } : prev));
+    }
   };
 
   // ── OS drag-and-drop upload ──────────────────────────────────────────────
@@ -304,7 +359,7 @@ export function TransferTab({ host, workspace, preferences, onError }: TransferT
     <div className="flex min-h-0 flex-1 flex-col">
       <div ref={containerRef} className="flex min-h-0 flex-1">
         <div ref={leftPaneRef} style={{ width: `${leftPercent}%` }} className="flex min-h-0 shrink-0 flex-col overflow-hidden">
-          <PaneView side="left" pane={state.left} workspace={workspace} fontSize={fontSize} onNavigate={navigate} onSourceChange={changeSource} onCopy={copy} onMkdir={mkdir} onRename={rename} onRemove={remove} onChmod={chmod} />
+          <PaneView side="left" pane={state.left} workspace={workspace} fontSize={fontSize} onNavigate={navigate} onSourceChange={changeSource} onCopy={copy} onMkdir={mkdir} onRename={rename} onRemove={remove} onChmod={chmod} onEdit={openEdit} onDragStartEntries={handleDragStartEntries} onDropEntries={handleDropEntries} />
         </div>
         <div
           onMouseDown={onDividerDrag}
@@ -313,7 +368,7 @@ export function TransferTab({ host, workspace, preferences, onError }: TransferT
           <div className="h-full w-px bg-[var(--c-border)] transition-colors group-hover:bg-[var(--c-accent)]" />
         </div>
         <div ref={rightPaneRef} className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <PaneView side="right" pane={state.right} workspace={workspace} fontSize={fontSize} onNavigate={navigate} onSourceChange={changeSource} onCopy={copy} onMkdir={mkdir} onRename={rename} onRemove={remove} onChmod={chmod} />
+          <PaneView side="right" pane={state.right} workspace={workspace} fontSize={fontSize} onNavigate={navigate} onSourceChange={changeSource} onCopy={copy} onMkdir={mkdir} onRename={rename} onRemove={remove} onChmod={chmod} onEdit={openEdit} onDragStartEntries={handleDragStartEntries} onDropEntries={handleDropEntries} />
         </div>
       </div>
 
@@ -343,6 +398,18 @@ export function TransferTab({ host, workspace, preferences, onError }: TransferT
           })}
         </div>
       )}
+
+      {editing && (
+        <QuickEditModal
+          fileName={editing.name}
+          content={editing.content}
+          loading={editing.loading}
+          saving={editing.saving}
+          error={editing.error}
+          onSave={saveEdit}
+          onClose={() => setEditing(null)}
+        />
+      )}
     </div>
   );
 }
@@ -365,11 +432,14 @@ interface PaneViewProps {
   fontSize: number;
   onNavigate: (side: Side, path: string) => void;
   onSourceChange: (side: Side, source: PaneSource) => void;
-  onCopy: (side: Side, entry: Entry) => void;
+  onCopy: (side: Side, entries: Entry[]) => void;
   onMkdir: (side: Side, name: string) => void;
   onRename: (side: Side, oldName: string, newName: string) => void;
   onRemove: (side: Side, entries: Entry[]) => void;
   onChmod: (side: Side, name: string, mode: number) => void;
+  onEdit: (side: Side, name: string) => void;
+  onDragStartEntries: (side: Side, entries: Entry[]) => void;
+  onDropEntries: (side: Side) => void;
 }
 
 function ColHeader({
@@ -390,7 +460,7 @@ function ColHeader({
   );
 }
 
-function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange, onCopy, onMkdir, onRename, onRemove, onChmod }: PaneViewProps) {
+function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange, onCopy, onMkdir, onRename, onRemove, onChmod, onEdit, onDragStartEntries, onDropEntries }: PaneViewProps) {
   const [gotoPath, setGotoPath] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -402,6 +472,7 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [chmodTarget, setChmodTarget] = useState<string | null>(null);
   const [chmodValue, setChmodValue] = useState("755");
+  const [dragOver, setDragOver] = useState(false);
   const copyLabel = side === "left" ? "→" : "←";
   const isRemote = pane.source.kind === "remote";
 
@@ -586,6 +657,15 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
                     <IconShield size={12} /> Permissions
                   </button>
                 )}
+                {selectedEntries.length > 1 && (
+                  <button
+                    onClick={() => onCopy(side, selectedEntries)}
+                    title={`Copier ${selectedEntries.length} éléments vers l'autre panneau`}
+                    className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+                  >
+                    {copyLabel} Copier ({selectedEntries.length})
+                  </button>
+                )}
                 {selectedEntries.length > 0 && (
                   confirmDelete ? (
                     <div className="flex items-center gap-1">
@@ -625,10 +705,18 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
           </div>
 
           {/* File list */}
-          <div className="min-h-0 flex-1 overflow-y-auto" style={{ fontSize: `${fontSize}px` }}>
+          <div
+            className={`min-h-0 flex-1 overflow-y-auto ${dragOver ? "bg-[var(--c-accent-dim)]/30 ring-1 ring-inset ring-[var(--c-accent)]" : ""}`}
+            style={{ fontSize: `${fontSize}px` }}
+            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
+            onDragLeave={() => setDragOver(false)}
+            onDrop={(e) => { e.preventDefault(); setDragOver(false); onDropEntries(side); }}
+          >
             {sorted.map((entry) => (
               <div
                 key={entry.name}
+                draggable
+                onDragStart={() => onDragStartEntries(side, selected.has(entry.name) && selectedEntries.length > 1 ? selectedEntries : [entry])}
                 className={`group flex items-center gap-1 px-2 py-[3px] hover:bg-[var(--c-bg2)] ${selected.has(entry.name) ? "bg-[var(--c-accent-dim)]" : ""}`}
               >
                 <input
@@ -662,9 +750,20 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
                   {formatSize(entry.size, entry.isDir)}
                 </span>
 
+                {/* Quick edit */}
+                {!entry.isDir && entry.size <= QUICK_EDIT_MAX_SIZE && (
+                  <button
+                    onClick={() => onEdit(side, entry.name)}
+                    title="Éditer le contenu"
+                    className="w-6 shrink-0 rounded px-0.5 text-center text-[var(--c-text-faint)] opacity-0 hover:bg-[var(--c-accent)] hover:text-white focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+                  >
+                    <IconEdit size={12} className="mx-auto" />
+                  </button>
+                )}
+
                 {/* Copy button */}
                 <button
-                  onClick={() => onCopy(side, entry)}
+                  onClick={() => onCopy(side, [entry])}
                   title={entry.isDir ? "Copier le dossier vers l'autre panneau" : "Copier vers l'autre panneau"}
                   className="w-6 shrink-0 rounded px-0.5 text-center text-[var(--c-text-faint)] opacity-0 hover:bg-[var(--c-accent)] hover:text-white focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
                 >

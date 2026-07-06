@@ -265,6 +265,18 @@ export function IconBell({ size = 16, className }: P) {
   );
 }
 
+export function IconBroadcast({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <circle cx="8" cy="8" r="1.5" fill="currentColor" />
+      <path d="M5.5 5.5a3.6 3.6 0 0 0 0 5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+      <path d="M10.5 5.5a3.6 3.6 0 0 1 0 5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+      <path d="M3.2 3.2a6.6 6.6 0 0 0 0 9.6" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+      <path d="M12.8 3.2a6.6 6.6 0 0 1 0 9.6" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function IconRefresh({ size = 16, className }: P) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>

@@ -49,6 +49,24 @@ pub async fn set_permissions(pane: &PaneRef, cwd: &str, name: &str, mode: u32) -
     }
 }
 
+/// Reads a file's whole content as text, for quick in-place editing.
+pub async fn read_text(pane: &PaneRef, cwd: &str, name: &str) -> anyhow::Result<String> {
+    let path = sftp::join(cwd, name);
+    match pane {
+        PaneRef::Local => Ok(tokio::fs::read_to_string(&path).await?),
+        PaneRef::Remote(client) => client.read_to_string(&path).await,
+    }
+}
+
+/// Overwrites a file's whole content, for quick in-place editing.
+pub async fn write_text(pane: &PaneRef, cwd: &str, name: &str, content: &str) -> anyhow::Result<()> {
+    let path = sftp::join(cwd, name);
+    match pane {
+        PaneRef::Local => Ok(tokio::fs::write(&path, content).await?),
+        PaneRef::Remote(client) => client.write_string(&path, content).await,
+    }
+}
+
 /// Deletes `entry` (file or directory, recursively) from `cwd` on `pane`.
 pub async fn remove(pane: &PaneRef, cwd: &str, entry: &Entry) -> anyhow::Result<()> {
     let path = sftp::join(cwd, &entry.name);

@@ -81,6 +81,25 @@ impl SftpClient {
         Ok(self.session.set_metadata(path, attrs).await?)
     }
 
+    /// Reads a whole remote file into memory for quick in-place editing — no local
+    /// temp file involved. Only meant for small text files; callers are expected to
+    /// gate on size before calling this.
+    pub async fn read_to_string(&self, path: &str) -> anyhow::Result<String> {
+        use tokio::io::AsyncReadExt;
+        let mut file = self.session.open(path).await?;
+        let mut buf = Vec::new();
+        file.read_to_end(&mut buf).await?;
+        String::from_utf8(buf).map_err(|_| anyhow::anyhow!("le fichier n'est pas du texte UTF-8 valide"))
+    }
+
+    /// Overwrites a remote file's entire content, for quick in-place editing.
+    pub async fn write_string(&self, path: &str, content: &str) -> anyhow::Result<()> {
+        use tokio::io::AsyncWriteExt;
+        let mut file = self.session.create(path).await?;
+        file.write_all(content.as_bytes()).await?;
+        Ok(())
+    }
+
     /// Downloads in fixed-size chunks, reporting `(bytes_done, bytes_total)` after each
     /// one so callers can surface progress — `total` is passed in rather than re-queried
     /// from the server since the caller (a directory listing) already knows it.
