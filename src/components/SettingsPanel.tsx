@@ -1,12 +1,17 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import type { ComponentType } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { getVersion } from "@tauri-apps/api/app";
+import { check, type Update } from "@tauri-apps/plugin-updater";
+import { relaunch } from "@tauri-apps/plugin-process";
 import { api } from "../lib/api";
 import type { Workspace } from "../lib/types";
 import type { AppPreferences } from "../lib/preferences";
 import { TERMINAL_THEMES, FONT_FAMILIES, ACCENT_COLORS, BG_THEMES, type UiAccent, type UiBg, type ColorMode } from "../lib/preferences";
 import { SHORTCUT_ACTIONS, defaultShortcuts, comboFromEvent } from "../lib/shortcuts";
-import { IconUpload, IconDownload, IconPalette, IconTerminal, IconTransfer, IconKeyboard, IconBell, IconSettings, IconSun, IconMoon } from "./ui-icons";
+import { IconUpload, IconDownload, IconPalette, IconTerminal, IconTransfer, IconKeyboard, IconBell, IconSettings, IconSun, IconMoon, IconRefresh } from "./ui-icons";
+
+type UpdateStatus = "idle" | "checking" | "upToDate" | "available" | "installing" | "error";
 
 interface SettingsPanelProps {
   workspace: Workspace;
@@ -73,12 +78,50 @@ function ToggleRow({ label, checked, onChange }: { label: string; checked: boole
   );
 }
 
-export function SettingsPanel({ onWorkspaceUpdate, onError, preferences, onPreferencesChange }: SettingsPanelProps) {
+export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferences, onPreferencesChange }: SettingsPanelProps) {
   const [category, setCategory] = useState<SettingsCategory>("apparence");
   const [importPending, setImportPending] = useState<ImportPending | null>(null);
   const [done, setDone] = useState<string | null>(null);
+  const [includeKeyMaterial, setIncludeKeyMaterial] = useState(false);
+  const [appVersion, setAppVersion] = useState<string | null>(null);
+  const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle");
+  const [updateError, setUpdateError] = useState<string | null>(null);
+  const [pendingUpdate, setPendingUpdate] = useState<Update | null>(null);
+
+  useEffect(() => { getVersion().then(setAppVersion).catch(() => {}); }, []);
 
   const fileFilters = [{ name: "JSON", extensions: ["json"] }];
+
+  const checkForUpdates = async () => {
+    setUpdateStatus("checking");
+    setUpdateError(null);
+    try {
+      const result = await check();
+      if (result) {
+        setPendingUpdate(result);
+        setUpdateStatus("available");
+      } else {
+        setPendingUpdate(null);
+        setUpdateStatus("upToDate");
+      }
+    } catch (e) {
+      setUpdateStatus("error");
+      setUpdateError(String(e));
+    }
+  };
+
+  const installUpdate = async () => {
+    if (!pendingUpdate) return;
+    setUpdateStatus("installing");
+    setUpdateError(null);
+    try {
+      await pendingUpdate.downloadAndInstall();
+      await relaunch();
+    } catch (e) {
+      setUpdateStatus("error");
+      setUpdateError(String(e));
+    }
+  };
 
   const flash = (msg: string) => {
     setDone(msg);
@@ -93,7 +136,7 @@ export function SettingsPanel({ onWorkspaceUpdate, onError, preferences, onPrefe
         filters: fileFilters,
       });
       if (path) {
-        await api.exportWorkspace(path);
+        await api.exportWorkspace(path, includeKeyMaterial);
         flash("Configuration exportée ✓");
       }
     } catch (e) { onError(String(e)); }
@@ -367,6 +410,47 @@ export function SettingsPanel({ onWorkspaceUpdate, onError, preferences, onPrefe
         {category === "general" && (
           <>
             <section className="space-y-2">
+              <p className="text-[13px] font-medium text-[var(--c-text)]">Mises à jour</p>
+              <div className="space-y-2 rounded-lg bg-[var(--c-bg3)] p-3">
+                <p className="text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+                  Version installée : <span className="font-mono text-[var(--c-text-secondary)]">{appVersion ?? "…"}</span>
+                </p>
+
+                {updateStatus === "available" && pendingUpdate ? (
+                  <div className="space-y-2">
+                    <p className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-2 text-[12px] text-emerald-200">
+                      Version {pendingUpdate.version} disponible.
+                      {pendingUpdate.body && <><br />{pendingUpdate.body}</>}
+                    </p>
+                    <button
+                      onClick={installUpdate}
+                      disabled={updateStatus !== "available"}
+                      className="flex w-full items-center justify-center gap-2 rounded-md bg-emerald-700 px-3 py-2 text-[13px] font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+                    >
+                      Installer et redémarrer
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={checkForUpdates}
+                    disabled={updateStatus === "checking" || updateStatus === "installing"}
+                    className="flex w-full items-center justify-center gap-2 rounded-md bg-[var(--c-bg2)] px-3 py-2 text-[13px] font-medium text-[var(--c-text)] hover:bg-white/5 disabled:opacity-50"
+                  >
+                    <IconRefresh size={13} />
+                    {updateStatus === "checking" && "Recherche…"}
+                    {updateStatus === "installing" && "Installation…"}
+                    {(updateStatus === "idle" || updateStatus === "error") && "Vérifier les mises à jour"}
+                    {updateStatus === "upToDate" && "À jour ✓"}
+                  </button>
+                )}
+
+                {updateStatus === "error" && updateError && (
+                  <p className="rounded-md border border-rose-500/30 bg-rose-500/10 px-2.5 py-2 text-[12px] text-rose-200">{updateError}</p>
+                )}
+              </div>
+            </section>
+
+            <section className="space-y-2">
               <p className="text-[13px] font-medium text-[var(--c-text)]">Session</p>
               <div className="space-y-1 rounded-lg bg-[var(--c-bg3)] p-1.5">
                 <ToggleRow
@@ -385,8 +469,21 @@ export function SettingsPanel({ onWorkspaceUpdate, onError, preferences, onPrefe
               <div className="space-y-2 rounded-lg bg-[var(--c-bg3)] p-3">
                 <p className="text-[12px] leading-relaxed text-[var(--c-text-muted)]">
                   Exporte toute la configuration (hôtes, dossiers, snippets, clés, icônes…) dans un fichier JSON.
-                  Les mots de passe et passphrases ne sont jamais exportés.
+                  Les mots de passe et passphrases restent dans le trousseau du système : ils ne sont jamais exportés.
                 </p>
+                {workspace.keychain.length > 0 && (
+                  <label className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-[12px] text-amber-200">
+                    <input
+                      type="checkbox"
+                      checked={includeKeyMaterial}
+                      onChange={(e) => setIncludeKeyMaterial(e.target.checked)}
+                      className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[var(--c-accent)]"
+                    />
+                    <span>
+                      Inclure le contenu des clés privées du trousseau — elles seraient écrites en clair, non chiffrées, dans le fichier exporté.
+                    </span>
+                  </label>
+                )}
                 <button
                   onClick={handleExportWorkspace}
                   className="flex w-full items-center justify-center gap-2 rounded-md bg-sky-700 px-3 py-2 text-[13px] font-medium text-white hover:bg-sky-600"

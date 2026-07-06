@@ -31,11 +31,22 @@ pub struct HostExport {
 
 // ─── Build exports ──────────────────────────────────────────────────────────
 
-pub fn make_workspace_export(workspace: &Workspace) -> WorkspaceExport {
-    WorkspaceExport { export_version: EXPORT_VERSION, workspace: workspace.clone() }
+/// Builds the exportable workspace. `include_key_material` controls whether the PEM
+/// content cached on each keychain key is included: that content is the actual SSH
+/// private key, so callers should only pass `true` after the user has explicitly
+/// opted in (e.g. to move their setup to another machine), not by default.
+pub fn make_workspace_export(workspace: &Workspace, include_key_material: bool) -> WorkspaceExport {
+    let mut workspace = workspace.clone();
+    if !include_key_material {
+        for key in &mut workspace.keychain {
+            key.content = None;
+        }
+    }
+    WorkspaceExport { export_version: EXPORT_VERSION, workspace }
 }
 
-pub fn make_host_export(workspace: &Workspace, host_id: HostId) -> Option<HostExport> {
+/// See [`make_workspace_export`] for what `include_key_material` controls.
+pub fn make_host_export(workspace: &Workspace, host_id: HostId, include_key_material: bool) -> Option<HostExport> {
     let host = workspace.host(host_id)?.clone();
 
     let groups = collect_group_chain(workspace, host.group_id);
@@ -45,11 +56,16 @@ pub fn make_host_export(workspace: &Workspace, host_id: HostId) -> Option<HostEx
         .cloned()
         .collect();
 
-    let keychain_key = if let crate::model::AuthMethod::PrivateKey { key_id: Some(kid), .. } = &host.auth {
+    let mut keychain_key = if let crate::model::AuthMethod::PrivateKey { key_id: Some(kid), .. } = &host.auth {
         workspace.keychain.iter().find(|k| k.id == *kid).cloned()
     } else {
         None
     };
+    if !include_key_material {
+        if let Some(k) = keychain_key.as_mut() {
+            k.content = None;
+        }
+    }
 
     let custom_icon = host.icon.as_deref()
         .and_then(|icon_id| workspace.custom_icons.iter().find(|i| i.id == icon_id))

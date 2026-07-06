@@ -44,9 +44,9 @@ export const api = {
   deleteCustomIcon: (iconId: string) => invoke<Workspace>("delete_custom_icon", { iconId }),
   readIconFile: (path: string) => invoke<string>("read_icon_file", { path }),
 
-  exportWorkspace: (path: string) => invoke<void>("export_workspace", { path }),
+  exportWorkspace: (path: string, includeKeyMaterial: boolean) => invoke<void>("export_workspace", { path, includeKeyMaterial }),
   importWorkspace: (path: string, replace: boolean) => invoke<Workspace>("import_workspace", { path, replace }),
-  exportHost: (hostId: HostId, path: string) => invoke<void>("export_host", { hostId, path }),
+  exportHost: (hostId: HostId, path: string, includeKeyMaterial: boolean) => invoke<void>("export_host", { hostId, path, includeKeyMaterial }),
   importHostFromFile: (path: string) => invoke<Workspace>("import_host_from_file", { path }),
   startForward: (forwardId: PortForwardId) => invoke<void>("start_forward", { forwardId }),
   stopForward: (forwardId: PortForwardId) => invoke<void>("stop_forward", { forwardId }),

@@ -45,6 +45,7 @@ export function HostsPanel({
   const [openMenuHostId, setOpenMenuHostId] = useState<HostId | null>(null);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [hostStatus, setHostStatus] = useState<Record<string, boolean>>({});
+  const [exportPendingHost, setExportPendingHost] = useState<Host | null>(null);
 
   const hostIdsKey = workspace.hosts.map((h) => h.id).join(",");
   useEffect(() => {
@@ -98,12 +99,25 @@ export function HostsPanel({
 
   const fileFilters = [{ name: "JSON", extensions: ["json"] }];
 
-  const handleExportHost = async (host: Host) => {
+  /// Whether `host` authenticates with a keychain-stored private key — the only
+  /// case where an export can carry actual key material (see `doExportHost`).
+  const hostUsesKeychainKey = (host: Host) =>
+    typeof host.auth === "object" && "privateKey" in host.auth && host.auth.privateKey.keyId !== null;
+
+  const doExportHost = async (host: Host, includeKeyMaterial: boolean) => {
     try {
       const safeName = host.label.replace(/[^a-zA-Z0-9_-]/g, "_");
       const path = await save({ title: "Exporter l'hôte", defaultPath: `${safeName}.json`, filters: fileFilters });
-      if (path) await api.exportHost(host.id, path);
+      if (path) await api.exportHost(host.id, path, includeKeyMaterial);
     } catch (e) { onError?.(String(e)); }
+  };
+
+  const handleExportHost = (host: Host) => {
+    if (hostUsesKeychainKey(host)) {
+      setExportPendingHost(host);
+    } else {
+      doExportHost(host, false);
+    }
   };
 
   const handleImportHost = async () => {
@@ -345,6 +359,39 @@ export function HostsPanel({
           <p className="px-1 py-4 text-center text-[13px] text-[var(--c-text-muted)]">Aucun hôte enregistré</p>
         )}
       </div>
+
+      {exportPendingHost && (
+        <>
+          <div className="fixed inset-0 z-30 bg-black/50" onClick={() => setExportPendingHost(null)} />
+          <div className="fixed left-1/2 top-1/2 z-40 w-[420px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-lg bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]">
+            <div className="border-b border-[var(--c-border)] px-4 py-3">
+              <p className="text-[14px] font-medium text-[var(--c-text)]">Exporter « {exportPendingHost.label} »</p>
+              <p className="mt-0.5 text-[11px] text-[var(--c-text-muted)]">
+                Cet hôte utilise une clé du trousseau. Faut-il l'inclure dans le fichier exporté ?
+              </p>
+            </div>
+            <div className="p-3">
+              <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-[12px] text-amber-200">
+                La clé privée serait écrite en clair, non chiffrée, dans le fichier JSON. Ne la partagez qu'avec des personnes de confiance, sur un canal sûr.
+              </p>
+            </div>
+            <div className="flex gap-1.5 border-t border-[var(--c-border)] p-2">
+              <button
+                onClick={() => { const h = exportPendingHost; setExportPendingHost(null); doExportHost(h, false); }}
+                className="accent-surface flex-1 rounded-md border py-1.5 text-xs font-medium"
+              >
+                Exporter sans la clé
+              </button>
+              <button
+                onClick={() => { const h = exportPendingHost; setExportPendingHost(null); doExportHost(h, true); }}
+                className="flex-1 rounded-md bg-rose-900/40 py-1.5 text-xs font-medium text-rose-200 hover:bg-rose-900/60"
+              >
+                Inclure la clé privée
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

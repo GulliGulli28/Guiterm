@@ -84,6 +84,9 @@ impl SftpClient {
     /// Downloads in fixed-size chunks, reporting `(bytes_done, bytes_total)` after each
     /// one so callers can surface progress — `total` is passed in rather than re-queried
     /// from the server since the caller (a directory listing) already knows it.
+    ///
+    /// On cancellation or a mid-transfer error, the partially-written local file is
+    /// removed rather than left behind looking like a complete download.
     pub async fn download(
         &self,
         remote_path: &str,
@@ -97,22 +100,34 @@ impl SftpClient {
         let mut local_file = tokio::fs::File::create(local_path).await?;
         let mut buf = vec![0u8; CHUNK_SIZE];
         let mut done = 0u64;
-        loop {
+        let result: anyhow::Result<()> = loop {
             if cancel.load(Ordering::Relaxed) {
-                anyhow::bail!("transfert annulé");
+                break Err(anyhow::anyhow!("transfert annulé"));
             }
-            let n = remote_file.read(&mut buf).await?;
+            let n = match remote_file.read(&mut buf).await {
+                Ok(n) => n,
+                Err(e) => break Err(e.into()),
+            };
             if n == 0 {
-                break;
+                break Ok(());
             }
-            local_file.write_all(&buf[..n]).await?;
+            if let Err(e) = local_file.write_all(&buf[..n]).await {
+                break Err(e.into());
+            }
             done += n as u64;
             on_progress(done, total);
+        };
+        if result.is_err() {
+            drop(local_file);
+            let _ = tokio::fs::remove_file(local_path).await;
         }
-        Ok(())
+        result
     }
 
     /// Uploads in fixed-size chunks, reporting `(bytes_done, bytes_total)` after each one.
+    ///
+    /// On cancellation or a mid-transfer error, the partially-written remote file is
+    /// removed rather than left behind looking like a complete upload.
     pub async fn upload(
         &self,
         local_path: &std::path::Path,
@@ -128,19 +143,28 @@ impl SftpClient {
         let mut remote_file = self.session.create(remote_path).await?;
         let mut buf = vec![0u8; CHUNK_SIZE];
         let mut done = 0u64;
-        loop {
+        let result: anyhow::Result<()> = loop {
             if cancel.load(Ordering::Relaxed) {
-                anyhow::bail!("transfert annulé");
+                break Err(anyhow::anyhow!("transfert annulé"));
             }
-            let n = local_file.read(&mut buf).await?;
+            let n = match local_file.read(&mut buf).await {
+                Ok(n) => n,
+                Err(e) => break Err(e.into()),
+            };
             if n == 0 {
-                break;
+                break Ok(());
             }
-            remote_file.write_all(&buf[..n]).await?;
+            if let Err(e) = remote_file.write_all(&buf[..n]).await {
+                break Err(e.into());
+            }
             done += n as u64;
             on_progress(done, total);
+        };
+        if result.is_err() {
+            drop(remote_file);
+            let _ = self.session.remove_file(remote_path).await;
         }
-        Ok(())
+        result
     }
 }
 

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from "react";
+import { check as checkForUpdate } from "@tauri-apps/plugin-updater";
 import { api, bytesToBase64 } from "./lib/api";
 import type { GroupId, Host, TabMeta, Workspace } from "./lib/types";
 import { Sidebar, type SidebarPanelKind } from "./components/Sidebar";
@@ -158,6 +159,17 @@ export default function App() {
   useEffect(() => {
     api.getWorkspace().then(setWorkspace).catch((e) => reportError(String(e)));
   }, [reportError]);
+
+  // Silent background check on launch: only surfaces a notification pointing to
+  // Paramètres → Général, never downloads/installs on its own (that always
+  // requires an explicit click, since it restarts the app).
+  useEffect(() => {
+    checkForUpdate()
+      .then((update) => {
+        if (update) pushNotification("info", `Mise à jour disponible : v${update.version} — Paramètres → Général pour l'installer.`);
+      })
+      .catch(() => {});
+  }, [pushNotification]);
 
   const refreshWorkspace = useCallback((next: Workspace) => setWorkspace(next), []);
 

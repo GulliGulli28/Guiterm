@@ -108,6 +108,6 @@ pub fn current_username() -> String {
 pub fn test_host(sshd: &TestSshd, key: &ClientKey, label: &str) -> termius_core::model::Host {
     let mut host = termius_core::model::Host::new(label, "127.0.0.1", current_username());
     host.port = sshd.port;
-    host.auth = termius_core::model::AuthMethod::PrivateKey { path: key.private.to_string_lossy().to_string() };
+    host.auth = termius_core::model::AuthMethod::PrivateKey { path: key.private.to_string_lossy().to_string(), key_id: None };
     host
 }

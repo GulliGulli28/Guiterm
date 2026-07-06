@@ -44,7 +44,7 @@ async fn wrong_key_is_rejected() {
     let sshd = TestSshd::start("rejected", &key.public);
 
     let mut host = test_host(&sshd, &key, "test-reject");
-    host.auth = AuthMethod::PrivateKey { path: wrong_key.private.to_string_lossy().to_string() };
+    host.auth = AuthMethod::PrivateKey { path: wrong_key.private.to_string_lossy().to_string(), key_id: None };
     let host_id = host.id;
 
     let mut workspace = Workspace::default();
@@ -67,7 +67,7 @@ async fn bastion_chain_reaches_the_target() {
     let bastion_id = bastion.id;
 
     let mut target = test_host(&target_sshd, &key, "test-target");
-    target.jump_via = Some(bastion_id);
+    target.jump_via = vec![bastion_id];
     let target_id = target.id;
 
     let mut workspace = Workspace::default();

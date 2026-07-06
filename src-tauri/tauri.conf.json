@@ -29,6 +29,15 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "createUpdaterArtifacts": true,
     "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.png", "icons/icon.ico", "icons/icon.icns"]
+  },
+  "plugins": {
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEExQTUwMkI1OUY5RTlGNEEKUldSS241NmZ0UUtsb1lRSGNLS29ZS2NrMjJ4OTNjUlZ4NmVjY1VnMTNCeUVJK25mTWhFTjF2NzAK",
+      "endpoints": [
+        "https://github.com/GulliGulli28/gui-termius/releases/latest/download/latest.json"
+      ]
+    }
   }
 }

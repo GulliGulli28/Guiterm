@@ -264,3 +264,14 @@ export function IconBell({ size = 16, className }: P) {
     </svg>
   );
 }
+
+export function IconRefresh({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path d="M2.5 8a5.5 5.5 0 0 1 9.3-4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+      <path d="M13.5 8a5.5 5.5 0 0 1-9.3 4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+      <path d="M11.5 2.5v2.5H9" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M4.5 13.5V11H7" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}

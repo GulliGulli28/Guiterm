@@ -13,6 +13,8 @@
     "core:window:allow-close",
     "core:window:allow-is-maximized",
     "core:window:allow-start-dragging",
-    "core:window:default"
+    "core:window:default",
+    "updater:default",
+    "process:allow-restart"
   ]
 }

@@ -78,6 +78,18 @@ pub fn save_host(state: State<'_, AppState>, input: SaveHostInput) -> Result<Wor
         },
     };
 
+    // Clean up whichever per-host secret slot no longer applies to the (possibly
+    // just-changed) auth method, so e.g. switching Password -> Agent doesn't leave
+    // a stale password behind in the OS keychain indefinitely.
+    match &input.auth {
+        AuthMethod::Password => { let _ = vault::delete(host_id, SecretKind::KeyPassphrase); },
+        AuthMethod::PrivateKey { key_id: None, .. } => { let _ = vault::delete(host_id, SecretKind::Password); },
+        AuthMethod::PrivateKey { key_id: Some(_), .. } | AuthMethod::Agent => {
+            let _ = vault::delete(host_id, SecretKind::Password);
+            let _ = vault::delete(host_id, SecretKind::KeyPassphrase);
+        },
+    }
+
     if let Some(secret) = input.secret.filter(|s| !s.is_empty()) {
         match &input.auth {
             AuthMethod::Password => { let _ = vault::store(host_id, SecretKind::Password, &secret); },
@@ -179,12 +191,8 @@ pub fn read_icon_file(path: String) -> Result<String, String> {
 
 #[tauri::command]
 pub async fn check_host_status(state: State<'_, AppState>, host_id: HostId) -> Result<bool, String> {
-    let host = {
-        let workspace = state.workspace.lock().expect("lock poisoned");
-        workspace.host(host_id).cloned()
-    };
-    let host = host.ok_or_else(|| "hôte introuvable".to_string())?;
-    Ok(termius_core::ssh::probe(&host).await)
+    let workspace = state.workspace.lock().expect("lock poisoned").clone();
+    Ok(termius_core::ssh::probe(&workspace, host_id).await)
 }
 
 #[tauri::command]

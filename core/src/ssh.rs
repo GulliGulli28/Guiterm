@@ -381,8 +381,15 @@ pub async fn open_shell(connection: &Connection, cols: u16, rows: u16, agent_for
 /// Lightweight reachability check: a raw TCP connect attempt with a short timeout,
 /// no SSH handshake. Meant for a quick "online / offline" indicator, not a real
 /// connection test (auth or host-key issues won't show up here).
-pub async fn probe(host: &Host) -> bool {
-    tokio::time::timeout(Duration::from_secs(3), tokio::net::TcpStream::connect((host.address.as_str(), host.port)))
+///
+/// For a host reached through one or more bastions, `host`'s own address is
+/// typically a private IP that isn't directly reachable from here — only the
+/// first hop is. So this probes the first hop in the jump chain (the entry
+/// bastion, or `host` itself when there's none) rather than the target directly.
+pub async fn probe(workspace: &Workspace, host_id: HostId) -> bool {
+    let Ok(chain) = workspace.jump_chain(host_id) else { return false };
+    let first = chain[0];
+    tokio::time::timeout(Duration::from_secs(3), tokio::net::TcpStream::connect((first.address.as_str(), first.port)))
         .await
         .map(|r| r.is_ok())
         .unwrap_or(false)

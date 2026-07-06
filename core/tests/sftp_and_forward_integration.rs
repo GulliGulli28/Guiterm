@@ -3,6 +3,7 @@
 mod common;
 
 use common::{ClientKey, TestSshd, test_host};
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use termius_core::model::{PortForward, PortForwardKind, Workspace};
 use termius_core::{port_forward, sftp, ssh};
@@ -31,7 +32,7 @@ async fn sftp_round_trip() {
     let local_src = std::env::temp_dir().join(format!("gui-termius-upload-{}.txt", Uuid::new_v4()));
     tokio::fs::write(&local_src, b"hello sftp").await.unwrap();
 
-    client.upload(&local_src, &remote_file).await.expect("upload");
+    client.upload(&local_src, &remote_file, &AtomicBool::new(false), |_, _| {}).await.expect("upload");
 
     let entries = client.list(&dir).await.expect("list dir");
     assert_eq!(entries.len(), 1);
@@ -40,7 +41,7 @@ async fn sftp_round_trip() {
     assert_eq!(entries[0].size, "hello sftp".len() as u64);
 
     let local_dst = std::env::temp_dir().join(format!("gui-termius-download-{}.txt", Uuid::new_v4()));
-    client.download(&remote_file, &local_dst).await.expect("download");
+    client.download(&remote_file, &local_dst, entries[0].size, &AtomicBool::new(false), |_, _| {}).await.expect("download");
     let downloaded = tokio::fs::read_to_string(&local_dst).await.unwrap();
     assert_eq!(downloaded, "hello sftp");
 

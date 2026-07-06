@@ -81,16 +81,21 @@ async fn start_local(connection: Arc<Connection>, forward: PortForward) -> anyho
 }
 
 async fn start_remote(connection: &Connection, forward: PortForward) -> anyhow::Result<ActiveForward> {
-    connection
-        .target()
-        .tcpip_forward(forward.bind_address.clone(), forward.bind_port as u32)
-        .await
-        .map_err(|e| anyhow::anyhow!("remote refused to forward {}:{}: {e}", forward.bind_address, forward.bind_port))?;
+    let route_key = (forward.bind_address.clone(), forward.bind_port as u32);
 
+    // Register the route *before* asking the server to forward: the server can start
+    // pushing connections as soon as it acks the request, so inserting the mapping
+    // first avoids a race where an early connection finds no route and gets dropped
+    // (see `AppHandler::server_channel_open_forwarded_tcpip`).
     connection.remote_forward_routes().lock().expect("lock poisoned").insert(
-        (forward.bind_address.clone(), forward.bind_port as u32),
+        route_key.clone(),
         (forward.dest_address.clone(), forward.dest_port as u32),
     );
+
+    if let Err(e) = connection.target().tcpip_forward(forward.bind_address.clone(), forward.bind_port as u32).await {
+        connection.remote_forward_routes().lock().expect("lock poisoned").remove(&route_key);
+        anyhow::bail!("remote refused to forward {}:{}: {e}", forward.bind_address, forward.bind_port);
+    }
 
     Ok(ActiveForward { config: forward, kind: ActiveKind::Remote })
 }

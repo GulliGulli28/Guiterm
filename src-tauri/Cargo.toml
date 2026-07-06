@@ -21,6 +21,8 @@ anyhow = "1"
 base64 = "0.22"
 portable-pty = "0.8"
 tauri-plugin-dialog = "2"
+tauri-plugin-updater = "2"
+tauri-plugin-process = "2"
 tracing = "0.1"
 tracing-subscriber = "0.3"
 # Pinned: cookie 0.18.1 (pulled in by tauri/wry) calls a `time` API in a way
