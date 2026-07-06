@@ -160,15 +160,27 @@ export default function App() {
     api.getWorkspace().then(setWorkspace).catch((e) => reportError(String(e)));
   }, [reportError]);
 
-  // Silent background check on launch: only surfaces a notification pointing to
+  // Silent background check on launch, repeated every few hours for
+  // long-running sessions. Only surfaces a notification pointing to
   // Paramètres → Général, never downloads/installs on its own (that always
-  // requires an explicit click, since it restarts the app).
+  // requires an explicit click, since it restarts the app). Re-notifying is
+  // skipped while the same version is still pending, so it doesn't nag on
+  // every check until the user actually installs it.
   useEffect(() => {
-    checkForUpdate()
-      .then((update) => {
-        if (update) pushNotification("info", `Mise à jour disponible : v${update.version} — Paramètres → Général pour l'installer.`);
-      })
-      .catch(() => {});
+    let notifiedVersion: string | null = null;
+    const runCheck = () => {
+      checkForUpdate()
+        .then((update) => {
+          if (update && update.version !== notifiedVersion) {
+            notifiedVersion = update.version;
+            pushNotification("info", `Mise à jour disponible : v${update.version} — Paramètres → Général pour l'installer.`);
+          }
+        })
+        .catch(() => {});
+    };
+    runCheck();
+    const interval = setInterval(runCheck, 6 * 60 * 60 * 1000);
+    return () => clearInterval(interval);
   }, [pushNotification]);
 
   const refreshWorkspace = useCallback((next: Workspace) => setWorkspace(next), []);
