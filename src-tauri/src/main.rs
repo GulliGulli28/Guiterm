@@ -11,7 +11,14 @@ fn main() {
     tracing_subscriber::fmt::init();
 
     let workspace = termius_core::store::load().unwrap_or_default();
-    let app_state = AppState { workspace: std::sync::Mutex::new(workspace), ..Default::default() };
+    let local_history = termius_core::command_history::load("local_history.json").unwrap_or_default();
+    let ssh_history = termius_core::command_history::load("ssh_history.json").unwrap_or_default();
+    let app_state = AppState {
+        workspace: std::sync::Mutex::new(workspace),
+        local_history: std::sync::Mutex::new(local_history),
+        ssh_history: std::sync::Mutex::new(ssh_history),
+        ..Default::default()
+    };
 
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
@@ -58,6 +65,10 @@ fn main() {
             commands::terminal::write_local_terminal,
             commands::terminal::resize_local_terminal,
             commands::terminal::close_local_terminal,
+            commands::command_history::get_local_history,
+            commands::command_history::append_local_history,
+            commands::command_history::get_ssh_history,
+            commands::command_history::append_ssh_history,
             commands::sftp::open_pane,
             commands::sftp::close_pane,
             commands::sftp::list_pane,

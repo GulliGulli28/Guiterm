@@ -1,4 +1,5 @@
 pub mod export;
+pub mod command_history;
 pub mod known_hosts;
 pub mod local_fs;
 pub mod model;

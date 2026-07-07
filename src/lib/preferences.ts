@@ -89,6 +89,10 @@ export interface AppPreferences {
   autoReconnectMaxAttempts: number;
   /** Shell id (from `api.listLocalShells`) used for new local terminals; `null` = system default. */
   defaultLocalShell: string | null;
+  /** Ghost-text command suggestions (based on local history) in local terminals only. */
+  localTerminalSuggestions: boolean;
+  /** Same ghost-text suggestions, but for SSH terminals (history shared across all hosts). Off by default: network latency and remote-shell quirks make it less predictable than the local version. */
+  sshTerminalSuggestions: boolean;
 }
 
 export interface TerminalThemeEntry {
@@ -247,6 +251,8 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   autoReconnect: false,
   autoReconnectMaxAttempts: 5,
   defaultLocalShell: null,
+  localTerminalSuggestions: true,
+  sshTerminalSuggestions: false,
 };
 
 // Same two-stop aurora wash as `.app-aurora-bg` in index.css, but layered over

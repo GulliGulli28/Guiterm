@@ -353,6 +353,28 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
 
             <div className="space-y-1 rounded-lg bg-[var(--c-bg2)] p-1.5">
               <ToggleRow
+                label="Suggestions de commandes en local (texte fantôme)"
+                checked={preferences.localTerminalSuggestions}
+                onChange={(v) => onPreferencesChange({ ...preferences, localTerminalSuggestions: v })}
+              />
+              <p className="px-2 pb-1 text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+                Propose la fin d'une commande déjà tapée, à accepter avec → ou Fin. Terminaux locaux uniquement.
+              </p>
+            </div>
+
+            <div className="space-y-1 rounded-lg bg-[var(--c-bg2)] p-1.5">
+              <ToggleRow
+                label="Suggestions de commandes en SSH (texte fantôme)"
+                checked={preferences.sshTerminalSuggestions}
+                onChange={(v) => onPreferencesChange({ ...preferences, sshTerminalSuggestions: v })}
+              />
+              <p className="px-2 pb-1 text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+                Même principe pour les sessions SSH, historique partagé entre tous les hôtes. Désactivé par défaut : la latence réseau et les prompts distants (thèmes de shell, complétion serveur) le rendent moins fiable qu'en local.
+              </p>
+            </div>
+
+            <div className="space-y-1 rounded-lg bg-[var(--c-bg2)] p-1.5">
+              <ToggleRow
                 label="Reconnexion automatique en cas de perte de connexion"
                 checked={preferences.autoReconnect}
                 onChange={(v) => onPreferencesChange({ ...preferences, autoReconnect: v })}

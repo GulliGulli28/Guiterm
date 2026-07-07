@@ -48,4 +48,8 @@ pub struct AppState {
     pub forwards: Mutex<HashMap<PortForwardId, ForwardSession>>,
     /// One cancellation flag per in-flight `upload_file`/`download_file` transfer, keyed by transfer id.
     pub transfers: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    /// Command history for local-terminal ghost-text suggestions, most recent last.
+    pub local_history: Mutex<Vec<String>>,
+    /// Command history for SSH-terminal ghost-text suggestions, shared across all hosts, most recent last.
+    pub ssh_history: Mutex<Vec<String>>,
 }

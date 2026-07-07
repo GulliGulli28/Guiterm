@@ -10,6 +10,7 @@ import type { AppPreferences } from "../lib/preferences";
 import { TERMINAL_THEMES, auroraLayerBackground } from "../lib/preferences";
 import { shouldBubbleToShortcut } from "../lib/shortcuts";
 import { TerminalSearchBar, type SearchOptions } from "./TerminalSearchBar";
+import { createGhostTextController, type GhostSuggestion, type GhostTextController } from "../lib/ghostText";
 
 export interface TerminalTabHandle {
   runCommand: (command: string) => void;
@@ -52,6 +53,9 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
   useEffect(() => { preferencesRef.current = preferences; }, [preferences]);
   const onInputDataRef = useRef(onInputData);
   useEffect(() => { onInputDataRef.current = onInputData; }, [onInputData]);
+  const outerRef = useRef<HTMLDivElement>(null);
+  const ghostRef = useRef<GhostTextController | null>(null);
+  const [suggestion, setSuggestion] = useState<GhostSuggestion | null>(null);
 
   useImperativeHandle(
     ref,
@@ -94,6 +98,22 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
     fitRef.current = fit;
     searchRef.current = search;
 
+    const ghost = createGhostTextController({
+      term,
+      containerRef,
+      outerRef,
+      isEnabled: () => preferencesRef.current?.sshTerminalSuggestions ?? false,
+      isDisposed: () => disposed,
+      sendInput: (data) => {
+        const id = sessionIdRef.current;
+        if (id) api.writeTerminal(id, bytesToBase64(new TextEncoder().encode(data)));
+      },
+      getHistory: api.getSshHistory,
+      appendHistory: api.appendSshHistory,
+      setSuggestion,
+    });
+    ghostRef.current = ghost;
+
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown") return true;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
@@ -102,6 +122,9 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
       }
       if (e.key === "Escape" && searchOpenRef.current) {
         setSearchOpen(false);
+        return false;
+      }
+      if (ghost.handleAcceptKey(e)) {
         return false;
       }
       // Let a handful of app shortcuts (tab switching/closing, snippet quick-run) bubble
@@ -120,6 +143,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
         api.writeTerminal(sessionIdRef.current, bytesToBase64(new TextEncoder().encode(data)));
       }
       onInputDataRef.current?.(data);
+      ghost.handleOnData(data);
     });
 
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -129,6 +153,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
     // is on, otherwise falls back to the previous behavior (notify + let the tab close).
     const handleClosed = () => {
       sessionIdRef.current = null;
+      setSuggestion(null);
       if (disposed) return;
       const maxAttempts = preferencesRef.current?.autoReconnectMaxAttempts ?? 5;
       if (preferencesRef.current?.autoReconnect && reconnectAttempt < maxAttempts) {
@@ -158,7 +183,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
 
         unlistenData = await onTerminalData((eventId, data) => {
           if (eventId !== id) return;
-          term.write(base64ToBytes(data));
+          term.write(base64ToBytes(data), () => ghost.handleOutputWritten());
         });
         unlistenClosed = await onTerminalClosed((eventId) => {
           if (eventId !== id) return;
@@ -172,6 +197,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
         if (isRetry) term.write("\r\n\x1b[32m[reconnecté]\x1b[0m\r\n");
         fit.fit();
         api.resizeTerminal(id, term.cols, term.rows).catch(() => {});
+        ghost.remeasure();
       } catch (e) {
         if (disposed) return;
         if (isRetry) {
@@ -204,6 +230,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
       fitRef.current.fit();
       const id = sessionIdRef.current;
       if (id) api.resizeTerminal(id, termRef.current.cols, termRef.current.rows).catch(() => {});
+      ghostRef.current?.remeasure();
     });
     observer.observe(container);
     return () => observer.disconnect();
@@ -217,6 +244,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
       const id = sessionIdRef.current;
       if (id) api.resizeTerminal(id, termRef.current.cols, termRef.current.rows).catch(() => {});
       termRef.current.focus();
+      ghostRef.current?.remeasure();
     }
   }, [isActive]);
 
@@ -231,6 +259,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
     fitRef.current?.fit();
     const id = sessionIdRef.current;
     if (id) api.resizeTerminal(id, term.cols, term.rows).catch(() => {});
+    ghostRef.current?.remeasure();
   }, [preferences]);
 
   const bgColor = preferences ? (TERMINAL_THEMES[preferences.terminalThemeName]?.theme.background ?? "#020617") : "#020617";
@@ -260,11 +289,26 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
   };
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col p-2" style={{ background: auroraLayerBackground(bgColor) }} onContextMenu={handleContextMenu}>
+    <div ref={outerRef} className="relative flex min-h-0 flex-1 flex-col p-2" style={{ background: auroraLayerBackground(bgColor) }} onContextMenu={handleContextMenu}>
       {status === "connecting" && <div className="absolute inset-0 flex items-center justify-center text-[var(--c-text-secondary)]">Connexion à {host.label}…</div>}
       {status === "failed" && <div className="absolute inset-0 flex items-center justify-center px-8 text-center text-rose-300">Échec de connexion : {error}</div>}
       {searchOpen && <TerminalSearchBar onSearch={handleSearch} onClose={() => { setSearchOpen(false); termRef.current?.focus(); }} />}
       <div ref={containerRef} className={`min-h-0 flex-1 ${status === "open" ? "" : "invisible"}`} />
+      {suggestion && (
+        <span
+          className="pointer-events-none absolute select-none whitespace-pre"
+          style={{
+            left: suggestion.left,
+            top: suggestion.top,
+            lineHeight: `${suggestion.cellHeight}px`,
+            fontFamily: preferences?.terminalFontFamily,
+            fontSize: preferences?.terminalFontSize,
+            color: "rgba(148, 163, 184, 0.55)",
+          }}
+        >
+          {suggestion.text}
+        </span>
+      )}
     </div>
   );
 });

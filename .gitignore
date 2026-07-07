@@ -32,3 +32,6 @@ Thumbs.db
 # Logs and other local-only scratch files
 *.log
 *.local
+
+# Screenshots/output from scripts/visual-check-*.mjs (Playwright)
+/scripts/.output

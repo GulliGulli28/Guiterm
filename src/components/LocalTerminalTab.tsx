@@ -10,6 +10,7 @@ import type { AppPreferences } from "../lib/preferences";
 import { TERMINAL_THEMES, auroraLayerBackground } from "../lib/preferences";
 import { shouldBubbleToShortcut } from "../lib/shortcuts";
 import { TerminalSearchBar, type SearchOptions } from "./TerminalSearchBar";
+import { createGhostTextController, type GhostSuggestion, type GhostTextController } from "../lib/ghostText";
 
 export { type TerminalTabHandle };
 
@@ -37,6 +38,9 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
   useEffect(() => { preferencesRef.current = preferences; }, [preferences]);
   const onInputDataRef = useRef(onInputData);
   useEffect(() => { onInputDataRef.current = onInputData; }, [onInputData]);
+  const outerRef = useRef<HTMLDivElement>(null);
+  const ghostRef = useRef<GhostTextController | null>(null);
+  const [suggestion, setSuggestion] = useState<GhostSuggestion | null>(null);
 
   useImperativeHandle(
     ref,
@@ -79,6 +83,22 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
     fitRef.current = fit;
     searchRef.current = search;
 
+    const ghost = createGhostTextController({
+      term,
+      containerRef,
+      outerRef,
+      isEnabled: () => preferencesRef.current?.localTerminalSuggestions ?? true,
+      isDisposed: () => disposed,
+      sendInput: (data) => {
+        const id = sessionIdRef.current;
+        if (id) api.writeLocalTerminal(id, bytesToBase64(new TextEncoder().encode(data)));
+      },
+      getHistory: api.getLocalHistory,
+      appendHistory: api.appendLocalHistory,
+      setSuggestion,
+    });
+    ghostRef.current = ghost;
+
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown") return true;
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
@@ -87,6 +107,9 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
       }
       if (e.key === "Escape" && searchOpenRef.current) {
         setSearchOpen(false);
+        return false;
+      }
+      if (ghost.handleAcceptKey(e)) {
         return false;
       }
       // Let a handful of app shortcuts (tab switching/closing, snippet quick-run) bubble
@@ -105,6 +128,7 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
         api.writeLocalTerminal(sessionIdRef.current, bytesToBase64(new TextEncoder().encode(data)));
       }
       onInputDataRef.current?.(data);
+      ghost.handleOnData(data);
     });
 
     (async () => {
@@ -119,7 +143,7 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
 
         unlistenData = await onTerminalData((eventId, data) => {
           if (eventId !== id) return;
-          term.write(base64ToBytes(data));
+          term.write(base64ToBytes(data), () => ghost.handleOutputWritten());
         });
         unlistenClosed = await onTerminalClosed((eventId) => {
           if (eventId !== id) return;
@@ -129,6 +153,7 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
 
         fit.fit();
         api.resizeLocalTerminal(id, term.cols, term.rows).catch(() => {});
+        ghost.remeasure();
 
         if (initialCommand) {
           setTimeout(() => {
@@ -162,6 +187,7 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
       fitRef.current.fit();
       const id = sessionIdRef.current;
       if (id) api.resizeLocalTerminal(id, termRef.current.cols, termRef.current.rows).catch(() => {});
+      ghostRef.current?.remeasure();
     });
     observer.observe(container);
     return () => observer.disconnect();
@@ -173,6 +199,7 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
       const id = sessionIdRef.current;
       if (id) api.resizeLocalTerminal(id, termRef.current.cols, termRef.current.rows).catch(() => {});
       termRef.current.focus();
+      ghostRef.current?.remeasure();
     }
   }, [isActive]);
 
@@ -187,6 +214,7 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
     fitRef.current?.fit();
     const id = sessionIdRef.current;
     if (id) api.resizeLocalTerminal(id, term.cols, term.rows).catch(() => {});
+    ghostRef.current?.remeasure();
   }, [preferences]);
 
   const bgColor = preferences ? (TERMINAL_THEMES[preferences.terminalThemeName]?.theme.background ?? "#020617") : "#020617";
@@ -216,11 +244,26 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
   };
 
   return (
-    <div className="relative flex min-h-0 flex-1 flex-col p-2" style={{ background: auroraLayerBackground(bgColor) }} onContextMenu={handleContextMenu}>
+    <div ref={outerRef} className="relative flex min-h-0 flex-1 flex-col p-2" style={{ background: auroraLayerBackground(bgColor) }} onContextMenu={handleContextMenu}>
       {status === "connecting" && <div className="absolute inset-0 flex items-center justify-center text-[var(--c-text-secondary)]">Démarrage du terminal local…</div>}
       {status === "failed" && <div className="absolute inset-0 flex items-center justify-center px-8 text-center text-rose-300">Échec : {error}</div>}
       {searchOpen && <TerminalSearchBar onSearch={handleSearch} onClose={() => { setSearchOpen(false); termRef.current?.focus(); }} />}
       <div ref={containerRef} className={`min-h-0 flex-1 ${status === "open" ? "" : "invisible"}`} />
+      {suggestion && (
+        <span
+          className="pointer-events-none absolute select-none whitespace-pre"
+          style={{
+            left: suggestion.left,
+            top: suggestion.top,
+            lineHeight: `${suggestion.cellHeight}px`,
+            fontFamily: preferences?.terminalFontFamily,
+            fontSize: preferences?.terminalFontSize,
+            color: "rgba(148, 163, 184, 0.55)",
+          }}
+        >
+          {suggestion.text}
+        </span>
+      )}
     </div>
   );
 });

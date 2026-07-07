@@ -69,6 +69,11 @@ export const api = {
   resizeLocalTerminal: (sessionId: string, cols: number, rows: number) => invoke<void>("resize_local_terminal", { sessionId, cols, rows }),
   closeLocalTerminal: (sessionId: string) => invoke<void>("close_local_terminal", { sessionId }),
 
+  getLocalHistory: () => invoke<string[]>("get_local_history"),
+  appendLocalHistory: (command: string) => invoke<void>("append_local_history", { command }),
+  getSshHistory: () => invoke<string[]>("get_ssh_history"),
+  appendSshHistory: (command: string) => invoke<void>("append_ssh_history", { command }),
+
   openPane: (source: PaneSource) => invoke<PaneOpened>("open_pane", { source }),
   closePane: (paneId: string) => invoke<void>("close_pane", { paneId }),
   listPane: (paneId: string, path: string) => invoke<PaneListed>("list_pane", { paneId, path }),

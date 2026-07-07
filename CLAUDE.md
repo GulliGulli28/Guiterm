@@ -88,6 +88,63 @@ de vrai plutôt que de s'arrêter à la compilation :
 - Si aucun accès écran n'est disponible (le cas dans cette session), le dire
   explicitement plutôt que de laisser croire à un test fonctionnel réel.
 
+### Ce qu'on peut réellement valider sans accès écran (sans se mentir)
+
+Deux techniques, mises en place et vérifiées avec succès le 2026-07-07 en
+développant les suggestions de commandes (ghost-text) des terminaux locaux,
+comblent une partie — mais pas la totalité — du trou entre « ça compile » et
+« ça marche » quand aucun accès écran/souris/clavier au niveau OS n'est
+disponible :
+
+- **Tests unitaires (`npm run test`, vitest)** pour toute la logique pure
+  découplée de React/xterm/Tauri — typiquement un état de type "buffer de
+  ligne" ou toute fonction `(state, event) => state`. Voir
+  `src/lib/lineBuffer.ts` + `src/lib/lineBuffer.test.ts` : la state machine
+  qui ombre les frappes clavier pour reconstituer la ligne tapée est testée
+  isolément (Ctrl+L, Ctrl+C, Ctrl+U/W, désynchronisation sur Tab/flèches,
+  paquets `onData` qui mélangent plusieurs frappes). `vite.config.ts` expose
+  déjà un bloc `test` (vitest lit la même config que Vite) — pas de setup
+  séparé nécessaire pour de nouveaux fichiers `*.test.ts`.
+  **Piège Node** : vitest ≥ 4 exige Node ≥ 20 ; le Node de ce WSL est en
+  18.19 → utiliser `vitest@^2` (compatible Node 18), sinon échec immédiat au
+  démarrage (`SyntaxError: … does not provide an export named 'styleText'`).
+
+- **Rendu DOM réel dans un navigateur headless (Playwright), sans Tauri.**
+  Pour tout ce qui dépend du DOM effectivement produit par xterm.js (mesures
+  de cellules, positionnement d'un overlay, alignement visuel) — donc au-delà
+  de ce qu'un test unitaire peut couvrir — on peut monter un vrai
+  `@xterm/xterm` dans une page headless, lui écrire du texte directement via
+  `term.write(...)` (ça ne passe pas par Tauri, donc `invoke()` n'est jamais
+  sollicité), puis prendre un vrai screenshot et l'inspecter avec l'outil
+  `Read`. Voir `scripts/visual-check-ghost-text.{html,client.mjs,mjs}` :
+  `node scripts/visual-check-ghost-text.mjs` sert la page via le serveur Vite
+  du projet (réutilise `vite.config.ts`), la charge dans Chromium headless
+  (Playwright), vérifie que la géométrie de cellule calculée est plausible et
+  que le curseur xterm tombe où attendu, écrit
+  `scripts/.output/ghost-text-check.png` (gitignored) et sort en erreur si
+  une des assertions échoue. Cette technique a permis de valider la
+  transposition du sélecteur `.xterm-rows` (rendu DOM par défaut de xterm.js,
+  utilisé quand aucun addon `webgl`/`canvas` n'est chargé) en géométrie
+  pixel — l'hypothèse la plus risquée de l'implémentation du texte fantôme —
+  sans jamais lancer l'app réelle.
+  **Piège install** : `npx playwright install --with-deps chromium` invoque
+  `sudo apt-get install …` pour les libs système ; dans cet environnement WSL
+  `sudo` n'a pas d'accès non-interactif et la commande reste bloquée
+  indéfiniment sur un prompt de mot de passe qui n'arrivera jamais (aucune
+  sortie, CPU à 0%, silence total — symptôme caractéristique). Utiliser
+  `npx playwright install chromium` (sans `--with-deps`) : le binaire
+  Chromium seul suffit en mode headless et ne nécessite aucun privilège. Si
+  un futur test échoue au lancement faute de bibliothèque système
+  (`libnss3`, etc.), demander à l'utilisateur de lancer lui-même la commande
+  `--with-deps` via le préfixe `!` plutôt que de rester bloqué dessus.
+
+Ce que ces deux techniques ne couvrent toujours **pas** : tout ce qui passe
+par `invoke(...)` (connexion SSH réelle, PTY local, trousseau, SFTP...) —
+`window.__TAURI__` n'existe que dans la vraie webview Tauri, jamais dans un
+Chromium/Playwright classique, headless ou non. Pour ça, la seule voie reste
+`tauri dev` avec un accès écran réel, ou `tauri-driver` en E2E (toujours pas
+installé dans ce dépôt à cette date).
+
 ## Pièges déjà rencontrés (pour ne pas les redécouvrir)
 
 - **Drag-and-drop natif vs Tauri.** Sur Windows, le drag-and-drop OS-level de

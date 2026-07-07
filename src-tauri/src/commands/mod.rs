@@ -1,3 +1,4 @@
+pub mod command_history;
 pub mod dialog;
 pub mod export;
 pub mod forward;
