@@ -215,6 +215,8 @@ pub struct SaveGroupInput {
     pub name: String,
     pub parent_id: Option<GroupId>,
     pub icon: Option<String>,
+    #[serde(default)]
+    pub color: Option<String>,
 }
 
 /// Whether setting `group_id`'s parent to `new_parent_id` would create a cycle
@@ -243,9 +245,10 @@ pub fn save_group(state: State<'_, AppState>, input: SaveGroupInput) -> Result<W
                 group.name = input.name;
                 group.parent_id = input.parent_id;
                 group.icon = input.icon.clone();
+                group.color = input.color.clone();
             }
         },
-        None => workspace.groups.push(Group { id: GroupId::new_v4(), name: input.name, parent_id: input.parent_id, icon: input.icon }),
+        None => workspace.groups.push(Group { id: GroupId::new_v4(), name: input.name, parent_id: input.parent_id, icon: input.icon, color: input.color }),
     }
     persist(&workspace)?;
     Ok(workspace.clone())

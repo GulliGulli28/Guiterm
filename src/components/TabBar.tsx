@@ -12,6 +12,8 @@ interface TabBarProps {
   onToggleSplit: () => void;
   onToggleBroadcast: () => void;
   onReorder: (tabs: TabMeta[]) => void;
+  /** Resolves a tab to its host group's tag color (hex), if any. */
+  tabColor?: (tab: TabMeta) => string | undefined;
 }
 
 function TabIcon({ kind }: { kind: TabMeta["kind"] }) {
@@ -20,7 +22,7 @@ function TabIcon({ kind }: { kind: TabMeta["kind"] }) {
   return <IconMonitor size={13} />;
 }
 
-export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, onSelect, onClose, onToggleSplit, onToggleBroadcast, onReorder }: TabBarProps) {
+export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, onSelect, onClose, onToggleSplit, onToggleBroadcast, onReorder, tabColor }: TabBarProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const dragState = useRef<{ draggedId: string; moved: boolean; startX: number } | null>(null);
   const [draggedId, setDraggedId] = useState<string | null>(null);
@@ -64,6 +66,7 @@ export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, onSelect
       <div ref={containerRef} className="flex min-w-0 flex-1 gap-1 overflow-x-auto">
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId;
+          const color = tabColor?.(tab);
           return (
             <div
               key={tab.id}
@@ -83,6 +86,7 @@ export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, onSelect
               } ${draggedId === tab.id ? "opacity-60" : ""}`}
               title={tab.status === "placeholder" ? "Session restaurée — cliquez pour reconnecter" : undefined}
             >
+              {color && <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />}
               <TabIcon kind={tab.kind} />
               <span className="max-w-[12rem] truncate">{tab.label}</span>
               <button

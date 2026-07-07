@@ -129,6 +129,8 @@ pub struct Group {
     pub parent_id: Option<GroupId>,
     #[serde(default)]
     pub icon: Option<String>,
+    #[serde(default)]
+    pub color: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

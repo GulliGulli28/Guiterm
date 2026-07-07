@@ -81,9 +81,12 @@ export interface AppPreferences {
   colorMode: ColorMode;
   notifyOnDisconnect: boolean;
   notifyOnTransferDone: boolean;
+  notifyOnUpdateAvailable: boolean;
   keyboardShortcuts: Record<string, string>;
   restoreTabsOnLaunch: boolean;
   terminalRightClickMenu: boolean;
+  autoReconnect: boolean;
+  autoReconnectMaxAttempts: number;
 }
 
 export interface TerminalThemeEntry {
@@ -235,9 +238,12 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   colorMode: "dark",
   notifyOnDisconnect: true,
   notifyOnTransferDone: true,
+  notifyOnUpdateAvailable: true,
   keyboardShortcuts: defaultShortcuts(),
   restoreTabsOnLaunch: true,
   terminalRightClickMenu: true,
+  autoReconnect: false,
+  autoReconnectMaxAttempts: 5,
 };
 
 // Same two-stop aurora wash as `.app-aurora-bg` in index.css, but layered over

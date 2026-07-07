@@ -8,11 +8,23 @@ import { api, base64ToBytes, bytesToBase64, onTerminalClosed, onTerminalData } f
 import type { Host } from "../lib/types";
 import type { AppPreferences } from "../lib/preferences";
 import { TERMINAL_THEMES, auroraLayerBackground } from "../lib/preferences";
-import { TerminalSearchBar } from "./TerminalSearchBar";
+import { shouldBubbleToShortcut } from "../lib/shortcuts";
+import { TerminalSearchBar, type SearchOptions } from "./TerminalSearchBar";
 
 export interface TerminalTabHandle {
   runCommand: (command: string) => void;
+  writeRaw: (data: string) => void;
+  getScrollbackText: () => string;
   dispose: () => void;
+}
+
+export function scrollbackText(term: Terminal): string {
+  const buf = term.buffer.active;
+  const lines: string[] = [];
+  for (let i = 0; i < buf.length; i++) {
+    lines.push(buf.getLine(i)?.translateToString(true) ?? "");
+  }
+  return lines.join("\n");
 }
 
 interface TerminalTabProps {
@@ -20,9 +32,12 @@ interface TerminalTabProps {
   isActive: boolean;
   preferences?: AppPreferences;
   onDisconnect?: () => void;
+  // Called with each raw keystroke this terminal sends to its own session — used by
+  // the live broadcast "synced typing" mode to mirror input to other terminals.
+  onInputData?: (data: string) => void;
 }
 
-export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(function TerminalTab({ host, isActive, preferences, onDisconnect }, ref) {
+export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(function TerminalTab({ host, isActive, preferences, onDisconnect, onInputData }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -33,6 +48,10 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
   const [searchOpen, setSearchOpen] = useState(false);
   const searchOpenRef = useRef(searchOpen);
   useEffect(() => { searchOpenRef.current = searchOpen; }, [searchOpen]);
+  const preferencesRef = useRef(preferences);
+  useEffect(() => { preferencesRef.current = preferences; }, [preferences]);
+  const onInputDataRef = useRef(onInputData);
+  useEffect(() => { onInputDataRef.current = onInputData; }, [onInputData]);
 
   useImperativeHandle(
     ref,
@@ -42,6 +61,11 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
         if (!id) return;
         api.writeTerminal(id, bytesToBase64(new TextEncoder().encode(command + "\r")));
       },
+      writeRaw: (data: string) => {
+        const id = sessionIdRef.current;
+        if (id) api.writeTerminal(id, bytesToBase64(new TextEncoder().encode(data)));
+      },
+      getScrollbackText: () => (termRef.current ? scrollbackText(termRef.current) : ""),
       dispose: () => {
         const id = sessionIdRef.current;
         if (id) api.closeTerminal(id).catch(() => {});
@@ -80,6 +104,14 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
         setSearchOpen(false);
         return false;
       }
+      // Let a handful of app shortcuts (tab switching/closing, snippet quick-run) bubble
+      // up to the window-level handler instead of being sent to the shell — otherwise
+      // xterm consumes them (and stops their propagation), so they'd only ever fire
+      // once before focus lands back in a terminal and swallows every further press.
+      const shortcuts = preferencesRef.current?.keyboardShortcuts;
+      if (shortcuts && shouldBubbleToShortcut(e, shortcuts)) {
+        return false;
+      }
       return true;
     });
 
@@ -87,9 +119,33 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
       if (sessionIdRef.current) {
         api.writeTerminal(sessionIdRef.current, bytesToBase64(new TextEncoder().encode(data)));
       }
+      onInputDataRef.current?.(data);
     });
 
-    (async () => {
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectAttempt = 0;
+
+    // Called after the pty closes. Retries with a growing backoff when auto-reconnect
+    // is on, otherwise falls back to the previous behavior (notify + let the tab close).
+    const handleClosed = () => {
+      sessionIdRef.current = null;
+      if (disposed) return;
+      const maxAttempts = preferencesRef.current?.autoReconnectMaxAttempts ?? 5;
+      if (preferencesRef.current?.autoReconnect && reconnectAttempt < maxAttempts) {
+        reconnectAttempt += 1;
+        const delaySec = Math.min(2 ** reconnectAttempt, 30);
+        term.write(`\r\n\x1b[33m[connexion perdue — reconnexion dans ${delaySec}s (tentative ${reconnectAttempt}/${maxAttempts})]\x1b[0m\r\n`);
+        setStatus("connecting");
+        reconnectTimer = setTimeout(() => connect(true), delaySec * 1000);
+      } else {
+        term.write("\r\n\x1b[31m[connexion fermée]\x1b[0m\r\n");
+        setTimeout(() => { if (!disposed) onDisconnect?.(); }, 1000);
+      }
+    };
+
+    const connect = async (isRetry: boolean) => {
+      if (disposed) return;
+      setStatus("connecting");
       try {
         const id = await api.connectTerminal(host.id);
         if (disposed) {
@@ -98,6 +154,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
         }
         sessionIdRef.current = id;
         setStatus("open");
+        reconnectAttempt = 0;
 
         unlistenData = await onTerminalData((eventId, data) => {
           if (eventId !== id) return;
@@ -105,22 +162,32 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
         });
         unlistenClosed = await onTerminalClosed((eventId) => {
           if (eventId !== id) return;
-          term.write("\r\n\x1b[31m[connexion fermée]\x1b[0m\r\n");
-          setTimeout(() => { if (!disposed) onDisconnect?.(); }, 1000);
+          unlistenData?.();
+          unlistenData = null;
+          unlistenClosed?.();
+          unlistenClosed = null;
+          handleClosed();
         });
 
+        if (isRetry) term.write("\r\n\x1b[32m[reconnecté]\x1b[0m\r\n");
         fit.fit();
         api.resizeTerminal(id, term.cols, term.rows).catch(() => {});
       } catch (e) {
-        if (!disposed) {
+        if (disposed) return;
+        if (isRetry) {
+          handleClosed();
+        } else {
           setStatus("failed");
           setError(String(e));
         }
       }
-    })();
+    };
+
+    connect(false);
 
     return () => {
       disposed = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
       unlistenData?.();
       unlistenClosed?.();
       if (sessionIdRef.current) api.closeTerminal(sessionIdRef.current).catch(() => {});
@@ -168,10 +235,10 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
 
   const bgColor = preferences ? (TERMINAL_THEMES[preferences.terminalThemeName]?.theme.background ?? "#020617") : "#020617";
 
-  const handleSearch = (value: string, direction: "next" | "prev") => {
+  const handleSearch = (value: string, direction: "next" | "prev", options: SearchOptions) => {
     if (!value) return;
-    if (direction === "next") searchRef.current?.findNext(value, { incremental: true });
-    else searchRef.current?.findPrevious(value, { incremental: true });
+    if (direction === "next") searchRef.current?.findNext(value, { incremental: true, ...options });
+    else searchRef.current?.findPrevious(value, { ...options });
   };
 
   const handleContextMenu = (e: MouseEvent) => {

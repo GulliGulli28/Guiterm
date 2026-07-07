@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { check as checkForUpdate } from "@tauri-apps/plugin-updater";
+import { save } from "@tauri-apps/plugin-dialog";
 import { api, bytesToBase64 } from "./lib/api";
-import type { GroupId, Host, TabMeta, Workspace } from "./lib/types";
+import type { GroupId, Host, HostId, TabMeta, Workspace } from "./lib/types";
 import { Sidebar, type SidebarPanelKind } from "./components/Sidebar";
 import { HostForm } from "./components/HostForm";
 import { TabBar } from "./components/TabBar";
@@ -10,16 +11,19 @@ import { TerminalTab, type TerminalTabHandle } from "./components/TerminalTab";
 import { LocalTerminalTab } from "./components/LocalTerminalTab";
 import { TransferTab } from "./components/TransferTab";
 import { TitleBar } from "./components/TitleBar";
-import { type AppPreferences, ACCENT_COLORS, BG_THEMES, loadPreferences, savePreferences } from "./lib/preferences";
+import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, loadPreferences, savePreferences } from "./lib/preferences";
 import { SplitPane } from "./components/SplitPane";
 import { GroupForm, type GroupFormData } from "./components/GroupForm";
 import { IconTerminal, IconClose } from "./components/ui-icons";
 import { type AppNotification, type NotificationKind, createNotification } from "./lib/notifications";
 import { CommandPalette, type PaletteCommand } from "./components/CommandPalette";
+import { SnippetPicker } from "./components/SnippetPicker";
+import { ConfirmDialog } from "./components/ConfirmDialog";
 import { SHORTCUT_ACTIONS, useGlobalShortcuts } from "./lib/shortcuts";
 import { loadTabs, saveTabs } from "./lib/tabPersistence";
 
 let nextTabId = 0;
+const SPLIT_PANE_ID = "split-pane";
 
 function runOnTerminalHandle(handle: TerminalTabHandle, command: string) {
   if (command.includes("\n")) {
@@ -45,7 +49,9 @@ export default function App() {
   const [notifications, setNotifications] = useState<AppNotification[]>([]);
   const [preferences, setPreferences] = useState<AppPreferences>(loadPreferences);
   const [splitOpen, setSplitOpen] = useState(false);
+  const [splitSource, setSplitSource] = useState<"local" | HostId>("local");
   const [paletteOpen, setPaletteOpen] = useState(false);
+  const [snippetPickerOpen, setSnippetPickerOpen] = useState(false);
   const terminalRefs = useRef<Map<string, TerminalTabHandle>>(new Map());
 
   // ── Resizable panels ─────────────────────────────────────────────────────
@@ -179,6 +185,7 @@ export default function App() {
   // skipped while the same version is still pending, so it doesn't nag on
   // every check until the user actually installs it.
   useEffect(() => {
+    if (!preferences.notifyOnUpdateAvailable) return;
     let notifiedVersion: string | null = null;
     const runCheck = () => {
       checkForUpdate()
@@ -193,7 +200,7 @@ export default function App() {
     runCheck();
     const interval = setInterval(runCheck, 6 * 60 * 60 * 1000);
     return () => clearInterval(interval);
-  }, [pushNotification]);
+  }, [pushNotification, preferences.notifyOnUpdateAvailable]);
 
   const refreshWorkspace = useCallback((next: Workspace) => setWorkspace(next), []);
 
@@ -261,31 +268,122 @@ export default function App() {
     });
   }, [preferences.notifyOnDisconnect, pushNotification]);
 
-  const runSnippetOnActiveTerminal = useCallback((command: string) => {
-    if (!activeTabId) { reportError("Aucun terminal actif pour exécuter ce snippet"); return; }
-    const handle = terminalRefs.current.get(activeTabId);
-    if (!handle) { reportError("L'onglet actif n'est pas un terminal"); return; }
-    runOnTerminalHandle(handle, command);
+  // Closing a tab with a live SSH session is easy to trigger by accident (a stray
+  // Ctrl+Shift+W, a misclick) and kills the remote session outright, so it goes
+  // through a confirmation instead of closing immediately.
+  const [pendingCloseTabId, setPendingCloseTabId] = useState<string | null>(null);
+  const requestCloseTab = useCallback((id: string) => {
+    const tab = tabs.find((t) => t.id === id);
+    if (tab && tab.kind === "terminal" && tab.status !== "placeholder") {
+      setPendingCloseTabId(id);
+    } else {
+      closeTab(id);
+    }
+  }, [tabs, closeTab]);
+
+  // Runs a snippet/script on specific tabs, or the active tab when no target is given
+  // (e.g. from the Snippets panel, where an empty selection means "just the active tab").
+  const runSnippet = useCallback((command: string, targetTabIds?: string[]) => {
+    const ids = targetTabIds && targetTabIds.length > 0 ? targetTabIds : activeTabId ? [activeTabId] : [];
+    if (ids.length === 0) { reportError("Aucun terminal actif pour exécuter ce snippet"); return; }
+    let ran = false;
+    for (const id of ids) {
+      const handle = terminalRefs.current.get(id);
+      if (handle) { runOnTerminalHandle(handle, command); ran = true; }
+    }
+    if (!ran) reportError("Aucun terminal ouvert pour exécuter ce snippet");
   }, [activeTabId, reportError]);
 
-  // ── Broadcast: send one command to every open terminal at once ──────────
-  const [broadcastMode, setBroadcastMode] = useState(false);
-  const broadcastTargets = tabs.filter((t) => (t.kind === "terminal" || t.kind === "local-terminal") && t.status !== "placeholder");
+  const exportActiveScrollback = useCallback(async () => {
+    if (!activeTabId) { reportError("Aucun terminal actif à exporter"); return; }
+    const handle = terminalRefs.current.get(activeTabId);
+    if (!handle) { reportError("L'onglet actif n'est pas un terminal"); return; }
+    const tabLabel = tabs.find((t) => t.id === activeTabId)?.label ?? "terminal";
+    const path = await save({
+      defaultPath: `${tabLabel.replace(/[^\w.-]+/g, "_")}.log`,
+      filters: [{ name: "Journal", extensions: ["log", "txt"] }],
+    }).catch(() => null);
+    if (!path) return;
+    api.exportText(path, handle.getScrollbackText()).catch((e) => reportError(String(e)));
+  }, [activeTabId, tabs, reportError]);
 
-  const broadcastCommand = useCallback((command: string) => {
-    for (const tab of broadcastTargets) {
-      const handle = terminalRefs.current.get(tab.id);
-      if (handle) runOnTerminalHandle(handle, command);
+  // ── Broadcast: send one command to a chosen set of open terminals ───────
+  const [broadcastMode, setBroadcastMode] = useState(false);
+  const splitPaneLabel = splitSource === "local"
+    ? "Terminal local (panneau 2)"
+    : `${workspace?.hosts.find((h) => h.id === splitSource)?.label ?? "Hôte"} (panneau 2)`;
+  // The split view's second panel is a standalone terminal outside the tab list, so
+  // it has to be added to the broadcast/snippet target list by hand.
+  const broadcastTargets: { id: string; label: string }[] = [
+    ...tabs
+      .filter((t) => (t.kind === "terminal" || t.kind === "local-terminal") && t.status !== "placeholder")
+      .map((t) => ({ id: t.id, label: t.label })),
+    ...(splitOpen ? [{ id: SPLIT_PANE_ID, label: splitPaneLabel }] : []),
+  ];
+  const [broadcastSelected, setBroadcastSelected] = useState<Set<string>>(new Set());
+
+  // Terminals that open *after* broadcast mode was turned on (a new tab, the split
+  // view's second panel, …) join the selection automatically, and ones that close
+  // (including the split view's panel) drop out of both the selection and the count.
+  // A brand-new id is only auto-added the first time it's ever seen — reordering tabs
+  // (or any other change that merely re-triggers this effect) must never resurrect a
+  // target the user deliberately unchecked earlier.
+  const knownTargetIdsRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    const currentIds = new Set(broadcastTargets.map((t) => t.id));
+    const previouslyKnown = knownTargetIdsRef.current;
+    if (broadcastMode) {
+      setBroadcastSelected((prev) => {
+        const next = new Set(prev);
+        let changed = false;
+        for (const id of prev) {
+          if (!currentIds.has(id)) { next.delete(id); changed = true; }
+        }
+        for (const id of currentIds) {
+          if (!previouslyKnown.has(id) && !next.has(id)) { next.add(id); changed = true; }
+        }
+        return changed ? next : prev;
+      });
     }
+    knownTargetIdsRef.current = currentIds;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [broadcastMode, tabs, splitOpen, splitSource]);
+
+  const toggleBroadcastMode = useCallback(() => {
+    setBroadcastMode((v) => {
+      const next = !v;
+      if (next) setBroadcastSelected(new Set(broadcastTargets.map((t) => t.id)));
+      else setLiveSyncMode(false);
+      return next;
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tabs]);
+
+  const broadcastCommand = useCallback((command: string) => {
+    for (const id of broadcastSelected) {
+      const handle = terminalRefs.current.get(id);
+      if (handle) runOnTerminalHandle(handle, command);
+    }
+  }, [broadcastSelected]);
+
+  // Live mode: keystrokes typed into whichever terminal has focus are mirrored, as
+  // raw input, to every other selected terminal — unlike broadcastCommand above,
+  // which sends one discrete command at a time to all of them.
+  const [liveSyncMode, setLiveSyncMode] = useState(false);
+  const mirrorInput = useCallback((sourceTabId: string, data: string) => {
+    if (!liveSyncMode) return;
+    for (const id of broadcastSelected) {
+      if (id === sourceTabId) continue;
+      terminalRefs.current.get(id)?.writeRaw(data);
+    }
+  }, [liveSyncMode, broadcastSelected]);
 
   // ── Global keyboard shortcuts + command palette ─────────────────────────
   const shortcutHandlers: Record<string, () => void> = {
     "palette.open": () => setPaletteOpen(true),
     "sidebar.toggle": () => setSidebarVisible((v) => !v),
     "split.toggle": () => toggleSplit(),
-    "tab.close": () => { if (activeTabId) closeTab(activeTabId); },
+    "tab.close": () => { if (activeTabId) requestCloseTab(activeTabId); },
     "tab.newLocalTerminal": () => openLocalTerminal(),
     "tab.next": () => {
       if (tabs.length === 0) return;
@@ -298,6 +396,7 @@ export default function App() {
       setActiveTabId(tabs[(idx - 1 + tabs.length) % tabs.length].id);
     },
     "settings.open": () => { setSidebarVisible(true); setSidebarPanel("settings"); },
+    "snippets.quickRun": () => setSnippetPickerOpen(true),
   };
   useGlobalShortcuts(preferences.keyboardShortcuts, shortcutHandlers);
 
@@ -314,6 +413,11 @@ export default function App() {
       hint: "Hôte",
       run: () => openTab("terminal", h),
     })),
+    {
+      id: "terminal.exportScrollback",
+      label: "Exporter le scrollback du terminal actif…",
+      run: () => { exportActiveScrollback(); },
+    },
   ] : [];
 
   if (!workspace) {
@@ -336,11 +440,38 @@ export default function App() {
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const activeHostId = activeTab && activeTab.kind !== "local-terminal" ? activeTab.hostId : null;
 
+  // Resolves a tab to its host's group color tag (if the host, its group, and a
+  // color are all set), so TabBar can show a small dot without knowing about hosts/groups.
+  const tabColor = (tab: TabMeta): string | undefined => {
+    if (tab.kind === "local-terminal") return undefined;
+    const host = workspace.hosts.find((h) => h.id === tab.hostId);
+    const group = host?.groupId ? workspace.groups.find((g) => g.id === host.groupId) : null;
+    const accent = group?.color as UiAccent | undefined;
+    return accent ? ACCENT_COLORS[accent]?.c500 : undefined;
+  };
+
   return (
     <div className="app-aurora-bg flex h-screen w-screen flex-col overflow-hidden text-[var(--c-text)]">
       {/* Transparent overlay during any drag — prevents xterm canvas from stealing mouse events */}
       {isDragging && <div className="fixed inset-0 z-[9999] cursor-col-resize" />}
       {paletteOpen && <CommandPalette commands={paletteCommands} onClose={() => setPaletteOpen(false)} />}
+      {snippetPickerOpen && workspace && (
+        <SnippetPicker
+          snippets={workspace.snippets}
+          onRun={(command) => runSnippet(command)}
+          onClose={() => setSnippetPickerOpen(false)}
+        />
+      )}
+      {pendingCloseTabId && (
+        <ConfirmDialog
+          title="Fermer la session ?"
+          message={`« ${tabs.find((t) => t.id === pendingCloseTabId)?.label ?? ""} » a une session SSH active. La fermer coupera la connexion.`}
+          confirmLabel="Fermer la session"
+          danger
+          onConfirm={() => { closeTab(pendingCloseTabId); setPendingCloseTabId(null); }}
+          onCancel={() => setPendingCloseTabId(null)}
+        />
+      )}
       <TitleBar
         sidebarVisible={sidebarVisible}
         onToggleSidebar={() => setSidebarVisible((v) => !v)}
@@ -367,18 +498,23 @@ export default function App() {
           splitOpen={splitOpen}
           broadcastActive={broadcastMode}
           onSelect={setActiveTabId}
-          onClose={closeTab}
+          onClose={requestCloseTab}
           onToggleSplit={toggleSplit}
-          onToggleBroadcast={() => setBroadcastMode((v) => !v)}
+          onToggleBroadcast={toggleBroadcastMode}
           onReorder={setTabs}
+          tabColor={tabColor}
         />
       )}
 
       {broadcastMode && (
         <BroadcastBar
-          targetCount={broadcastTargets.length}
+          targets={broadcastTargets}
+          selectedIds={broadcastSelected}
+          onChangeSelected={setBroadcastSelected}
+          liveSyncMode={liveSyncMode}
+          onToggleLiveSync={() => setLiveSyncMode((v) => !v)}
           onSend={broadcastCommand}
-          onClose={() => setBroadcastMode(false)}
+          onClose={() => { setBroadcastMode(false); setLiveSyncMode(false); }}
         />
       )}
 
@@ -399,15 +535,16 @@ export default function App() {
             onQuickSSH={(cmd) => openLocalTerminal(cmd)}
             onNewHost={() => { setEditingHost("new"); setNewHostDefaultGroupId(null); setEditingGroup(null); }}
             onEditHost={(host) => { setEditingHost(host); setEditingGroup(null); }}
-            onNewGroup={() => { setEditingGroup({ id: null, name: "", parentId: null, icon: null }); setEditingHost(null); }}
+            onNewGroup={() => { setEditingGroup({ id: null, name: "", parentId: null, icon: null, color: null }); setEditingHost(null); }}
             onNewHostInGroup={(groupId) => { setEditingHost("new"); setNewHostDefaultGroupId(groupId); setEditingGroup(null); }}
-            onNewGroupUnder={(parentId) => { setEditingGroup({ id: null, name: "", parentId, icon: null }); setEditingHost(null); }}
-            onEditGroup={(group) => { setEditingGroup({ id: group.id, name: group.name, parentId: group.parentId ?? null, icon: group.icon ?? null }); setEditingHost(null); }}
+            onNewGroupUnder={(parentId) => { setEditingGroup({ id: null, name: "", parentId, icon: null, color: null }); setEditingHost(null); }}
+            onEditGroup={(group) => { setEditingGroup({ id: group.id, name: group.name, parentId: group.parentId ?? null, icon: group.icon ?? null, color: group.color ?? null }); setEditingHost(null); }}
             onWorkspaceUpdate={refreshWorkspace}
             onAddSnippet={(name, command) => api.addSnippet(name, command).then(refreshWorkspace).catch((e) => reportError(String(e)))}
             onUpdateSnippet={(id, name, command) => api.updateSnippet(id, name, command).then(refreshWorkspace).catch((e) => reportError(String(e)))}
             onDeleteSnippet={(id) => api.deleteSnippet(id).then(refreshWorkspace).catch((e) => reportError(String(e)))}
-            onRunSnippet={runSnippetOnActiveTerminal}
+            onRunSnippet={runSnippet}
+            openTerminals={broadcastTargets}
             onAddForward={(input) => api.addForward(input).then(refreshWorkspace).catch((e) => reportError(String(e)))}
             onDeleteForward={(id) => api.deleteForward(id).then(refreshWorkspace).catch((e) => reportError(String(e)))}
             onAddKey={(name, path, passphrase) => api.addPrivateKey(name, path, passphrase).then(refreshWorkspace).catch((e) => reportError(String(e)))}
@@ -475,6 +612,7 @@ export default function App() {
                           preferences={preferences}
                           initialCommand={tab.initialCommand}
                           onDisconnect={() => closeTab(tab.id, "disconnected")}
+                          onInputData={(data) => mirrorInput(tab.id, data)}
                           ref={(handle) => {
                             if (handle) terminalRefs.current.set(tab.id, handle);
                             else terminalRefs.current.delete(tab.id);
@@ -493,6 +631,7 @@ export default function App() {
                           isActive={isActive}
                           preferences={preferences}
                           onDisconnect={() => closeTab(tab.id, "disconnected")}
+                          onInputData={(data) => mirrorInput(tab.id, data)}
                           ref={(handle) => {
                             if (handle) terminalRefs.current.set(tab.id, handle);
                             else terminalRefs.current.delete(tab.id);
@@ -515,7 +654,17 @@ export default function App() {
                   >
                     <div className="h-full w-px bg-[var(--c-border)] transition-colors group-hover:bg-[var(--c-accent)]" />
                   </div>
-                  <SplitPane workspace={workspace} preferences={preferences} />
+                  <SplitPane
+                    workspace={workspace}
+                    preferences={preferences}
+                    source={splitSource}
+                    onSourceChange={setSplitSource}
+                    onInputData={(data) => mirrorInput(SPLIT_PANE_ID, data)}
+                    onRef={(handle) => {
+                      if (handle) terminalRefs.current.set(SPLIT_PANE_ID, handle);
+                      else terminalRefs.current.delete(SPLIT_PANE_ID);
+                    }}
+                  />
                 </>
               )}
             </div>

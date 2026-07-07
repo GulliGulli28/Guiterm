@@ -66,6 +66,7 @@ export interface Group {
   name: string;
   parentId: GroupId | null;
   icon?: string;
+  color?: string | null;
 }
 
 export interface Workspace {

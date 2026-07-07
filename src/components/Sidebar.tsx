@@ -30,7 +30,8 @@ interface SidebarProps {
   onAddSnippet: (name: string, command: string) => void;
   onUpdateSnippet: (id: SnippetId, name: string, command: string) => void;
   onDeleteSnippet: (id: SnippetId) => void;
-  onRunSnippet: (command: string) => void;
+  onRunSnippet: (command: string, targetTabIds?: string[]) => void;
+  openTerminals: { id: string; label: string }[];
   onAddForward: (input: { hostId: HostId; kind: "local" | "remote"; bindAddress: string; bindPort: number; destAddress: string; destPort: number }) => void;
   onDeleteForward: (id: PortForwardId) => void;
   onAddKey: (name: string, path: string, passphrase: string | null) => void;
@@ -123,6 +124,7 @@ export function Sidebar(props: SidebarProps) {
               onUpdateSnippet={props.onUpdateSnippet}
               onDeleteSnippet={props.onDeleteSnippet}
               onRunSnippet={props.onRunSnippet}
+              openTerminals={props.openTerminals}
             />
           )}
           {panel === "tunnels" && (

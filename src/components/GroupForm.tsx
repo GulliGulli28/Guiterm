@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { GroupId, Workspace } from "../lib/types";
+import { ACCENT_COLORS, type UiAccent } from "../lib/preferences";
 import { IconTrash } from "./ui-icons";
 import { HostIcon } from "./icons";
 import { IconPicker } from "./IconPicker";
@@ -10,6 +11,7 @@ export interface GroupFormData {
   name: string;
   parentId: GroupId | null;
   icon: string | null;
+  color: string | null;
 }
 
 interface GroupFormProps {
@@ -25,6 +27,7 @@ export function GroupForm({ workspace, group, onCancel, onSave, onDeleteGroup, o
   const [name, setName] = useState(group.name);
   const [parentId, setParentId] = useState<GroupId | null>(group.parentId);
   const [icon, setIcon] = useState<string | null>(group.icon);
+  const [color, setColor] = useState<string | null>(group.color);
   const [showIconPicker, setShowIconPicker] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
@@ -39,7 +42,7 @@ export function GroupForm({ workspace, group, onCancel, onSave, onDeleteGroup, o
       setError(`Un dossier "${trimmed}" existe déjà à ce niveau`);
       return;
     }
-    onSave({ id: group.id, name: trimmed, parentId, icon });
+    onSave({ id: group.id, name: trimmed, parentId, icon, color });
   };
 
   return (
@@ -89,6 +92,34 @@ export function GroupForm({ workspace, group, onCancel, onSave, onDeleteGroup, o
                 onClose={() => setShowIconPicker(false)}
               />
             )}
+          </div>
+        </div>
+
+        {/* Color tag */}
+        <div className="space-y-1">
+          <span className="text-xs font-medium text-[var(--c-text-secondary)]">Couleur (affichée sur les onglets)</span>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => setColor(null)}
+              title="Aucune couleur"
+              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 text-[10px] text-[var(--c-text-muted)] ${
+                color === null ? "border-[var(--c-text)]" : "border-transparent hover:border-white/30"
+              }`}
+              style={{ background: "var(--c-bg3)" }}
+            >
+              ✕
+            </button>
+            {(Object.entries(ACCENT_COLORS) as [UiAccent, typeof ACCENT_COLORS[UiAccent]][]).map(([key, entry]) => (
+              <button
+                key={key}
+                type="button"
+                onClick={() => setColor(key)}
+                title={entry.label}
+                className={`h-6 w-6 shrink-0 rounded-full border-2 ${color === key ? "border-[var(--c-text)]" : "border-transparent hover:border-white/30"}`}
+                style={{ background: entry.c500 }}
+              />
+            ))}
           </div>
         </div>
 

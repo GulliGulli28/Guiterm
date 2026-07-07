@@ -26,7 +26,7 @@ export const api = {
   deleteHost: (hostId: HostId) => invoke<Workspace>("delete_host", { hostId }),
   checkHostStatus: (hostId: HostId) => invoke<boolean>("check_host_status", { hostId }),
 
-  saveGroup: (input: { id: GroupId | null; name: string; parentId: GroupId | null; icon: string | null }) => invoke<Workspace>("save_group", { input }),
+  saveGroup: (input: { id: GroupId | null; name: string; parentId: GroupId | null; icon: string | null; color: string | null }) => invoke<Workspace>("save_group", { input }),
   deleteGroup: (groupId: GroupId) => invoke<Workspace>("delete_group", { groupId }),
 
   addSnippet: (name: string, command: string) => invoke<Workspace>("add_snippet", { name, command }),
@@ -48,6 +48,7 @@ export const api = {
   importWorkspace: (path: string, replace: boolean) => invoke<Workspace>("import_workspace", { path, replace }),
   exportHost: (hostId: HostId, path: string, includeKeyMaterial: boolean) => invoke<void>("export_host", { hostId, path, includeKeyMaterial }),
   importHostFromFile: (path: string) => invoke<Workspace>("import_host_from_file", { path }),
+  exportText: (path: string, content: string) => invoke<void>("export_text", { path, content }),
   startForward: (forwardId: PortForwardId) => invoke<void>("start_forward", { forwardId }),
   stopForward: (forwardId: PortForwardId) => invoke<void>("stop_forward", { forwardId }),
   runningForwards: () => invoke<PortForwardId[]>("running_forwards"),

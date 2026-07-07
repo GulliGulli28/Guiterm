@@ -1,28 +1,19 @@
 import { useEffect, useRef, useState } from "react";
 import type { Snippet, SnippetId, Workspace } from "../lib/types";
+import { extractVariables, fillVariables } from "../lib/snippets";
 import { IconPlay, IconTrash, IconPlus, IconClose, IconEdit } from "./ui-icons";
+import { TerminalTargetPicker } from "./TerminalTargetPicker";
 
 interface SnippetsPanelProps {
   workspace: Workspace;
   onAddSnippet: (name: string, command: string) => void;
   onUpdateSnippet: (id: SnippetId, name: string, command: string) => void;
   onDeleteSnippet: (id: SnippetId) => void;
-  onRunSnippet: (command: string) => void;
+  onRunSnippet: (command: string, targetTabIds?: string[]) => void;
+  openTerminals: { id: string; label: string }[];
 }
 
 type Mode = "snippet" | "script";
-
-const VARIABLE_PATTERN = /\{\{\s*([a-zA-Z_][\w]*)\s*\}\}/g;
-
-function extractVariables(command: string): string[] {
-  const seen = new Set<string>();
-  for (const match of command.matchAll(VARIABLE_PATTERN)) seen.add(match[1]);
-  return Array.from(seen);
-}
-
-function fillVariables(command: string, values: Record<string, string>): string {
-  return command.replace(VARIABLE_PATTERN, (_, name) => values[name] ?? "");
-}
 
 function SnippetForm({
   initialName = "",
@@ -130,23 +121,27 @@ function SnippetForm({
 
 function SnippetCard({
   snippet,
+  openTerminals,
   onRun,
   onUpdate,
   onDelete,
 }: {
   snippet: Snippet;
-  onRun: (command: string) => void;
+  openTerminals: { id: string; label: string }[];
+  onRun: (command: string, targetTabIds?: string[]) => void;
   onUpdate: (name: string, command: string) => void;
   onDelete: () => void;
 }) {
   const [editing, setEditing] = useState(false);
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [promptValues, setPromptValues] = useState<Record<string, string> | null>(null);
+  const [targets, setTargets] = useState<Set<string>>(new Set());
   const isScript = snippet.command.includes("\n");
   const variables = extractVariables(snippet.command);
+  const targetIds = Array.from(targets);
 
   const handleRunClick = () => {
-    if (variables.length === 0) { onRun(snippet.command); return; }
+    if (variables.length === 0) { onRun(snippet.command, targetIds); return; }
     setPromptValues(Object.fromEntries(variables.map((v) => [v, ""])));
   };
 
@@ -165,7 +160,7 @@ function SnippetCard({
   }
 
   if (promptValues) {
-    const submit = () => { onRun(fillVariables(snippet.command, promptValues)); setPromptValues(null); };
+    const submit = () => { onRun(fillVariables(snippet.command, promptValues), targetIds); setPromptValues(null); };
     return (
       <div className="rounded-xl bg-[var(--c-bg3)] p-2.5 ring-1 ring-[var(--c-accent)]/40">
         <p className="mb-1.5 truncate text-[14px] font-medium text-[var(--c-text)]">{snippet.name}</p>
@@ -215,12 +210,16 @@ function SnippetCard({
         {snippet.command}
       </pre>
 
-      <div className="mt-2 flex flex-wrap gap-1">
+      <div className="mt-2">
+        <TerminalTargetPicker terminals={openTerminals} selected={targets} onChange={setTargets} emptyLabel="Onglet actif" />
+      </div>
+
+      <div className="mt-1.5 flex flex-wrap gap-1">
         <button
           onClick={handleRunClick}
           className="accent-surface flex flex-1 basis-[68px] items-center justify-center gap-1 rounded-md border px-1 py-1.5 text-xs"
         >
-          <IconPlay size={11} /> Exécuter
+          <IconPlay size={11} /> Exécuter{targetIds.length > 0 ? ` (${targetIds.length})` : ""}
         </button>
         <button
           onClick={() => setEditing(true)}
@@ -256,7 +255,7 @@ function SnippetCard({
   );
 }
 
-export function SnippetsPanel({ workspace, onAddSnippet, onUpdateSnippet, onDeleteSnippet, onRunSnippet }: SnippetsPanelProps) {
+export function SnippetsPanel({ workspace, onAddSnippet, onUpdateSnippet, onDeleteSnippet, onRunSnippet, openTerminals }: SnippetsPanelProps) {
   const [showForm, setShowForm] = useState(false);
 
   return (
@@ -288,6 +287,7 @@ export function SnippetsPanel({ workspace, onAddSnippet, onUpdateSnippet, onDele
           <SnippetCard
             key={snippet.id}
             snippet={snippet}
+            openTerminals={openTerminals}
             onRun={onRunSnippet}
             onUpdate={(name, command) => onUpdateSnippet(snippet.id, name, command)}
             onDelete={() => onDeleteSnippet(snippet.id)}

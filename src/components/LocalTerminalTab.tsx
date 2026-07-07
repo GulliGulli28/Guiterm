@@ -5,10 +5,11 @@ import { SearchAddon } from "@xterm/addon-search";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { api, base64ToBytes, bytesToBase64, onTerminalClosed, onTerminalData } from "../lib/api";
-import type { TerminalTabHandle } from "./TerminalTab";
+import { scrollbackText, type TerminalTabHandle } from "./TerminalTab";
 import type { AppPreferences } from "../lib/preferences";
 import { TERMINAL_THEMES, auroraLayerBackground } from "../lib/preferences";
-import { TerminalSearchBar } from "./TerminalSearchBar";
+import { shouldBubbleToShortcut } from "../lib/shortcuts";
+import { TerminalSearchBar, type SearchOptions } from "./TerminalSearchBar";
 
 export { type TerminalTabHandle };
 
@@ -17,9 +18,10 @@ interface LocalTerminalTabProps {
   preferences?: AppPreferences;
   initialCommand?: string;
   onDisconnect?: () => void;
+  onInputData?: (data: string) => void;
 }
 
-export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabProps>(function LocalTerminalTab({ isActive, preferences, initialCommand, onDisconnect }, ref) {
+export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabProps>(function LocalTerminalTab({ isActive, preferences, initialCommand, onDisconnect, onInputData }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -30,6 +32,10 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
   const [searchOpen, setSearchOpen] = useState(false);
   const searchOpenRef = useRef(searchOpen);
   useEffect(() => { searchOpenRef.current = searchOpen; }, [searchOpen]);
+  const preferencesRef = useRef(preferences);
+  useEffect(() => { preferencesRef.current = preferences; }, [preferences]);
+  const onInputDataRef = useRef(onInputData);
+  useEffect(() => { onInputDataRef.current = onInputData; }, [onInputData]);
 
   useImperativeHandle(
     ref,
@@ -39,6 +45,11 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
         if (!id) return;
         api.writeLocalTerminal(id, bytesToBase64(new TextEncoder().encode(command + "\r")));
       },
+      writeRaw: (data: string) => {
+        const id = sessionIdRef.current;
+        if (id) api.writeLocalTerminal(id, bytesToBase64(new TextEncoder().encode(data)));
+      },
+      getScrollbackText: () => (termRef.current ? scrollbackText(termRef.current) : ""),
       dispose: () => {
         const id = sessionIdRef.current;
         if (id) api.closeLocalTerminal(id).catch(() => {});
@@ -77,6 +88,14 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
         setSearchOpen(false);
         return false;
       }
+      // Let a handful of app shortcuts (tab switching/closing, snippet quick-run) bubble
+      // up to the window-level handler instead of being sent to the shell — otherwise
+      // xterm consumes them (and stops their propagation), so they'd only ever fire
+      // once before focus lands back in a terminal and swallows every further press.
+      const shortcuts = preferencesRef.current?.keyboardShortcuts;
+      if (shortcuts && shouldBubbleToShortcut(e, shortcuts)) {
+        return false;
+      }
       return true;
     });
 
@@ -84,6 +103,7 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
       if (sessionIdRef.current) {
         api.writeLocalTerminal(sessionIdRef.current, bytesToBase64(new TextEncoder().encode(data)));
       }
+      onInputDataRef.current?.(data);
     });
 
     (async () => {
@@ -170,10 +190,10 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
 
   const bgColor = preferences ? (TERMINAL_THEMES[preferences.terminalThemeName]?.theme.background ?? "#020617") : "#020617";
 
-  const handleSearch = (value: string, direction: "next" | "prev") => {
+  const handleSearch = (value: string, direction: "next" | "prev", options: SearchOptions) => {
     if (!value) return;
-    if (direction === "next") searchRef.current?.findNext(value, { incremental: true });
-    else searchRef.current?.findPrevious(value, { incremental: true });
+    if (direction === "next") searchRef.current?.findNext(value, { incremental: true, ...options });
+    else searchRef.current?.findPrevious(value, { ...options });
   };
 
   const handleContextMenu = (e: MouseEvent) => {

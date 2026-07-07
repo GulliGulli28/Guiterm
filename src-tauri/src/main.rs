@@ -49,6 +49,7 @@ fn main() {
             commands::export::import_workspace,
             commands::export::export_host,
             commands::export::import_host_from_file,
+            commands::export::export_text,
             commands::terminal::connect_terminal,
             commands::terminal::write_terminal,
             commands::terminal::resize_terminal,

@@ -8,7 +8,7 @@ import { api } from "../lib/api";
 import type { Workspace } from "../lib/types";
 import type { AppPreferences } from "../lib/preferences";
 import { TERMINAL_THEMES, FONT_FAMILIES, ACCENT_COLORS, BG_THEMES, type UiAccent, type UiBg, type ColorMode } from "../lib/preferences";
-import { SHORTCUT_ACTIONS, defaultShortcuts, comboFromEvent } from "../lib/shortcuts";
+import { SHORTCUT_ACTIONS, defaultShortcuts, comboFromEvent, shellBindingWarning } from "../lib/shortcuts";
 import { IconUpload, IconDownload, IconPalette, IconTerminal, IconTransfer, IconKeyboard, IconBell, IconSettings, IconSun, IconMoon, IconRefresh } from "./ui-icons";
 
 type UpdateStatus = "idle" | "checking" | "upToDate" | "available" | "installing" | "error";
@@ -36,9 +36,17 @@ const CATEGORIES: { key: SettingsCategory; label: string; Icon: ComponentType<{ 
 
 function ShortcutRow({ label, combo, onChange }: { label: string; combo: string; onChange: (combo: string) => void }) {
   const [capturing, setCapturing] = useState(false);
+  const warning = shellBindingWarning(combo);
   return (
     <div className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 hover:bg-white/5">
-      <span className="text-[13px] text-[var(--c-text-secondary)]">{label}</span>
+      <span className="text-[13px] text-[var(--c-text-secondary)]">
+        {label}
+        {warning && (
+          <span title={`Combinaison déjà utilisée par le shell : ${warning}. Cette action ne se déclenchera donc que lorsque le focus n'est pas dans un terminal.`} className="ml-1.5 cursor-help text-[11px] text-amber-400">
+            ⚠
+          </span>
+        )}
+      </span>
       <button
         type="button"
         onClick={() => setCapturing(true)}
@@ -340,6 +348,30 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
                 Clic droit avec une sélection : copie le texte sélectionné. Clic droit sans sélection : colle le presse-papiers.
               </p>
             </div>
+
+            <div className="space-y-1 rounded-lg bg-[var(--c-bg2)] p-1.5">
+              <ToggleRow
+                label="Reconnexion automatique en cas de perte de connexion"
+                checked={preferences.autoReconnect}
+                onChange={(v) => onPreferencesChange({ ...preferences, autoReconnect: v })}
+              />
+              {preferences.autoReconnect && (
+                <div className="flex items-center justify-between gap-2 px-2 pb-1.5 pt-0.5">
+                  <span className="text-[12px] text-[var(--c-text-muted)]">Tentatives maximum</span>
+                  <input
+                    type="number"
+                    min={1}
+                    max={20}
+                    value={preferences.autoReconnectMaxAttempts}
+                    onChange={(e) => onPreferencesChange({ ...preferences, autoReconnectMaxAttempts: Math.max(1, Math.min(20, Number(e.target.value) || 1)) })}
+                    className="w-16 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-right text-[12px] text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                  />
+                </div>
+              )}
+              <p className="px-2 pb-1 text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+                Un délai croissant est appliqué entre les tentatives (2s, 4s, 8s…, plafonné à 30s).
+              </p>
+            </div>
           </section>
         )}
 
@@ -414,6 +446,11 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
               label="Notifier à la fin d'un transfert SFTP"
               checked={preferences.notifyOnTransferDone}
               onChange={(v) => onPreferencesChange({ ...preferences, notifyOnTransferDone: v })}
+            />
+            <ToggleRow
+              label="Notifier quand une mise à jour est disponible"
+              checked={preferences.notifyOnUpdateAvailable}
+              onChange={(v) => onPreferencesChange({ ...preferences, notifyOnUpdateAvailable: v })}
             />
           </section>
         )}

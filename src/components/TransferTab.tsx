@@ -211,8 +211,11 @@ export function TransferTab({ host, workspace, preferences, onError }: TransferT
   };
 
   // ── Drag-and-drop between the two panes ──────────────────────────────────
+  // Windows' WebView2 disables the browser's native HTML5 drag-and-drop
+  // whenever Tauri's own OS-level drag-drop (used below for Explorer → app
+  // uploads) is active, so pane-to-pane dragging is implemented with plain
+  // mouse events instead of `draggable`/`dragstart`/`drop`.
   const dragPayload = useRef<{ side: Side; entries: Entry[] } | null>(null);
-  const handleDragStartEntries = (side: Side, entries: Entry[]) => { dragPayload.current = { side, entries }; };
   const handleDropEntries = (side: Side) => {
     const payload = dragPayload.current;
     dragPayload.current = null;
@@ -220,11 +223,81 @@ export function TransferTab({ host, workspace, preferences, onError }: TransferT
     copy(payload.side, payload.entries);
   };
 
+  const manualDragRef = useRef<{ side: Side; entries: Entry[]; startX: number; startY: number; dragging: boolean } | null>(null);
+  const [manualDragOverSide, setManualDragOverSide] = useState<Side | null>(null);
+  const [manualDragSide, setManualDragSide] = useState<Side | null>(null);
+
+  const startManualDrag = (side: Side, entries: Entry[], e: React.MouseEvent) => {
+    if (e.button !== 0 || entries.length === 0) return;
+    manualDragRef.current = { side, entries, startX: e.clientX, startY: e.clientY, dragging: false };
+  };
+
+  useEffect(() => {
+    const paneSideAt = (x: number, y: number): Side | null => {
+      const targets: { side: Side; el: HTMLDivElement | null }[] = [
+        { side: "left", el: leftPaneRef.current },
+        { side: "right", el: rightPaneRef.current },
+      ];
+      for (const { side, el } of targets) {
+        if (!el) continue;
+        const rect = el.getBoundingClientRect();
+        if (x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom) return side;
+      }
+      return null;
+    };
+
+    const onMove = (e: MouseEvent) => {
+      const drag = manualDragRef.current;
+      if (!drag) return;
+      if (!drag.dragging) {
+        if (Math.hypot(e.clientX - drag.startX, e.clientY - drag.startY) < 4) return;
+        drag.dragging = true;
+        dragPayload.current = { side: drag.side, entries: drag.entries };
+        setManualDragSide(drag.side);
+        document.body.style.cursor = "grabbing";
+        document.body.style.userSelect = "none";
+      }
+      setManualDragOverSide(paneSideAt(e.clientX, e.clientY));
+    };
+
+    const onUp = (e: MouseEvent) => {
+      const drag = manualDragRef.current;
+      manualDragRef.current = null;
+      if (drag?.dragging) {
+        document.body.style.cursor = "";
+        document.body.style.userSelect = "";
+        const dropSide = paneSideAt(e.clientX, e.clientY);
+        if (dropSide) handleDropEntries(dropSide);
+        else dragPayload.current = null;
+        setManualDragSide(null);
+        setManualDragOverSide(null);
+      }
+    };
+
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+    return () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const mkdir = async (side: Side, name: string) => {
     const paneId = paneIds.current[side];
     if (!paneId) return;
     try {
       const result = await api.paneMkdir(paneId, state[side].cwd, name);
+      dispatch({ type: "listed", side, result });
+    } catch (e) { onError(String(e)); }
+  };
+
+  const createFile = async (side: Side, name: string) => {
+    const paneId = paneIds.current[side];
+    if (!paneId) return;
+    try {
+      await api.writePaneFile(paneId, state[side].cwd, name, "");
+      const result = await api.listPane(paneId, state[side].cwd);
       dispatch({ type: "listed", side, result });
     } catch (e) { onError(String(e)); }
   };
@@ -359,7 +432,7 @@ export function TransferTab({ host, workspace, preferences, onError }: TransferT
     <div className="flex min-h-0 flex-1 flex-col">
       <div ref={containerRef} className="flex min-h-0 flex-1">
         <div ref={leftPaneRef} style={{ width: `${leftPercent}%` }} className="flex min-h-0 shrink-0 flex-col overflow-hidden">
-          <PaneView side="left" pane={state.left} workspace={workspace} fontSize={fontSize} onNavigate={navigate} onSourceChange={changeSource} onCopy={copy} onMkdir={mkdir} onRename={rename} onRemove={remove} onChmod={chmod} onEdit={openEdit} onDragStartEntries={handleDragStartEntries} onDropEntries={handleDropEntries} />
+          <PaneView side="left" pane={state.left} workspace={workspace} fontSize={fontSize} onNavigate={navigate} onSourceChange={changeSource} onCopy={copy} onMkdir={mkdir} onCreateFile={createFile} onRename={rename} onRemove={remove} onChmod={chmod} onEdit={openEdit} onEntryMouseDown={startManualDrag} isDropTarget={manualDragSide !== null && manualDragSide !== "left" && manualDragOverSide === "left"} />
         </div>
         <div
           onMouseDown={onDividerDrag}
@@ -368,7 +441,7 @@ export function TransferTab({ host, workspace, preferences, onError }: TransferT
           <div className="h-full w-px bg-[var(--c-border)] transition-colors group-hover:bg-[var(--c-accent)]" />
         </div>
         <div ref={rightPaneRef} className="flex min-h-0 flex-1 flex-col overflow-hidden">
-          <PaneView side="right" pane={state.right} workspace={workspace} fontSize={fontSize} onNavigate={navigate} onSourceChange={changeSource} onCopy={copy} onMkdir={mkdir} onRename={rename} onRemove={remove} onChmod={chmod} onEdit={openEdit} onDragStartEntries={handleDragStartEntries} onDropEntries={handleDropEntries} />
+          <PaneView side="right" pane={state.right} workspace={workspace} fontSize={fontSize} onNavigate={navigate} onSourceChange={changeSource} onCopy={copy} onMkdir={mkdir} onCreateFile={createFile} onRename={rename} onRemove={remove} onChmod={chmod} onEdit={openEdit} onEntryMouseDown={startManualDrag} isDropTarget={manualDragSide !== null && manualDragSide !== "right" && manualDragOverSide === "right"} />
         </div>
       </div>
 
@@ -434,12 +507,13 @@ interface PaneViewProps {
   onSourceChange: (side: Side, source: PaneSource) => void;
   onCopy: (side: Side, entries: Entry[]) => void;
   onMkdir: (side: Side, name: string) => void;
+  onCreateFile: (side: Side, name: string) => void;
   onRename: (side: Side, oldName: string, newName: string) => void;
   onRemove: (side: Side, entries: Entry[]) => void;
   onChmod: (side: Side, name: string, mode: number) => void;
   onEdit: (side: Side, name: string) => void;
-  onDragStartEntries: (side: Side, entries: Entry[]) => void;
-  onDropEntries: (side: Side) => void;
+  onEntryMouseDown: (side: Side, entries: Entry[], e: React.MouseEvent) => void;
+  isDropTarget: boolean;
 }
 
 function ColHeader({
@@ -460,19 +534,20 @@ function ColHeader({
   );
 }
 
-function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange, onCopy, onMkdir, onRename, onRemove, onChmod, onEdit, onDragStartEntries, onDropEntries }: PaneViewProps) {
+function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange, onCopy, onMkdir, onCreateFile, onRename, onRemove, onChmod, onEdit, onEntryMouseDown, isDropTarget }: PaneViewProps) {
   const [gotoPath, setGotoPath] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [creatingFolder, setCreatingFolder] = useState(false);
   const [newFolderName, setNewFolderName] = useState("");
+  const [creatingFile, setCreatingFile] = useState(false);
+  const [newFileName, setNewFileName] = useState("");
   const [renaming, setRenaming] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [chmodTarget, setChmodTarget] = useState<string | null>(null);
   const [chmodValue, setChmodValue] = useState("755");
-  const [dragOver, setDragOver] = useState(false);
   const copyLabel = side === "left" ? "→" : "←";
   const isRemote = pane.source.kind === "remote";
 
@@ -504,6 +579,13 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
     if (name) onMkdir(side, name);
     setNewFolderName("");
     setCreatingFolder(false);
+  };
+
+  const submitNewFile = () => {
+    const name = newFileName.trim();
+    if (name) onCreateFile(side, name);
+    setNewFileName("");
+    setCreatingFile(false);
   };
 
   const startRename = () => {
@@ -600,6 +682,21 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
                   <IconClose size={11} />
                 </button>
               </div>
+            ) : creatingFile ? (
+              <div className="flex flex-1 items-center gap-1">
+                <input
+                  autoFocus
+                  value={newFileName}
+                  onChange={(e) => setNewFileName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") submitNewFile(); if (e.key === "Escape") setCreatingFile(false); }}
+                  placeholder="Nom du fichier"
+                  className="min-w-0 flex-1 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                />
+                <button onClick={submitNewFile} className="rounded-md bg-[var(--c-accent)] px-2 py-1 text-xs text-white hover:bg-[var(--c-accent-hover)]">Créer</button>
+                <button onClick={() => setCreatingFile(false)} className="rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text-secondary)] hover:bg-white/5">
+                  <IconClose size={11} />
+                </button>
+              </div>
             ) : renaming ? (
               <div className="flex flex-1 items-center gap-1">
                 <input
@@ -638,6 +735,13 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
                   className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
                 >
                   <IconFolder size={12} /> Nouveau dossier
+                </button>
+                <button
+                  onClick={() => setCreatingFile(true)}
+                  title="Nouveau fichier"
+                  className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+                >
+                  <span className="text-[12px] leading-none">📄</span> Nouveau fichier
                 </button>
                 {selectedEntries.length === 1 && (
                   <button
@@ -706,28 +810,26 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
 
           {/* File list */}
           <div
-            className={`min-h-0 flex-1 overflow-y-auto ${dragOver ? "bg-[var(--c-accent-dim)]/30 ring-1 ring-inset ring-[var(--c-accent)]" : ""}`}
+            className={`min-h-0 flex-1 overflow-y-auto ${isDropTarget ? "bg-[var(--c-accent-dim)]/30 ring-1 ring-inset ring-[var(--c-accent)]" : ""}`}
             style={{ fontSize: `${fontSize}px` }}
-            onDragOver={(e) => { e.preventDefault(); setDragOver(true); }}
-            onDragLeave={() => setDragOver(false)}
-            onDrop={(e) => { e.preventDefault(); setDragOver(false); onDropEntries(side); }}
           >
             {sorted.map((entry) => (
               <div
                 key={entry.name}
-                draggable
-                onDragStart={() => onDragStartEntries(side, selected.has(entry.name) && selectedEntries.length > 1 ? selectedEntries : [entry])}
+                onMouseDown={(e) => onEntryMouseDown(side, selected.has(entry.name) && selectedEntries.length > 1 ? selectedEntries : [entry], e)}
                 className={`group flex items-center gap-1 px-2 py-[3px] hover:bg-[var(--c-bg2)] ${selected.has(entry.name) ? "bg-[var(--c-accent-dim)]" : ""}`}
               >
                 <input
                   type="checkbox"
                   checked={selected.has(entry.name)}
+                  onMouseDown={(e) => e.stopPropagation()}
                   onClick={(e) => toggleSelect(entry.name, e)}
                   onChange={() => {}}
                   className="h-3.5 w-3.5 shrink-0 accent-[var(--c-accent)]"
                 />
                 {/* Name */}
                 <button
+                  onMouseDown={(e) => e.stopPropagation()}
                   onClick={() => entry.isDir && onNavigate(side, joinPath(pane.cwd, entry.name))}
                   className={`flex min-w-0 flex-1 items-center gap-1.5 truncate text-left ${
                     entry.isDir ? "font-medium text-[var(--c-accent-text)]" : "text-[var(--c-text)]"
@@ -753,6 +855,7 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
                 {/* Quick edit */}
                 {!entry.isDir && entry.size <= QUICK_EDIT_MAX_SIZE && (
                   <button
+                    onMouseDown={(e) => e.stopPropagation()}
                     onClick={() => onEdit(side, entry.name)}
                     title="Éditer le contenu"
                     className="w-6 shrink-0 rounded px-0.5 text-center text-[var(--c-text-faint)] opacity-0 hover:bg-[var(--c-accent)] hover:text-white focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
@@ -763,6 +866,7 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
 
                 {/* Copy button */}
                 <button
+                  onMouseDown={(e) => e.stopPropagation()}
                   onClick={() => onCopy(side, [entry])}
                   title={entry.isDir ? "Copier le dossier vers l'autre panneau" : "Copier vers l'autre panneau"}
                   className="w-6 shrink-0 rounded px-0.5 text-center text-[var(--c-text-faint)] opacity-0 hover:bg-[var(--c-accent)] hover:text-white focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"

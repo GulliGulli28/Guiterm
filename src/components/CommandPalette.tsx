@@ -16,6 +16,7 @@ export function CommandPalette({ commands, onClose }: CommandPaletteProps) {
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
+  const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
@@ -24,6 +25,7 @@ export function CommandPalette({ commands, onClose }: CommandPaletteProps) {
     : commands;
 
   useEffect(() => { setActiveIndex(0); }, [query]);
+  useEffect(() => { itemRefs.current[activeIndex]?.scrollIntoView({ block: "nearest" }); }, [activeIndex]);
 
   const runAt = (index: number) => {
     const cmd = filtered[index];
@@ -55,6 +57,7 @@ export function CommandPalette({ commands, onClose }: CommandPaletteProps) {
           {filtered.map((cmd, i) => (
             <button
               key={cmd.id}
+              ref={(el) => { itemRefs.current[i] = el; }}
               onClick={() => runAt(i)}
               onMouseEnter={() => setActiveIndex(i)}
               className={`flex w-full items-center justify-between gap-2 px-4 py-2 text-left text-sm transition-colors ${
