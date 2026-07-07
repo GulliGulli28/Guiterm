@@ -95,8 +95,10 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle");
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [pendingUpdate, setPendingUpdate] = useState<Update | null>(null);
+  const [localShells, setLocalShells] = useState<{ id: string; label: string }[]>([]);
 
   useEffect(() => { getVersion().then(setAppVersion).catch(() => {}); }, []);
+  useEffect(() => { api.listLocalShells().then(setLocalShells).catch(() => {}); }, []);
 
   const fileFilters = [{ name: "JSON", extensions: ["json"] }];
 
@@ -370,6 +372,23 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
               )}
               <p className="px-2 pb-1 text-[12px] leading-relaxed text-[var(--c-text-muted)]">
                 Un délai croissant est appliqué entre les tentatives (2s, 4s, 8s…, plafonné à 30s).
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <label className="block text-[12px] text-[var(--c-text-secondary)]">Shell local par défaut</label>
+              <select
+                value={preferences.defaultLocalShell ?? ""}
+                onChange={(e) => onPreferencesChange({ ...preferences, defaultLocalShell: e.target.value || null })}
+                className="w-full rounded-md bg-[var(--c-bg2)] px-2 py-1.5 text-[13px] text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+              >
+                <option value="">Automatique (système)</option>
+                {localShells.map((s) => (
+                  <option key={s.id} value={s.id}>{s.label}</option>
+                ))}
+              </select>
+              <p className="text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+                Utilisé pour les nouveaux terminaux locaux — un shell différent peut aussi être choisi ponctuellement via le sélecteur à côté du bouton « terminal local ».
               </p>
             </div>
           </section>

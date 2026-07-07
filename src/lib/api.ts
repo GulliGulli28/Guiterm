@@ -63,7 +63,8 @@ export const api = {
   resizeTerminal: (sessionId: string, cols: number, rows: number) => invoke<void>("resize_terminal", { sessionId, cols, rows }),
   closeTerminal: (sessionId: string) => invoke<void>("close_terminal", { sessionId }),
 
-  openLocalTerminal: () => invoke<string>("open_local_terminal"),
+  openLocalTerminal: (shell: string | null = null) => invoke<string>("open_local_terminal", { shell }),
+  listLocalShells: () => invoke<{ id: string; label: string }[]>("list_local_shells"),
   writeLocalTerminal: (sessionId: string, data: string) => invoke<void>("write_local_terminal", { sessionId, data }),
   resizeLocalTerminal: (sessionId: string, cols: number, rows: number) => invoke<void>("resize_local_terminal", { sessionId, cols, rows }),
   closeLocalTerminal: (sessionId: string) => invoke<void>("close_local_terminal", { sessionId }),

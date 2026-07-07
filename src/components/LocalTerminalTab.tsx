@@ -17,11 +17,12 @@ interface LocalTerminalTabProps {
   isActive: boolean;
   preferences?: AppPreferences;
   initialCommand?: string;
+  shell?: string | null;
   onDisconnect?: () => void;
   onInputData?: (data: string) => void;
 }
 
-export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabProps>(function LocalTerminalTab({ isActive, preferences, initialCommand, onDisconnect, onInputData }, ref) {
+export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabProps>(function LocalTerminalTab({ isActive, preferences, initialCommand, shell, onDisconnect, onInputData }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -108,7 +109,7 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
 
     (async () => {
       try {
-        const id = await api.openLocalTerminal();
+        const id = await api.openLocalTerminal(shell ?? null);
         if (disposed) {
           api.closeLocalTerminal(id).catch(() => {});
           return;

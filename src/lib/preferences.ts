@@ -87,6 +87,8 @@ export interface AppPreferences {
   terminalRightClickMenu: boolean;
   autoReconnect: boolean;
   autoReconnectMaxAttempts: number;
+  /** Shell id (from `api.listLocalShells`) used for new local terminals; `null` = system default. */
+  defaultLocalShell: string | null;
 }
 
 export interface TerminalThemeEntry {
@@ -244,6 +246,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   terminalRightClickMenu: true,
   autoReconnect: false,
   autoReconnectMaxAttempts: 5,
+  defaultLocalShell: null,
 };
 
 // Same two-stop aurora wash as `.app-aurora-bg` in index.css, but layered over

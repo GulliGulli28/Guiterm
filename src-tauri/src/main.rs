@@ -55,6 +55,7 @@ fn main() {
             commands::terminal::resize_terminal,
             commands::terminal::close_terminal,
             commands::terminal::open_local_terminal,
+            commands::terminal::list_local_shells,
             commands::terminal::write_local_terminal,
             commands::terminal::resize_local_terminal,
             commands::terminal::close_local_terminal,

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { api } from "../lib/api";
 import type { Group, GroupId, Host, HostId, Workspace } from "../lib/types";
@@ -14,7 +14,7 @@ interface HostsPanelProps {
   workspace: Workspace;
   activeHostId?: HostId | null;
   onConnect: (host: Host) => void;
-  onOpenLocalTerminal: () => void;
+  onOpenLocalTerminal: (shell?: string) => void;
   onNewHost: () => void;
   onEditHost: (host: Host) => void;
   onNewGroup: () => void;
@@ -33,6 +33,58 @@ function parseSSHInput(raw: string): { username: string; address: string; port: 
   const port = m[3] ? parseInt(m[3], 10) : 22;
   if (!port || port < 1 || port > 65535) return null;
   return { username: m[1], address: m[2], port };
+}
+
+function LocalTerminalButton({ onOpen }: { onOpen: (shell?: string) => void }) {
+  const [open, setOpen] = useState(false);
+  const [shells, setShells] = useState<{ id: string; label: string }[] | null>(null);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDocDown = (e: MouseEvent) => { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false); };
+    window.addEventListener("mousedown", onDocDown);
+    return () => window.removeEventListener("mousedown", onDocDown);
+  }, [open]);
+
+  const togglePicker = () => {
+    setOpen((v) => !v);
+    if (!shells) api.listLocalShells().then(setShells).catch(() => setShells([]));
+  };
+
+  return (
+    <div ref={ref} className="relative flex shrink-0">
+      <button
+        onClick={() => onOpen()}
+        title="Ouvrir un terminal local (shell par défaut)"
+        className="flex items-center justify-center rounded-l-xl border border-r-0 border-white/5 bg-[var(--c-bg3)] px-3 py-2 text-[var(--c-text-muted)] hover:border-[var(--c-accent)] hover:text-[var(--c-accent-text)]"
+      >
+        <IconKeyboard size={15} />
+      </button>
+      <button
+        onClick={togglePicker}
+        title="Choisir un shell"
+        className="flex items-center justify-center rounded-r-xl border border-white/5 bg-[var(--c-bg3)] px-1 text-[var(--c-text-muted)] hover:border-[var(--c-accent)] hover:text-[var(--c-accent-text)]"
+      >
+        <IconChevronDown size={11} />
+      </button>
+      {open && (
+        <div className="absolute right-0 top-full z-20 mt-1 w-52 overflow-hidden rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] py-1 shadow-[var(--shadow-lg)]">
+          {shells === null && <p className="px-3 py-2 text-[12px] text-[var(--c-text-muted)]">Recherche des shells…</p>}
+          {shells?.length === 0 && <p className="px-3 py-2 text-[12px] text-[var(--c-text-muted)]">Aucun shell détecté</p>}
+          {shells?.map((s) => (
+            <button
+              key={s.id}
+              onClick={() => { onOpen(s.id); setOpen(false); }}
+              className="flex w-full items-center px-3 py-1.5 text-left text-[13px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+            >
+              {s.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 export function HostsPanel({
@@ -329,13 +381,7 @@ export function HostsPanel({
             Ajouter…
           </button>
         </div>
-        <button
-          onClick={onOpenLocalTerminal}
-          title="Ouvrir un terminal local"
-          className="flex shrink-0 items-center justify-center rounded-xl border border-white/5 bg-[var(--c-bg3)] px-3 py-2 text-[var(--c-text-muted)] hover:border-[var(--c-accent)] hover:text-[var(--c-accent-text)]"
-        >
-          <IconKeyboard size={15} />
-        </button>
+        <LocalTerminalButton onOpen={onOpenLocalTerminal} />
       </div>
 
       {/* Host list */}

@@ -140,7 +140,7 @@ export interface PaneState {
 
 export type TabMeta =
   | { id: string; kind: "terminal" | "transfer"; hostId: HostId; label: string; status?: "connected" | "placeholder" }
-  | { id: string; kind: "local-terminal"; label: string; initialCommand?: string; status?: "connected" | "placeholder" };
+  | { id: string; kind: "local-terminal"; label: string; initialCommand?: string; shell?: string | null; status?: "connected" | "placeholder" };
 
 export type Tab =
   | { id: string; kind: "terminal"; hostId: HostId; label: string; sessionId: string | null; status: "connecting" | "open" | "failed"; error?: string }

@@ -96,16 +96,79 @@ pub fn close_terminal(state: State<'_, AppState>, session_id: String) -> Result<
     Ok(())
 }
 
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+pub struct ShellInfo {
+    pub id: String,
+    pub label: String,
+}
+
+fn shell_on_path(exe: &str) -> bool {
+    std::env::var("PATH").is_ok_and(|path_var| {
+        let sep = if cfg!(windows) { ';' } else { ':' };
+        path_var.split(sep).any(|dir| std::path::Path::new(dir).join(exe).is_file())
+    })
+}
+
+/// Detects interactive shells available on this system, so the user can pick one
+/// when opening a local terminal (e.g. cmd vs PowerShell on Windows) instead of
+/// always getting the one hardcoded default.
 #[tauri::command]
-pub async fn open_local_terminal(app: AppHandle, state: State<'_, AppState>) -> Result<String, String> {
+pub fn list_local_shells() -> Vec<ShellInfo> {
+    let mut shells = Vec::new();
+
+    if cfg!(windows) {
+        // Always present on any normal Windows install — no need to probe PATH for these.
+        shells.push(ShellInfo { id: "powershell.exe".to_string(), label: "Windows PowerShell".to_string() });
+        shells.push(ShellInfo { id: "cmd.exe".to_string(), label: "Invite de commandes (cmd)".to_string() });
+        if shell_on_path("pwsh.exe") {
+            shells.push(ShellInfo { id: "pwsh.exe".to_string(), label: "PowerShell 7".to_string() });
+        }
+        for git_bash in [r"C:\Program Files\Git\bin\bash.exe", r"C:\Program Files (x86)\Git\bin\bash.exe"] {
+            if std::path::Path::new(git_bash).is_file() {
+                shells.push(ShellInfo { id: git_bash.to_string(), label: "Git Bash".to_string() });
+                break;
+            }
+        }
+        let wsl = r"C:\Windows\System32\wsl.exe";
+        if std::path::Path::new(wsl).is_file() {
+            shells.push(ShellInfo { id: wsl.to_string(), label: "WSL".to_string() });
+        }
+    } else {
+        let mut seen = std::collections::HashSet::new();
+        if let Ok(current) = std::env::var("SHELL") {
+            if !current.is_empty() && seen.insert(current.clone()) {
+                let label = current.rsplit('/').next().unwrap_or(&current);
+                shells.push(ShellInfo { id: current.clone(), label: format!("{label} (courant)") });
+            }
+        }
+        if let Ok(content) = std::fs::read_to_string("/etc/shells") {
+            for line in content.lines() {
+                let path = line.trim();
+                if path.is_empty() || path.starts_with('#') || !std::path::Path::new(path).is_file() { continue; }
+                if seen.insert(path.to_string()) {
+                    let label = path.rsplit('/').next().unwrap_or(path).to_string();
+                    shells.push(ShellInfo { id: path.to_string(), label });
+                }
+            }
+        }
+    }
+
+    shells
+}
+
+#[tauri::command]
+pub async fn open_local_terminal(app: AppHandle, state: State<'_, AppState>, shell: Option<String>) -> Result<String, String> {
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
     use std::io::Read;
 
-    let shell = if cfg!(windows) {
-        "powershell.exe".to_string()
-    } else {
-        std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string())
-    };
+    let shell = shell.filter(|s| !s.is_empty()).unwrap_or_else(|| {
+        if cfg!(windows) {
+            "powershell.exe".to_string()
+        } else {
+            std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string())
+        }
+    });
 
     let pty_system = native_pty_system();
     let pair = pty_system

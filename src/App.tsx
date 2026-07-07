@@ -212,12 +212,12 @@ export default function App() {
     setActiveTabId(id);
   }, []);
 
-  const openLocalTerminal = useCallback((initialCommand?: string) => {
+  const openLocalTerminal = useCallback((initialCommand?: string, shell?: string | null) => {
     const id = `tab-${nextTabId++}`;
     const label = initialCommand ? `ssh ${initialCommand.replace(/^ssh\s+/, "")}` : "Terminal local";
-    setTabs((prev) => [...prev, { id, kind: "local-terminal", label, initialCommand }]);
+    setTabs((prev) => [...prev, { id, kind: "local-terminal", label, initialCommand, shell: shell ?? preferences.defaultLocalShell }]);
     setActiveTabId(id);
-  }, []);
+  }, [preferences.defaultLocalShell]);
 
   const toggleSplit = useCallback(() => setSplitOpen((v) => !v), []);
 
@@ -349,15 +349,19 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [broadcastMode, tabs, splitOpen, splitSource]);
 
-  const toggleBroadcastMode = useCallback(() => {
+  // Not a useCallback: it needs the current render's `broadcastTargets` (which
+  // depends on `tabs`, `splitOpen`, `splitSource`, `workspace`), and memoizing on
+  // an incomplete dep list previously meant opening the split view (which doesn't
+  // touch `tabs`) left this closure holding a stale target list — so turning
+  // broadcast on right after would silently miss the split pane.
+  const toggleBroadcastMode = () => {
     setBroadcastMode((v) => {
       const next = !v;
       if (next) setBroadcastSelected(new Set(broadcastTargets.map((t) => t.id)));
       else setLiveSyncMode(false);
       return next;
     });
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [tabs]);
+  };
 
   const broadcastCommand = useCallback((command: string) => {
     for (const id of broadcastSelected) {
@@ -531,7 +535,7 @@ export default function App() {
             activeHostId={activeHostId}
             onConnect={(host) => openTab("terminal", host)}
             onOpenTransfer={(host) => openTab("transfer", host)}
-            onOpenLocalTerminal={() => openLocalTerminal()}
+            onOpenLocalTerminal={(shell) => openLocalTerminal(undefined, shell)}
             onQuickSSH={(cmd) => openLocalTerminal(cmd)}
             onNewHost={() => { setEditingHost("new"); setNewHostDefaultGroupId(null); setEditingGroup(null); }}
             onEditHost={(host) => { setEditingHost(host); setEditingGroup(null); }}
@@ -611,6 +615,7 @@ export default function App() {
                           isActive={isActive}
                           preferences={preferences}
                           initialCommand={tab.initialCommand}
+                          shell={tab.shell}
                           onDisconnect={() => closeTab(tab.id, "disconnected")}
                           onInputData={(data) => mirrorInput(tab.id, data)}
                           ref={(handle) => {

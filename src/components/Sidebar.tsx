@@ -19,7 +19,7 @@ interface SidebarProps {
   activeHostId?: HostId | null;
   onConnect: (host: Host) => void;
   onOpenTransfer: (host: Host) => void;
-  onOpenLocalTerminal: () => void;
+  onOpenLocalTerminal: (shell?: string) => void;
   onQuickSSH: (cmd: string) => void;
   onNewHost: () => void;
   onEditHost: (host: Host) => void;
