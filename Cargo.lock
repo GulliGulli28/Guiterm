@@ -2100,7 +2100,7 @@ dependencies = [
 
 [[package]]
 name = "gui-termius"
-version = "1.4.4"
+version = "1.4.5"
 dependencies = [
  "anyhow",
  "base64 0.22.1",
@@ -5594,7 +5594,7 @@ dependencies = [
 
 [[package]]
 name = "termius-core"
-version = "1.4.4"
+version = "1.4.5"
 dependencies = [
  "anyhow",
  "async-trait",
