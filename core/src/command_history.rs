@@ -4,7 +4,7 @@
 //! host and vice versa. Separate from `workspace.json` too: this is
 //! behavioral/derived data, not part of the user's configured workspace.
 use directories::ProjectDirs;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 const MAX_ENTRIES: usize = 1000;
 
@@ -26,7 +26,7 @@ pub fn save(filename: &str, history: &[String]) -> anyhow::Result<()> {
     save_to(&history_path(filename)?, history)
 }
 
-fn load_from(path: &PathBuf) -> anyhow::Result<Vec<String>> {
+fn load_from(path: &Path) -> anyhow::Result<Vec<String>> {
     if !path.exists() {
         return Ok(Vec::new());
     }
@@ -34,7 +34,7 @@ fn load_from(path: &PathBuf) -> anyhow::Result<Vec<String>> {
     Ok(serde_json::from_str(&raw)?)
 }
 
-fn save_to(path: &PathBuf, history: &[String]) -> anyhow::Result<()> {
+fn save_to(path: &Path, history: &[String]) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }

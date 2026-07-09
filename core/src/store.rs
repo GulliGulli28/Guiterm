@@ -83,7 +83,7 @@ fn load_from(path: &Path) -> anyhow::Result<Workspace> {
     Ok(serde_json::from_str(&raw)?)
 }
 
-fn save_to(path: &PathBuf, workspace: &Workspace) -> anyhow::Result<()> {
+fn save_to(path: &Path, workspace: &Workspace) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }

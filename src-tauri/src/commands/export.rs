@@ -8,10 +8,10 @@ use termius_core::{export as ex, model::{HostId, Workspace}, store, vault};
 /// in `workspace.json`.
 fn hydrate_key_content(workspace: &mut Workspace) {
     for key in &mut workspace.keychain {
-        if key.content.is_none() {
-            if let Ok(Some(c)) = vault::load_key_content(key.id) {
-                key.content = Some(c);
-            }
+        if key.content.is_none()
+            && let Ok(Some(c)) = vault::load_key_content(key.id)
+        {
+            key.content = Some(c);
         }
     }
 }

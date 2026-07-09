@@ -61,6 +61,23 @@ voir la section suivante, ce n'est plus une limitation de cet environnement
 depuis le 2026-07-07 (une session précédente l'affirmait à tort ; corrigé
 après avoir effectivement lancé l'app et pris une vraie capture).
 
+## Vérification Rust : `clippy -D warnings` est un gate CI bloquant
+
+Le workflow GitHub (job **`windows-workspace`**) lance
+`cargo clippy --workspace --all-targets -- -D warnings` : **le moindre warning
+clippy fait échouer le push**. `cargo check` / `cargo test` ne déclenchent PAS
+les lints clippy — il faut donc lancer clippy explicitement avant de considérer
+une tâche Rust terminée, sinon le CI casse (déjà arrivé : `ptr_arg` sur
+`&PathBuf` au lieu de `&Path`, `collapsible_if`). En local, via WSL :
+
+```bash
+wsl.exe -e bash -lc "cd ~/gui-termius && cargo clippy --workspace --all-targets -- -D warnings"
+```
+
+Piège : clippy interrompt la compilation d'une crate dès sa première erreur,
+donc tant que `termius-core` échoue ses lints, ceux de `gui-termius` restent
+invisibles — corriger, relancer, itérer jusqu'à zéro.
+
 ## Tests E2E réels — OBLIGATOIRE avant de clore une tâche UI/terminal
 
 `cargo check` / `tsc --noEmit` / `npm run build` prouvent que le code
@@ -232,6 +249,34 @@ Chromium/Playwright classique, headless ou non. C'est exactement ce que
 `npm run test:e2e` (section précédente) couvre — l'utiliser dès qu'une
 commande `invoke(...)` réelle doit être exercée, pas seulement son DOM.
 
+## Stockage des secrets : trousseau OS ou coffre chiffré (opt-in)
+
+`core/src/vault.rs` est le point de passage unique pour les mots de passe et
+passphrases, avec un état à 3 modes (`Keychain` / `Locked` / `Unlocked`) — mais
+`store`/`load`/`delete` gardent la même signature quel que soit le backend, donc
+`ssh::authenticate` et `commands/hosts.rs` n'ont pas à s'en soucier.
+
+- **Par défaut** : trousseau OS (`keyring`), fallback mémoire quand il n'existe
+  pas (WSL/headless), perdu au redémarrage.
+- **Coffre chiffré (opt-in)** : dès qu'un mot de passe maître est défini, un
+  fichier `secrets.enc` (Argon2id + XChaCha20-Poly1305, schéma à enveloppe
+  DEK/KEK — `core/src/{crypto,master_vault}.rs`) remplace le trousseau. Portable/
+  syncable, marche sans trousseau OS, verrouillé au lancement (UI : modale de
+  déverrouillage + Paramètres → Sécurité, auto-lock configurable).
+
+**Cas particulier des clés privées** : leur contenu PEM reste dans
+`workspace.json` (0600) en mode trousseau, mais bascule dans le coffre chiffré
+quand il est déverrouillé — via `vault::{load,store,delete}_key_content` +
+`is_unlocked`, PAS via le trousseau OS (taille limitée sous Windows, et le
+fallback WSL le perdrait). `ssh::authenticate` lit le PEM dans l'ordre
+**coffre → workspace.json → fichier d'origine** ; la migration dans les deux sens
+(activer/désactiver) et l'export/import « avec clés » sont gérés dans
+`commands/{vault,export}.rs`.
+
+Ne pas tester le flux complet activer→migrer→se-connecter en E2E automatique :
+il faut un vrai `sshd` ET ça mut­erait le `secrets.enc` réel du profil. Le crypto
+est couvert par tests unitaires (`crypto.rs`, `master_vault.rs`).
+
 ## Pièges déjà rencontrés (pour ne pas les redécouvrir)
 
 - **Drag-and-drop natif vs Tauri.** Sur Windows, le drag-and-drop OS-level de
@@ -309,6 +354,32 @@ commande `invoke(...)` réelle doit être exercée, pas seulement son DOM.
   fenêtre affiche juste « Could not connect to localhost » — ce n'est pas un
   bug de l'app. Détail complet et commande exacte dans la section « Tests E2E
   réels » ci-dessus (piège `custom-protocol`).
+
+## Roadmap / prochaines features (décidées avec l'utilisateur)
+
+Features majeures retenues, dans l'ordre de priorité restant :
+
+1. **Coffre chiffré (mot de passe maître)** — ✅ **fait** (secrets, passphrases
+   et clés privées chiffrés au repos ; voir la section « Stockage des secrets »).
+2. **Tunnel SOCKS dynamique (`-D`)** — à faire. Ajouter
+   `PortForwardKind::Dynamic` (`#[serde(default)]` pour la compat), un petit
+   serveur SOCKS5 local (handshake CONNECT sans auth, ~40 lignes, sans
+   dépendance) qui ouvre un `channel_open_direct_tcpip` par connexion dans
+   `core/src/port_forward.rs`. Réutilise `commands/forward.rs` ; UI dans
+   `TunnelsPanel.tsx` (masquer les champs « destination » pour ce type).
+3. **Génération + déploiement de clés SSH** — à faire. Keygen via
+   `russh::keys`/`ssh-key` (ed25519 par défaut, RSA en option, passphrase
+   optionnelle, stockée comme les clés importées). Commande `deploy_public_key`
+   = équivalent `ssh-copy-id` (crée `~/.ssh` en 700, ajoute la clé publique à
+   `authorized_keys` en 600, idempotent, via SFTP). UI dans `KeychainPanel.tsx`.
+
+**Avant de proposer une feature « évidente » de client SSH, vérifier
+`src/components/` : elle existe probablement déjà.** L'app est déjà très complète
+— palette de commandes (`CommandPalette`), broadcast/cluster (`BroadcastBar`),
+split panes (`SplitPane`), recherche terminal (`TerminalSearchBar`), reconnexion
+auto (pref `autoReconnect`), 8 thèmes de terminal, restauration d'onglets. Les
+vraies lacunes restantes sont côté protocole/ops : auth keyboard-interactive
+(MFA/OTP, absente de `AuthMethod`), les deux points ci-dessus.
 
 ## Habitudes de collaboration sur ce projet
 
