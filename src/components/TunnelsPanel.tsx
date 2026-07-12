@@ -57,7 +57,7 @@ export function TunnelsPanel({ workspace, onAddForward, onDeleteForward, onError
 
   return (
     <div className="flex h-full min-w-0 flex-col">
-      <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-2 overflow-y-auto">
+      <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-2 overflow-y-auto pb-2 pl-2 pt-2">
         {/* Add form at top */}
         <div>
           <button

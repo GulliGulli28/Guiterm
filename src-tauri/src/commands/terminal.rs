@@ -3,7 +3,7 @@ use crate::state::{AppState, TerminalBackend, TerminalSession};
 use crate::util;
 use serde::Serialize;
 use tauri::{AppHandle, Emitter, State};
-use termius_core::model::HostId;
+use termius_core::model::{HostId, Workspace};
 use termius_core::ssh::{self, ShellInput};
 use tokio::sync::mpsc;
 use uuid::Uuid;
@@ -52,6 +52,29 @@ fn is_valid_env_key(key: &str) -> bool {
         && chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
+/// Startup commands common to any shell-like session for `host_id`: `export`
+/// lines for `host.env_vars`, then each configured `startup_snippets`'
+/// command, in that order — matches `Host::startup_snippets`'s doc comment.
+/// Shared by [`connect_terminal`] (SSH) and
+/// [`crate::commands::docker::connect_docker_exec`] (Docker exec): both open
+/// a POSIX-ish shell on the other end and drive it the same way.
+pub(crate) fn startup_commands(workspace: &Workspace, host_id: HostId) -> Vec<Vec<u8>> {
+    let mut cmds = Vec::new();
+    if let Some(host) = workspace.host(host_id) {
+        for ev in &host.env_vars {
+            if is_valid_env_key(&ev.key) {
+                cmds.push(format!("export {}={}\n", ev.key, shell_quote(&ev.value)).into_bytes());
+            }
+        }
+        for &sid in &host.startup_snippets {
+            if let Some(snip) = workspace.snippets.iter().find(|s| s.id == sid) {
+                cmds.push(format!("{}\n", snip.command).into_bytes());
+            }
+        }
+    }
+    cmds
+}
+
 /// Connects to `host_id` and starts an interactive shell, emitting its
 /// output as `terminal-data` events (base64-encoded) until it closes.
 #[tauri::command]
@@ -59,22 +82,7 @@ pub async fn connect_terminal(app: AppHandle, state: State<'_, AppState>, host_i
     let workspace = state.workspace.lock_recover().clone();
 
     // Collect startup commands before the async SSH calls.
-    let startup_cmds: Vec<Vec<u8>> = {
-        let mut cmds = Vec::new();
-        if let Some(host) = workspace.host(host_id) {
-            for ev in &host.env_vars {
-                if is_valid_env_key(&ev.key) {
-                    cmds.push(format!("export {}={}\n", ev.key, shell_quote(&ev.value)).into_bytes());
-                }
-            }
-            for &sid in &host.startup_snippets {
-                if let Some(snip) = workspace.snippets.iter().find(|s| s.id == sid) {
-                    cmds.push(format!("{}\n", snip.command).into_bytes());
-                }
-            }
-        }
-        cmds
-    };
+    let startup_cmds = startup_commands(&workspace, host_id);
 
     let agent_forward = workspace.host(host_id).map(|h| h.agent_forward).unwrap_or(false);
     let connection = ssh::connect(&workspace, host_id).await.map_err(|e| e.to_string())?;

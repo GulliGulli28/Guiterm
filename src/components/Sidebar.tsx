@@ -20,7 +20,7 @@ interface SidebarProps {
   onConnect: (host: Host) => void;
   onConnectDocker: (host: Host, containerId: string) => void;
   onConnectRdpView: (host: Host) => void;
-  onOpenTransfer: (host: Host) => void;
+  onOpenTransfer: (host: Host, containerId?: string) => void;
   onOpenLocalTerminal: (shell?: string) => void;
   onQuickSSH: (cmd: string) => void;
   onNewHost: () => void;
@@ -109,6 +109,7 @@ export function Sidebar(props: SidebarProps) {
               onConnect={props.onConnect}
               onConnectDocker={props.onConnectDocker}
               onConnectRdpView={props.onConnectRdpView}
+              onOpenTransfer={props.onOpenTransfer}
               onOpenLocalTerminal={props.onOpenLocalTerminal}
               onQuickSSH={props.onQuickSSH}
               onNewHost={props.onNewHost}

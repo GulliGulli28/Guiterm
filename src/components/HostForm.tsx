@@ -89,6 +89,12 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
   const showUsername = kind !== "dockerExec";
   const showAuthSection = kind === "ssh" || kind === "rdp";
   const sshOnlyExtras = kind === "ssh";
+  // Startup snippets/env vars only need *some* POSIX-ish shell on the other
+  // end to run against — true for SSH and Docker exec alike (both drive
+  // `startup_commands` server-side, see `commands/terminal.rs`) — unlike
+  // bastions/keepalive/agent-forward just above, which are SSH-protocol
+  // concepts with no Docker-exec equivalent. RDP has no shell at all.
+  const shellExtras = kind === "ssh" || kind === "dockerExec";
   const addressLabel = kind === "k8sExec" ? "Contexte kubeconfig" : kind === "dockerExec" ? "Socket / hôte Docker" : "Adresse";
   const addressPlaceholder = kind === "dockerExec" ? "unix:///var/run/docker.sock" : kind === "k8sExec" ? "ex: docker-desktop, prod-eu-west" : undefined;
   const usernameLabel = kind === "k8sExec" ? "Namespace par défaut" : "Utilisateur";
@@ -162,7 +168,7 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
         id: host?.id ?? null, label: label.trim(), kind, address: address.trim(),
         port: 0, username: "", auth: "agent", dockerViaHostId: dockerViaHostId || null,
         jumpVia: [], groupId: groupId || null,
-        tags, startupSnippets: [], envVars: [], icon, secret: null,
+        tags, startupSnippets, envVars: envVars.filter((v) => v.key.trim()), icon, secret: null,
         keepaliveIntervalSecs: null, agentForward: false,
       });
       return;
@@ -494,7 +500,7 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
           />
         </Field>
 
-        {sshOnlyExtras && (
+        {shellExtras && (
         <Field label="Snippets au démarrage">
           <div className="space-y-1 rounded-md bg-[var(--c-bg3)] p-2">
             {startupSnippets.length === 0 && <p className="py-0.5 text-xs text-[var(--c-text-muted)]">Aucun snippet au démarrage</p>}
@@ -522,7 +528,7 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
         </Field>
         )}
 
-        {sshOnlyExtras && (
+        {shellExtras && (
         <Field label="Variables d'environnement">
           <div className="space-y-1.5 rounded-md bg-[var(--c-bg3)] p-2">
             {envVars.length === 0 && <p className="py-0.5 text-xs text-[var(--c-text-muted)]">Aucune variable définie</p>}

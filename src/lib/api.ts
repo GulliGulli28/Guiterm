@@ -1,6 +1,22 @@
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AuthMethod, DockerContainer, EnvVar, Entry, GroupId, HostId, HostKind, ImportSelection, KeyAlgorithm, KeyId, KnownHostEntry, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, RdpClientMessage, SnippetId, SshConfigHost, TransferProgressEvent, VaultStatus, Workspace } from "./types";
+import type { AuthMethod, DockerContainer, EnvVar, Entry, GroupId, HostId, HostKind, ImportSelection, KeyAlgorithm, KeyId, KnownHostEntry, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, RdpClientMessage, RdpFrame, SnippetId, SshConfigHost, TransferProgressEvent, VaultStatus, Workspace } from "./types";
+
+/** Mirrors the 12-byte little-endian header `commands::rdp_view::connect_rdp_view`
+ * writes ahead of each frame's raw RGBA8 pixels (see its doc comment for why
+ * this bypasses JSON/base64). `pixels` is a view into `buffer`, not a copy. */
+function parseRdpFrame(buffer: ArrayBuffer): RdpFrame {
+  const view = new DataView(buffer);
+  return {
+    canvasWidth: view.getUint16(0, true),
+    canvasHeight: view.getUint16(2, true),
+    x: view.getUint16(4, true),
+    y: view.getUint16(6, true),
+    width: view.getUint16(8, true),
+    height: view.getUint16(10, true),
+    pixels: new Uint8Array(buffer, 12),
+  };
+}
 
 export const api = {
   getWorkspace: () => invoke<Workspace>("get_workspace"),
@@ -75,10 +91,27 @@ export const api = {
   connectTerminal: (hostId: HostId) => invoke<string>("connect_terminal", { hostId }),
   listDockerContainers: (hostId: HostId) => invoke<DockerContainer[]>("list_docker_containers", { hostId }),
   connectDockerExec: (hostId: HostId, containerId: string) => invoke<string>("connect_docker_exec", { hostId, containerId }),
-  connectRdp: (hostId: HostId) => invoke<void>("connect_rdp", { hostId }),
-  connectRdpView: (hostId: HostId, width: number, height: number) => invoke<string>("connect_rdp_view", { hostId, width, height }),
+  connectRdpView: (hostId: HostId, width: number, height: number, onFrame: (frame: RdpFrame) => void) => {
+    const channel = new Channel<ArrayBuffer>();
+    channel.onmessage = (buffer) => onFrame(parseRdpFrame(buffer));
+    return invoke<string>("connect_rdp_view", { hostId, width, height, channel });
+  },
   sendRdpViewInput: (sessionId: string, message: RdpClientMessage) => invoke<void>("send_rdp_view_input", { sessionId, message }),
   closeRdpView: (sessionId: string) => invoke<void>("close_rdp_view", { sessionId }),
+  /** Pushes `entries` (files and/or whole folders, from any pane kind —
+   * remote ones are downloaded to a temp file first) onto an embedded RDP
+   * session's clipboard — the sidecar simulates a Ctrl+V right after (see
+   * `paste_key_sequence` in `rdp-sidecar/src/main.rs`), so this pastes
+   * automatically rather than requiring the user to press Ctrl+V. See
+   * `RdpTab.tsx`'s drop handling in `TransferTab.tsx`. */
+  pushRdpViewClipboardEntries: (sessionId: string, sourcePaneId: string, sourceCwd: string, entries: Entry[]) =>
+    invoke<void>("push_rdp_view_clipboard_entries", { sessionId, sourcePaneId, sourceCwd, entries }),
+  /** Same as `pushRdpViewClipboardEntries`, but for paths dropped straight
+   * from the OS (Explorer → the embedded RDP view) rather than entries
+   * picked from one of this app's own transfer panes — see
+   * `TransferTab.tsx`'s `onDragDropEvent` handler. */
+  pushRdpViewClipboardPaths: (sessionId: string, paths: string[]) =>
+    invoke<void>("push_rdp_view_clipboard_paths", { sessionId, paths }),
   writeTerminal: (sessionId: string, data: string) => invoke<void>("write_terminal", { sessionId, data }),
   resizeTerminal: (sessionId: string, cols: number, rows: number) => invoke<void>("resize_terminal", { sessionId, cols, rows }),
   closeTerminal: (sessionId: string) => invoke<void>("close_terminal", { sessionId }),
@@ -127,12 +160,6 @@ export function onTerminalData(handler: (id: string, data: string) => void): Pro
 
 export function onTerminalClosed(handler: (id: string) => void): Promise<UnlistenFn> {
   return listen<{ id: string }>("terminal-closed", (event) => handler(event.payload.id));
-}
-
-export function onRdpViewFrame(handler: (id: string, width: number, height: number, pixels: string) => void): Promise<UnlistenFn> {
-  return listen<{ id: string; width: number; height: number; pixels: string }>("rdp-view-frame", (event) =>
-    handler(event.payload.id, event.payload.width, event.payload.height, event.payload.pixels),
-  );
 }
 
 export function onRdpViewError(handler: (id: string, message: string) => void): Promise<UnlistenFn> {

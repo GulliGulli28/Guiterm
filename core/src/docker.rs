@@ -6,6 +6,7 @@
 //! `docker exec`.
 use crate::ssh::{Connection, ShellInput, ShellSession};
 use bollard::Docker;
+use bollard::container::LogOutput;
 use bollard::exec::{CreateExecOptions, ResizeExecOptions, StartExecOptions, StartExecResults};
 use bollard::query_parameters::ListContainersOptions;
 use futures_util::StreamExt;
@@ -108,12 +109,14 @@ impl hyper_util::client::legacy::connect::Connection for DialStdioStream {
 /// Only the `docker` CLI needs to be on the remote `PATH`, reachable by the
 /// connecting user (typically: in the `docker` group, or root).
 ///
-/// Deliberately never pooled/reused across requests (see `connect_via_ssh`'s
-/// `pool_max_idle_per_host(0)`) — a single shared channel would deadlock as
-/// soon as two requests overlap (e.g. `resize_exec` called while an `exec`
-/// attach's streaming response is still open): HTTP/1.1 without pipelining
-/// can't have two requests in flight on the same connection, so the second
-/// would just queue forever behind the first's still-open response body.
+/// One channel per underlying connection the client asks for — never shared
+/// across requests, but this falls out naturally from the connection pool
+/// itself rather than needing to force it (see `connect_via_ssh`'s doc
+/// comment on `pool_max_idle_per_host`): a request that upgrades the
+/// connection (`exec`'s attach, see `docker::open_exec`) removes it from the
+/// pool entirely once hijacked, so a concurrent request (e.g. `resize_exec`
+/// while that attach is still streaming) always gets a fresh connection —
+/// and therefore a fresh channel — rather than queueing behind it.
 #[derive(Clone)]
 struct DialStdioConnector {
     connection: Arc<Connection>,
@@ -150,11 +153,23 @@ impl tower_service::Service<hyper::Uri> for DialStdioConnector {
 /// with no `Host` header at all, which the Docker daemon rejects outright
 /// (`400 Bad Request: missing required Host header`) since the low-level API
 /// has no such default, unlike the legacy client.
+///
+/// Uses the client builder's plain defaults, deliberately not calling
+/// `pool_max_idle_per_host(0)` — matching `bollard`'s own (unused-here)
+/// `connect_with_ssh`, which doesn't either. An earlier version of this
+/// function did set it (to force one channel per request, before realizing
+/// the pool already guarantees that for free — see `DialStdioConnector`'s
+/// doc comment), which broke `exec`'s attach/hijack entirely: forcing no
+/// idle connections made the client eagerly shut down (a real
+/// `SSH_MSG_CHANNEL_EOF`, not a soft close — see `DialStdioStream`) the
+/// connection right after sending `start_exec`'s request body, before the
+/// upgrade could hand off the raw stream — an interactive session would open
+/// with no error, just an empty, permanently unresponsive terminal, since
+/// the channel carrying it was already dead on arrival.
 pub fn connect_via_ssh(connection: Arc<Connection>) -> anyhow::Result<Docker> {
     let connector = DialStdioConnector { connection };
-    let mut builder = hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new());
-    builder.pool_max_idle_per_host(0);
-    let client = builder.build(connector);
+    let client_builder = hyper_util::client::legacy::Client::builder(hyper_util::rt::TokioExecutor::new());
+    let client = client_builder.build(connector);
 
     let transport = move |req: bollard::BollardRequest| {
         let client = client.clone();
@@ -226,7 +241,23 @@ pub async fn open_exec(
                 attach_stdout: Some(true),
                 attach_stderr: Some(true),
                 tty: Some(true),
-                cmd: Some(vec!["sh".to_string(), "-c".to_string(), "exec bash || exec sh".to_string()]),
+                // `command -v bash` first, rather than letting a failed `exec
+                // bash` fall through to `|| exec sh` directly: BusyBox `ash`
+                // (Alpine's default `/bin/sh` — no `bash` package by default)
+                // treats `exec`ing a missing command as fatal and exits the
+                // whole `sh -c` script immediately instead of returning a
+                // non-zero status `||` could catch, so the `exec sh` fallback
+                // was never actually reached on those images — an empty,
+                // instantly-closed session, not a real error. `bash`/`dash`
+                // don't have this quirk, but `command -v` (a portable POSIX
+                // builtin) sidesteps it everywhere by only ever `exec`ing a
+                // command already confirmed to exist. Found by reproducing
+                // against a real `alpine` container, not by reading docs.
+                cmd: Some(vec![
+                    "sh".to_string(),
+                    "-c".to_string(),
+                    "command -v bash >/dev/null 2>&1 && exec bash || exec sh".to_string(),
+                ]),
                 ..Default::default()
             },
         )
@@ -279,6 +310,73 @@ pub async fn open_exec(
     });
 
     Ok(ShellSession { input: input_tx, output: output_rx })
+}
+
+/// Runs `cmd` inside `container_id` to completion — non-interactive, no PTY
+/// (`tty: false`, unlike [`open_exec`]) — writes `stdin` if given (shutting
+/// its write half down afterward so the remote command sees EOF, needed for
+/// anything reading until end-of-input), and returns captured stdout.
+/// Errors on a non-zero exit code, with stderr folded into the message —
+/// used by `crate::docker_pane` for the shell-based Docker pane operations
+/// (listing, mkdir, rename, remove, chmod) that have no Engine API
+/// equivalent. `cmd`'s arguments are passed as a real argv array (never
+/// string-interpolated into a shell command line), so callers building a
+/// `sh -c '<script>' sh "$1" "$2" ...` invocation can hand untrusted path
+/// segments through positional parameters without any escaping of their own.
+pub(crate) async fn exec_capture(
+    docker: &Docker,
+    container_id: &str,
+    cmd: Vec<String>,
+    stdin: Option<Vec<u8>>,
+) -> anyhow::Result<Vec<u8>> {
+    let exec = docker
+        .create_exec(
+            container_id,
+            CreateExecOptions::<String> {
+                attach_stdin: Some(stdin.is_some()),
+                attach_stdout: Some(true),
+                attach_stderr: Some(true),
+                tty: Some(false),
+                cmd: Some(cmd),
+                ..Default::default()
+            },
+        )
+        .await?
+        .id;
+
+    let started = docker
+        .start_exec(&exec, Some(StartExecOptions { detach: false, tty: false, output_capacity: None }))
+        .await?;
+    let StartExecResults::Attached { mut output, input } = started else {
+        anyhow::bail!("le conteneur n'a pas accepté la commande");
+    };
+
+    if let Some(data) = stdin {
+        let mut input = input;
+        input.write_all(&data).await?;
+        input.shutdown().await?;
+    }
+
+    let mut stdout = Vec::new();
+    let mut stderr = Vec::new();
+    while let Some(chunk) = output.next().await {
+        match chunk? {
+            LogOutput::StdOut { message } => stdout.extend_from_slice(&message),
+            LogOutput::StdErr { message } => stderr.extend_from_slice(&message),
+            LogOutput::StdIn { .. } | LogOutput::Console { .. } => {}
+        }
+    }
+
+    let inspect = docker.inspect_exec(&exec).await?;
+    if inspect.exit_code != Some(0) {
+        let detail = String::from_utf8_lossy(&stderr).trim().to_string();
+        anyhow::bail!(
+            "commande distante en échec (code {:?}){}",
+            inspect.exit_code,
+            if detail.is_empty() { String::new() } else { format!(" : {detail}") }
+        );
+    }
+    Ok(stdout)
 }
 
 #[cfg(test)]

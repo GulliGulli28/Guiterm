@@ -3,7 +3,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use termius_core::model::{PortForwardId, Workspace};
 use termius_core::port_forward::ActiveForward;
-use termius_core::sftp::SftpClient;
+use termius_core::sftp::RemoteFileClient;
 use termius_core::ssh::{Connection, ShellInput};
 use tokio::sync::mpsc;
 
@@ -25,11 +25,19 @@ pub struct TerminalSession {
     pub input: mpsc::Sender<ShellInput>,
 }
 
-/// One side of an open transfer tab: `client: None` means the local filesystem.
+/// One side of an open transfer tab: `client: None` means the local
+/// filesystem, `Some` an SFTP (SSH) or Docker-exec pane — see
+/// `termius_core::sftp::RemoteFileClient`. `connection` only ever holds
+/// something for the SFTP case (keeping the SSH session the SFTP subsystem
+/// channel rides on alive) — a Docker pane's `bollard::Docker` handle
+/// already keeps everything it needs alive internally (including, when
+/// tunnelled over SSH, the underlying `Connection` — see
+/// `termius_core::docker::connect_via_ssh`'s doc comment), so `None` there
+/// isn't a leak.
 pub struct Pane {
     #[allow(dead_code)]
     pub connection: Option<Connection>,
-    pub client: Option<Arc<SftpClient>>,
+    pub client: Option<Arc<dyn RemoteFileClient>>,
 }
 
 pub struct ForwardSession {

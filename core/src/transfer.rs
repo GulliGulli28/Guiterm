@@ -2,7 +2,7 @@
 //! between two arbitrary "panes" (local filesystem or an open SFTP session),
 //! including the remote-to-remote case which SFTP can't do directly.
 use crate::local_fs;
-use crate::sftp::{self, Entry, SftpClient};
+use crate::sftp::{self, Entry, RemoteFileClient};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
@@ -12,10 +12,19 @@ fn never_cancel() -> AtomicBool {
     AtomicBool::new(false)
 }
 
+/// No-op progress sink for the copy paths below, none of which surface
+/// per-chunk progress to the UI (only OS drag-and-drop uploads do, via
+/// `commands/sftp.rs::upload_one`) — a plain function rather than a closure
+/// literal at each call site, since [`RemoteFileClient`]'s `download`/
+/// `upload` need `&mut (dyn FnMut(u64, u64) + Send)`, not `impl FnMut`
+/// (trait methods with a generic parameter aren't object-safe, and
+/// [`PaneRef::Remote`] holds its client behind `Arc<dyn RemoteFileClient>`).
+fn no_progress(_done: u64, _total: u64) {}
+
 #[derive(Clone)]
 pub enum PaneRef {
     Local,
-    Remote(Arc<SftpClient>),
+    Remote(Arc<dyn RemoteFileClient>),
 }
 
 pub async fn list(pane: &PaneRef, path: &str) -> anyhow::Result<Vec<Entry>> {
@@ -111,14 +120,14 @@ pub async fn remove(pane: &PaneRef, cwd: &str, entry: &Entry) -> anyhow::Result<
         (PaneRef::Local, false) => Ok(tokio::fs::remove_file(&path).await?),
         (PaneRef::Local, true) => Ok(tokio::fs::remove_dir_all(&path).await?),
         (PaneRef::Remote(client), false) => client.remove_file(&path).await,
-        (PaneRef::Remote(client), true) => remove_remote_dir_recursive(client, &path).await,
+        (PaneRef::Remote(client), true) => remove_remote_dir_recursive(client.as_ref(), &path).await,
     }
 }
 
 /// SFTP's `remove_dir` (like POSIX `rmdir`) only removes empty directories,
 /// so a recursive delete has to walk the tree itself.
 fn remove_remote_dir_recursive<'a>(
-    client: &'a SftpClient,
+    client: &'a dyn RemoteFileClient,
     path: &'a str,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send + 'a>> {
     Box::pin(async move {
@@ -162,23 +171,23 @@ pub async fn copy_entry(
             let local = std::path::PathBuf::from(sftp::join(source_cwd, &entry.name));
             let remote = sftp::join(dest_cwd, &entry.name);
             dst_client
-                .upload(&local, &remote, &never_cancel(), |_, _| {})
+                .upload(&local, &remote, &never_cancel(), &mut no_progress)
                 .await
         }
         (PaneRef::Remote(src_client), PaneRef::Local) => {
             let remote = sftp::join(source_cwd, &entry.name);
             let local = std::path::PathBuf::from(sftp::join(dest_cwd, &entry.name));
             src_client
-                .download(&remote, &local, entry.size, &never_cancel(), |_, _| {})
+                .download(&remote, &local, entry.size, &never_cancel(), &mut no_progress)
                 .await
         }
         (PaneRef::Remote(src_client), PaneRef::Remote(dst_client)) => {
             copy_remote_to_remote_file(
-                src_client,
+                src_client.as_ref(),
                 source_cwd,
                 &entry.name,
                 entry.size,
-                dst_client,
+                dst_client.as_ref(),
                 dest_cwd,
             )
             .await
@@ -229,22 +238,22 @@ fn copy_dir<'a>(
                     (PaneRef::Local, PaneRef::Remote(dc)) => {
                         let local = std::path::PathBuf::from(sftp::join(&src_path, &child.name));
                         let remote = sftp::join(&dst_path, &child.name);
-                        dc.upload(&local, &remote, &never_cancel(), |_, _| {})
+                        dc.upload(&local, &remote, &never_cancel(), &mut no_progress)
                             .await?;
                     }
                     (PaneRef::Remote(sc), PaneRef::Local) => {
                         let remote = sftp::join(&src_path, &child.name);
                         let local = std::path::PathBuf::from(sftp::join(&dst_path, &child.name));
-                        sc.download(&remote, &local, child.size, &never_cancel(), |_, _| {})
+                        sc.download(&remote, &local, child.size, &never_cancel(), &mut no_progress)
                             .await?;
                     }
                     (PaneRef::Remote(sc), PaneRef::Remote(dc)) => {
                         copy_remote_to_remote_file(
-                            sc,
+                            sc.as_ref(),
                             &src_path,
                             &child.name,
                             child.size,
-                            dc,
+                            dc.as_ref(),
                             &dst_path,
                         )
                         .await?;
@@ -259,27 +268,56 @@ fn copy_dir<'a>(
 /// SFTP has no server-to-server copy, so a remote-to-remote transfer is
 /// relayed through a temporary local file, same as WinSCP/Termius do.
 async fn copy_remote_to_remote_file(
-    src: &SftpClient,
+    src: &dyn RemoteFileClient,
     source_cwd: &str,
     name: &str,
     size: u64,
-    dst: &SftpClient,
+    dst: &dyn RemoteFileClient,
     dest_cwd: &str,
 ) -> anyhow::Result<()> {
+    let tmp = download_client_to_fresh_temp(src, source_cwd, name, size).await?;
+    let remote_dst = sftp::join(dest_cwd, name);
+    let upload_result = dst
+        .upload(&tmp, &remote_dst, &never_cancel(), &mut no_progress)
+        .await;
+    let _ = tokio::fs::remove_file(&tmp).await;
+    upload_result
+}
+
+async fn download_client_to_fresh_temp(
+    client: &dyn RemoteFileClient,
+    cwd: &str,
+    name: &str,
+    size: u64,
+) -> anyhow::Result<std::path::PathBuf> {
     let tmp = std::env::temp_dir().join(format!("gui-termius-transfer-{}", uuid::Uuid::new_v4()));
     // Pre-create the relay file 0600 so the copied bytes are never briefly
     // world-readable in a shared /tmp; `download`'s `File::create` truncates it
     // but preserves this owner-only mode on an existing file.
     crate::secure_file::create_private(&tmp)?;
-    let remote_src = sftp::join(source_cwd, name);
-    src.download(&remote_src, &tmp, size, &never_cancel(), |_, _| {})
-        .await?;
-    let remote_dst = sftp::join(dest_cwd, name);
-    let upload_result = dst
-        .upload(&tmp, &remote_dst, &never_cancel(), |_, _| {})
-        .await;
-    let _ = tokio::fs::remove_file(&tmp).await;
-    upload_result
+    let remote = sftp::join(cwd, name);
+    client.download(&remote, &tmp, size, &never_cancel(), &mut no_progress).await?;
+    Ok(tmp)
+}
+
+/// Resolves `entry` (from `source_cwd` on `pane`) to a real local
+/// filesystem path — for [`PaneRef::Local`], that's just its existing path,
+/// no copy made; for a remote pane, the entry is downloaded into a fresh,
+/// private temp file first (never cleaned up automatically — the caller
+/// doesn't know when it's safe to, e.g. once pushed onto an RDP session's
+/// clipboard the file may be "pasted" from at any later, unpredictable
+/// time). Used by `commands::rdp_view`'s "drag an entry onto the RDP view"
+/// flow: CLIPRDR's `FileContentsRequest` is answered by a synchronous,
+/// `.await`-less callback deep inside the protocol engine (see
+/// `rdp-sidecar/src/clipboard.rs`), so by the time that callback can fire,
+/// the bytes already have to be sitting in a real local file — an SFTP/
+/// Docker fetch can't happen lazily on demand the way it does for a normal
+/// pane-to-pane copy.
+pub async fn resolve_local_path(pane: &PaneRef, source_cwd: &str, entry: &Entry) -> anyhow::Result<std::path::PathBuf> {
+    match pane {
+        PaneRef::Local => Ok(std::path::PathBuf::from(sftp::join(source_cwd, &entry.name))),
+        PaneRef::Remote(client) => download_client_to_fresh_temp(client.as_ref(), source_cwd, &entry.name, entry.size).await,
+    }
 }
 
 #[cfg(test)]

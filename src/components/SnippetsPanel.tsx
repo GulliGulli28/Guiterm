@@ -261,7 +261,7 @@ export function SnippetsPanel({ workspace, onAddSnippet, onUpdateSnippet, onDele
   return (
     <div className="flex h-full min-w-0 flex-col">
       {/* Everything in a single scroll container — ensures add button and cards have identical width */}
-      <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-2 overflow-y-auto">
+      <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-2 overflow-y-auto pb-2 pl-2 pt-2">
         {/* Add button always at top */}
         <div>
           <button

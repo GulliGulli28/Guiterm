@@ -285,11 +285,12 @@ Le rendu RDP intégré (`RdpTab.tsx`, onglet « Aperçu intégré ») ne tourne
 maison sur stdin/stdout (`rdp-ipc`). Ce n'est pas un choix d'architecture
 arbitraire — c'est la seule option qui compile, pour une raison précise
 détaillée ci-dessous. Le mode « lanceur » historique (`core/src/rdp.rs`,
-commande `connect_rdp`, bouton principal des hôtes RDP — shell-out vers
-`mstsc.exe`/`xfreerdp`) reste en place tel quel et reste l'action par défaut,
-accessible en un clic ; l'aperçu intégré (phase 2 : affichage + souris/
-clavier, toujours pas de presse-papiers/audio/lecteurs partagés) reste une
-action secondaire, pas un remplacement.
+commande `connect_rdp`, shell-out vers `mstsc.exe`/`xfreerdp`) a existé
+un temps en parallèle, accessible via le menu « … » sous « Client système »
+— **retiré le 2026-07-12** à la demande de l'utilisateur (code jugé
+redondant une fois l'aperçu intégré validé en conditions réelles ; voir la
+section « Nettoyage » en fin de fichier pour le détail de la suppression).
+L'aperçu intégré est désormais le seul mode de connexion RDP de l'app.
 
 ### Pourquoi un processus RDP séparé
 
@@ -509,13 +510,85 @@ nécessaire) :
   plutôt que seulement par le roundtrip Rust→Rust (qui ne prouve rien sur la
   casse réelle du JSON, seulement que l'écriture et la lecture Rust
   s'accordent entre elles).
-- **stdout du sidecar** : une suite de `SidecarMessage` — `Image { width,
-  height, pixels }` (RGBA8 brut, toute l'image renvoyée à chaque mise à jour,
-  pas de diff — simple et correct pour l'instant, à revisiter si la bande
-  passante devient un problème réel), `Error(String)`, ou `Closed` — encodés
-  en tag-byte + longueur préfixée (pas de framing texte, contrairement à
-  `ConnectRequest`/`ClientMessage` : les pixels bruts pourraient contenir
-  n'importe quel octet, y compris `\n`).
+- **stdout du sidecar** : une suite de `SidecarMessage` — `Image { canvas_width,
+  canvas_height, x, y, width, height, pixels }` (RGBA8 brut), `Error(String)`,
+  ou `Closed` — encodés en tag-byte + longueur préfixée (pas de framing
+  texte, contrairement à `ConnectRequest`/`ClientMessage` : les pixels bruts
+  pourraient contenir n'importe quel octet, y compris `\n`). **Optimisation
+  perf (2026-07-11)** : `Image` ne renvoie plus la totalité du framebuffer à
+  chaque mise à jour — seulement le rectangle `x`/`y`/`width`/`height`
+  réellement modifié (l'info vient directement d'`ActiveStageOutput::GraphicsUpdate(region)`,
+  auparavant tout simplement ignorée : `_region` dans `rdp-sidecar/src/main.rs`).
+  `canvas_width`/`canvas_height` (taille pleine du bureau, répétée à
+  l'identique sur la plupart des messages) permettent au frontend de
+  distinguer « le bureau a changé de taille, redimensionne le `<canvas>` »
+  (ce qui l'efface) de « simple retouche partielle à la même taille, laisse
+  le canvas tel quel et peins juste ce rectangle ». Un frame *complet* reste
+  forcé juste après la connexion et après chaque séquence de réactivation
+  (resize) — sans ça, rien ne garantit que la toute première mise à jour
+  après un changement de taille couvre effectivement tout l'écran, ce qui
+  laisserait des zones noires jamais repeintes. Gain réel signalé par
+  l'utilisateur après coup ("c'est déjà beaucoup mieux") : un écran 1280×800
+  passait de ~4 Mo de pixels bruts (avant base64) par mise à jour à quelques
+  centaines d'octets pour le cas courant (curseur, ligne de texte).
+
+**Optimisation supplémentaire : `tauri::ipc::Channel` pour `Image` (2026-07-11
+envisagée puis reportée, 2026-07-11 implémentée)** — `commands/rdp_view.rs`
+réémettait chaque `SidecarMessage::Image` vers le frontend via un event Tauri
+JSON classique (`app.emit("rdp-view-frame", ...)`, `RdpTab.tsx` en face avec
+`listen(...)`), avec les pixels ré-encodés en base64 (`util::encode`) pour
+tenir dans une string JSON — même convention que `terminal-data`. Ce chemin a
+un coût fixe par message (sérialisation JSON côté Rust, parsing JSON +
+décodage base64 côté JS) devenu proportionnellement plus visible une fois les
+payloads réduits par le diffing par région ci-dessus. D'abord délibérément
+pas fait (pas de preuve qu'un ralentissement résiduel existait réellement,
+juste un raisonnement théorique) ; implémenté ensuite à la demande explicite
+de l'utilisateur, sans nouveau signal d'usage entre-temps — donc à prendre
+comme une optimisation préventive plutôt que la correction d'un problème
+mesuré.
+
+`connect_rdp_view` prend maintenant un paramètre `channel: tauri::ipc::Channel`
+(créé côté `RdpTab.tsx`/`api.connectRdpView`, un par session — donc plus
+besoin de filtrer par `id` comme sur les events globaux `rdp-view-error`/
+`rdp-view-closed`, restés inchangés en JSON classique : ils ne tirent qu'une
+fois par session, leur coût JSON est négligeable). Chaque `Image` est
+sérialisée à la main en un en-tête binaire de 12 octets little-endian
+(`canvas_width`/`canvas_height`/`x`/`y`/`width`/`height`, `u16` chacun) suivi
+des pixels RGBA8 bruts, envoyée via `channel.send(InvokeResponseBody::Raw(...))`
+— aucun `Serialize`/JSON pour ce type de message. Còté JS, `parseRdpFrame`
+(`lib/api.ts`) relit cet en-tête avec un `DataView` puis expose `pixels`
+comme une vue `Uint8Array` **zéro-copie** sur l'`ArrayBuffer` reçu (pas de
+`base64ToBytes`) ; `RdpTab.tsx` construit directement un `Uint8ClampedArray`
+sur ce même buffer pour `ImageData`/`putImageData`.
+
+**Piège vérifié, pas juste supposé** : `tauri::ipc::Channel<TSend =
+InvokeResponseBody>` (le paramètre par défaut) suffit sans avoir à
+implémenter soi-même le trait `IpcResponse` — `InvokeResponseBody` s'auto-
+implémente `IpcResponse` (retourne `Ok(self)`), et n'a délibérément *pas* de
+`#[derive(Serialize)]` (vérifié dans les sources vendues de `tauri-2.11.5`,
+`src/ipc/mod.rs`) pour éviter tout conflit avec le blanket impl `impl<T:
+Serialize> IpcResponse for T` — sinon les deux impls se chevaucheraient et le
+crate ne compilerait pas. Côté JS, un payload `InvokeResponseBody::Raw(bytes)`
+arrive dans `Channel.onmessage` en tant qu'`ArrayBuffer` **quelle que soit sa
+taille** : en dessous d'un seuil (1024 octets) il est `eval`é directement
+(`new Uint8Array([...]).buffer`), au-dessus il repasse par le mécanisme de
+`fetch` interne de l'IPC (`scripts/ipc-protocol.js`), qui résout lui aussi en
+`response.arrayBuffer()` dès que le `content-type` n'est ni `application/json`
+ni `text/plain` — vérifié dans les deux chemins plutôt que supposé identique.
+Seule subtilité TypeScript rencontrée : `RdpFrame.pixels` doit être typé
+`Uint8Array<ArrayBuffer>` (pas juste `Uint8Array`, qui s'infère
+`Uint8Array<ArrayBufferLike>` avec ce TypeScript ≥ 5.7/6) sous peine de rejet
+par le constructeur `ImageData` (qui exige spécifiquement `ArrayBuffer`, pas
+`ArrayBufferLike`/`SharedArrayBuffer`).
+
+**Vérifié** : `cargo clippy --workspace --all-targets -- -D warnings` et
+`npx tsc --noEmit` propres, `node scripts/e2e-run.mjs` (smoke test WSL/
+WebKitGTK) toujours au vert après ce changement. Comme pour l'implémentation
+initiale, la session RDP réelle elle-même (peindre effectivement un
+framebuffer distant à travers ce nouveau chemin binaire) n'a **pas** été
+revalidée contre un vrai serveur dans cet environnement — même limitation
+que d'habitude (aucun serveur RDP joignable ici) ; à confirmer par
+l'utilisateur en conditions réelles avant de considérer le gain acquis.
 
 Côté `rdp-sidecar`, `main.rs` garde `stdin` ouvert après avoir lu le
 `ConnectRequest` et lance une tâche séparée qui boucle sur
@@ -807,6 +880,193 @@ Limites connues restantes :
   — acceptable pour l'instant (rare avec des serveurs RDP modernes), mais à
   garder en tête si un serveur plus ancien est testé un jour.
 
+## Harmonisation snippets/diffusion : Docker exec + RDP (2026-07-11)
+
+Demande utilisateur : pouvoir exécuter ses snippets et utiliser la diffusion
+de commandes (`BroadcastBar`) sur des onglets Docker exec et RDP, pas
+seulement SSH. Investigation préalable (via un agent Explore) avant tout
+code : le mécanisme d'exécution manuelle de snippets (`SnippetsPanel`/
+`SnippetPicker` → `App.tsx::runSnippet` → `runOnTerminalHandle` →
+`handle.runCommand`) et la diffusion (`BroadcastBar` → `broadcastCommand`,
+même chemin) ne font **aucune** distinction par `HostKind` — ils passent par
+`api.writeTerminal`, backend-agnostique côté Rust
+(`state::TerminalSession`/`TerminalBackend` bridgent SSH et Docker exec sur
+les mêmes canaux `mpsc`). **Conclusion : ça marchait déjà pour Docker exec
+avant toute modification** — les onglets Docker exec utilisent `kind:
+"terminal"` (comme SSH, juste avec `dockerContainerId` renseigné) et sont
+donc déjà inclus dans `terminalRefs`/`broadcastTargets`. Le seul vrai trou
+côté Docker exec était les **snippets au démarrage** (auto, à la connexion) :
+absents à la fois côté backend (`connect_docker_exec` ignorait
+`host.startup_snippets`/`env_vars`, contrairement à `connect_terminal`) et
+côté UI (`HostForm.tsx`'s `sshOnlyExtras` masquait le champ pour tout kind
+≠ `ssh`).
+
+**Docker exec — fix du trou (petit, non ambigu, fait directement sans
+demander)** : la construction des commandes de démarrage (`export` par
+`env_vars` + une ligne par `startup_snippets`, dans l'ordre) a été extraite
+de `connect_terminal` vers une fonction partagée
+`pub(crate) fn startup_commands(workspace, host_id)` dans
+`commands/terminal.rs`, réutilisée telle quelle par `connect_docker_exec`
+(`commands/docker.rs`) — les deux ouvrent un shell POSIX-ish sur l'autre
+bout, donc le même mécanisme s'applique verbatim. Côté `HostForm.tsx`,
+`sshOnlyExtras` (qui gate aussi les bastions/keepalive/agent-forward,
+des concepts propres au protocole SSH, sans équivalent Docker exec) a été
+scindé : un nouveau `shellExtras = kind === "ssh" || kind === "dockerExec"`
+gate spécifiquement les deux champs « Snippets au démarrage »/« Variables
+d'environnement », désormais visibles et fonctionnels pour un hôte Docker
+exec.
+
+**RDP — décision de conception nécessaire, tranchée par l'utilisateur.**
+Contrairement à Docker exec, RDP n'a structurellement **rien** : les onglets
+RDP (`kind: "rdp-view"`) ne sont même pas enregistrés dans `terminalRefs`
+(pas de `ref` du tout sur `<RdpTab>` avant ce chantier), et
+`rdp_ipc::ClientMessage` n'avait aucun moyen d'injecter du texte — seulement
+souris/clavier physique (scancode)/redimensionnement. Deux approches
+possibles avec un vrai compromis UX, présentées à l'utilisateur via
+`AskUserQuestion` plutôt que de trancher seul : (a) frappe clavier simulée
+(texte tapé caractère par caractère, exécution immédiate, mais tape dans la
+fenêtre qui a le focus côté distant sans garantie que ce soit le bon
+endroit) vs (b) presse-papiers distant à la demande (plus prévisible, mais
+casse l'exécution « immédiate » et Windows-only, CLIPRDR réel n'existe que
+côté `WinClipboard`). **Choix utilisateur : (a) frappe clavier simulée.**
+
+**Implémentation (a) — nouveau `ClientMessage::TypeText { text: String }`**
+(`rdp-ipc/src/lib.rs`, testé par un roundtrip incluant des caractères non-ASCII
+pour vérifier l'encodage Unicode, pas juste ASCII). Côté `rdp-sidecar`
+(`main.rs::operations_for`), chaque caractère de `text` devient une paire
+`ironrdp_input::Operation::UnicodeKeyPressed`/`UnicodeKeyReleased` — trouvée
+en lisant les sources vendues de `ironrdp-input` 0.6.0 plutôt que supposée :
+c'est une vraie primitive d'entrée Unicode (PDU `UnicodeKeyboardEvent`,
+gère nativement les paires de substituts UTF-16 pour les caractères hors
+BMP), distincte du chemin scancode existant (`input.rs::scancode_for`, table
+figée de touches physiques, incapable d'exprimer du Unicode arbitraire).
+**Piège évité** : `\n`/`\r` dans `text` ne sont **pas** tapés comme caractère
+Unicode littéral — un retour à la ligne tapé comme texte n'est interprété
+par la plupart des applications comme « valider cette ligne » (contrairement
+à une vraie frappe physique de la touche Entrée) — donc traités à part comme
+une vraie pression de touche Entrée via le chemin scancode existant
+(`scancode_for("Enter")`). Ce choix unifié (un seul algorithme caractère par
+caractère, `\n`/`\r` → Entrée réelle, sinon Unicode) permet à
+`RdpTab.tsx::runCommand` de simplement faire `text: command + "\n"` — même
+convention que SSH/Docker's `command + "\r"` — et aux snippets multi-lignes
+de fonctionner "gratuitement" (chaque `\n` interne devient une vraie touche
+Entrée entre les lignes), **sans jamais** passer par le trick
+`echo '<b64>' | base64 -d | bash` que `runOnTerminalHandle` (`App.tsx`)
+utilise pour SSH/Docker — rien ne garantit qu'un shell (encore moins bash)
+a le focus côté bureau distant, donc un snippet multi-ligne RDP est tapé
+ligne par ligne tel quel plutôt que compressé en un one-liner.
+
+**`RdpTab.tsx` expose maintenant un handle `TerminalTabHandle`** (même forme
+que `TerminalTab`/`LocalTerminalTab` : `runCommand`/`writeRaw`/
+`getScrollbackText`/`dispose`), via `forwardRef`+`useImperativeHandle` —
+converti depuis une simple fonction composant. `getScrollbackText` renvoie
+`""` (pas de scrollback textuel, RDP est une image, pas un terminal).
+`writeRaw` (utilisé par le mode diffusion « frappe synchronisée en direct »)
+relaie fidèlement les caractères imprimables, mais une source terminal peut
+aussi émettre des séquences d'échappement ANSI (flèches, touches de
+fonction) qui seraient tapées littéralement comme texte — limitation connue
+et acceptée, pas de parseur ANSI construit pour ce mode secondaire.
+`App.tsx` enregistre désormais ce handle dans `terminalRefs` pour le branche
+`tab.kind === "rdp-view"` (absent avant), et `broadcastTargets` inclut
+`"rdp-view"` dans son filtre. `runOnTerminalHandle` prend un nouveau
+paramètre `shellCapable` (calculé aux deux points d'appel,
+`runSnippet`/`broadcastCommand`, via `tabs.find(...)?.kind !== "rdp-view"`)
+pour ne jamais appliquer le wrapping bash/base64 à une cible RDP.
+
+**Vérifié** : `cargo clippy` propre sur les deux workspaces (racine +
+`rdp-sidecar`, séparé — voir la section sidecar plus haut pour pourquoi),
+tests unitaires `rdp-ipc`/`rdp-sidecar`/`commands::terminal` verts,
+`npx tsc --noEmit` propre, `node scripts/e2e-run.mjs` (smoke WSL/WebKitGTK)
+au vert. **Non vérifié** : une vraie frappe de snippet contre un serveur RDP
+réel — même limitation habituelle de cet environnement de dev (aucun
+serveur RDP joignable ici). À valider par l'utilisateur en conditions
+réelles, en particulier : est-ce que la fenêtre qui a effectivement le focus
+côté distant reçoit bien le texte à l'endroit attendu (risque inhérent à
+l'approche « frappe simulée » choisie, pas un bug potentiel de
+l'implémentation).
+
+## Docker exec via SSH (bastion) — `Host::docker_via_host_id` (2026-07-11)
+
+Ajouté pour le même besoin que le tunnel SSH pour Docker évoqué à l'origine :
+joindre le démon Docker d'un hôte distant sans jamais exposer son API Engine
+en TCP (le risque déjà signalé pour le test WSL — accès root-équivalent sans
+authentification). Quand `Host::docker_via_host_id` est renseigné sur un hôte
+`dockerExec`, `docker::connect_via_ssh` (`core/src/docker.rs`) tunnelle
+l'API Engine sur une connexion SSH déjà configurée dans l'app, au lieu de
+`docker::connect`'s socket/tcp direct.
+
+**Pourquoi pas la feature `ssh` de `bollard` elle-même** (vendored mais
+jamais activée dans ce projet — vérifié dans `bollard-0.21.0/src/ssh.rs`,
+présent en source même sans la feature) : elle shell-out vers le binaire
+`ssh` du système via la crate `openssh` (ControlMaster), ce qui veut dire un
+modèle d'authentification différent (config/agent SSH du système) que celui
+de l'app (coffre/`known_hosts.json` propres à `russh`) — pas cohérent avec
+la promesse de gui-termius de gérer les identifiants pour l'utilisateur.
+`DialStdioConnector` (nouveau) reproduit le même principe — un canal *frais*
+par connexion sous-jacente demandée par le client HTTP, exécutant `docker
+system dial-stdio` sur l'hôte distant (le même pont qu'utilise `docker
+context ... ssh://` en natif) — mais en s'appuyant sur une session `russh`
+déjà authentifiée (`ssh::connect`, coffre + `known_hosts` + chaînage de
+bastions existants réutilisés tels quels) plutôt qu'un nouveau processus
+`ssh` externe. `DialStdioConnector` implémente `tower_service::Service<Uri>`
+et se branche sur un vrai `hyper_util::client::legacy::Client` (comme le
+fait `bollard` en interne pour ses transports `Http`/`Unix`/`Ssh`), passé à
+`Docker::connect_with_custom_transport`.
+
+**Piège vérifié : l'API bas niveau `hyper::client::conn::http1` ne pose
+jamais de header `Host`.** Une première version pilotait directement
+`hyper::client::conn::http1::handshake` + `send_request` à la main — chaque
+requête partait sans header `Host`, que le démon Docker rejette
+immédiatement (`400 Bad Request: missing required Host header`). Ce n'est
+pas un défaut de configuration : cette API bas niveau n'a simplement aucun
+mécanisme par défaut pour ça, contrairement à `hyper_util::client::legacy::Client`
+(vérifié en lisant `bollard`'s propre `src/ssh.rs`/`connect_with_ssh`, qui
+passe systématiquement par ce client haut niveau, jamais par l'API bas
+niveau). Fix : construire un vrai `Client<DialStdioConnector, BodyType>` et
+lui déléguer chaque requête, comme le fait `bollard` en interne.
+
+**Fausse piste explorée puis abandonnée : `pool_max_idle_per_host(0)`.**
+Ajouté d'abord par précaution (peur qu'un canal partagé bloque si deux
+requêtes se chevauchent, ex. `resize_exec` pendant qu'un `exec` attaché
+diffuse encore) — retiré ensuite en comparant avec `bollard::connect_with_ssh`
+(qui ne le fait pas) : une connexion *upgradée* (hijackée, cas de `exec`
+attach) sort de toute façon du pool une fois hijackée, donc une requête
+concurrente obtient naturellement un nouveau canal sans jamais attendre —
+la peur initiale de deadlock reposait sur un modèle mental erroné. Ce retrait
+n'a PAS corrigé le bug utilisateur ci-dessous (juste rapproché le code de la
+référence `bollard`) — la vraie cause était ailleurs, trouvée seulement après
+avoir testé pour de vrai (voir le harnais de diagnostic plus bas).
+
+**Bug réel trouvé par l'utilisateur, sans rapport avec le tunnel SSH lui-même :**
+conteneurs bien listés, mais cliquer dessus pour ouvrir un exec donnait un
+terminal vide avec juste un curseur clignotant — jamais de prompt, aucune
+frappe n'avait d'effet. `docker::open_exec`'s commande codée en dur,
+`sh -c "exec bash || exec sh"`, existait déjà avant ce chantier SSH (jamais
+testée avant faute de démon Docker réellement joignable — voir plus bas dans
+la roadmap) : sur une image sans `bash` (ex. `alpine`, testé pour de vrai),
+le `/bin/sh` par défaut est BusyBox `ash`, dont le comportement sur un
+`exec` ciblant une commande introuvable est de **quitter tout le script**
+immédiatement (`sh: exec: line 0: bash: not found` puis fermeture du
+canal en ~50 ms) plutôt que de renvoyer un code d'erreur non-nul que `||`
+pourrait rattraper — contrairement à `bash`/`dash`. Le `|| exec sh` de
+secours n'était donc **jamais atteint** sur ce type d'image. Fix : vérifier
+l'existence de `bash` d'abord avec `command -v` (builtin POSIX, ne
+déclenche jamais ce comportement) avant de l'`exec`er :
+`command -v bash >/dev/null 2>&1 && exec bash || exec sh`.
+
+**Harnais de diagnostic réutilisable** : `core/examples/docker_ssh_debug.rs`
+(`cargo run --example docker_ssh_debug -- <uuid-hôte-docker>`, à lancer
+nativement sous Windows si l'hôte SSH cible utilise le coffre OS — le
+harnais lit le vrai `workspace.json`/trousseau de la machine, exactement le
+chemin `connect_for_host` → `open_exec` emprunté par l'app réelle). Trouvé
+l'UUID de l'hôte Docker en cherchant son `label` dans `workspace.json` (
+`%APPDATA%\gui-termius\gui-termius\config\workspace.json` sous Windows).
+Écrit spécifiquement pour ce bug — a permis de reproduire et corriger en
+quelques secondes d'itération (`cargo run --example`) plutôt qu'un cycle
+complet de rebuild+relance de toute l'app GUI à chaque essai (plusieurs
+dizaines de secondes minimum, comptes rendus dans ce fichier plus haut).
+Conservé pour tout futur bug Docker/SSH — pas un script jetable.
+
 ## Pièges déjà rencontrés (pour ne pas les redécouvrir)
 
 - **Drag-and-drop natif vs Tauri.** Sur Windows, le drag-and-drop OS-level de
@@ -920,6 +1180,343 @@ Limites connues restantes :
   -Force` avant de relancer le build ; particulièrement facile à oublier
   quand on itère vite sur plusieurs correctifs RDP d'affilée (voir plus haut).
 
+## Harmonisation Docker exec / RDP avec SSH : clic hôte, split terminal, SFTP (2026-07-12)
+
+Trois demandes successives de l'utilisateur pour rapprocher le comportement
+des hôtes Docker exec et RDP de celui des hôtes SSH.
+
+**Clic sur un hôte RDP → aperçu intégré par défaut.** Avant : clic principal
+= lanceur système (`connect_rdp`, `mstsc.exe`/`xfreerdp`), aperçu intégré
+uniquement accessible via le menu « … » → bouton dédié. Après
+(`HostsPanel.tsx::handleConnect`) : clic principal = `onConnectRdpView`
+(aperçu intégré), le lanceur système bascule dans le menu « … » sous
+« Client système » (icône/tooltip mis à jour pour expliquer le compromis :
+lecture-seule mais intégré vs. pleinement interactif mais externe). Choix de
+l'utilisateur explicite, pas une supposition — cohérent avec le fait que
+SSH/Docker exec ouvrent déjà directement au clic.
+
+**Split terminal (panneau 2) : Docker exec et RDP.** `SplitPane.tsx` ne
+gérait avant que `"local" | HostId` en supposant systématiquement un shell
+SSH-shaped — sélectionner un hôte Docker exec ou RDP y tentait silencieusement
+une connexion SSH sur un hôte qui n'en est pas un. Fix : le composant résout
+maintenant `host.kind` et branche vers le bon rendu — `RdpTab` directement
+pour `rdp`, un `ConnectionPickerModal` de conteneurs (même composant que
+`HostsPanel.tsx`) avant `TerminalTab` avec `dockerContainerId` pour
+`dockerExec`, un message explicite (pas de backend) pour `k8sExec`. Annuler
+le picker Docker retombe sur « local ». Le menu déroulant affiche maintenant
+le type d'hôte en suffixe (`Nom (Docker exec)`) pour les kinds ≠ ssh.
+
+**Docker exec dans le mode SFTP (transfert de fichiers) — le morceau
+substantiel.** Contrairement aux deux points ci-dessus (recâblage UI sur du
+backend déjà existant), celui-ci demandait un vrai nouveau backend : Docker
+n'a pas de sous-système SFTP.
+
+- `core/src/sftp.rs` : nouveau trait `RemoteFileClient` (`async_trait`,
+  `list`/`make_dir`/`remove_file`/`remove_dir`/`rename`/`set_permissions`/
+  `read_to_string`/`write_string`/`download`/`upload`), implémenté pour
+  `SftpClient` (délégation directe vers les méthodes inhérentes existantes,
+  aucun changement de comportement) et pour le nouveau `DockerPaneClient`
+  (`core/src/docker_pane.rs`). `download`/`upload` prennent
+  `&mut (dyn FnMut(u64, u64) + Send)` plutôt que `impl FnMut` — un paramètre
+  générique rendrait le trait non object-safe, et `PaneRef` a besoin de le
+  stocker derrière `Arc<dyn RemoteFileClient>`. **Piège rencontré, pas
+  supposé** : passer `&Arc<dyn RemoteFileClient>` là où `&dyn
+  RemoteFileClient` est attendu échoue à la compilation (`the trait
+  RemoteFileClient is not implemented for Arc<dyn RemoteFileClient>`) — la
+  coercion de déréférencement implicite ne s'applique pas automatiquement à
+  travers ce genre de double indirection en position d'argument ; fix :
+  `.as_ref()` explicite à chaque site d'appel (`transfer.rs`).
+- `core/src/transfer.rs` : `PaneRef::Remote(Arc<SftpClient>)` →
+  `Arc<dyn RemoteFileClient>` — toute la logique de dispatch local/distant
+  (list/mkdir/rename/chmod/read/write/remove/copy, y compris le cas
+  distant-à-distant relayé par fichier temporaire) reste **inchangée**,
+  elle fonctionne maintenant génériquement pour n'importe quel backend
+  `RemoteFileClient`, pas seulement SFTP.
+- `core/src/docker_pane.rs` (`DockerPaneClient`) — deux surfaces d'API Docker
+  Engine différentes selon l'opération, aucune des deux déjà utilisée dans ce
+  dépôt avant ce chantier :
+  - **Opérations de métadonnées** (list/mkdir/rename/remove/chmod) : shell
+    dans le conteneur via un nouvel `exec_capture` (`core/src/docker.rs`,
+    `exec` non-TTY, capture stdout, échoue sur code de sortie non nul —
+    même esprit de portabilité que `open_exec`'s `command -v bash` pour la
+    détection BusyBox `ash` vs `bash`). Le listing (`ls -1a` + `stat -c`
+    par entrée, une seule invocation `exec` avec une boucle shell interne,
+    pas un aller-retour par fichier) parse une sortie délimitée par
+    tabulations avec `splitn(6, '\t')` — un nom de fichier contenant une
+    tabulation reste intact dans le dernier champ, un nom contenant un vrai
+    retour à la ligne casse le parsing (limitation acceptée : c'est du texte
+    shell, pas un protocole framé comme SFTP). Toutes les commandes passent
+    les chemins en paramètres positionnels (`sh -c '<script>' sh "$1" "$2"`)
+    plutôt que par interpolation dans le texte du script — aucun risque
+    d'injection quel que soit le contenu du chemin.
+  - **Contenu des fichiers** (read/write/upload/download) : les endpoints
+    d'archive Docker Engine (`GET`/`PUT /containers/{id}/archive`, streams
+    tar) — `bollard::Docker::download_from_container`/`upload_to_container`,
+    jamais appelés ailleurs dans ce dépôt avant ce chantier (vérifié par
+    lecture des sources vendues de `bollard-stubs` pour les builders
+    `DownloadFromContainerOptionsBuilder`/`UploadToContainerOptionsBuilder`,
+    introuvables par grep direct car générés). Nouvelle dépendance directe
+    `tar = "0.4"` dans `core/Cargo.toml` pour construire/lire les archives à
+    une seule entrée.
+  - **Limitation connue, acceptée pour cette première version** :
+    contrairement à SFTP qui transfère réellement par blocs, upload comme
+    download bufferisent le fichier entier (dans un tar) en mémoire avant/
+    après l'appel Engine API — sans risque pour des fichiers de config/code
+    ordinaires, risqué pour du multi-gigaoctets. La progression est réelle
+    pour `download` (le stream tar arrive par blocs) mais seulement
+    approximative pour `upload` (rapportée pendant la lecture du fichier
+    local en mémoire, pas pendant l'envoi réseau réel).
+- `src-tauri/src/state.rs` (`Pane.client`) et `commands/sftp.rs`
+  (`PaneSource::Docker { host_id, container_id }`, `open_pane`) suivent le
+  même schéma que `RemoteFileClient` — `Pane.connection` reste `None` pour
+  un pane Docker : le `bollard::Docker` du `DockerPaneClient` garde déjà tout
+  vivant en interne (y compris, si `docker_via_host_id` est utilisé, la
+  connexion SSH sous-jacente — voir la section « Docker exec via SSH »
+  ci-dessous), pas besoin de dupliquer cette responsabilité.
+- Frontend : `PaneSource` (`types.ts`) gagne le variant `docker`.
+  `TransferTab.tsx`'s `PaneView` (sélecteur de source par panneau) et
+  `SftpPanel.tsx` (clic direct sur un hôte pour ouvrir un onglet transfert)
+  gagnent chacun le même picker de conteneur que `HostsPanel.tsx`/
+  `SplitPane.tsx` — troisième réutilisation de ce pattern dans la session,
+  devenu le mécanisme standard de ce projet pour « choisir une cible Docker
+  vivante avant de connecter ». `SftpPanel.tsx` et le sélecteur de
+  `TransferTab.tsx` filtrent la liste d'hôtes à `ssh`/`dockerExec`
+  uniquement (`rdp`/`k8sExec` n'ont pas de backend de listing de fichiers).
+  Ouvrir l'onglet transfert directement depuis `SftpPanel.tsx` sur un hôte
+  Docker exec ouvre désormais le panneau droit déjà connecté au bon
+  conteneur (`dockerContainerId` déjà propagé par `TabMeta`/`openTab` pour
+  les autres kinds de tab, juste jamais branché jusqu'ici jusqu'à
+  `TransferTab`).
+
+**Vérifié** : `cargo clippy --workspace --all-targets -- -D warnings` propre,
+`cargo test -p termius-core -p gui-termius` vert (58 + 3 tests unitaires,
+4 tests d'intégration réels avec un vrai `sshd` dont `sftp_round_trip` —
+confirme que le passage à `Arc<dyn RemoteFileClient>` n'a rien cassé côté
+SFTP réel ; un des 4 tests d'intégration, `local_port_forward_reaches_a_local_service`,
+a échoué une fois en exécution parallèle puis passé en isolation — flakiness
+de bind de port pré-existante, sans rapport avec ce chantier, jamais touché
+`port_forward.rs`), `npx tsc --noEmit` propre, `node scripts/e2e-run.mjs`
+(smoke WSL/WebKitGTK) au vert. **Non vérifié** : le chemin Docker complet
+(list/mkdir/rename/remove/chmod/upload/download réels) contre un vrai démon
+Docker — aucun démon joignable dans cet environnement WSL (Docker Desktop
+sans intégration WSL activée, même limitation déjà documentée pour le reste
+du support Docker exec de ce projet). Le script shell de listing et le
+roundtrip tar sont couverts par tests unitaires (`docker_pane::tests`), pas
+par une exécution réelle dans un conteneur.
+
+**Bug réel trouvé par l'utilisateur au premier essai contre un vrai
+conteneur** : `open_pane` échouait immédiatement avec `invalid args source
+for command open_pane: missing field container_id`. Cause : exactement le
+piège déjà documenté ci-dessus pour `rdp_ipc::ClientMessage` (et donc
+reproduit sans y penser) — `#[serde(rename_all = "camelCase")]` sur un enum
+à tag interne ne renomme que les valeurs de `"kind"`, pas les champs des
+variantes struct. `PaneSource::Docker` avait bien un `#[serde(rename =
+"hostId")]` explicite sur `host_id` (copié depuis `Remote`) mais pas
+l'équivalent sur `container_id`, qui restait donc attendu tel quel côté
+Rust alors que le frontend envoie `containerId`. Fix : `#[serde(rename =
+"containerId")]` explicite, plus un test de régression dédié
+(`commands::sftp::tests::pane_source_docker_accepts_camel_case_field_names`,
+désérialise un JSON écrit à la main avec les clés camelCase réelles) —
+un roundtrip Rust→Rust n'aurait rien prouvé ici, comme noté la première
+fois. Lien direct avec la note plus haut : documenter un piège une fois ne
+suffit pas à ne pas le refaire soi-même sur un nouveau type ; le test de
+régression est ce qui empêche une troisième occurrence de repasser inaperçue.
+
+## Glisser-déposer vers le presse-papiers RDP (fichiers + dossiers) (2026-07-12)
+
+Deuxième moitié du chantier d'harmonisation Docker/RDP démarré plus haut —
+la partie protocolaire, jamais testable dans cet environnement de dev.
+Décisions actées avec l'utilisateur avant tout code (`AskUserQuestion`,
+puisque les deux points avaient un vrai risque de malentendu) :
+1. **Sémantique** : glisser un fichier/dossier depuis le panneau de gauche
+   sur la vue RDP à droite le rend disponible sur le presse-papiers distant
+   — l'utilisateur doit ensuite coller (Ctrl+V) lui-même où il veut côté
+   session distante. CLIPRDR n'a aucune notion de « dossier cible » ; pas
+   de dépôt automatique à un endroit précis, techniquement impossible sans
+   agent côté serveur distant.
+2. **Portée** : fichiers *et* dossiers dès la première version (pas juste
+   les fichiers simples).
+
+**`TransferTab.tsx` gagne un mode RDP.** Quand `host.kind === "rdp"`, le
+panneau droit n'est plus un `PaneView` (aucun backend de listing pour RDP)
+mais directement `<RdpTab>` — pas de sélecteur de source, pas de
+navigation, juste la vue live. Le panneau gauche reste un navigateur de
+fichiers normal (local par défaut, sélectionnable vers ssh/dockerExec).
+Déposer une sélection dessus (mécanisme de drag maison déjà en place,
+souris pas HTML5 DnD — voir plus haut dans ce fichier) appelle
+`pushToRdp` au lieu de `copy`. Point d'entrée : nouveau bouton
+« Transférer des fichiers » dans le menu « … » d'un hôte RDP
+(`HostsPanel.tsx`), réutilisant le prop `onOpenTransfer` déjà câblé pour
+`SftpPanel.tsx` (même `openTab("transfer", host)`, `containerId`
+simplement omis).
+
+**Chaîne complète, de haut en bas :**
+1. `commands/rdp_view.rs::push_rdp_view_clipboard_entries` (nouvelle
+   commande Tauri) — résout le pane source (`sftp::pane_ref`, rendu
+   `pub(crate)` pour l'occasion), aplatit récursivement chaque entrée
+   sélectionnée (`collect_pushed_files`, marche un dossier en listant ses
+   enfants via `transfer::list`, générique sur n'importe quel
+   `RemoteFileClient` grâce au chantier précédent) en une liste plate de
+   `rdp_ipc::PushedFile` — chemin relatif `\`-joint pour préserver
+   l'arborescence, une entrée par dossier (jamais de contenu demandé pour
+   elle) et une par fichier.
+2. `core::transfer::resolve_local_path` (nouveau) — pour une entrée locale,
+   son chemin réel tel quel (pas de copie) ; pour une entrée distante
+   (SFTP/Docker), téléchargement immédiat vers un fichier temporaire privé
+   (`secure_file::create_private`, même schéma que le relais existant
+   remote-à-remote). Nécessaire, pas juste pratique : `on_file_contents_request`
+   (côté sidecar) est un callback **synchrone**, sans `.await` possible —
+   impossible d'aller chercher les octets à la demande depuis SFTP/Docker à
+   ce moment-là, il faut déjà avoir un vrai fichier local avant même
+   d'envoyer le message.
+3. `rdp_ipc::ClientMessage::PushClipboardFiles { files: Vec<PushedFile> }`
+   (nouveau message, testé en roundtrip) transporte cette liste jusqu'au
+   sidecar via la même commande générique `send_rdp_view_input` déjà en
+   place (aucune nouvelle plomberie IPC nécessaire côté Tauri pour
+   l'envoi — seulement pour la collecte).
+4. `rdp-sidecar/src/main.rs::push_clipboard_files` — construit un
+   `Vec<FileDescriptor>` (`ironrdp_cliprdr::pdu`) dans le même ordre que
+   `files`, enregistre les chemins locaux dans une `FileTable` partagée
+   (`clipboard.rs`) à ces mêmes index, puis appelle
+   `CliprdrClient::initiate_file_copy`. Erreurs traitées comme non-fatales
+   (log + `continue`, contrairement à la branche `clip_msg` existante qui
+   tue la session) — un push de fichier échoue pour des raisons
+   parfaitement normales (serveur sans support fichier), pas une invariante
+   protocolaire cassée.
+5. `rdp-sidecar/src/clipboard.rs::FilePushBackend` — **la pièce
+   architecturale centrale de ce chantier**. Un décorateur qui enveloppe le
+   backend presse-papiers texte existant (`WinClipboard`/`StubClipboard`) :
+   délègue toutes les méthodes texte telles quelles, n'implémente
+   lui-même que `client_capabilities()` (OR avec `STREAM_FILECLIP_ENABLED`)
+   et `on_file_contents_request` (répond en lisant l'octet range demandé
+   directement dans le fichier local via la `FileTable`, I/O bloquant
+   assumé — ce callback n'a de toute façon aucun moyen d'être asynchrone).
+   Décision explicite de ne **pas** étendre `WinClipboard` lui-même :
+   `ironrdp-cliprdr-native` 0.6.0 n'a aucun support fichier câblé sur aucune
+   plateforme (`client_capabilities()` vide partout, vérifié en lisant les
+   sources, pas supposé) — y ajouter le vrai rendu différé COM Windows
+   (`CFSTR_FILEDESCRIPTORW`/`CFSTR_FILECONTENTS`) aurait été un chantier
+   bien plus gros, Windows-only, et inutile pour ce cas d'usage précis (les
+   octets viennent toujours d'un chemin que l'app connaît déjà, jamais
+   d'une vraie lecture du presse-papiers OS). Ce découplage rend
+   `FilePushBackend` cross-platform par construction — aucun `#[cfg(windows)]`
+   dessus, contrairement à `WinClipboard`.
+
+**Piège vérifié en lisant les sources vendues d'`ironrdp-cliprdr` 0.6.0,
+pas supposé** : le moteur de protocole (`ironrdp-cliprdr`, distinct
+d'`ironrdp-cliprdr-native`) supporte déjà intégralement le format liste de
+fichiers — `FileContentsRequest`/`FileContentsResponse` (MS-RDPECLIP
+2.2.5.3/2.2.5.4), `FileDescriptor`/`PackedFileList`,
+`Cliprdr::initiate_file_copy`/`submit_file_contents`, validation/troncature
+de noms de fichiers, verrouillage concurrent — bien plus complet que ce que
+suggérait la note précédente sur « aucune capacité fichier annoncée »
+(cette note-là décrivait le manque côté `-native`, pas côté moteur de
+protocole ; les deux sont des crates différentes). `main.rs` matchait déjà
+`ClipboardMessage::SendFileContentsResponse` (en l'ignorant) — juste besoin
+de brancher l'appel réel (`cliprdr.submit_file_contents(response)`) plutôt
+que d'ajouter quoi que ce soit de neuf à ce niveau.
+
+**Vérifié** : `cargo clippy --all-targets -- -D warnings` propre sur les
+deux workspaces (racine + `rdp-sidecar`, séparé), `cargo test` vert sur les
+quatre crates concernées (74 tests dont 7 d'intégration réelles avec un
+vrai `sshd`, aucune régression), `npx tsc --noEmit` propre,
+`node scripts/e2e-run.mjs` (smoke WSL/WebKitGTK) au vert. **Non vérifié,
+comme toujours pour cette partie du projet** : une vraie session de
+glisser-déposer contre un serveur RDP réel — CLIPRDR file-list est un
+protocole avec beaucoup de recoins (négociation de capacités des deux
+côtés, format des noms de fichiers sur le fil, verrouillage) qu'aucune
+lecture de code ni test unitaire ne peut garantir correct en pratique.
+Point le plus incertain à surveiller en premier lors d'un test réel : est-ce
+que le serveur/l'application distante (ex. Explorer Windows) négocie
+effectivement `STREAM_FILECLIP_ENABLED` et affiche le fichier au collage,
+ou reste silencieux malgré un `initiate_file_copy` qui n'a lui-même pas
+échoué côté sidecar.
+
+**Bugs réels trouvés au premier test utilisateur (2026-07-12), tous deux
+côté frontend, pas dans le protocole CLIPRDR lui-même** : « le glisser-déposer
+n'a pas l'air de marcher », et « le bouton flèche a l'air de copier mais le
+collage côté RDP donne *unspecified error* ».
+- **Bouton flèche/« Copier » du panneau local, en mode RDP** : câblé sur la
+  fonction générique `copy()` (`TransferTab.tsx`), qui a besoin d'un
+  `paneId` distant ouvert pour sa destination. Or en mode RDP le panneau
+  droit n'est jamais ouvert comme pane — c'est `<RdpTab>` en direct, pas un
+  `PaneView` (`openPaneFor("right", ...)` n'est appelé `if (!isRdpTarget)`).
+  `copy()` fait donc `if (!sourceId || !destId || ...) return;` et ressort
+  silencieusement, sans la moindre erreur — d'où l'impression que « ça
+  copie bien » alors que rien n'a jamais été poussé sur le presse-papiers
+  distant, expliquant à elle seule le « unspecified error » au collage (le
+  clipboard RDP ne contenait jamais le fichier). Fix : nouveau
+  `copyOrPushToRdp` dans `TransferTab.tsx`, qui redirige vers `pushToRdp`
+  quand `isRdpTarget && side === "left"`, branché comme `onCopy` du panneau
+  gauche à la place de `copy` directement. Libellés/tooltips des boutons
+  « Copier »/flèche également adaptés (« Envoyer sur le presse-papiers
+  RDP ») via un nouveau prop `isRdpPush` sur `PaneView`, pour ne plus laisser
+  croire à une copie de fichier classique.
+- **Aucune confirmation visuelle de succès sur `pushToRdp`** — vrai même
+  pour le glisser-déposer, qui lui était pourtant déjà correctement câblé
+  (`handleDropEntries` appelait bien `pushToRdp` pour une dépose sur le
+  panneau droit en mode RDP) : un push réussi n'avait tout simplement aucun
+  effet visible (rien n'apparaît dans un panneau, contrairement à une copie
+  SFTP normale), ce qui se lit comme « ça n'a pas marché » même quand ça
+  fonctionnait. Fix : nouveau prop `onPushed` sur `TransferTab`, appelé par
+  `pushToRdp` après un `pushRdpViewClipboardEntries` réussi, branché dans
+  `App.tsx` sur `pushNotification("success", ...)` (système de notifications
+  existant, cloche en haut — jusque-là jamais utilisé avec le type
+  `"success"` dans ce projet, uniquement `"error"`).
+**Retest utilisateur (2026-07-12, même jour)** : la flèche/bouton fonctionne
+désormais, mais deux points restaient à corriger.
+
+- **Confusion initiale levée par une question de clarification de
+  l'utilisateur** : il existe en fait *deux* mécanismes de glisser-déposer
+  distincts dans `TransferTab.tsx`, faciles à confondre — (1) OS-level natif
+  (`webview.onDragDropEvent`, glisser depuis l'Explorateur Windows droit sur
+  la vue RDP) et (2) manuel-souris interne (`startManualDrag`/
+  `handleDropEntries`, glisser une entrée du panneau de fichiers *de
+  gauche*, dans l'app, vers la vue RDP). Le (1) marchait déjà après le fix
+  précédent (branché via `pushRdpViewClipboardEntries`/`copyOrPushToRdp`) ;
+  le (2), lui, ne marchait toujours pas.
+- **Bug réel n°3 — glisser-déposer interne (méthode 2) jamais amorcé** :
+  chaque ligne de fichier a un `onMouseDown` (au niveau de la `<div>` de la
+  ligne) qui arme un drag potentiel via `startManualDrag` — mais le bouton
+  Nom (icône + nom de fichier, `flex-1`, donc la zone la plus large et la
+  plus naturelle à saisir pour glisser) avait son propre
+  `onMouseDown={(e) => e.stopPropagation()}`, copié par analogie avec la
+  checkbox voisine (qui, elle, en a réellement besoin pour éviter d'armer un
+  drag accidentel sur un simple clic de case à cocher). Résultat : cliquer
+  sur l'icône/le nom — le geste le plus naturel pour "attraper" un fichier —
+  n'atteignait jamais le `onMouseDown` de la ligne, donc n'armait jamais de
+  drag ; seules les colonnes Modifié/Type/Taille ou le padding restaient
+  "attrapables", une zone étroite et peu intuitive. Explique à la fois « le
+  glisser-déposer ne marche pas » et « aucun indicateur ne montre que
+  j'arrive à glisser » (le drag n'ayant jamais démarré, aucune surbrillance
+  de zone de dépôt ne pouvait apparaître). Fix : suppression du
+  `stopPropagation` sur le bouton Nom — `onClick` (navigation dans un
+  dossier) reste inchangé, `startManualDrag` armé sur un clic ne fait rien
+  tant que la souris ne bouge pas de plus de 4px (voir son propre code), donc
+  un simple clic-navigation n'est pas affecté.
+- **Amélioration demandée : collage automatique.** L'utilisateur a
+  explicitement demandé qu'un fichier glissé depuis l'Explorateur Windows
+  soit directement collé dans la session distante, sans Ctrl+V manuel.
+  Décision : appliqué uniformément aux **trois** méthodes (Explorateur,
+  glisser interne, bouton flèche) plutôt qu'à une seule — elles convergent
+  toutes vers le même message `ClientMessage::PushClipboardFiles`, donc le
+  faire une fois côté `rdp-sidecar` (nouvelle fonction `paste_key_sequence`
+  + branchement dans le bras `PushClipboardFiles` de la boucle
+  `active_session`, `main.rs`) couvre les trois sans dupliquer de logique
+  frontend. Simule un Ctrl+V (`ControlLeft`+`KeyV`, table `input.rs`) juste
+  après l'annonce de la liste de formats, **sans attendre**
+  `FormatListResponse` du serveur — jugé sûr car les deux PDUs (liste de
+  formats, puis frappes clavier) partent sur le **même flux TCP ordonné**,
+  écrits l'un après l'autre dans la même boucle (`active_session`'s
+  `for out in outputs { writer.write_all(...) }`), et un serveur RDP traite
+  les PDUs dans leur ordre de réception — pas de canal séparé ni
+  d'attente du `on_format_list_response` nécessaire. Non testé contre un
+  vrai serveur au moment d'écrire ceci (ni ce raisonnement d'ordonnancement,
+  ni le résultat du collage lui-même) — à confirmer par l'utilisateur.
+  Messages/tooltips frontend (`TransferTab.tsx`, `HostsPanel.tsx`, `api.ts`)
+  mis à jour en conséquence (« envoyé et collé » plutôt que « Ctrl+V pour
+  coller »).
+
 ## Roadmap / prochaines features (décidées avec l'utilisateur)
 
 Features majeures retenues, dans l'ordre de priorité restant :
@@ -967,32 +1564,27 @@ Features majeures retenues, dans l'ordre de priorité restant :
    nouveaux (voir le doc-comment de `HostKind` pour le détail exact par
    kind — ex. `address` devient le socket/hôte Docker, ou un contexte
    kubeconfig). **Docker exec est réel** : `core/src/docker.rs` (crate
-   `bollard`, connexion directe au démon — socket unix, named pipe Windows,
-   ou tcp/http — jamais via SSH, contrairement à l'hypothèse SSH-shaped
-   envisagée puis abandonnée en cours de route) expose `list_containers` et
-   `open_exec`, ce dernier bridgé sur le même type `ssh::ShellSession` que
-   les shells SSH pour être rejoué tel quel par `write_terminal`/
-   `resize_terminal`/`close_terminal` (`state::TerminalBackend` généralise
-   `TerminalSession` pour porter soit une `Connection` SSH soit rien de plus
-   pour Docker). `TerminalTab.tsx` accepte un `dockerContainerId` optionnel
-   qui bascule l'appel de connexion, sans dupliquer le composant. **RDP a
-   deux modes, tous deux réels.** Le mode « lanceur » historique
-   (`core/src/rdp.rs`, commande `connect_rdp`, action principale des hôtes
-   RDP) shell-out vers le client du système : sous Windows, `mstsc.exe` sur
-   un fichier `.rdp` temporaire, identifiants pré-chargés via `cmdkey`
-   (Gestionnaire d'identifiants Windows, cible `TERMSRV/<adresse>`) puis
-   supprimés — ainsi que le fichier `.rdp` — une fois `mstsc.exe` fermé
-   (tâche `tokio::spawn` qui attend la fin du process ; ne fonctionne que
-   parce que le runtime Tauri est long-lived — un test `#[tokio::test]`
-   classique tue cette tâche en fond avant qu'elle s'exécute, d'où le test
-   réel ci-dessous marqué `#[ignore]` plutôt que vérifié par un test
-   normal) ; sous Linux, `xfreerdp`/`xfreerdp3` si présent sur le `PATH`
-   (non testé en conditions réelles — absent de ce WSL) ; macOS non
-   supporté (pas de client scriptable). Le mode « aperçu intégré »
-   (`RdpTab.tsx`, action secondaire dans le menu de l'hôte) rend le flux RDP
-   directement dans l'appli, avec **forward souris/clavier, presse-papiers
-   bidirectionnel (Windows) et redimensionnement dynamique** (toujours pas
-   d'audio/lecteurs partagés/rendu de curseur), via un processus séparé
+   `bollard`) expose `list_containers` et `open_exec`, ce dernier bridgé sur
+   le même type `ssh::ShellSession` que les shells SSH pour être rejoué tel
+   quel par `write_terminal`/`resize_terminal`/`close_terminal`
+   (`state::TerminalBackend` généralise `TerminalSession` pour porter soit
+   une `Connection` SSH soit rien de plus pour Docker). `TerminalTab.tsx`
+   accepte un `dockerContainerId` optionnel qui bascule l'appel de
+   connexion, sans dupliquer le composant. Deux façons de joindre le
+   démon : en direct (`docker::connect`, socket unix/named pipe Windows/
+   tcp-http) ou, si `Host::docker_via_host_id` est renseigné, tunnelé via
+   une connexion SSH déjà configurée dans l'app (`docker::connect_via_ssh`)
+   — voir la section dédiée juste en dessous pour le détail et les pièges
+   rencontrés en la construisant. **RDP n'a plus qu'un seul mode : l'aperçu
+   intégré.** Un mode « lanceur » historique a existé un temps en parallèle
+   (`core/src/rdp.rs`, commande `connect_rdp`, shell-out vers
+   `mstsc.exe`/`xfreerdp` — voir git history pour le détail, entièrement
+   supprimé le 2026-07-12 à la demande de l'utilisateur une fois l'aperçu
+   intégré jugé suffisant). L'aperçu intégré (`RdpTab.tsx`, action
+   principale au clic sur un hôte RDP) rend le flux RDP directement dans
+   l'appli, avec **forward souris/clavier, presse-papiers bidirectionnel
+   (Windows) et redimensionnement dynamique** (toujours pas d'audio/
+   lecteurs partagés/rendu de curseur), via un processus séparé
    (`rdp-sidecar`, IronRDP) communiquant par un protocole maison sur
    stdin/stdout (`rdp-ipc`) — voir la section « RDP intégré (rendu réel) :
    architecture sidecar » plus haut pour le pourquoi (conflit de version
@@ -1002,11 +1594,7 @@ Features majeures retenues, dans l'ordre de priorité restant :
    daemon Docker joignable dans ce WSL pour tester l'exec réellement
    (intégration WSL non activée dans Docker Desktop) : couvert par tests
    unitaires (classification d'hôte Docker) + relecture attentive de l'API
-   `bollard` vendue. Le lancement RDP (mode lanceur) a été vérifié pour de
-   vrai en natif Windows (`cargo test -p termius-core rdp:: -- --ignored`) :
-   vraie fenêtre `mstsc.exe` lancée contre une adresse TEST-NET-3 (RFC 5737,
-   non routable), identifiant confirmé présent dans `cmdkey /list` pendant
-   que `mstsc` tournait. Le mode « aperçu intégré », lui, **a été validé
+   `bollard` vendue. Le mode « aperçu intégré » **a été validé
    contre un vrai serveur RDP par l'utilisateur le 2026-07-10**, en
    plusieurs passes : connexion + affichage réels (un premier essai avait
    crashé immédiatement sur `CryptoProvider` rustls non installé, voir plus
@@ -1029,8 +1617,60 @@ auto (pref `autoReconnect`), 8 thèmes de terminal, restauration d'onglets. Les
 vraies lacunes restantes sont côté protocole/ops : auth keyboard-interactive
 (MFA/OTP, absente de `AuthMethod`) et K8s exec (maquette UI sans backend) —
 l'aperçu RDP intégré (voir le point 4 ci-dessus) a désormais l'affichage, le
-forward souris/clavier, le presse-papiers et le redimensionnement dynamique,
-il ne lui manque plus que le rendu du curseur et le transfert de fichiers.
+forward souris/clavier, le presse-papiers (texte automatique + fichiers/
+dossiers poussés à la demande depuis `TransferTab.tsx`) et le
+redimensionnement dynamique — il ne lui manque plus que le rendu du curseur.
+
+## Nettoyage : retrait du lanceur RDP système et du glisser-déposer interne (2026-07-12)
+
+Après avoir testé le transfert de fichiers RDP en conditions réelles (voir
+la section « Glisser-déposer vers le presse-papiers RDP » plus haut),
+l'utilisateur a jugé l'ensemble trop fragile/complexe pour sa valeur et a
+demandé de retirer deux morceaux plutôt que de continuer à les corriger :
+
+- **Le lanceur RDP système** (`connect_rdp`, bouton « Client système » du
+  menu « … » d'un hôte RDP — shell-out vers `mstsc.exe`/`xfreerdp`) —
+  redondant une fois l'aperçu intégré validé comme fonctionnel. Supprimé
+  entièrement : `core/src/rdp.rs` et `src-tauri/src/commands/rdp.rs`
+  (fichiers supprimés), déclarations `pub mod rdp;` retirées de
+  `core/src/lib.rs`/`src-tauri/src/commands/mod.rs`, entrée
+  `commands::rdp::connect_rdp` retirée de l'`invoke_handler` (`main.rs`),
+  binding `connectRdp` retiré de `api.ts`, bouton et import `IconMonitor`
+  retirés de `HostsPanel.tsx` (l'icône elle-même reste utilisée ailleurs —
+  `hostKinds.ts`/`TabBar.tsx` — pour représenter le type d'hôte RDP en
+  général, pas seulement ce bouton). L'aperçu intégré est désormais l'unique
+  mode de connexion RDP de l'app.
+- **Le glisser-déposer *interne* entre panneaux** (`TransferTab.tsx` :
+  glisser une entrée du panneau de gauche vers le panneau de droite, ou vers
+  la vue RDP) — mécanisme souris manuel (`startManualDrag`/
+  `handleDropEntries`/`manualDragRef`, contournant l'absence de HTML5
+  drag-and-drop natif sous WebView2, voir « Pièges déjà rencontrés » plus
+  bas) source d'un bug réel non trivial à diagnostiquer (bouton du nom de
+  fichier interceptant le `mousedown` avant qu'il puisse armer le drag, voir
+  plus haut) et jugé fragile dans l'ensemble. Supprimé entièrement :
+  `dragPayload`, `handleDropEntries`, `manualDragRef`/`manualDragSide`/
+  `manualDragOverSide`, `startManualDrag`, le `useEffect` de tracking
+  souris global, les props `onEntryMouseDown`/`isDropTarget` de
+  `PaneViewProps`, et le highlight de zone de dépôt associé. **Le
+  glisser-déposer natif OS (Explorateur Windows → panneau ou vue RDP,
+  `webview.onDragDropEvent`) reste intact** — explicitement demandé par
+  l'utilisateur comme le seul mécanisme de dépôt à conserver, en plus du
+  bouton flèche/« Copier » (qui reste aussi, y compris son
+  `copyOrPushToRdp` pour la cible RDP — seul le *glisser* est retiré, pas le
+  clic explicite). Après cette suppression, les deux façons de transférer
+  un fichier vers une session RDP sont : glisser depuis l'Explorateur, ou
+  sélectionner puis cliquer sur la flèche/bouton « Envoyer » dans le
+  panneau de gauche.
+
+**Vérifié** : `npx tsc --noEmit` propre, `cargo clippy --workspace
+--all-targets -- -D warnings` propre sur les deux workspaces (racine +
+`rdp-sidecar`, ce dernier non affecté mais revérifié par précaution),
+`cargo test -p termius-core -p gui-termius` vert (58 + 4 + 3 tests, aucune
+régression — le fichier de tests du lanceur a disparu avec `core/src/rdp.rs`
+lui-même, pas de référence orpheline). `node scripts/e2e-run.mjs` non
+relancé pour ce changement précis (retrait de code, pas de nouvelle
+fonctionnalité UI à valider visuellement) — à faire si un doute survient sur
+le rendu du panneau de fichiers après ce nettoyage.
 
 ## Habitudes de collaboration sur ce projet
 

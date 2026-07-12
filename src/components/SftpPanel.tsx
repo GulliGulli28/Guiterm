@@ -1,18 +1,32 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
-import type { Group, GroupId, Host, Workspace } from "../lib/types";
+import type { DockerContainer, Group, GroupId, Host, Workspace } from "../lib/types";
 import { HostIcon } from "./icons";
+import { hostKindMeta } from "../lib/hostKinds";
+import { ConnectionPickerModal } from "./ConnectionPickerModal";
 import { IconSearch, IconHosts, IconFolder, IconTransfer, IconChevronDown, IconChevronRight } from "./ui-icons";
 
 interface SftpPanelProps {
   workspace: Workspace;
-  onOpenTransfer: (host: Host) => void;
+  onOpenTransfer: (host: Host, containerId?: string) => void;
 }
 
 export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
   const [search, setSearch] = useState("");
   const [collapsed, setCollapsed] = useState<Set<GroupId>>(new Set());
   const [hostStatus, setHostStatus] = useState<Record<string, boolean>>({});
+  // Docker exec repurposes a saved host as a daemon entry point — opening a
+  // transfer tab against one needs a live container picked first, same as
+  // `HostsPanel.tsx`'s `openDockerPicker`.
+  const [dockerPickerHost, setDockerPickerHost] = useState<Host | null>(null);
+  const [dockerContainers, setDockerContainers] = useState<DockerContainer[] | null>(null);
+  const [dockerPickerError, setDockerPickerError] = useState<string | null>(null);
+  const openDockerPicker = (host: Host) => {
+    setDockerPickerHost(host);
+    setDockerContainers(null);
+    setDockerPickerError(null);
+    api.listDockerContainers(host.id).then(setDockerContainers).catch((e) => setDockerPickerError(String(e)));
+  };
 
   const hostIdsKey = workspace.hosts.map((h) => h.id).join(",");
   useEffect(() => {
@@ -31,9 +45,14 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
   }, [hostIdsKey]);
 
   const query = search.trim().toLowerCase();
+  // rdp/k8sExec hosts have no file-listing backend — SFTP-shaped browsing
+  // only applies to ssh/dockerExec (see `TransferTab.tsx`'s source picker,
+  // filtered the same way).
+  const supportsTransfer = (host: Host) => (host.kind ?? "ssh") === "ssh" || (host.kind ?? "ssh") === "dockerExec";
   const matches = (host: Host) =>
-    !query || host.label.toLowerCase().includes(query) || host.address.toLowerCase().includes(query) ||
-    host.username.toLowerCase().includes(query) || host.tags.some((t) => t.toLowerCase().includes(query));
+    supportsTransfer(host) &&
+    (!query || host.label.toLowerCase().includes(query) || host.address.toLowerCase().includes(query) ||
+    host.username.toLowerCase().includes(query) || host.tags.some((t) => t.toLowerCase().includes(query)));
 
   const childGroups = (parentId: GroupId | null) =>
     workspace.groups.filter((g) => g.parentId === parentId).sort((a, b) => a.name.localeCompare(b.name));
@@ -54,7 +73,11 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
       return next;
     });
 
-  const renderHost = (host: Host, depth: number) => (
+  const renderHost = (host: Host, depth: number) => {
+    const kind = host.kind ?? "ssh";
+    const isDocker = kind === "dockerExec";
+    const subtitle = isDocker ? host.address : `${host.username}@${host.address}${host.port !== 22 ? `:${host.port}` : ""}`;
+    return (
     <div
       key={host.id}
       style={{ marginLeft: depth * 14 }}
@@ -62,15 +85,23 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
     >
       <div className="flex items-stretch">
         <button
-          onClick={() => onOpenTransfer(host)}
+          onClick={() => (isDocker ? openDockerPicker(host) : onOpenTransfer(host))}
           className="flex min-w-0 flex-1 items-center gap-2.5 p-3 text-left"
-          title={`Transférer — ${host.username}@${host.address}:${host.port}`}
+          title={isDocker ? hostKindMeta(kind).label : `Transférer — ${subtitle}`}
         >
           <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[var(--c-accent-dim)]">
             {host.icon
               ? <HostIcon iconId={host.icon} customIcons={workspace.customIcons} size={24} />
               : <IconHosts size={18} className="text-[var(--c-accent-text)]" />
             }
+            {isDocker && (
+              <span
+                title={hostKindMeta(kind).label}
+                className="absolute -left-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border-2 border-[var(--c-bg3)] bg-[var(--c-bg2)] text-[var(--c-text-secondary)]"
+              >
+                {(() => { const { Icon } = hostKindMeta(kind); return <Icon size={9} />; })()}
+              </span>
+            )}
             {hostStatus[host.id] !== undefined && (
               <span
                 title={hostStatus[host.id] ? "En ligne" : "Hors ligne"}
@@ -82,9 +113,7 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
           </div>
           <div className="min-w-0 flex-1">
             <div className="truncate text-[14px] font-medium text-[var(--c-text)]">{host.label}</div>
-            <div className="truncate font-mono text-[11px] text-[var(--c-text-muted)]">
-              {host.username}@{host.address}{host.port !== 22 ? `:${host.port}` : ""}
-            </div>
+            <div className="truncate font-mono text-[11px] text-[var(--c-text-muted)]">{subtitle}</div>
           </div>
         </button>
         <div className="flex shrink-0 items-center px-2 text-[var(--c-text-faint)] opacity-0 transition-all focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100">
@@ -102,7 +131,8 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
         </div>
       )}
     </div>
-  );
+    );
+  };
 
   const renderGroup = (group: Group, depth: number) => {
     if (query && !groupHasMatches(group.id)) return null;
@@ -148,13 +178,24 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
           className="w-full rounded-xl border border-white/5 bg-[var(--c-bg3)] pl-8 pr-3 py-2 text-[13px] text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[var(--c-accent)]"
         />
       </div>
-      <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-1 overflow-y-auto">
+      <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-1 overflow-y-auto pb-2 pl-2 pt-2">
         {hostsIn(null).map((h) => renderHost(h, 0))}
         {childGroups(null).map((g) => renderGroup(g, 0))}
         {workspace.hosts.length === 0 && (
           <p className="px-1 py-4 text-center text-[13px] text-[var(--c-text-muted)]">Aucun hôte enregistré</p>
         )}
       </div>
+
+      {dockerPickerHost && (
+        <ConnectionPickerModal
+          title={`Conteneurs Docker — ${dockerPickerHost.label}`}
+          loading={dockerContainers === null && !dockerPickerError}
+          error={dockerPickerError}
+          items={(dockerContainers ?? []).map((c) => ({ id: c.id, name: c.name || c.id.slice(0, 12), meta: `${c.image} · ${c.status}`, up: c.state === "running" }))}
+          onPick={(containerId) => { onOpenTransfer(dockerPickerHost, containerId); setDockerPickerHost(null); }}
+          onClose={() => setDockerPickerHost(null)}
+        />
+      )}
     </div>
   );
 }

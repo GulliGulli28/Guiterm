@@ -4,8 +4,10 @@ use serde::{Deserialize, Serialize};
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use tauri::{AppHandle, Emitter, Manager, State};
+use termius_core::docker;
+use termius_core::docker_pane::DockerPaneClient;
 use termius_core::model::HostId;
-use termius_core::sftp::{Entry, SftpClient};
+use termius_core::sftp::{Entry, RemoteFileClient, SftpClient};
 use termius_core::ssh;
 use termius_core::transfer::{self, PaneRef};
 use uuid::Uuid;
@@ -17,6 +19,20 @@ pub enum PaneSource {
     Remote {
         #[serde(rename = "hostId")]
         host_id: HostId,
+    },
+    /// A Docker exec host's container filesystem — `container_id` picked the
+    /// same way `connect_docker_exec` picks one (see `HostsPanel.tsx`'s
+    /// `openDockerPicker`/`ConnectionPickerModal`), just for a pane instead
+    /// of a shell. Both fields need an explicit `rename`: `rename_all` on an
+    /// internally-tagged enum only renames the variant names (the `"kind"`
+    /// values), not struct-variant field names — see `rdp_ipc::ClientMessage`
+    /// in CLAUDE.md for the same gotcha hit before, apparently not
+    /// remembered hard enough to avoid repeating it here.
+    Docker {
+        #[serde(rename = "hostId")]
+        host_id: HostId,
+        #[serde(rename = "containerId")]
+        container_id: String,
     },
 }
 
@@ -76,6 +92,30 @@ pub async fn open_pane(
                 entries,
             })
         }
+        PaneSource::Docker { host_id, container_id } => {
+            let workspace = state.workspace.lock_recover().clone();
+            let host = workspace.host(host_id).cloned().ok_or_else(|| "hôte inconnu".to_string())?;
+            let docker = docker::connect_for_host(&workspace, &host).await.map_err(|e| e.to_string())?;
+            let client: Arc<dyn RemoteFileClient> = Arc::new(DockerPaneClient::new(docker, container_id));
+            // No SFTP-equivalent "home directory" query for an arbitrary
+            // container — `/` is always a valid starting point, unlike
+            // guessing at a user's home which may not even exist in a
+            // minimal image.
+            let cwd = "/".to_string();
+            let entries = client.list(&cwd).await.map_err(|e| e.to_string())?;
+            state.panes.lock_recover().insert(
+                pane_id.clone(),
+                Pane {
+                    connection: None,
+                    client: Some(client),
+                },
+            );
+            Ok(PaneOpened {
+                pane_id,
+                cwd,
+                entries,
+            })
+        }
     }
 }
 
@@ -91,7 +131,7 @@ pub struct PaneListed {
     pub entries: Vec<Entry>,
 }
 
-fn pane_ref(state: &AppState, pane_id: &str) -> Result<PaneRef, String> {
+pub(crate) fn pane_ref(state: &AppState, pane_id: &str) -> Result<PaneRef, String> {
     let panes = state.panes.lock_recover();
     let pane = panes
         .get(pane_id)
@@ -348,18 +388,17 @@ async fn upload_one(
             let remote_path = termius_core::sftp::join(dest_cwd, &name);
             let transfer_id = transfer_id.to_string();
             let app = app.clone();
-            client
-                .upload(local, &remote_path, cancel, move |done, total| {
-                    let _ = app.emit(
-                        "transfer-progress",
-                        TransferProgressEvent {
-                            transfer_id: transfer_id.clone(),
-                            bytes_done: done,
-                            bytes_total: total,
-                        },
-                    );
-                })
-                .await
+            let mut on_progress = move |done, total| {
+                let _ = app.emit(
+                    "transfer-progress",
+                    TransferProgressEvent {
+                        transfer_id: transfer_id.clone(),
+                        bytes_done: done,
+                        bytes_total: total,
+                    },
+                );
+            };
+            client.upload(local, &remote_path, cancel, &mut on_progress).await
         }
     }
 }
@@ -374,4 +413,25 @@ pub fn cancel_transfer(state: State<'_, AppState>, transfer_id: String) -> Resul
         flag.store(true, Ordering::Relaxed);
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Regression test for a real bug: `rename_all = "camelCase"` on an
+    /// internally-tagged enum only renames variant names, not struct-variant
+    /// field names — `container_id` needs its own explicit `#[serde(rename =
+    /// "containerId")]` or the frontend's camelCase JSON fails to
+    /// deserialize with `missing field container_id`, exactly what happened
+    /// the first time this shipped (before this field had the rename).
+    #[test]
+    fn pane_source_docker_accepts_camel_case_field_names() {
+        let json = r#"{"kind":"docker","hostId":"11111111-1111-1111-1111-111111111111","containerId":"abc123"}"#;
+        let source: PaneSource = serde_json::from_str(json).expect("camelCase containerId must deserialize");
+        match source {
+            PaneSource::Docker { container_id, .. } => assert_eq!(container_id, "abc123"),
+            _ => panic!("expected PaneSource::Docker"),
+        }
+    }
 }

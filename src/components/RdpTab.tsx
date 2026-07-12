@@ -1,15 +1,21 @@
-import { useEffect, useRef, useState } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { UnlistenFn } from "@tauri-apps/api/event";
-import { api, base64ToBytes, onRdpViewClosed, onRdpViewError, onRdpViewFrame } from "../lib/api";
+import { api, onRdpViewClosed, onRdpViewError } from "../lib/api";
 import type { Host } from "../lib/types";
 import type { AppPreferences } from "../lib/preferences";
 import { shouldBubbleToShortcut } from "../lib/shortcuts";
+import type { TerminalTabHandle } from "./TerminalTab";
 
 interface RdpTabProps {
   host: Host;
   isActive: boolean;
   preferences?: AppPreferences;
   onDisconnect?: () => void;
+  /** Called with the session id once connected, and again with `null` on
+   * disconnect/cleanup — lets `TransferTab.tsx` target this exact session
+   * for `api.pushRdpViewClipboardEntries` without needing its own copy of
+   * the imperative-handle plumbing. */
+  onSessionId?: (id: string | null) => void;
 }
 
 /** Maps a DOM mouse position to RDP-space pixel coordinates, accounting for
@@ -27,11 +33,17 @@ function toRdpCoords(clientX: number, clientY: number, canvas: HTMLCanvasElement
  * Embedded RDP session (Phase 2 — see CLAUDE.md's "Pourquoi un processus RDP
  * séparé" section): live view, mouse/keyboard forwarding, and dynamic
  * resize (session resolution follows this tab's container, both at connect
- * time and on every later resize). Not a substitute for `connectRdp` (the
- * system client launcher, still the primary action for RDP hosts) — no
- * clipboard/audio/drive redirection.
+ * time and on every later resize). The primary way to open an RDP host —
+ * the system client launcher (`mstsc`/`xfreerdp`) has been removed; this is
+ * the only RDP connection mode left.
+ *
+ * Exposes a `TerminalTabHandle`-shaped ref (same as `TerminalTab`/
+ * `LocalTerminalTab`) so `App.tsx` can register it in `terminalRefs` and
+ * make it a valid snippet/broadcast target — there's no shell/PTY here, so
+ * `runCommand`/`writeRaw` type the text into the remote desktop instead of
+ * writing to a byte stream (see their doc comments below).
  */
-export function RdpTab({ host, isActive, preferences, onDisconnect }: RdpTabProps) {
+export const RdpTab = forwardRef<TerminalTabHandle, RdpTabProps>(function RdpTab({ host, isActive, preferences, onDisconnect, onSessionId }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const sessionIdRef = useRef<string | null>(null);
@@ -47,9 +59,39 @@ export function RdpTab({ host, isActive, preferences, onDisconnect }: RdpTabProp
   const sendInputRef = useRef(sendInput);
   sendInputRef.current = sendInput;
 
+  useImperativeHandle(
+    ref,
+    () => ({
+      // `+ "\n"` mirrors SSH/Docker's `command + "\r"` convention (see
+      // `TerminalTab.tsx`) — sent as a real Enter keypress by the sidecar,
+      // not a literal character (see `rdp_ipc::ClientMessage::TypeText`).
+      // Deliberately never wrapped in the `echo '<b64>' | base64 -d | bash`
+      // trick `runOnTerminalHandle` (`App.tsx`) uses for multi-line SSH/
+      // Docker snippets: there's no guarantee a shell — let alone bash — is
+      // even what has focus on the remote desktop, so a multi-line snippet
+      // is instead typed line by line, each ending in a real Enter (`\n`
+      // embedded in the snippet becomes one, same as the trailing one).
+      runCommand: (command: string) => sendInputRef.current({ type: "typeText", text: `${command}\n` }),
+      // Used by the live "synced typing" broadcast mode to mirror another
+      // terminal's keystrokes here in real time — faithful for regular
+      // printable characters, but a source terminal's raw `onData` can also
+      // contain ANSI escape sequences for special keys (arrows, function
+      // keys, ...), which have no meaning as typed Unicode text and would
+      // just get typed literally. Known, accepted limitation: not worth
+      // building an ANSI-sequence parser for this secondary mode.
+      writeRaw: (data: string) => sendInputRef.current({ type: "typeText", text: data }),
+      // No text scrollback here — this is a picture, not a terminal.
+      getScrollbackText: () => "",
+      dispose: () => {
+        const id = sessionIdRef.current;
+        if (id) api.closeRdpView(id).catch(() => {});
+      },
+    }),
+    [],
+  );
+
   useEffect(() => {
     let disposed = false;
-    let unlistenFrame: UnlistenFn | null = null;
     let unlistenError: UnlistenFn | null = null;
     let unlistenClosed: UnlistenFn | null = null;
 
@@ -62,25 +104,30 @@ export function RdpTab({ host, isActive, preferences, onDisconnect }: RdpTabProp
         const rect = containerRef.current?.getBoundingClientRect();
         const width = Math.max(1, Math.round(rect?.width ?? 1280));
         const height = Math.max(1, Math.round(rect?.height ?? 800));
-        const id = await api.connectRdpView(host.id, width, height);
+        const id = await api.connectRdpView(host.id, width, height, (frame) => {
+          const canvas = canvasRef.current;
+          if (!canvas) return;
+          // Only touch canvas.width/height (which clears the whole canvas)
+          // when the desktop itself actually resized — every other message
+          // is just a same-size partial paint (usually far smaller than the
+          // full frame; see rdp_ipc::SidecarMessage::Image's doc comment),
+          // and resizing here would wipe out everything painted outside
+          // this particular rectangle.
+          if (canvas.width !== frame.canvasWidth) canvas.width = frame.canvasWidth;
+          if (canvas.height !== frame.canvasHeight) canvas.height = frame.canvasHeight;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return;
+          const rgba = new Uint8ClampedArray(frame.pixels.buffer, frame.pixels.byteOffset, frame.pixels.byteLength);
+          ctx.putImageData(new ImageData(rgba, frame.width, frame.height), frame.x, frame.y);
+        });
         if (disposed) {
           api.closeRdpView(id).catch(() => {});
           return;
         }
         sessionIdRef.current = id;
         setStatus("open");
+        onSessionId?.(id);
 
-        unlistenFrame = await onRdpViewFrame((eventId, width, height, pixels) => {
-          if (eventId !== id) return;
-          const canvas = canvasRef.current;
-          if (!canvas) return;
-          if (canvas.width !== width) canvas.width = width;
-          if (canvas.height !== height) canvas.height = height;
-          const ctx = canvas.getContext("2d");
-          if (!ctx) return;
-          const rgba = new Uint8ClampedArray(base64ToBytes(pixels));
-          ctx.putImageData(new ImageData(rgba, width, height), 0, 0);
-        });
         unlistenError = await onRdpViewError((eventId, message) => {
           if (eventId !== id) return;
           setStatus("failed");
@@ -89,6 +136,7 @@ export function RdpTab({ host, isActive, preferences, onDisconnect }: RdpTabProp
         unlistenClosed = await onRdpViewClosed((eventId) => {
           if (eventId !== id) return;
           sessionIdRef.current = null;
+          onSessionId?.(null);
           setStatus((prev) => (prev === "failed" ? prev : "closed"));
         });
       } catch (e) {
@@ -102,11 +150,14 @@ export function RdpTab({ host, isActive, preferences, onDisconnect }: RdpTabProp
 
     return () => {
       disposed = true;
-      unlistenFrame?.();
       unlistenError?.();
       unlistenClosed?.();
-      if (sessionIdRef.current) api.closeRdpView(sessionIdRef.current).catch(() => {});
+      if (sessionIdRef.current) {
+        api.closeRdpView(sessionIdRef.current).catch(() => {});
+        onSessionId?.(null);
+      }
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [host.id]);
 
   // Focus the canvas whenever this tab becomes the active/visible one, so
@@ -259,4 +310,4 @@ export function RdpTab({ host, isActive, preferences, onDisconnect }: RdpTabProp
       />
     </div>
   );
-}
+});

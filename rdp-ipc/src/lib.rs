@@ -88,6 +88,60 @@ pub enum ClientMessage {
     /// Virtual Channel; if it doesn't, the sidecar just ignores this and the
     /// session stays at its current resolution rather than reconnecting.
     Resize { width: u16, height: u16 },
+    /// Types `text` into the remote session as a sequence of Unicode keyboard
+    /// events (`ironrdp_input::Operation::UnicodeKeyPressed`/`Released` — a
+    /// real IME-style text-input PDU, distinct from the scancode-based `Key`
+    /// variant above, which only covers physical keys and can't express
+    /// arbitrary Unicode). Used to run snippets/broadcast commands on a
+    /// session that has no shell/PTY of its own, just a remote desktop —
+    /// see `commands/rdp_view.rs`'s doc comment on why this exists at all.
+    /// Every `\n`/`\r` in `text` is sent as a real Enter *keypress*
+    /// (scancode-based) rather than typed as a literal character, so a
+    /// caller wanting to "submit" a line the way SSH's `command + "\r"`
+    /// convention does can just include a trailing `\n` — see
+    /// `rdp-sidecar/src/main.rs`'s `operations_for`.
+    TypeText { text: String },
+    /// Makes local files/folders available on the remote session's CLIPRDR
+    /// clipboard, then has the sidecar simulate a Ctrl+V right after (see
+    /// `paste_key_sequence` in `rdp-sidecar/src/main.rs`) so it pastes
+    /// automatically — pushed once, on demand, from the app's own file
+    /// browser (drag onto the RDP view),
+    /// **not** a passive mirror of the local OS clipboard the way text sync
+    /// is (see CLAUDE.md's "RDP intégré" section: text sync reacts to real
+    /// `WM_CLIPBOARDUPDATE` events, this is triggered directly by the app).
+    /// `files` is the full flat list already recursively walked — a
+    /// directory contributes its own entry (`is_dir: true`, no content ever
+    /// requested for it) plus one entry per descendant file/subdirectory,
+    /// `relative_path` chaining to describe nesting. See
+    /// `rdp-sidecar/src/clipboard.rs`'s `FileTable` for how the sidecar
+    /// answers the remote's later byte-range requests using `local_path`.
+    PushClipboardFiles { files: Vec<PushedFile> },
+}
+
+/// One entry in a [`ClientMessage::PushClipboardFiles`] batch — either a
+/// directory marker (`is_dir: true`, `local_path` unused/empty: a directory
+/// has no bytes to serve, only its presence in the list matters so the
+/// receiving side recreates the folder structure) or a real file backed by
+/// `local_path` on the machine running the sidecar. `local_path` for a
+/// non-local source (SFTP/Docker) is a temp copy downloaded *before* this
+/// message is sent — `on_file_contents_request` is a synchronous callback
+/// deep inside the CLIPRDR protocol engine with no way to `.await` a remote
+/// fetch, so the byte source has to already be a real local file by the time
+/// the remote asks for it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PushedFile {
+    pub local_path: String,
+    /// Basename, as it should appear on the remote clipboard.
+    pub name: String,
+    /// Parent path within the dragged collection, `\`-separated (matching
+    /// `CLIPRDR_FILEDESCRIPTOR`'s wire convention — see
+    /// `ironrdp_cliprdr::pdu::FileDescriptor::relative_path`'s doc comment).
+    /// `None` for a root-level entry (dragged directly, not nested inside
+    /// another dragged directory).
+    pub relative_path: Option<String>,
+    pub is_dir: bool,
+    pub size: u64,
 }
 
 impl ClientMessage {
@@ -103,11 +157,36 @@ impl ClientMessage {
 /// Framed messages the sidecar streams on stdout once connected.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum SidecarMessage {
-    /// One full framebuffer: RGBA8 pixels, row-major, `4 * width * height`
-    /// bytes. The reference decode loop this is ported from re-sends the
-    /// whole buffer on every update rather than just the dirty region —
-    /// simple and correct, revisit if bandwidth turns out to matter.
-    Image { width: u16, height: u16, pixels: Vec<u8> },
+    /// A rectangle of RGBA8 pixels, row-major, `4 * width * height` bytes,
+    /// to be painted at (`x`, `y`) on a canvas whose *current full* size is
+    /// (`canvas_width`, `canvas_height`) — usually just the dirty region a
+    /// single `GraphicsUpdate` touched (a blinking cursor, one changed line
+    /// of text, ...), not the whole framebuffer: re-sending everything on
+    /// every update was the original, simpler approach, but made typing or
+    /// scrolling in the remote session visibly heavy even on a fast link,
+    /// since a single 1280x800 update alone is ~4 MB of raw pixels before
+    /// base64. `canvas_width`/`canvas_height` repeat the same unchanged
+    /// value on most messages (only the dirty rectangle actually shrinks) —
+    /// cheap (4 bytes) and lets the frontend tell "the desktop itself
+    /// resized, resize my `<canvas>`" apart from "same-size partial paint,
+    /// don't touch canvas dimensions or `putImageData` would clear
+    /// everything painted so far outside this rectangle". `x == y == 0 &&
+    /// width == canvas_width && height == canvas_height` for a full frame
+    /// (sent right after connecting and after every resize's Deactivation-
+    /// Reactivation Sequence, to guarantee a fully painted canvas rather
+    /// than trusting whatever the next natural `GraphicsUpdate` happens to
+    /// cover — see `rdp-sidecar/src/main.rs`), but the frontend never needs
+    /// to special-case that: `putImageData(imageData, x, y)` handles both
+    /// shapes identically.
+    Image {
+        canvas_width: u16,
+        canvas_height: u16,
+        x: u16,
+        y: u16,
+        width: u16,
+        height: u16,
+        pixels: Vec<u8>,
+    },
     Error(String),
     Closed,
 }
@@ -119,9 +198,13 @@ const TAG_CLOSED: u8 = 3;
 impl SidecarMessage {
     pub async fn write_to(&self, mut w: impl AsyncWrite + Unpin) -> io::Result<()> {
         match self {
-            SidecarMessage::Image { width, height, pixels } => {
-                let mut header = Vec::with_capacity(9);
+            SidecarMessage::Image { canvas_width, canvas_height, x, y, width, height, pixels } => {
+                let mut header = Vec::with_capacity(17);
                 header.push(TAG_IMAGE);
+                header.extend_from_slice(&canvas_width.to_be_bytes());
+                header.extend_from_slice(&canvas_height.to_be_bytes());
+                header.extend_from_slice(&x.to_be_bytes());
+                header.extend_from_slice(&y.to_be_bytes());
                 header.extend_from_slice(&width.to_be_bytes());
                 header.extend_from_slice(&height.to_be_bytes());
                 header.extend_from_slice(&u32::try_from(pixels.len()).unwrap_or(u32::MAX).to_be_bytes());
@@ -152,16 +235,20 @@ impl SidecarMessage {
         }
         match tag[0] {
             TAG_IMAGE => {
-                let mut dims = [0u8; 4];
+                let mut dims = [0u8; 12];
                 r.read_exact(&mut dims).await?;
-                let width = u16::from_be_bytes([dims[0], dims[1]]);
-                let height = u16::from_be_bytes([dims[2], dims[3]]);
+                let canvas_width = u16::from_be_bytes([dims[0], dims[1]]);
+                let canvas_height = u16::from_be_bytes([dims[2], dims[3]]);
+                let x = u16::from_be_bytes([dims[4], dims[5]]);
+                let y = u16::from_be_bytes([dims[6], dims[7]]);
+                let width = u16::from_be_bytes([dims[8], dims[9]]);
+                let height = u16::from_be_bytes([dims[10], dims[11]]);
                 let mut len_buf = [0u8; 4];
                 r.read_exact(&mut len_buf).await?;
                 let len = u32::from_be_bytes(len_buf) as usize;
                 let mut pixels = vec![0u8; len];
                 r.read_exact(&mut pixels).await?;
-                Ok(Some(SidecarMessage::Image { width, height, pixels }))
+                Ok(Some(SidecarMessage::Image { canvas_width, canvas_height, x, y, width, height, pixels }))
             }
             TAG_ERROR => {
                 let mut len_buf = [0u8; 4];
@@ -220,6 +307,19 @@ mod tests {
             ClientMessage::Key { code: "KeyA".to_string(), pressed: true },
             ClientMessage::ReleaseAll,
             ClientMessage::Resize { width: 1600, height: 1000 },
+            ClientMessage::TypeText { text: "echo café ☕\n".to_string() },
+            ClientMessage::PushClipboardFiles {
+                files: vec![
+                    PushedFile { local_path: String::new(), name: "sub".to_string(), relative_path: None, is_dir: true, size: 0 },
+                    PushedFile {
+                        local_path: "/tmp/gui-termius-abc/nested.txt".to_string(),
+                        name: "nested.txt".to_string(),
+                        relative_path: Some("sub".to_string()),
+                        is_dir: false,
+                        size: 42,
+                    },
+                ],
+            },
         ];
         for msg in &messages {
             msg.write_to(&mut client).await.unwrap();
@@ -249,7 +349,11 @@ mod tests {
     #[tokio::test]
     async fn image_message_roundtrips_through_a_pipe() {
         let (client, server) = tokio::io::duplex(65536);
-        let msg = SidecarMessage::Image { width: 4, height: 2, pixels: (0..32).collect() };
+        // A partial update, deliberately not shaped like a full frame
+        // (canvas bigger than the region, non-zero offset), so the
+        // roundtrip actually exercises `x`/`y` rather than always leaving
+        // them at their zero default.
+        let msg = SidecarMessage::Image { canvas_width: 100, canvas_height: 80, x: 10, y: 20, width: 4, height: 2, pixels: (0..32).collect() };
         msg.write_to(client).await.unwrap();
         let decoded = SidecarMessage::read_from(server).await.unwrap().expect("a message was sent");
         assert_eq!(decoded, msg);
@@ -276,7 +380,7 @@ mod tests {
     async fn multiple_messages_are_framed_independently_on_the_same_stream() {
         let (client, mut server) = tokio::io::duplex(65536);
         let mut client = client;
-        let a = SidecarMessage::Image { width: 2, height: 1, pixels: vec![1, 2, 3, 4, 5, 6, 7, 8] };
+        let a = SidecarMessage::Image { canvas_width: 2, canvas_height: 1, x: 0, y: 0, width: 2, height: 1, pixels: vec![1, 2, 3, 4, 5, 6, 7, 8] };
         let b = SidecarMessage::Error("timeout".to_string());
         a.write_to(&mut client).await.unwrap();
         b.write_to(&mut client).await.unwrap();

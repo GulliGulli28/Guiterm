@@ -25,6 +25,9 @@ async-trait = "0.1"
 getrandom = { version = "0.4.3", features = ["sys_rng"] }
 bollard = "0.21"
 futures-util = "0.3"
+# `docker_pane`: builds/reads the single-entry tar archives the Docker Engine
+# API's container-archive endpoints (`GET/PUT /containers/{id}/archive`) speak.
+tar = "0.4"
 # `docker::connect_via_ssh`: speaks the Docker Engine API over a `russh` exec
 # channel (`docker system dial-stdio`) instead of a socket/TCP connection —
 # same major version bollard itself resolves (`hyper = "1.3"`, `hyper-util =
@@ -43,3 +46,8 @@ base64 = "0.22"
 
 [dev-dependencies]
 tempfile = "3"
+# examples/docker_ssh_debug.rs only.
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+[[example]]
+name = "docker_ssh_debug"

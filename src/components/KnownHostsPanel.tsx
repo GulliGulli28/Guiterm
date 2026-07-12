@@ -76,7 +76,7 @@ export function KnownHostsPanel({ onWorkspaceUpdate, onError }: KnownHostsPanelP
         </button>
       </div>
 
-      <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-1 overflow-y-auto">
+      <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-1 overflow-y-auto pb-2 pl-2 pt-2">
         {loading && <p className="px-1 py-4 text-center text-[13px] text-[var(--c-text-muted)]">Chargement…</p>}
         {!loading && entries.length === 0 && (
           <p className="px-1 py-4 text-center text-[13px] text-[var(--c-text-muted)]">Aucune clé d'hôte de confiance pour l'instant</p>

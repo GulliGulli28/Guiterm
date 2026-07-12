@@ -9,7 +9,7 @@ import {
   IconHosts, IconSearch, IconPlus, IconKeyboard, IconFlash,
   IconFolder, IconChevronDown, IconChevronRight,
   IconDotsVertical, IconEdit,
-  IconUpload, IconDownload, IconMonitor,
+  IconUpload, IconDownload, IconTransfer,
 } from "./ui-icons";
 
 // Example-only pods for the Kubernetes picker — k8sExec has no backend yet,
@@ -26,6 +26,7 @@ interface HostsPanelProps {
   onConnect: (host: Host) => void;
   onConnectDocker: (host: Host, containerId: string) => void;
   onConnectRdpView: (host: Host) => void;
+  onOpenTransfer: (host: Host) => void;
   onOpenLocalTerminal: (shell?: string) => void;
   onNewHost: () => void;
   onEditHost: (host: Host) => void;
@@ -100,7 +101,7 @@ function LocalTerminalButton({ onOpen }: { onOpen: (shell?: string) => void }) {
 }
 
 export function HostsPanel({
-  workspace, activeHostId, onConnect, onConnectDocker, onConnectRdpView, onOpenLocalTerminal,
+  workspace, activeHostId, onConnect, onConnectDocker, onConnectRdpView, onOpenTransfer, onOpenLocalTerminal,
   onNewHost, onEditHost, onNewGroup, onNewHostInGroup, onNewGroupUnder,
   onEditGroup, onQuickSSH, onWorkspaceUpdate, onError,
 }: HostsPanelProps) {
@@ -169,7 +170,10 @@ export function HostsPanel({
     if (kind === "ssh") { onConnect(host); return; }
     if (kind === "dockerExec") { openDockerPicker(host); return; }
     if (kind === "k8sExec") { setK8sPickerHost(host); return; }
-    api.connectRdp(host.id).catch((e) => onError?.(String(e)));
+    // rdp: the embedded preview is the default click, same as any other
+    // host kind — the system client launcher (mstsc.exe/xfreerdp, fully
+    // interactive but not view-only) moved to the "…" menu, see below.
+    onConnectRdpView(host);
   };
 
   const quickSSH = parseSSHInput(search);
@@ -269,7 +273,7 @@ export function HostsPanel({
           <button
             onClick={() => handleConnect(host)}
             className="flex min-w-0 flex-1 items-center gap-2.5 p-3 text-left"
-            title={kind === "ssh" ? `Connecter — ${subtitle}` : kindLabel}
+            title={kind === "ssh" ? `Connecter — ${subtitle}` : kind === "rdp" ? `Aperçu intégré — ${subtitle}` : kindLabel}
           >
             <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[var(--c-accent-dim)]">
               {host.icon
@@ -347,11 +351,11 @@ export function HostsPanel({
             </button>
             {kind === "rdp" && (
               <button
-                onClick={() => { onConnectRdpView(host); setOpenMenuHostId(null); }}
-                title="Aperçu intégré, lecture seule pour l'instant — le clic principal reste le client système, pleinement interactif"
+                onClick={() => { onOpenTransfer(host); setOpenMenuHostId(null); }}
+                title="Ouvre l'aperçu intégré avec un panneau de fichiers à gauche — glisser un fichier/dossier dessus l'envoie et le colle automatiquement dans la session distante"
                 className="flex flex-1 basis-[80px] items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
               >
-                <IconMonitor size={12} /> Aperçu intégré
+                <IconTransfer size={12} /> Transférer des fichiers
               </button>
             )}
           </div>
@@ -472,7 +476,7 @@ export function HostsPanel({
       </div>
 
       {/* Host list */}
-      <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-1 overflow-y-auto">
+      <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-1 overflow-y-auto pb-2 pl-2 pt-2">
         {quickSSH && (
           <button
             onClick={handleQuickConnect}

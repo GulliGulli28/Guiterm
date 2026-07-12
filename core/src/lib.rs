@@ -1,6 +1,7 @@
 pub mod command_history;
 pub mod crypto;
 pub mod docker;
+pub mod docker_pane;
 pub mod export;
 pub mod keygen;
 pub mod known_hosts;
@@ -8,7 +9,6 @@ pub mod master_vault;
 pub mod local_fs;
 pub mod model;
 pub mod port_forward;
-pub mod rdp;
 pub mod secure_file;
 pub mod sftp;
 pub mod ssh;

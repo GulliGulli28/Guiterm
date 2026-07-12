@@ -59,7 +59,16 @@ body,
 /* Sidebar scroll containers:
    - scrollbar-gutter: stable → space for scrollbar is always reserved (no layout shift)
    - padding-right → visual gap between card right border and the scrollbar track
-   Native scrollbars (no webkit override) respect both properties correctly. */
+   Native scrollbars (no webkit override) respect both properties correctly.
+   Consumers that render box-shadow-highlighted cards (`.glow-ring` et al.)
+   flush against this container's own edges (a depth-0 item, or the very
+   first item in the scroll area) additionally need `pl-2 pt-2 pb-2` (or
+   similar) on their own element — `overflow-y-auto` computes `overflow-x`
+   to `auto` too per the CSS overflow spec, so a shadow bleeding past this
+   container's edge gets hard-clipped there, not just vertically. Not baked
+   into this shared class itself: several consumers (`CommandPalette.tsx`,
+   `SnippetPicker.tsx`, `NotificationBell.tsx`) are flush flat-row popovers
+   that don't want the extra inset. */
 .sidebar-scroll {
   scrollbar-gutter: stable;
   scrollbar-color: #334155 transparent;

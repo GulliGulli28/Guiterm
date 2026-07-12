@@ -77,7 +77,30 @@ export type RdpClientMessage =
   | { type: "mouseWheel"; x: number; y: number; deltaY: number }
   | { type: "key"; code: string; pressed: boolean }
   | { type: "releaseAll" }
-  | { type: "resize"; width: number; height: number };
+  | { type: "resize"; width: number; height: number }
+  /** Types `text` into the remote session as Unicode keyboard events — no
+   * shell/PTY on an RDP session, so this is how snippets/broadcast commands
+   * run there (see `RdpTab.tsx`'s imperative handle). `\n`/`\r` become a
+   * real Enter keypress rather than literal characters. */
+  | { type: "typeText"; text: string };
+
+/** One embedded-RDP framebuffer update, delivered over a dedicated
+ * `tauri::ipc::Channel` (see `connect_rdp_view` in `commands/rdp_view.rs`)
+ * as raw bytes rather than a JSON event — `pixels` is a zero-copy view into
+ * the received `ArrayBuffer`, parsed by `parseRdpFrame` in `lib/api.ts`.
+ * `canvasWidth`/`canvasHeight`: the session's current full desktop size
+ * (repeats on most frames — the `<canvas>` should only be resized when it
+ * actually changes). `x`/`y`/`width`/`height`/`pixels`: the rectangle to
+ * paint, usually just the dirty region a single update touched. */
+export interface RdpFrame {
+  canvasWidth: number;
+  canvasHeight: number;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  pixels: Uint8Array<ArrayBuffer>;
+}
 
 export interface Snippet {
   id: SnippetId;
@@ -160,7 +183,16 @@ export interface TransferProgressEvent {
   bytesTotal: number;
 }
 
-export type PaneSource = { kind: "local" } | { kind: "remote"; hostId: HostId };
+export type PaneSource =
+  | { kind: "local" }
+  | { kind: "remote"; hostId: HostId }
+  /** A Docker exec host's container filesystem — no SFTP subsystem exists
+   * for `docker exec`, so this drives `core::docker_pane::DockerPaneClient`
+   * (shell-based listing/mkdir/rename/remove/chmod, container-archive tar
+   * endpoints for read/write/upload/download) instead of a real SFTP
+   * session. `containerId` picked the same way `connectDockerExec` picks
+   * one — see `TransferTab.tsx`'s Docker container picker. */
+  | { kind: "docker"; hostId: HostId; containerId: string };
 
 export interface PaneOpened {
   paneId: string;

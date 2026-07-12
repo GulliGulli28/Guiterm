@@ -6,7 +6,6 @@ pub mod forward;
 pub mod hosts;
 pub mod keys;
 pub mod known_hosts;
-pub mod rdp;
 pub mod rdp_view;
 pub mod sftp;
 pub mod terminal;

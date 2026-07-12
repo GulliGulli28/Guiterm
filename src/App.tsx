@@ -27,8 +27,12 @@ import { loadTabs, saveTabs } from "./lib/tabPersistence";
 let nextTabId = 0;
 const SPLIT_PANE_ID = "split-pane";
 
-function runOnTerminalHandle(handle: TerminalTabHandle, command: string) {
-  if (command.includes("\n")) {
+// `shellCapable`: false for an RDP target (see `RdpTab.tsx`'s handle) — it
+// has no shell/PTY to pipe a base64-decoded script into, so a multi-line
+// command is instead typed as-is (its own `runCommand` turns each embedded
+// `\n` into a real Enter keypress line by line, unrelated to this wrapping).
+function runOnTerminalHandle(handle: TerminalTabHandle, command: string, shellCapable: boolean) {
+  if (shellCapable && command.includes("\n")) {
     // Encode script as base64 and decode+execute in one line so the terminal
     // only shows a compact command, not the full script content.
     const b64 = bytesToBase64(new TextEncoder().encode(command));
@@ -348,10 +352,10 @@ export default function App() {
     let ran = false;
     for (const id of ids) {
       const handle = terminalRefs.current.get(id);
-      if (handle) { runOnTerminalHandle(handle, command); ran = true; }
+      if (handle) { runOnTerminalHandle(handle, command, tabs.find((t) => t.id === id)?.kind !== "rdp-view"); ran = true; }
     }
     if (!ran) reportError("Aucun terminal ouvert pour exécuter ce snippet");
-  }, [activeTabId, reportError]);
+  }, [activeTabId, reportError, tabs]);
 
   const exportActiveScrollback = useCallback(async () => {
     if (!activeTabId) { reportError("Aucun terminal actif à exporter"); return; }
@@ -375,7 +379,7 @@ export default function App() {
   // it has to be added to the broadcast/snippet target list by hand.
   const broadcastTargets: { id: string; label: string }[] = [
     ...tabs
-      .filter((t) => (t.kind === "terminal" || t.kind === "local-terminal") && t.status !== "placeholder")
+      .filter((t) => (t.kind === "terminal" || t.kind === "local-terminal" || t.kind === "rdp-view") && t.status !== "placeholder")
       .map((t) => ({ id: t.id, label: t.label })),
     ...(splitOpen ? [{ id: SPLIT_PANE_ID, label: splitPaneLabel }] : []),
   ];
@@ -425,9 +429,9 @@ export default function App() {
   const broadcastCommand = useCallback((command: string) => {
     for (const id of broadcastSelected) {
       const handle = terminalRefs.current.get(id);
-      if (handle) runOnTerminalHandle(handle, command);
+      if (handle) runOnTerminalHandle(handle, command, tabs.find((t) => t.id === id)?.kind !== "rdp-view");
     }
-  }, [broadcastSelected]);
+  }, [broadcastSelected, tabs]);
 
   // Live mode: keystrokes typed into whichever terminal has focus are mirrored, as
   // raw input, to every other selected terminal — unlike broadcastCommand above,
@@ -606,7 +610,7 @@ export default function App() {
             onConnect={(host) => openTab("terminal", host)}
             onConnectDocker={(host, containerId) => openTab("terminal", host, containerId)}
             onConnectRdpView={(host) => openTab("rdp-view", host)}
-            onOpenTransfer={(host) => openTab("transfer", host)}
+            onOpenTransfer={(host, containerId) => openTab("transfer", host, containerId)}
             onOpenLocalTerminal={(shell) => openLocalTerminal(undefined, shell)}
             onQuickSSH={(cmd) => openLocalTerminal(cmd)}
             onNewHost={() => { setEditingHost("new"); setNewHostDefaultGroupId(null); setEditingGroup(null); }}
@@ -719,9 +723,25 @@ export default function App() {
                           }}
                         />
                       ) : tab.kind === "rdp-view" ? (
-                        <RdpTab host={host} isActive={isActive} preferences={preferences} onDisconnect={() => closeTab(tab.id)} />
+                        <RdpTab
+                          host={host}
+                          isActive={isActive}
+                          preferences={preferences}
+                          onDisconnect={() => closeTab(tab.id)}
+                          ref={(handle) => {
+                            if (handle) terminalRefs.current.set(tab.id, handle);
+                            else terminalRefs.current.delete(tab.id);
+                          }}
+                        />
                       ) : (
-                        <TransferTab host={host} workspace={workspace} preferences={preferences} onError={reportError} />
+                        <TransferTab
+                          host={host}
+                          workspace={workspace}
+                          preferences={preferences}
+                          onError={reportError}
+                          onPushed={(message) => pushNotification("success", message)}
+                          dockerContainerId={tab.kind === "transfer" ? tab.dockerContainerId : undefined}
+                        />
                       )}
                     </div>
                   );

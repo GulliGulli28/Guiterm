@@ -5,6 +5,90 @@ use russh_sftp::client::fs::Metadata;
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicBool, Ordering};
 
+/// One side of a [`crate::transfer::PaneRef::Remote`] pane — despite living in
+/// this file, deliberately not SFTP-specific: [`crate::docker_pane::DockerPaneClient`]
+/// implements it too (shelling out inside the container for the metadata
+/// operations, the Engine API's archive endpoints for file content), so
+/// `transfer.rs`'s local/remote dispatch logic works unmodified for either
+/// backend. Lives here rather than in `transfer.rs` because [`Entry`], the
+/// shared return type, already does.
+#[async_trait::async_trait]
+pub trait RemoteFileClient: Send + Sync {
+    async fn list(&self, path: &str) -> anyhow::Result<Vec<Entry>>;
+    async fn make_dir(&self, path: &str) -> anyhow::Result<()>;
+    async fn remove_file(&self, path: &str) -> anyhow::Result<()>;
+    async fn remove_dir(&self, path: &str) -> anyhow::Result<()>;
+    async fn rename(&self, from: &str, to: &str) -> anyhow::Result<()>;
+    async fn set_permissions(&self, path: &str, mode: u32) -> anyhow::Result<()>;
+    async fn read_to_string(&self, path: &str) -> anyhow::Result<String>;
+    async fn write_string(&self, path: &str, content: &str) -> anyhow::Result<()>;
+    /// `on_progress`: `&mut dyn FnMut` rather than `impl FnMut` — trait
+    /// methods with a generic parameter aren't object-safe, and `PaneRef`
+    /// needs to hold this behind `Arc<dyn RemoteFileClient>`.
+    async fn download(
+        &self,
+        remote_path: &str,
+        local_path: &std::path::Path,
+        total: u64,
+        cancel: &AtomicBool,
+        on_progress: &mut (dyn FnMut(u64, u64) + Send),
+    ) -> anyhow::Result<()>;
+    async fn upload(
+        &self,
+        local_path: &std::path::Path,
+        remote_path: &str,
+        cancel: &AtomicBool,
+        on_progress: &mut (dyn FnMut(u64, u64) + Send),
+    ) -> anyhow::Result<()>;
+}
+
+#[async_trait::async_trait]
+impl RemoteFileClient for SftpClient {
+    async fn list(&self, path: &str) -> anyhow::Result<Vec<Entry>> {
+        self.list(path).await
+    }
+    async fn make_dir(&self, path: &str) -> anyhow::Result<()> {
+        self.make_dir(path).await
+    }
+    async fn remove_file(&self, path: &str) -> anyhow::Result<()> {
+        self.remove_file(path).await
+    }
+    async fn remove_dir(&self, path: &str) -> anyhow::Result<()> {
+        self.remove_dir(path).await
+    }
+    async fn rename(&self, from: &str, to: &str) -> anyhow::Result<()> {
+        self.rename(from, to).await
+    }
+    async fn set_permissions(&self, path: &str, mode: u32) -> anyhow::Result<()> {
+        self.set_permissions(path, mode).await
+    }
+    async fn read_to_string(&self, path: &str) -> anyhow::Result<String> {
+        self.read_to_string(path).await
+    }
+    async fn write_string(&self, path: &str, content: &str) -> anyhow::Result<()> {
+        self.write_string(path, content).await
+    }
+    async fn download(
+        &self,
+        remote_path: &str,
+        local_path: &std::path::Path,
+        total: u64,
+        cancel: &AtomicBool,
+        on_progress: &mut (dyn FnMut(u64, u64) + Send),
+    ) -> anyhow::Result<()> {
+        self.download(remote_path, local_path, total, cancel, on_progress).await
+    }
+    async fn upload(
+        &self,
+        local_path: &std::path::Path,
+        remote_path: &str,
+        cancel: &AtomicBool,
+        on_progress: &mut (dyn FnMut(u64, u64) + Send),
+    ) -> anyhow::Result<()> {
+        self.upload(local_path, remote_path, cancel, on_progress).await
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Entry {
