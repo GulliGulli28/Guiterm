@@ -12,7 +12,8 @@ use termius_core::model::{Host, HostId, HostKind, Workspace};
 
 async fn run(workspace: Workspace, host_ids: Vec<HostId>, command: &str) -> HashMap<HostId, HostOutcome> {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
-    fleet::run_on_hosts(Arc::new(workspace), host_ids, command.to_string(), fleet::DEFAULT_CONCURRENCY, tx).await;
+    let commands = fleet::uniform_commands(&host_ids, command);
+    fleet::run_on_hosts(Arc::new(workspace), commands, fleet::DEFAULT_CONCURRENCY, tx).await;
     let mut out = HashMap::new();
     while let Some(o) = rx.recv().await {
         out.insert(o.host_id, o);

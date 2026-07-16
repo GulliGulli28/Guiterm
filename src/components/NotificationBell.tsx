@@ -1,5 +1,6 @@
 import { useState } from "react";
 import type { AppNotification } from "../lib/notifications";
+import { formatRelativeTime } from "../lib/format";
 import { IconBell, IconClose } from "./ui-icons";
 
 interface NotificationBellProps {
@@ -14,14 +15,6 @@ const KIND_DOT: Record<AppNotification["kind"], string> = {
   success: "bg-emerald-400",
   error: "bg-rose-400",
 };
-
-function formatTime(ts: number): string {
-  const diffSec = Math.max(0, Math.floor((Date.now() - ts) / 1000));
-  if (diffSec < 60) return "à l'instant";
-  if (diffSec < 3600) return `il y a ${Math.floor(diffSec / 60)} min`;
-  if (diffSec < 86400) return `il y a ${Math.floor(diffSec / 3600)} h`;
-  return new Date(ts).toLocaleDateString();
-}
 
 export function NotificationBell({ notifications, onDismiss, onClearAll, onMarkAllRead }: NotificationBellProps) {
   const [open, setOpen] = useState(false);
@@ -60,7 +53,7 @@ export function NotificationBell({ notifications, onDismiss, onClearAll, onMarkA
                     <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${KIND_DOT[n.kind]}`} />
                     <div className="min-w-0 flex-1">
                       <p className="text-xs text-[var(--c-text)]">{n.message}</p>
-                      <p className="mt-0.5 text-[10px] text-[var(--c-text-muted)]">{formatTime(n.timestamp)}</p>
+                      <p className="mt-0.5 text-[10px] text-[var(--c-text-muted)]">{formatRelativeTime(n.timestamp)}</p>
                     </div>
                     <button
                       onClick={() => onDismiss(n.id)}

@@ -8,6 +8,7 @@ use crate::fleet::HostOutcome;
 use crate::model::HostId;
 use directories::ProjectDirs;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use uuid::Uuid;
 
@@ -23,9 +24,17 @@ pub struct FleetRun {
     pub id: Uuid,
     /// Wall-clock start time, Unix epoch milliseconds (formatted by the UI).
     pub started_at_ms: u64,
+    /// The literal command for a classic run; the natural-language intent
+    /// for an adaptive run (see `per_host_commands` for what actually ran).
     pub command: String,
     pub host_ids: Vec<HostId>,
     pub outcomes: Vec<HostOutcome>,
+    /// Set only for an adaptive run: the actual per-host command dispatched
+    /// (different hosts can run different commands, grouped by platform —
+    /// see `crate::adaptive`). `None` for a classic run, where every host
+    /// already ran the same `command`.
+    #[serde(default)]
+    pub per_host_commands: Option<HashMap<HostId, String>>,
 }
 
 fn history_path() -> anyhow::Result<PathBuf> {
@@ -77,6 +86,7 @@ mod tests {
             command: command.to_string(),
             host_ids: vec![Uuid::new_v4()],
             outcomes: Vec::new(),
+            per_host_commands: None,
         }
     }
 

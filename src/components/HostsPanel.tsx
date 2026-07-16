@@ -4,6 +4,8 @@ import { api } from "../lib/api";
 import type { DockerContainer, Group, GroupId, Host, HostId, Workspace } from "../lib/types";
 import { HostIcon } from "./icons";
 import { hostKindMeta } from "../lib/hostKinds";
+import { ramColor } from "../lib/facts";
+import { formatRelativeTime } from "../lib/format";
 import { ConnectionPickerModal } from "./ConnectionPickerModal";
 import {
   IconHosts, IconSearch, IconPlus, IconKeyboard, IconFlash,
@@ -307,6 +309,23 @@ export function HostsPanel({
                 )}
               </div>
               <div className="truncate font-mono text-[11px] text-[var(--c-text-muted)]">{subtitle}</div>
+              {kind === "ssh" && host.lastFacts && (
+                <div className="mt-0.5 space-y-0.5 text-[10.5px]">
+                  {(host.lastFacts.osName || host.lastFacts.osId) && (
+                    <div className="truncate text-[var(--c-text-faint)]">{host.lastFacts.osName || host.lastFacts.osId}</div>
+                  )}
+                  <div className="flex items-center gap-2 truncate">
+                    {host.lastFacts.memUsedPct != null && (
+                      <span className="shrink-0 font-medium" style={{ color: ramColor(host.lastFacts.memUsedPct) }}>
+                        RAM {Math.round(host.lastFacts.memUsedPct)}%
+                      </span>
+                    )}
+                    {host.lastFactsAtMs != null && (
+                      <span className="truncate text-[var(--c-text-faint)]">état {formatRelativeTime(host.lastFactsAtMs)}</span>
+                    )}
+                  </div>
+                </div>
+              )}
             </div>
           </button>
           {/* Menu toggle */}

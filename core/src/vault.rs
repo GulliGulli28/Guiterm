@@ -79,39 +79,77 @@ fn secret_key(host_id: HostId, kind: SecretKind) -> String {
     format!("{host_id}:{}", kind.suffix())
 }
 
+/// Key for a secret that isn't scoped to any host — e.g. an API key used by
+/// the app itself rather than for authenticating to a remote. Namespaced
+/// (`global:`) so it can never collide with a `{host_id}:{suffix}` key —
+/// `host_id` is a UUID, which never contains a literal `:`.
+fn global_key(name: &str) -> String {
+    format!("global:{name}")
+}
+
+const ANTHROPIC_API_KEY: &str = "anthropic-api-key";
+
 // ─── Public secret API (backend-agnostic) ───────────────────────────────────
 
 pub fn store(host_id: HostId, kind: SecretKind, secret: &str) -> anyhow::Result<()> {
-    let mut st = state().lock_recover();
-    match &mut *st {
-        Backend::Unlocked(vault) => vault.set(&secret_key(host_id, kind), secret),
-        Backend::Locked => {
-            anyhow::bail!("coffre verrouillé — déverrouillez-le avant d'enregistrer un secret")
-        }
-        Backend::Keychain => keychain_store(host_id, kind, secret),
-    }
+    store_raw(&secret_key(host_id, kind), secret)
 }
 
 pub fn load(host_id: HostId, kind: SecretKind) -> anyhow::Result<Option<String>> {
-    let st = state().lock_recover();
-    match &*st {
-        Backend::Unlocked(vault) => vault.get(&secret_key(host_id, kind)),
-        Backend::Locked => {
-            anyhow::bail!("coffre verrouillé — déverrouillez-le pour utiliser ce secret")
-        }
-        Backend::Keychain => keychain_load(host_id, kind),
-    }
+    load_raw(&secret_key(host_id, kind))
 }
 
 pub fn delete(host_id: HostId, kind: SecretKind) -> anyhow::Result<()> {
+    delete_raw(&secret_key(host_id, kind))
+}
+
+/// Stores the Anthropic API key used by the adaptive-snippet engine (see
+/// `crate::adaptive`) — not tied to any host, so it goes through the same
+/// backend (keychain or master vault) under a namespaced global key rather
+/// than a new storage mechanism.
+pub fn store_anthropic_api_key(secret: &str) -> anyhow::Result<()> {
+    store_raw(&global_key(ANTHROPIC_API_KEY), secret)
+}
+
+pub fn load_anthropic_api_key() -> anyhow::Result<Option<String>> {
+    load_raw(&global_key(ANTHROPIC_API_KEY))
+}
+
+pub fn delete_anthropic_api_key() -> anyhow::Result<()> {
+    delete_raw(&global_key(ANTHROPIC_API_KEY))
+}
+
+fn store_raw(key: &str, secret: &str) -> anyhow::Result<()> {
     let mut st = state().lock_recover();
     match &mut *st {
-        Backend::Unlocked(vault) => vault.remove(&secret_key(host_id, kind)),
+        Backend::Unlocked(vault) => vault.set(key, secret),
+        Backend::Locked => {
+            anyhow::bail!("coffre verrouillé — déverrouillez-le avant d'enregistrer un secret")
+        }
+        Backend::Keychain => keychain_store(key, secret),
+    }
+}
+
+fn load_raw(key: &str) -> anyhow::Result<Option<String>> {
+    let st = state().lock_recover();
+    match &*st {
+        Backend::Unlocked(vault) => vault.get(key),
+        Backend::Locked => {
+            anyhow::bail!("coffre verrouillé — déverrouillez-le pour utiliser ce secret")
+        }
+        Backend::Keychain => keychain_load(key),
+    }
+}
+
+fn delete_raw(key: &str) -> anyhow::Result<()> {
+    let mut st = state().lock_recover();
+    match &mut *st {
+        Backend::Unlocked(vault) => vault.remove(key),
         // Removing a slot while locked would need the file rewritten; the stale
         // encrypted entry is harmless, so defer rather than fail unrelated edits
         // (e.g. `save_host` cleaning up an old auth slot).
         Backend::Locked => Ok(()),
-        Backend::Keychain => keychain_delete(host_id, kind),
+        Backend::Keychain => keychain_delete(key),
     }
 }
 
@@ -188,7 +226,7 @@ pub fn enable(password: &str, migrate: &[(HostId, SecretKind, String)]) -> anyho
     drop(st);
     // The secrets now live (encrypted) in the vault; remove the keychain copies.
     for (id, kind, _) in migrate {
-        let _ = keychain_delete(*id, *kind);
+        let _ = keychain_delete(&secret_key(*id, *kind));
     }
     Ok(())
 }
@@ -234,15 +272,15 @@ pub fn disable(current: &str, migrate: &[(HostId, SecretKind, String)]) -> anyho
     let _ = std::fs::remove_file(vault_file()?);
     drop(st);
     for (id, kind, secret) in migrate {
-        keychain_store(*id, *kind, secret)?;
+        keychain_store(&secret_key(*id, *kind), secret)?;
     }
     Ok(())
 }
 
 // ─── OS keychain backend ─────────────────────────────────────────────────────
 
-fn entry(host_id: HostId, kind: SecretKind) -> Result<Entry, keyring::Error> {
-    Entry::new(SERVICE, &secret_key(host_id, kind))
+fn entry(key: &str) -> Result<Entry, keyring::Error> {
+    Entry::new(SERVICE, key)
 }
 
 fn fallback() -> &'static Mutex<HashMap<String, String>> {
@@ -250,39 +288,29 @@ fn fallback() -> &'static Mutex<HashMap<String, String>> {
     STORE.get_or_init(|| Mutex::new(HashMap::new()))
 }
 
-fn keychain_store(host_id: HostId, kind: SecretKind, secret: &str) -> anyhow::Result<()> {
-    let keychain_ok = entry(host_id, kind)
-        .and_then(|e| e.set_password(secret))
-        .is_ok();
+fn keychain_store(key: &str, secret: &str) -> anyhow::Result<()> {
+    let keychain_ok = entry(key).and_then(|e| e.set_password(secret)).is_ok();
     if !keychain_ok {
-        tracing::debug!("OS keychain unavailable, storing secret for {host_id} in process memory");
-        fallback()
-            .lock_recover()
-            .insert(secret_key(host_id, kind), secret.to_owned());
+        tracing::debug!("OS keychain unavailable, storing secret for {key} in process memory");
+        fallback().lock_recover().insert(key.to_owned(), secret.to_owned());
     }
     Ok(())
 }
 
-fn keychain_load(host_id: HostId, kind: SecretKind) -> anyhow::Result<Option<String>> {
-    match entry(host_id, kind).and_then(|e| e.get_password()) {
+fn keychain_load(key: &str) -> anyhow::Result<Option<String>> {
+    match entry(key).and_then(|e| e.get_password()) {
         Ok(secret) => Ok(Some(secret)),
-        Err(keyring::Error::NoEntry) => Ok(fallback()
-            .lock_recover()
-            .get(&secret_key(host_id, kind))
-            .cloned()),
+        Err(keyring::Error::NoEntry) => Ok(fallback().lock_recover().get(key).cloned()),
         Err(err) => {
             tracing::debug!("OS keychain unavailable for load ({err}), checking process memory");
-            Ok(fallback()
-                .lock_recover()
-                .get(&secret_key(host_id, kind))
-                .cloned())
+            Ok(fallback().lock_recover().get(key).cloned())
         }
     }
 }
 
-fn keychain_delete(host_id: HostId, kind: SecretKind) -> anyhow::Result<()> {
-    fallback().lock_recover().remove(&secret_key(host_id, kind));
-    match entry(host_id, kind) {
+fn keychain_delete(key: &str) -> anyhow::Result<()> {
+    fallback().lock_recover().remove(key);
+    match entry(key) {
         Ok(e) => match e.delete_credential() {
             Ok(()) | Err(keyring::Error::NoEntry) => Ok(()),
             Err(err) => Err(err.into()),

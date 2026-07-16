@@ -58,6 +58,12 @@ export interface Host {
   icon?: string;
   keepaliveIntervalSecs?: number | null;
   agentForward?: boolean;
+  /** Most recent state collected by a fleet facts-collection run (`collect_facts`)
+   * — `null`/absent until at least one such run has included this host. Read-only:
+   * only that path ever writes it, never the host edit form. */
+  lastFacts?: HostFacts | null;
+  /** Unix epoch milliseconds of `lastFacts`'s collection. */
+  lastFactsAtMs?: number | null;
 }
 
 export interface DockerContainer {
@@ -105,8 +111,15 @@ export interface RdpFrame {
 export interface Snippet {
   id: SnippetId;
   name: string;
+  /** Classic snippet: the literal command. Adaptive snippet (`adaptive: true`):
+   * a program in the adaptive engine's small text DSL — see
+   * `src/lib/operations.ts` for a syntax cheat-sheet. Either way may contain
+   * `{{variables}}`, filled in the same way before use. */
   command: string;
   tags: string[];
+  /** Whether `command` is a DSL program (resolved per-host, per platform)
+   * rather than a literal command run everywhere as-is. */
+  adaptive?: boolean;
 }
 
 export type PortForwardKind = "local" | "remote" | "dynamic";
@@ -256,13 +269,38 @@ export interface FactsOutcome {
   error: string | null;
 }
 
+/** Result of `collect_facts`: per-host outcomes (including errors, for hosts
+ * the probe couldn't reach) plus the workspace, already persisted server-side
+ * with successful outcomes written into each host's `lastFacts`. */
+export interface CollectFactsResult {
+  outcomes: FactsOutcome[];
+  workspace: Workspace;
+}
+
 /** A recorded fleet run (audit trail). Mirrors `termius_core::fleet_history::FleetRun`. */
 export interface FleetRun {
   id: string;
   startedAtMs: number;
+  /** Literal command for a classic run; natural-language intent for an
+   * adaptive run (see `perHostCommands` for what actually ran). */
   command: string;
   hostIds: HostId[];
   outcomes: FleetOutcome[];
+  /** Set only for an adaptive run — the actual command dispatched to each
+   * host, grouped by platform. Absent/null for a classic run. */
+  perHostCommands?: Record<HostId, string> | null;
+}
+
+/** One platform group's compiled plan — see `core::adaptive::PlatformGroup`. */
+/** One group of hosts that would all run the exact same thing (or all hit
+ * the exact same "nothing to do" outcome) when a DSL program is evaluated —
+ * see `core::adaptive::preview`. */
+export interface ExecutionGroup {
+  /** `null` when nothing in the program applies/renders for this group of
+   * hosts — see `note`, and exclude this group when executing. */
+  command: string | null;
+  hostIds: HostId[];
+  note: string | null;
 }
 
 export type Tab =

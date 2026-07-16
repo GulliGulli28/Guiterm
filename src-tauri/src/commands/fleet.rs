@@ -1,5 +1,6 @@
 use crate::state::AppState;
 use serde::Serialize;
+use std::collections::HashMap;
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 use termius_core::fleet::{self, HostOutcome};
@@ -50,36 +51,31 @@ fn for_history(o: &HostOutcome) -> HostOutcome {
     o
 }
 
-/// Runs `command` on every host in `host_ids` (SSH only — see
-/// [`termius_core::fleet`]), off any PTY, streaming a `fleet-run-outcome` event
-/// per host as each finishes, then a single `fleet-run-done`. The completed run
-/// is recorded to the persisted history (audit trail). `run_id` is minted by the
-/// frontend so several runs can be in flight at once and be told apart on the
-/// shared event channel — the command itself resolves only once every host has
-/// reported.
-#[tauri::command]
-pub async fn run_fleet_command(
-    app: AppHandle,
-    state: State<'_, AppState>,
+/// Shared by [`run_fleet_command`] (one `command` for every host) and
+/// `commands::adaptive::run_adaptive_plan` (a different command per
+/// platform group) — everything past "which command does each host run" is
+/// identical: fan out via [`fleet::run_on_hosts`], stream a
+/// `fleet-run-outcome` event per host as it finishes, then a single
+/// `fleet-run-done`, and record the completed run to the persisted history.
+/// `summary_command` is what the history list displays for the run (the
+/// literal command for a classic run, the natural-language intent for an
+/// adaptive one); `per_host_commands` is `Some` only for the latter, so the
+/// history can also show exactly what ran on each host.
+pub(crate) async fn execute_and_record(
+    app: &AppHandle,
+    state: &AppState,
     run_id: String,
-    host_ids: Vec<HostId>,
-    command: String,
+    commands: HashMap<HostId, String>,
+    summary_command: String,
+    per_host_commands: Option<HashMap<HostId, String>>,
 ) -> Result<(), String> {
     let started_at_ms = now_ms();
     // Snapshot the workspace so the run sees a consistent view even if the user
     // edits hosts while it's in flight.
     let workspace = Arc::new(state.workspace.lock_recover().clone());
+    let host_ids: Vec<HostId> = commands.keys().copied().collect();
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<HostOutcome>();
-    // Kept for the recorded run — `command`/`host_ids` are moved into the executor.
-    let record_command = command.clone();
-    let record_host_ids = host_ids.clone();
-    tokio::spawn(fleet::run_on_hosts(
-        workspace,
-        host_ids,
-        command,
-        fleet::DEFAULT_CONCURRENCY,
-        tx,
-    ));
+    tokio::spawn(fleet::run_on_hosts(workspace, commands, fleet::DEFAULT_CONCURRENCY, tx));
 
     let mut collected: Vec<HostOutcome> = Vec::new();
     while let Some(outcome) = rx.recv().await {
@@ -93,9 +89,10 @@ pub async fn run_fleet_command(
     let run = FleetRun {
         id: uuid::Uuid::new_v4(),
         started_at_ms,
-        command: record_command,
-        host_ids: record_host_ids,
+        command: summary_command,
+        host_ids,
         outcomes: collected,
+        per_host_commands,
     };
     {
         let mut history = state.fleet_history.lock_recover();
@@ -105,6 +102,24 @@ pub async fn run_fleet_command(
         }
     }
     Ok(())
+}
+
+/// Runs `command` on every host in `host_ids` (SSH only — see
+/// [`termius_core::fleet`]), off any PTY. `run_id` is minted by the frontend
+/// so several runs can be in flight at once and be told apart on the shared
+/// event channel — the command itself resolves only once every host has
+/// reported. See [`execute_and_record`] for the shared streaming/history
+/// mechanics.
+#[tauri::command]
+pub async fn run_fleet_command(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    run_id: String,
+    host_ids: Vec<HostId>,
+    command: String,
+) -> Result<(), String> {
+    let commands = fleet::uniform_commands(&host_ids, &command);
+    execute_and_record(&app, &state, run_id, commands, command, None).await
 }
 
 /// Returns the persisted fleet run history, newest first.

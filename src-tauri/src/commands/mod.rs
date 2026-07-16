@@ -1,3 +1,4 @@
+pub mod adaptive;
 pub mod command_history;
 pub mod dialog;
 pub mod docker;

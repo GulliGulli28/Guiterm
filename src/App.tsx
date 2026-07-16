@@ -283,10 +283,20 @@ export default function App() {
     setActiveTabId(id);
   }, [preferences.defaultLocalShell]);
 
+  // Only one Fleet tab makes sense at a time (it isn't host-scoped like a
+  // terminal/transfer tab) — focus the existing one instead of piling up
+  // duplicates when opened repeatedly from the toolbar button.
   const openFleet = useCallback(() => {
-    const id = `tab-${nextTabId++}`;
-    setTabs((prev) => [...prev, { id, kind: "fleet", label: "Opérations de flotte" }]);
-    setActiveTabId(id);
+    setTabs((prev) => {
+      const existing = prev.find((t) => t.kind === "fleet");
+      if (existing) {
+        setActiveTabId(existing.id);
+        return prev;
+      }
+      const id = `tab-${nextTabId++}`;
+      setActiveTabId(id);
+      return [...prev, { id, kind: "fleet", label: "Opérations de flotte" }];
+    });
   }, []);
 
   const toggleSplit = useCallback(() => setSplitOpen((v) => !v), []);
@@ -363,6 +373,60 @@ export default function App() {
     }
     if (!ran) reportError("Aucun terminal ouvert pour exécuter ce snippet");
   }, [activeTabId, reportError, tabs]);
+
+  // Runs an adaptive (DSL) snippet on specific tabs, or the active tab when
+  // no target is given — same convention as `runSnippet`. Unlike a classic
+  // snippet, `programText` isn't a runnable command by itself: each target's
+  // host determines what actually gets typed (see `core::adaptive`), so this
+  // resolves per host — collecting facts first if missing, same as
+  // `FleetTab`'s "Prévisualiser" — before running the *translated* command.
+  // Only an SSH host has facts to translate against, so any other target
+  // (Docker exec, RDP, local terminal, or an SSH host without facts) is
+  // reported and skipped rather than silently typing the raw DSL text.
+  const runAdaptiveSnippet = useCallback(async (programText: string, targetTabIds?: string[]) => {
+    if (!workspace) return;
+    const ids = targetTabIds && targetTabIds.length > 0 ? targetTabIds : activeTabId ? [activeTabId] : [];
+    if (ids.length === 0) { reportError("Aucun terminal actif pour exécuter ce snippet"); return; }
+
+    const eligible: { label: string; hostId: HostId; handle: TerminalTabHandle }[] = [];
+    for (const id of ids) {
+      const tab = tabs.find((t) => t.id === id);
+      const handle = terminalRefs.current.get(id);
+      if (!tab || !handle) continue;
+      const hostId = tab.kind === "terminal" ? tab.hostId : null;
+      const host = hostId ? workspace.hosts.find((h) => h.id === hostId) : null;
+      if (!host || host.kind !== "ssh") {
+        reportError(`« ${tab.label} » : un snippet adaptatif ne peut s'exécuter que sur un hôte SSH`);
+        continue;
+      }
+      eligible.push({ label: tab.label, hostId: host.id, handle });
+    }
+    if (eligible.length === 0) return;
+
+    const missingFacts = [...new Set(eligible.filter((e) => !workspace.hosts.find((h) => h.id === e.hostId)?.lastFacts).map((e) => e.hostId))];
+    if (missingFacts.length > 0) {
+      try {
+        refreshWorkspace((await api.collectFacts(missingFacts)).workspace);
+      } catch (e) {
+        reportError(String(e));
+      }
+    }
+
+    try {
+      const groups = await api.previewAdaptiveProgram([...new Set(eligible.map((e) => e.hostId))], programText);
+      const groupByHost = new Map(groups.flatMap((g) => g.hostIds.map((id) => [id, g] as const)));
+      for (const target of eligible) {
+        const group = groupByHost.get(target.hostId);
+        if (!group?.command) {
+          reportError(`« ${target.label} » : ${group?.note ?? "rien à exécuter pour cet hôte"}`);
+          continue;
+        }
+        runOnTerminalHandle(target.handle, group.command, true);
+      }
+    } catch (e) {
+      reportError(String(e));
+    }
+  }, [activeTabId, tabs, workspace, reportError, refreshWorkspace]);
 
   const exportActiveScrollback = useCallback(async () => {
     if (!activeTabId) { reportError("Aucun terminal actif à exporter"); return; }
@@ -549,6 +613,7 @@ export default function App() {
         <SnippetPicker
           snippets={workspace.snippets}
           onRun={(command) => runSnippet(command)}
+          onSnippetResolved={(snippet, resolvedText) => { if (snippet.adaptive) runAdaptiveSnippet(resolvedText); }}
           onClose={() => setSnippetPickerOpen(false)}
         />
       )}
@@ -591,6 +656,7 @@ export default function App() {
           onClose={requestCloseTab}
           onToggleSplit={toggleSplit}
           onToggleBroadcast={toggleBroadcastMode}
+          onOpenFleet={openFleet}
           onReorder={setTabs}
           tabColor={tabColor}
         />
@@ -636,6 +702,10 @@ export default function App() {
             onUpdateSnippet={(id, name, command) => api.updateSnippet(id, name, command).then(refreshWorkspace).catch((e) => reportError(String(e)))}
             onDeleteSnippet={(id) => api.deleteSnippet(id).then(refreshWorkspace).catch((e) => reportError(String(e)))}
             onRunSnippet={runSnippet}
+            onRunAdaptiveSnippet={runAdaptiveSnippet}
+            onSaveAdaptiveSnippet={(id, name, command) =>
+              api.saveAdaptiveSnippet(id, name, command).then(refreshWorkspace).catch((e) => reportError(String(e)))
+            }
             openTerminals={broadcastTargets}
             onAddForward={(input) => api.addForward(input).then(refreshWorkspace).catch((e) => reportError(String(e)))}
             onDeleteForward={(id) => api.deleteForward(id).then(refreshWorkspace).catch((e) => reportError(String(e)))}
@@ -720,7 +790,7 @@ export default function App() {
                   if (tab.kind === "fleet") {
                     return (
                       <div key={tab.id} className={isActive ? "absolute inset-0 flex flex-col" : "hidden"}>
-                        <FleetTab workspace={workspace} onError={reportError} />
+                        <FleetTab workspace={workspace} onError={reportError} onWorkspaceUpdate={refreshWorkspace} />
                       </div>
                     );
                   }

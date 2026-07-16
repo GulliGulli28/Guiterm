@@ -13,6 +13,7 @@
 use crate::model::{HostId, HostKind, Workspace};
 use crate::ssh;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::sync::Arc;
 use std::time::Instant;
 use tokio::sync::{mpsc, Semaphore};
@@ -37,22 +38,26 @@ pub struct HostOutcome {
     pub error: Option<String>,
 }
 
-/// Runs `command` on every host in `host_ids` concurrently — bounded by
-/// `concurrency` — sending each [`HostOutcome`] on `tx` as soon as that host
-/// finishes. Returns once every host has reported; dropping the last `tx` clone
-/// (which happens when this returns) lets the receiver observe completion.
+/// Runs, for every `(host_id, command)` pair in `commands`, that host's own
+/// command — concurrently, bounded by `concurrency` — sending each
+/// [`HostOutcome`] on `tx` as soon as that host finishes. Returns once every
+/// host has reported; dropping the last `tx` clone (which happens when this
+/// returns) lets the receiver observe completion.
+///
+/// Every host runs *its own* command rather than one shared string so this
+/// same primitive serves both a classic fleet run (every host maps to the
+/// same command — see [`uniform_commands`]) and an adaptive run (each host
+/// maps to whatever its platform group compiled to — see `crate::adaptive`).
 pub async fn run_on_hosts(
     workspace: Arc<Workspace>,
-    host_ids: Vec<HostId>,
-    command: String,
+    commands: HashMap<HostId, String>,
     concurrency: usize,
     tx: mpsc::UnboundedSender<HostOutcome>,
 ) {
     let semaphore = Arc::new(Semaphore::new(concurrency.max(1)));
-    let mut handles = Vec::with_capacity(host_ids.len());
-    for host_id in host_ids {
+    let mut handles = Vec::with_capacity(commands.len());
+    for (host_id, command) in commands {
         let workspace = workspace.clone();
-        let command = command.clone();
         let semaphore = semaphore.clone();
         let tx = tx.clone();
         handles.push(tokio::spawn(async move {
@@ -66,6 +71,12 @@ pub async fn run_on_hosts(
     for handle in handles {
         let _ = handle.await;
     }
+}
+
+/// Builds the `commands` map for the common case: the same `command` run on
+/// every host in `host_ids`.
+pub fn uniform_commands(host_ids: &[HostId], command: &str) -> HashMap<HostId, String> {
+    host_ids.iter().map(|&id| (id, command.to_string())).collect()
 }
 
 async fn run_one(workspace: &Workspace, host_id: HostId, command: &str) -> HostOutcome {

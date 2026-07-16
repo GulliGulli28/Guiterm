@@ -1,14 +1,11 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import type { FleetOutcome, FleetRun, Host, HostFacts, HostId, Workspace } from "../lib/types";
+import type { ExecutionGroup, FleetOutcome, FleetRun, Host, HostId, Snippet, SnippetId, Workspace } from "../lib/types";
 import { api, onFleetDone, onFleetOutcome } from "../lib/api";
-import { IconPlay, IconSearch, IconChevronRight, IconChevronDown, IconRefresh } from "./ui-icons";
-
-/** Colour for a RAM-usage percentage: green under 70, amber under 85, red above. */
-function ramColor(pct: number): string {
-  if (pct >= 85) return "#ef4444";
-  if (pct >= 70) return "#f59e0b";
-  return "#22c55e";
-}
+import { formatRelativeTime } from "../lib/format";
+import { ramColor } from "../lib/facts";
+import { DSL_CONDITION_FIELDS, DSL_FUNCTIONS } from "../lib/operations";
+import { SnippetPicker } from "./SnippetPicker";
+import { IconPlay, IconSearch, IconChevronRight, IconChevronDown, IconRefresh, IconSnippets, IconFlash } from "./ui-icons";
 
 function formatTimestamp(ms: number): string {
   return new Date(ms).toLocaleString();
@@ -17,7 +14,30 @@ function formatTimestamp(ms: number): string {
 interface FleetTabProps {
   workspace: Workspace;
   onError: (message: string) => void;
+  /** Called with the fresh workspace after a facts collection persists
+   * `lastFacts` onto each host, so the rest of the app (host list badges,
+   * etc.) picks it up too. */
+  onWorkspaceUpdate?: (ws: Workspace) => void;
 }
+
+/** One fact-based selection criterion. `enabled` gates whether `selectByFacts`
+ * checks it at all — lets several criteria combine (AND) without every
+ * numeric field needing an explicit "off" sentinel value. */
+interface FactFilters {
+  ram: { enabled: boolean; value: number }; // RAM used % > value
+  cpu: { enabled: boolean; value: number }; // CPU count >= value
+  load1: { enabled: boolean; value: number }; // 1-min load average > value
+  uptimeDays: { enabled: boolean; value: number }; // uptime < value days
+  os: { enabled: boolean; value: string }; // OS name/id contains value
+}
+
+const DEFAULT_FILTERS: FactFilters = {
+  ram: { enabled: false, value: 80 },
+  cpu: { enabled: false, value: 2 },
+  load1: { enabled: false, value: 1 },
+  uptimeDays: { enabled: false, value: 7 },
+  os: { enabled: false, value: "" },
+};
 
 type RowStatus = "pending" | "ok" | "fail" | "error";
 
@@ -48,7 +68,7 @@ function StatusDot({ status }: { status: RowStatus }) {
   return <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: color }} />;
 }
 
-export function FleetTab({ workspace, onError }: FleetTabProps) {
+export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProps) {
   const sshHosts = useMemo(() => workspace.hosts.filter((h) => h.kind === "ssh"), [workspace.hosts]);
   const hostById = useMemo(() => new Map(workspace.hosts.map((h) => [h.id, h])), [workspace.hosts]);
   const groupName = (h: Host) => (h.groupId ? workspace.groups.find((g) => g.id === h.groupId)?.name ?? "" : "");
@@ -66,11 +86,31 @@ export function FleetTab({ workspace, onError }: FleetTabProps) {
   const [expanded, setExpanded] = useState<Set<HostId>>(new Set());
   const runIdRef = useRef<string | null>(null);
 
-  // Collected host state (facts), keyed by host — populated on demand.
-  const [facts, setFacts] = useState<Map<HostId, HostFacts>>(new Map());
+  // Collected host state ("facts") lives on the host itself (`lastFacts`,
+  // persisted server-side by `collect_facts`) — no separate local copy to
+  // keep in sync.
   const [collectingFacts, setCollectingFacts] = useState(false);
-  const [ramThreshold, setRamThreshold] = useState(80);
-  const hasFacts = facts.size > 0;
+  const [filters, setFilters] = useState<FactFilters>(DEFAULT_FILTERS);
+  const hasFacts = sshHosts.some((h) => h.lastFacts != null);
+  const [showSnippetPicker, setShowSnippetPicker] = useState(false);
+
+  // Adaptive snippet engine: "Langage" mode edits a small DSL program (see
+  // src/lib/operations.ts for the syntax) — written by hand, by the AI from
+  // an English instruction, or both; the AI is only an optional assist
+  // (aiIntent/generateWithAi), never required. Evaluating the program against
+  // the target hosts is always deterministic and free, both for the live
+  // target selection below and for the explicit "Prévisualiser"
+  // (runPreview) step before running; only *writing*/extending the text via
+  // AI (generateWithAi) costs a call.
+  const [mode, setMode] = useState<"command" | "intent">("command");
+  const [programText, setProgramText] = useState("");
+  const [aiIntent, setAiIntent] = useState("");
+  const [activeSnippetId, setActiveSnippetId] = useState<SnippetId | null>(null);
+  const [generatingAi, setGeneratingAi] = useState(false);
+  const [previewing, setPreviewing] = useState(false);
+  const [previewGroups, setPreviewGroups] = useState<ExecutionGroup[] | null>(null);
+  const [showSaveDialog, setShowSaveDialog] = useState(false);
+  const [saveSnippetName, setSaveSnippetName] = useState("");
 
   // Persisted run history (audit trail) + which panel is shown on the right.
   const [view, setView] = useState<"run" | "history">("run");
@@ -123,6 +163,29 @@ export function FleetTab({ workspace, onError }: FleetTabProps) {
     api.getFleetHistory().then(setHistory).catch(() => {});
   }, []);
 
+  // Live target selection while editing the DSL program ("Langage" mode):
+  // debounced re-evaluation of the program against every SSH host's cached
+  // facts, checking exactly the hosts that would run something — replaces
+  // manual checkbox selection in this mode (see the aside below), reusing
+  // the same deterministic evaluator `runPreview`/`runPlan` already call.
+  // No I/O: it only reads facts already cached on each host, never re-probes
+  // over SSH — cheap enough to re-run on every keystroke.
+  useEffect(() => {
+    if (mode !== "intent") return;
+    const text = programText.trim();
+    if (!text) { setSelected(new Set()); return; }
+    const timer = setTimeout(() => {
+      api
+        .previewAdaptiveProgram(sshHosts.map((h) => h.id), text)
+        .then((groups) => {
+          const ids = groups.filter((g) => g.command != null).flatMap((g) => g.hostIds);
+          setSelected(new Set(ids));
+        })
+        .catch(() => {}); // invalid/incomplete program mid-edit — ignore, keep the last selection
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [mode, programText, sshHosts]);
+
   const toggle = (id: HostId) =>
     setSelected((prev) => {
       const next = new Set(prev);
@@ -133,18 +196,19 @@ export function FleetTab({ workspace, onError }: FleetTabProps) {
   const selectAll = () => setSelected(new Set(filtered.map((h) => h.id)));
   const selectNone = () => setSelected(new Set());
 
-  const collectFacts = async () => {
+  const collectFacts = async (hostIds?: HostId[]) => {
     if (collectingFacts) return;
-    const ids = sshHosts.map((h) => h.id);
+    const ids = hostIds ?? sshHosts.map((h) => h.id);
     if (ids.length === 0) return;
     setCollectingFacts(true);
     try {
-      const outcomes = await api.collectFacts(ids);
-      setFacts((prev) => {
-        const next = new Map(prev);
-        for (const o of outcomes) if (o.facts) next.set(o.hostId, o.facts);
-        return next;
-      });
+      const { outcomes, workspace: updated } = await api.collectFacts(ids);
+      onWorkspaceUpdate?.(updated);
+      const failed = outcomes.filter((o) => o.error != null);
+      if (failed.length > 0) {
+        const names = failed.map((o) => hostById.get(o.hostId)?.label ?? o.hostId).join(", ");
+        onError(`${failed.length} hôte(s) n'ont pas répondu à la sonde d'état : ${names}`);
+      }
     } catch (e) {
       onError(String(e));
     } finally {
@@ -152,18 +216,38 @@ export function FleetTab({ workspace, onError }: FleetTabProps) {
     }
   };
 
-  // The "select where RAM > N%" demo: needs facts collected first.
-  const selectByRam = () =>
-    setSelected(
-      new Set(
-        sshHosts
-          .filter((h) => {
-            const pct = facts.get(h.id)?.memUsedPct;
-            return pct != null && pct > ramThreshold;
-          })
-          .map((h) => h.id),
-      ),
-    );
+  const anyFilterEnabled = filters.ram.enabled || filters.cpu.enabled || filters.load1.enabled || filters.uptimeDays.enabled || filters.os.enabled;
+
+  // Selects every host whose last collected facts satisfy *all* enabled
+  // filters (AND) — a disabled filter is simply skipped, not treated as
+  // "match anything".
+  const selectByFacts = () => {
+    if (!anyFilterEnabled) {
+      onError("Coche au moins un critère avant de sélectionner");
+      return;
+    }
+    const ids = sshHosts
+      .filter((h) => {
+        const f = h.lastFacts;
+        if (!f) return false;
+        if (filters.ram.enabled && !(f.memUsedPct != null && f.memUsedPct > filters.ram.value)) return false;
+        if (filters.cpu.enabled && !(f.cpus != null && f.cpus >= filters.cpu.value)) return false;
+        if (filters.load1.enabled && !(f.load1 != null && f.load1 > filters.load1.value)) return false;
+        if (filters.uptimeDays.enabled) {
+          const days = f.uptimeSecs != null ? f.uptimeSecs / 86400 : null;
+          if (!(days != null && days < filters.uptimeDays.value)) return false;
+        }
+        if (filters.os.enabled) {
+          const q = filters.os.value.trim().toLowerCase();
+          if (!q) return false;
+          const hay = `${f.osName ?? ""} ${f.osId ?? ""}`.toLowerCase();
+          if (!hay.includes(q)) return false;
+        }
+        return true;
+      })
+      .map((h) => h.id);
+    setSelected(new Set(ids));
+  };
   const toggleExpanded = (id: HostId) =>
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -214,6 +298,118 @@ export function FleetTab({ workspace, onError }: FleetTabProps) {
     }
   };
 
+  // Asks the AI to write (or extend) the DSL program from a short English
+  // instruction — never runs anything, never touches the target hosts.
+  const generateWithAi = async () => {
+    if (generatingAi) return;
+    if (!aiIntent.trim()) {
+      onError("Décris ce que tu veux faire");
+      return;
+    }
+    setGeneratingAi(true);
+    try {
+      const result = await api.generateAdaptiveProgram(programText, aiIntent.trim());
+      setProgramText(result);
+      setPreviewGroups(null);
+    } catch (e) {
+      onError(String(e));
+    } finally {
+      setGeneratingAi(false);
+    }
+  };
+
+  // Parses + evaluates the current program text against the selected hosts
+  // — pure and deterministic, no AI involved. Facts are collected first for
+  // any target still missing them, since evaluation depends on `lastFacts`.
+  const runPreview = async () => {
+    if (previewing) return;
+    const targets = [...selected];
+    if (targets.length === 0) {
+      onError("Sélectionne au moins un hôte");
+      return;
+    }
+    if (!programText.trim()) {
+      onError("Écris ou génère un programme d'abord");
+      return;
+    }
+    setPreviewing(true);
+    try {
+      if (targets.some((id) => !hostById.get(id)?.lastFacts)) {
+        await collectFacts(targets);
+      }
+      const groups = await api.previewAdaptiveProgram(targets, programText);
+      setPreviewGroups(groups);
+    } catch (e) {
+      onError(String(e));
+    } finally {
+      setPreviewing(false);
+    }
+  };
+
+  const updateGroupCommand = (index: number, newCommand: string) =>
+    setPreviewGroups((prev) => prev?.map((g, i) => (i === index ? { ...g, command: newCommand } : g)) ?? null);
+
+  // Executes the (possibly hand-edited) preview — reuses the same
+  // runTargets/results/pending state and fleet-run-* events as a classic
+  // run, so the Résultats tab renders it identically. Groups without a
+  // command (nothing matched, or unsupported for that platform) are simply
+  // excluded — nothing to run there.
+  const runPlan = async () => {
+    if (!previewGroups || running) return;
+    const runnable = previewGroups.filter((g): g is typeof g & { command: string } => g.command != null);
+    if (runnable.length === 0) return;
+    const targets = runnable.flatMap((g) => g.hostIds);
+    const runId = crypto.randomUUID();
+    runIdRef.current = runId;
+    setRunTargets(targets);
+    setResults(new Map());
+    setPending(new Set(targets));
+    setExpanded(new Set());
+    setRunning(true);
+    try {
+      await api.runAdaptivePlan(
+        runId,
+        programText.trim(),
+        runnable.map((g) => ({ hostIds: g.hostIds, command: g.command })),
+      );
+    } catch (e) {
+      onError(String(e));
+    } finally {
+      if (runIdRef.current === runId) setRunning(false);
+    }
+    setPreviewGroups(null);
+  };
+
+  const openSaveDialog = () => {
+    const existing = activeSnippetId ? workspace.snippets.find((s) => s.id === activeSnippetId) : null;
+    setSaveSnippetName(existing?.name ?? "");
+    setShowSaveDialog(true);
+  };
+
+  const confirmSaveSnippet = async () => {
+    if (!programText.trim() || !saveSnippetName.trim()) return;
+    try {
+      const ws = await api.saveAdaptiveSnippet(activeSnippetId, saveSnippetName.trim(), programText);
+      onWorkspaceUpdate?.(ws);
+      setShowSaveDialog(false);
+    } catch (e) {
+      onError(String(e));
+    }
+  };
+
+  // Picking an adaptive snippet switches into Langage mode with its DSL
+  // program text pre-filled (which in turn live-selects matching hosts, see
+  // above) and its id tracked (so "Sauvegarder" defaults to updating it). A
+  // classic snippet keeps filling the plain command box (handled by the
+  // existing onRun={setCommand} below).
+  const handleSnippetResolved = (snippet: Snippet, resolvedText: string) => {
+    if (!snippet.adaptive) return;
+    setMode("intent");
+    setProgramText(resolvedText);
+    setActiveSnippetId(snippet.id);
+    setPreviewGroups(null);
+  };
+
   const summary = useMemo(() => {
     let ok = 0;
     let fail = 0;
@@ -233,14 +429,23 @@ export function FleetTab({ workspace, onError }: FleetTabProps) {
           <span className="text-xs font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">
             Cibles · {selected.size}/{sshHosts.length}
           </span>
-          <div className="flex gap-1 text-[11px]">
-            <button onClick={selectAll} className="rounded px-1.5 py-0.5 text-[var(--c-accent-text)] hover:bg-[var(--c-bg3)]">
-              Tout
-            </button>
-            <button onClick={selectNone} className="rounded px-1.5 py-0.5 text-[var(--c-text-muted)] hover:bg-[var(--c-bg3)]">
-              Aucun
-            </button>
-          </div>
+          {mode === "command" ? (
+            <div className="flex gap-1 text-[11px]">
+              <button onClick={selectAll} className="rounded px-1.5 py-0.5 text-[var(--c-accent-text)] hover:bg-[var(--c-bg3)]">
+                Tout
+              </button>
+              <button onClick={selectNone} className="rounded px-1.5 py-0.5 text-[var(--c-text-muted)] hover:bg-[var(--c-bg3)]">
+                Aucun
+              </button>
+            </div>
+          ) : (
+            <span
+              title="Calculée automatiquement d'après les « target … » du programme — repasse en mode Commande pour sélectionner à la main"
+              className="rounded bg-[var(--c-accent-dim)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--c-accent-text)]"
+            >
+              auto
+            </span>
+          )}
         </div>
         <div className="px-3 pb-2">
           <div className="flex items-center gap-2 rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1.5">
@@ -256,30 +461,72 @@ export function FleetTab({ workspace, onError }: FleetTabProps) {
         {sshHosts.length > 0 && (
           <div className="mb-1 space-y-1.5 px-3 pb-1">
             <button
-              onClick={collectFacts}
+              onClick={() => collectFacts()}
               disabled={collectingFacts}
               className="flex w-full items-center justify-center gap-1.5 rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)] disabled:opacity-50"
             >
               <IconRefresh size={12} className={collectingFacts ? "animate-spin" : ""} />
               {collectingFacts ? "Collecte de l'état…" : "Collecter l'état (OS, RAM)"}
             </button>
-            {hasFacts && (
-              <div className="flex items-center gap-1.5 text-[11px] text-[var(--c-text-muted)]">
-                <span>RAM utilisée &gt;</span>
-                <input
-                  type="number"
-                  min={0}
-                  max={100}
-                  value={ramThreshold}
-                  onChange={(e) => setRamThreshold(Number(e.target.value))}
-                  className="w-12 rounded border border-[var(--c-border)] bg-[var(--c-bg2)] px-1 py-0.5 text-center text-[var(--c-text)] focus:border-[var(--c-accent)] focus:outline-none"
-                />
-                <span>%</span>
+            {mode === "intent" && (
+              <p className="rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1.5 text-[11px] text-[var(--c-text-faint)]">
+                Ciblage automatique : les cases ci-dessous reflètent les hôtes dont l'état collecté correspond aux <code className="font-mono">target …</code> du programme.
+              </p>
+            )}
+            {mode === "command" && hasFacts && (
+              <div className="space-y-1 rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] p-1.5 text-[11px] text-[var(--c-text-muted)]">
+                <label className="flex items-center gap-1.5">
+                  <input type="checkbox" checked={filters.ram.enabled} onChange={(e) => setFilters((p) => ({ ...p, ram: { ...p.ram, enabled: e.target.checked } }))} className="accent-[var(--c-accent)]" />
+                  <span className="shrink-0">RAM utilisée &gt;</span>
+                  <input
+                    type="number" min={0} max={100} value={filters.ram.value}
+                    onChange={(e) => setFilters((p) => ({ ...p, ram: { ...p.ram, value: Number(e.target.value) } }))}
+                    className="w-12 rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1 py-0.5 text-center text-[var(--c-text)] focus:border-[var(--c-accent)] focus:outline-none"
+                  />
+                  <span>%</span>
+                </label>
+                <label className="flex items-center gap-1.5">
+                  <input type="checkbox" checked={filters.cpu.enabled} onChange={(e) => setFilters((p) => ({ ...p, cpu: { ...p.cpu, enabled: e.target.checked } }))} className="accent-[var(--c-accent)]" />
+                  <span className="shrink-0">CPU ≥</span>
+                  <input
+                    type="number" min={1} value={filters.cpu.value}
+                    onChange={(e) => setFilters((p) => ({ ...p, cpu: { ...p.cpu, value: Number(e.target.value) } }))}
+                    className="w-12 rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1 py-0.5 text-center text-[var(--c-text)] focus:border-[var(--c-accent)] focus:outline-none"
+                  />
+                </label>
+                <label className="flex items-center gap-1.5">
+                  <input type="checkbox" checked={filters.load1.enabled} onChange={(e) => setFilters((p) => ({ ...p, load1: { ...p.load1, enabled: e.target.checked } }))} className="accent-[var(--c-accent)]" />
+                  <span className="shrink-0">Charge (1 min) &gt;</span>
+                  <input
+                    type="number" min={0} step={0.1} value={filters.load1.value}
+                    onChange={(e) => setFilters((p) => ({ ...p, load1: { ...p.load1, value: Number(e.target.value) } }))}
+                    className="w-12 rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1 py-0.5 text-center text-[var(--c-text)] focus:border-[var(--c-accent)] focus:outline-none"
+                  />
+                </label>
+                <label className="flex items-center gap-1.5">
+                  <input type="checkbox" checked={filters.uptimeDays.enabled} onChange={(e) => setFilters((p) => ({ ...p, uptimeDays: { ...p.uptimeDays, enabled: e.target.checked } }))} className="accent-[var(--c-accent)]" />
+                  <span className="shrink-0">Uptime &lt;</span>
+                  <input
+                    type="number" min={0} value={filters.uptimeDays.value}
+                    onChange={(e) => setFilters((p) => ({ ...p, uptimeDays: { ...p.uptimeDays, value: Number(e.target.value) } }))}
+                    className="w-12 rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1 py-0.5 text-center text-[var(--c-text)] focus:border-[var(--c-accent)] focus:outline-none"
+                  />
+                  <span>jours</span>
+                </label>
+                <label className="flex items-center gap-1.5">
+                  <input type="checkbox" checked={filters.os.enabled} onChange={(e) => setFilters((p) => ({ ...p, os: { ...p.os, enabled: e.target.checked } }))} className="accent-[var(--c-accent)]" />
+                  <span className="shrink-0">OS contient</span>
+                  <input
+                    type="text" value={filters.os.value} placeholder="ubuntu…"
+                    onChange={(e) => setFilters((p) => ({ ...p, os: { ...p.os, value: e.target.value } }))}
+                    className="w-full min-w-0 rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1.5 py-0.5 text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] focus:border-[var(--c-accent)] focus:outline-none"
+                  />
+                </label>
                 <button
-                  onClick={selectByRam}
-                  className="ml-auto rounded bg-[var(--c-accent-dim)] px-2 py-0.5 text-[var(--c-accent-text)] hover:bg-[var(--c-accent)] hover:text-white"
+                  onClick={selectByFacts}
+                  className="w-full rounded bg-[var(--c-accent-dim)] px-2 py-1 text-[var(--c-accent-text)] hover:bg-[var(--c-accent)] hover:text-white"
                 >
-                  Sélectionner
+                  Sélectionner les hôtes correspondants
                 </button>
               </div>
             )}
@@ -292,26 +539,32 @@ export function FleetTab({ workspace, onError }: FleetTabProps) {
             filtered.map((h) => {
               const checked = selected.has(h.id);
               const sub = [groupName(h), h.address].filter(Boolean).join(" · ");
-              const f = facts.get(h.id);
+              const f = h.lastFacts;
               return (
                 <label
                   key={h.id}
-                  className={`flex cursor-pointer items-center gap-2.5 rounded-md px-2 py-1.5 ${checked ? "bg-[var(--c-accent-dim)]" : "hover:bg-[var(--c-bg3)]"}`}
+                  title={mode === "intent" ? "Sélection automatique en mode Langage" : undefined}
+                  className={`flex items-center gap-2.5 rounded-md px-2 py-1.5 ${mode === "command" ? "cursor-pointer" : ""} ${checked ? "bg-[var(--c-accent-dim)]" : mode === "command" ? "hover:bg-[var(--c-bg3)]" : ""}`}
                 >
-                  <input type="checkbox" checked={checked} onChange={() => toggle(h.id)} className="accent-[var(--c-accent)]" />
+                  <input type="checkbox" checked={checked} disabled={mode === "intent"} onChange={() => toggle(h.id)} className="accent-[var(--c-accent)] disabled:opacity-60" />
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm text-[var(--c-text)]">{h.label}</span>
                     {sub && <span className="block truncate text-[11px] text-[var(--c-text-faint)]">{sub}</span>}
                     {f && (
-                      <span className="mt-0.5 flex items-center gap-2 text-[11px]">
+                      <span className="mt-0.5 block space-y-0.5 text-[11px]">
                         {(f.osName || f.osId) && (
-                          <span className="truncate text-[var(--c-text-muted)]">{f.osName || f.osId}</span>
+                          <span className="block truncate text-[var(--c-text-muted)]">{f.osName || f.osId}</span>
                         )}
-                        {f.memUsedPct != null && (
-                          <span className="shrink-0 font-medium" style={{ color: ramColor(f.memUsedPct) }}>
-                            RAM {Math.round(f.memUsedPct)}%
-                          </span>
-                        )}
+                        <span className="flex items-center gap-2 truncate">
+                          {f.memUsedPct != null && (
+                            <span className="shrink-0 font-medium" style={{ color: ramColor(f.memUsedPct) }}>
+                              RAM {Math.round(f.memUsedPct)}%
+                            </span>
+                          )}
+                          {h.lastFactsAtMs != null && (
+                            <span className="truncate text-[var(--c-text-faint)]">{formatRelativeTime(h.lastFactsAtMs)}</span>
+                          )}
+                        </span>
                       </span>
                     )}
                   </span>
@@ -325,30 +578,161 @@ export function FleetTab({ workspace, onError }: FleetTabProps) {
       {/* ── Command + results ─────────────────────────────────────────── */}
       <section className="flex min-w-0 flex-1 flex-col">
         <div className="border-b border-[var(--c-border)] p-3">
-          <div className="flex items-end gap-2">
-            <textarea
-              value={command}
-              onChange={(e) => setCommand(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
-                  e.preventDefault();
-                  run();
-                }
-              }}
-              rows={2}
-              placeholder="Commande à exécuter sur les hôtes sélectionnés…  (Ctrl+Entrée)"
-              spellCheck={false}
-              className="min-h-[2.5rem] flex-1 resize-y rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-3 py-2 font-mono text-sm text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] focus:border-[var(--c-accent)] focus:outline-none"
-            />
+          <div className="mb-2 flex shrink-0 rounded-md bg-[var(--c-bg2)] p-0.5 text-[11px]">
             <button
-              onClick={run}
-              disabled={running || selected.size === 0 || !command.trim()}
-              className="flex items-center gap-1.5 rounded-md bg-[var(--c-accent)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--c-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+              onClick={() => setMode("command")}
+              className={`rounded px-2 py-0.5 font-medium ${mode === "command" ? "bg-[var(--c-bg3)] text-[var(--c-text)]" : "text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)]"}`}
             >
-              <IconPlay size={14} />
-              {running ? "En cours…" : `Exécuter (${selected.size})`}
+              Commande
+            </button>
+            <button
+              onClick={() => setMode("intent")}
+              className={`rounded px-2 py-0.5 font-medium ${mode === "intent" ? "bg-[var(--c-bg3)] text-[var(--c-text)]" : "text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)]"}`}
+            >
+              Langage
             </button>
           </div>
+
+          <div className="flex items-end gap-2">
+            <button
+              onClick={() => setShowSnippetPicker(true)}
+              disabled={workspace.snippets.length === 0}
+              title={workspace.snippets.length === 0 ? "Aucun snippet enregistré" : "Choisir un snippet — remplit la commande, à réviser avant d'exécuter"}
+              className="flex shrink-0 items-center gap-1.5 self-stretch rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-2.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              <IconSnippets size={13} />
+              Snippet
+            </button>
+            {mode === "command" ? (
+              <>
+                <textarea
+                  value={command}
+                  onChange={(e) => setCommand(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) {
+                      e.preventDefault();
+                      run();
+                    }
+                  }}
+                  rows={2}
+                  placeholder="Commande à exécuter sur les hôtes sélectionnés…  (Ctrl+Entrée)"
+                  spellCheck={false}
+                  className="min-h-[2.5rem] flex-1 resize-y rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-3 py-2 font-mono text-sm text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] focus:border-[var(--c-accent)] focus:outline-none"
+                />
+                <button
+                  onClick={run}
+                  disabled={running || selected.size === 0 || !command.trim()}
+                  className="flex items-center gap-1.5 rounded-md bg-[var(--c-accent)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--c-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <IconPlay size={14} />
+                  {running ? "En cours…" : `Exécuter (${selected.size})`}
+                </button>
+              </>
+            ) : (
+              <div className="flex-1 space-y-2">
+                <div className="flex items-end gap-2">
+                  <textarea
+                    value={programText}
+                    onChange={(e) => { setProgramText(e.target.value); setActiveSnippetId(null); setPreviewGroups(null); }}
+                    rows={5}
+                    placeholder={"install-package nginx\n\ntarget ram: > 80\nrestart-service nginx"}
+                    spellCheck={false}
+                    className="min-h-[2.5rem] flex-1 resize-y rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-3 py-2 font-mono text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] focus:border-[var(--c-accent)] focus:outline-none"
+                  />
+                  <button
+                    onClick={runPreview}
+                    disabled={previewing || selected.size === 0 || !programText.trim()}
+                    title="Analyse le programme et montre quels hôtes exécuteraient quoi — ne lance rien"
+                    className="flex items-center gap-1.5 self-stretch rounded-md bg-[var(--c-accent)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--c-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    <IconPlay size={14} />
+                    {previewing ? "…" : "Prévisualiser"}
+                  </button>
+                </div>
+                <div className="flex items-center gap-2 rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] p-1.5">
+                  <IconFlash size={13} className="ml-1 shrink-0 text-sky-400" />
+                  <input
+                    value={aiIntent}
+                    onChange={(e) => setAiIntent(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); generateWithAi(); } }}
+                    placeholder="Décrire en français ce qu'ajouter/changer, et laisser l'IA écrire les lignes…"
+                    className="min-w-0 flex-1 bg-transparent text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] focus:outline-none"
+                  />
+                  <button
+                    onClick={generateWithAi}
+                    disabled={generatingAi || !aiIntent.trim()}
+                    className="shrink-0 rounded bg-[var(--c-accent-dim)] px-2.5 py-1 text-[11px] font-medium text-[var(--c-accent-text)] hover:bg-[var(--c-accent)] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {generatingAi ? "Génération…" : "Générer"}
+                  </button>
+                </div>
+                <details className="text-[11px] text-[var(--c-text-faint)]">
+                  <summary className="cursor-pointer select-none hover:text-[var(--c-text-muted)]">Aide-mémoire de la syntaxe</summary>
+                  <div className="mt-1.5 space-y-1 rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] p-2">
+                    <p>Un bloc = conditions/options facultatives, puis une commande. Blocs séparés par une ligne vide.</p>
+                    <ul className="list-inside list-disc space-y-0.5">
+                      {DSL_CONDITION_FIELDS.map((c) => (
+                        <li key={c.field}><code className="font-mono">{c.example}</code></li>
+                      ))}
+                      <li><code className="font-mono">&amp;&amp;</code> (ET) / <code className="font-mono">||</code> (OU) — combine plusieurs <code className="font-mono">target</code> sur une ligne, ex. <code className="font-mono">target os: debian || target os: ubuntu</code> (<code className="font-mono">&amp;&amp;</code> prioritaire sur <code className="font-mono">||</code>)</li>
+                      <li><code className="font-mono">sudo: true</code> — exécute la commande du bloc avec sudo</li>
+                    </ul>
+                    <p className="pt-1">Commandes disponibles :</p>
+                    <ul className="grid grid-cols-2 gap-x-2 gap-y-0.5">
+                      {DSL_FUNCTIONS.map((f) => (
+                        <li key={f.name}><code className="font-mono">{f.name} {f.args}</code></li>
+                      ))}
+                    </ul>
+                  </div>
+                </details>
+              </div>
+            )}
+          </div>
+
+          {mode === "intent" && previewGroups && (
+            <div className="mt-3 space-y-2">
+              {previewGroups.map((g, i) => (
+                <div key={i} className="rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] p-2">
+                  <div className="mb-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs">
+                    <span className="shrink-0 font-medium text-[var(--c-text)]">{g.hostIds.length} hôte(s) :</span>
+                    <span className="text-[var(--c-text-secondary)]">
+                      {g.hostIds.map((id) => hostById.get(id)?.label ?? id).join(", ")}
+                    </span>
+                  </div>
+                  {g.command != null ? (
+                    <textarea
+                      value={g.command}
+                      onChange={(e) => updateGroupCommand(i, e.target.value)}
+                      rows={g.command.split("\n").length}
+                      spellCheck={false}
+                      className="w-full resize-y rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-2 py-1.5 font-mono text-xs text-[var(--c-text)] focus:border-[var(--c-accent)] focus:outline-none"
+                    />
+                  ) : (
+                    <p className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-200">
+                      {g.note ?? "Rien à exécuter pour ces hôtes"} — exclus de l'exécution.
+                    </p>
+                  )}
+                </div>
+              ))}
+              <div className="flex gap-1.5">
+                <button
+                  onClick={runPlan}
+                  disabled={running || !previewGroups.some((g) => g.command != null)}
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-[var(--c-accent)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--c-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+                >
+                  <IconPlay size={13} />
+                  Exécuter le plan ({previewGroups.filter((g) => g.command != null).reduce((n, g) => n + g.hostIds.length, 0)} hôte(s))
+                </button>
+                <button
+                  onClick={openSaveDialog}
+                  className="rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-3 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)]"
+                >
+                  Sauvegarder comme snippet adaptatif
+                </button>
+              </div>
+            </div>
+          )}
+
           {runTargets.length > 0 && (
             <div className="mt-2 flex items-center gap-3 text-xs">
               <span className="text-[#22c55e]">✓ {summary.ok} ok</span>
@@ -517,6 +901,46 @@ export function FleetTab({ workspace, onError }: FleetTabProps) {
           )}
         </div>
       </section>
+
+      {showSnippetPicker && (
+        <SnippetPicker
+          snippets={workspace.snippets}
+          onRun={(resolvedCommand) => setCommand(resolvedCommand)}
+          onSnippetResolved={handleSnippetResolved}
+          onClose={() => setShowSnippetPicker(false)}
+        />
+      )}
+
+      {showSaveDialog && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 pt-[15vh]" onClick={() => setShowSaveDialog(false)}>
+          <div className="w-full max-w-sm overflow-hidden rounded-lg bg-[var(--c-bg2)] p-4 shadow-[var(--shadow-lg)]" onClick={(e) => e.stopPropagation()}>
+            <p className="mb-2 text-sm font-medium text-[var(--c-text)]">Sauvegarder comme snippet adaptatif</p>
+            <input
+              value={saveSnippetName}
+              onChange={(e) => setSaveSnippetName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") confirmSaveSnippet();
+                if (e.key === "Escape") setShowSaveDialog(false);
+              }}
+              placeholder="Nom du snippet"
+              autoFocus
+              className="w-full rounded-md bg-[var(--c-bg3)] px-2.5 py-1.5 text-sm text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+            />
+            <div className="mt-3 flex gap-1.5">
+              <button
+                onClick={confirmSaveSnippet}
+                disabled={!saveSnippetName.trim()}
+                className="accent-surface flex-1 rounded-md border py-1.5 text-xs font-medium disabled:opacity-40"
+              >
+                Sauvegarder
+              </button>
+              <button onClick={() => setShowSaveDialog(false)} className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5">
+                Annuler
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

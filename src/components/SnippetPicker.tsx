@@ -5,6 +5,15 @@ import { extractVariables, fillVariables } from "../lib/snippets";
 interface SnippetPickerProps {
   snippets: Snippet[];
   onRun: (command: string) => void;
+  /** Additionally passes the snippet itself — lets a caller special-case an
+   * adaptive snippet (route it into its own translate-then-run flow, e.g.
+   * `FleetTab`'s AI-intent mode or `App.tsx`'s per-terminal execution,
+   * instead of treating `resolvedText` as a literal command). When both this
+   * and the picked snippet are adaptive, `onRun` is *not* also called —
+   * `resolvedText` is DSL program text, not a runnable command, so only the
+   * caller that knows how to translate it should act on it. Optional and
+   * additive: existing callers that only need `onRun` are unaffected. */
+  onSnippetResolved?: (snippet: Snippet, resolvedText: string) => void;
   onClose: () => void;
 }
 
@@ -17,7 +26,7 @@ function splitNameAndArgs(query: string): { namePart: string; args: string[] } {
   return { namePart: trimmed.slice(0, spaceIdx), args: trimmed.slice(spaceIdx + 1).trim().split(/\s+/).filter(Boolean) };
 }
 
-export function SnippetPicker({ snippets, onRun, onClose }: SnippetPickerProps) {
+export function SnippetPicker({ snippets, onRun, onSnippetResolved, onClose }: SnippetPickerProps) {
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const [pending, setPending] = useState<{ snippet: Snippet; values: Record<string, string> } | null>(null);
@@ -33,15 +42,27 @@ export function SnippetPicker({ snippets, onRun, onClose }: SnippetPickerProps) 
     ? snippets.filter((s) => s.name.toLowerCase().includes(namePart.toLowerCase()))
     : snippets;
 
+  // Adaptive snippets are DSL program text, not a runnable command — when a
+  // caller has opted into handling that itself (`onSnippetResolved`), `onRun`
+  // must not also fire, or it would type the raw DSL into a terminal.
+  const resolve = (snippet: Snippet, resolvedText: string) => {
+    if (!(snippet.adaptive && onSnippetResolved)) onRun(resolvedText);
+    onSnippetResolved?.(snippet, resolvedText);
+  };
+
   const selectAt = (index: number, providedArgs: string[]) => {
     const snippet = filtered[index];
     if (!snippet) return;
     const variables = extractVariables(snippet.command);
-    if (variables.length === 0) { onRun(snippet.command); onClose(); return; }
+    if (variables.length === 0) {
+      resolve(snippet, snippet.command);
+      onClose();
+      return;
+    }
     const values = Object.fromEntries(variables.map((v, i) => [v, providedArgs[i] ?? ""]));
     if (providedArgs.length >= variables.length) {
       // Every {{variable}} was supplied inline (e.g. "sys start apache2") — run immediately.
-      onRun(fillVariables(snippet.command, values));
+      resolve(snippet, fillVariables(snippet.command, values));
       onClose();
     } else {
       // Partial (or no) args typed inline — prefill what we have and prompt for the rest.
@@ -52,7 +73,10 @@ export function SnippetPicker({ snippets, onRun, onClose }: SnippetPickerProps) 
   if (pending) {
     const variables = extractVariables(pending.snippet.command);
     const firstEmpty = variables.find((v) => !pending.values[v]) ?? variables[0];
-    const submit = () => { onRun(fillVariables(pending.snippet.command, pending.values)); onClose(); };
+    const submit = () => {
+      resolve(pending.snippet, fillVariables(pending.snippet.command, pending.values));
+      onClose();
+    };
     return (
       <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 pt-[15vh]" onClick={onClose}>
         <div className="w-full max-w-md overflow-hidden rounded-lg bg-[var(--c-bg2)] p-4 shadow-[var(--shadow-lg)]" onClick={(e) => e.stopPropagation()}>
@@ -118,7 +142,12 @@ export function SnippetPicker({ snippets, onRun, onClose }: SnippetPickerProps) 
                   i === activeIndex ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-secondary)]"
                 }`}
               >
-                <span className="truncate">{s.name}</span>
+                <span className="flex min-w-0 items-center gap-1.5">
+                  <span className="truncate">{s.name}</span>
+                  {s.adaptive && (
+                    <span className="shrink-0 rounded-full bg-sky-900/40 px-1.5 py-0.5 text-[9.5px] font-medium text-sky-300">adaptatif</span>
+                  )}
+                </span>
                 {variables.length > 0 ? (
                   <span className="ml-2 flex shrink-0 gap-1 overflow-hidden">
                     {variables.map((v, vi) => (

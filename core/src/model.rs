@@ -91,6 +91,32 @@ pub enum HostKind {
     Rdp,
 }
 
+/// Live state read off a host by [`crate::facts::collect`] — OS/kernel/CPU/
+/// load/memory, best-effort (a field that couldn't be read is simply `None`,
+/// never an error; see `crate::facts`'s module docs). Defined here rather
+/// than in `facts` because [`Host::last_facts`] persists the most recent
+/// snapshot as part of the workspace — `facts` (the collection logic) is a
+/// consumer of this type, not its owner.
+#[derive(Debug, Clone, Default, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostFacts {
+    pub hostname: Option<String>,
+    /// `/etc/os-release` `ID` — e.g. `ubuntu`, `debian`, `centos`, `alpine`.
+    pub os_id: Option<String>,
+    /// `/etc/os-release` `PRETTY_NAME` — e.g. `Ubuntu 22.04.3 LTS`.
+    pub os_name: Option<String>,
+    /// `uname -sr` — e.g. `Linux 6.5.0-14-generic`.
+    pub kernel: Option<String>,
+    pub arch: Option<String>,
+    pub cpus: Option<u32>,
+    pub load1: Option<f64>,
+    pub uptime_secs: Option<u64>,
+    pub mem_total_mb: Option<u64>,
+    pub mem_used_mb: Option<u64>,
+    /// Percentage of RAM in use (0–100), from `MemTotal`/`MemAvailable`.
+    pub mem_used_pct: Option<f64>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Host {
@@ -135,6 +161,17 @@ pub struct Host {
     /// agent for as long as the session is open. Unix-only, requires `auth: Agent`.
     #[serde(default)]
     pub agent_forward: bool,
+    /// Most recent state collected by a fleet facts-collection run (see
+    /// `crate::facts::collect`) — `None` until at least one such run has
+    /// included this host. Written only by that path, never by the host
+    /// edit form: this is observed state, not configuration, same
+    /// distinction as `crate::fleet_history`'s run records vs `workspace.json`.
+    #[serde(default)]
+    pub last_facts: Option<HostFacts>,
+    /// Unix epoch milliseconds of `last_facts`'s collection, so the UI can
+    /// show how stale it is.
+    #[serde(default)]
+    pub last_facts_at_ms: Option<u64>,
 }
 
 impl Host {
@@ -160,6 +197,8 @@ impl Host {
             icon: None,
             keepalive_interval_secs: None,
             agent_forward: false,
+            last_facts: None,
+            last_facts_at_ms: None,
         }
     }
 }
@@ -181,8 +220,20 @@ pub struct Group {
 pub struct Snippet {
     pub id: SnippetId,
     pub name: String,
+    /// For a classic snippet: the literal shell command (possibly with
+    /// `{{variables}}`). For an adaptive snippet (`adaptive: true`): a
+    /// program in the adaptive engine's small text DSL (also allowed to
+    /// contain `{{variables}}`, filled in the same way before use) — see
+    /// `crate::adaptive`'s module docs for the grammar. Re-parsed and
+    /// evaluated on demand each time it's used; nothing about it is cached,
+    /// since evaluation is pure and deterministic (only *writing*/extending
+    /// it via AI costs a network call).
     pub command: String,
     pub tags: Vec<String>,
+    /// Whether `command` is a DSL program (resolved per-host, per platform)
+    /// rather than a literal command run everywhere as-is.
+    #[serde(default)]
+    pub adaptive: bool,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]

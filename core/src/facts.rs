@@ -11,7 +11,7 @@
 //! `error` instead.
 
 use crate::fleet::{self, HostOutcome};
-use crate::model::{HostId, Workspace};
+use crate::model::{HostFacts, HostId, Workspace};
 use serde::Serialize;
 use std::sync::Arc;
 
@@ -27,27 +27,6 @@ echo \"CPUS=$(nproc 2>/dev/null)\"; \
 if [ -r /proc/uptime ]; then echo \"UPTIME=$(cut -d' ' -f1 /proc/uptime)\"; fi; \
 if [ -r /proc/loadavg ]; then echo \"LOAD1=$(cut -d' ' -f1 /proc/loadavg)\"; fi; \
 if [ -r /proc/meminfo ]; then awk '/^MemTotal:/{t=$2} /^MemAvailable:/{a=$2} END{if(t){print \"MEMTOTAL_KB=\"t; print \"MEMAVAIL_KB=\"a}}' /proc/meminfo; fi";
-
-/// Live state read off a host. Every field is optional — see the module docs.
-#[derive(Debug, Clone, Default, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HostFacts {
-    pub hostname: Option<String>,
-    /// `/etc/os-release` `ID` — e.g. `ubuntu`, `debian`, `centos`, `alpine`.
-    pub os_id: Option<String>,
-    /// `/etc/os-release` `PRETTY_NAME` — e.g. `Ubuntu 22.04.3 LTS`.
-    pub os_name: Option<String>,
-    /// `uname -sr` — e.g. `Linux 6.5.0-14-generic`.
-    pub kernel: Option<String>,
-    pub arch: Option<String>,
-    pub cpus: Option<u32>,
-    pub load1: Option<f64>,
-    pub uptime_secs: Option<u64>,
-    pub mem_total_mb: Option<u64>,
-    pub mem_used_mb: Option<u64>,
-    /// Percentage of RAM in use (0–100), from `MemTotal`/`MemAvailable`.
-    pub mem_used_pct: Option<f64>,
-}
 
 /// One host's facts result: either `facts` (probe ran) or `error` (it didn't).
 #[derive(Debug, Clone, Serialize)]
@@ -107,7 +86,8 @@ pub async fn collect(
     concurrency: usize,
 ) -> Vec<FactsOutcome> {
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<HostOutcome>();
-    fleet::run_on_hosts(workspace, host_ids, PROBE.to_string(), concurrency, tx).await;
+    let commands = fleet::uniform_commands(&host_ids, PROBE);
+    fleet::run_on_hosts(workspace, commands, concurrency, tx).await;
     let mut out = Vec::new();
     while let Some(outcome) = rx.recv().await {
         out.push(to_facts_outcome(outcome));

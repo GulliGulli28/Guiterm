@@ -41,6 +41,11 @@ tower-service = "0.3"
 argon2 = "0.5"
 chacha20poly1305 = "0.10"
 base64 = "0.22"
+# `adaptive`: calls the Anthropic Messages API to generate a per-OS command
+# from a natural-language intent. rustls (not native-tls) to avoid an
+# OpenSSL dependency; default-features off + explicit `json` since we only
+# ever do one POST with a JSON body/response, nothing else reqwest offers.
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
 
 [dev-dependencies]
 tempfile = "3"

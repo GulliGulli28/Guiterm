@@ -33,6 +33,8 @@ interface SidebarProps {
   onUpdateSnippet: (id: SnippetId, name: string, command: string) => void;
   onDeleteSnippet: (id: SnippetId) => void;
   onRunSnippet: (command: string, targetTabIds?: string[]) => void;
+  onRunAdaptiveSnippet: (programText: string, targetTabIds?: string[]) => void;
+  onSaveAdaptiveSnippet: (id: SnippetId | null, name: string, command: string) => void;
   openTerminals: { id: string; label: string }[];
   onAddForward: (input: { hostId: HostId; kind: PortForwardKind; bindAddress: string; bindPort: number; destAddress: string; destPort: number }) => void;
   onDeleteForward: (id: PortForwardId) => void;
@@ -132,6 +134,8 @@ export function Sidebar(props: SidebarProps) {
               onUpdateSnippet={props.onUpdateSnippet}
               onDeleteSnippet={props.onDeleteSnippet}
               onRunSnippet={props.onRunSnippet}
+              onRunAdaptiveSnippet={props.onRunAdaptiveSnippet}
+              onSaveAdaptiveSnippet={props.onSaveAdaptiveSnippet}
               openTerminals={props.openTerminals}
             />
           )}

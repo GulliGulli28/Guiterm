@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { TabMeta } from "../lib/types";
-import { IconTerminal, IconTransfer, IconMonitor, IconSplit, IconClose, IconBroadcast } from "./ui-icons";
+import { IconTerminal, IconTransfer, IconMonitor, IconSplit, IconClose, IconBroadcast, IconServerStack } from "./ui-icons";
 
 interface TabBarProps {
   tabs: TabMeta[];
@@ -11,6 +11,7 @@ interface TabBarProps {
   onClose: (id: string) => void;
   onToggleSplit: () => void;
   onToggleBroadcast: () => void;
+  onOpenFleet: () => void;
   onReorder: (tabs: TabMeta[]) => void;
   /** Resolves a tab to its host group's tag color (hex), if any. */
   tabColor?: (tab: TabMeta) => string | undefined;
@@ -23,7 +24,7 @@ function TabIcon({ kind }: { kind: TabMeta["kind"] }) {
   return <IconMonitor size={13} />;
 }
 
-export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, onSelect, onClose, onToggleSplit, onToggleBroadcast, onReorder, tabColor }: TabBarProps) {
+export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, onSelect, onClose, onToggleSplit, onToggleBroadcast, onOpenFleet, onReorder, tabColor }: TabBarProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const dragState = useRef<{ draggedId: string; moved: boolean; startX: number } | null>(null);
   const [draggedId, setDraggedId] = useState<string | null>(null);
@@ -101,6 +102,13 @@ export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, onSelect
           );
         })}
       </div>
+      <button
+        onClick={onOpenFleet}
+        title="Opérations de flotte — exécuter une commande sur plusieurs hôtes à la fois"
+        className="flex shrink-0 items-center justify-center rounded-lg border border-transparent p-1.5 text-[var(--c-text-secondary)] transition-all hover:bg-[var(--c-bg3)] hover:text-[var(--c-text)]"
+      >
+        <IconServerStack size={15} />
+      </button>
       <button
         onClick={onToggleBroadcast}
         title={broadcastActive ? "Quitter la diffusion" : "Diffuser une commande à tous les terminaux ouverts"}

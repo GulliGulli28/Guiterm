@@ -366,6 +366,7 @@ pub fn add_snippet(
         name,
         command,
         tags: Vec::new(),
+        adaptive: false,
     });
     persist(&workspace)?;
     Ok(workspace.clone())

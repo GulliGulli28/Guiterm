@@ -1,6 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AuthMethod, DockerContainer, EnvVar, Entry, FactsOutcome, FleetOutcome, FleetRun, GroupId, HostId, HostKind, ImportSelection, KeyAlgorithm, KeyId, KnownHostEntry, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, RdpClientMessage, RdpFrame, SnippetId, SshConfigHost, TransferProgressEvent, VaultStatus, Workspace } from "./types";
+import type { AuthMethod, CollectFactsResult, DockerContainer, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, GroupId, HostId, HostKind, ImportSelection, KeyAlgorithm, KeyId, KnownHostEntry, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, RdpClientMessage, RdpFrame, SnippetId, SshConfigHost, TransferProgressEvent, VaultStatus, Workspace } from "./types";
 
 /** Mirrors the 12-byte little-endian header `commands::rdp_view::connect_rdp_view`
  * writes ahead of each frame's raw RGBA8 pixels (see its doc comment for why
@@ -149,11 +149,45 @@ export const api = {
     invoke<void>("run_fleet_command", { runId, hostIds, command }),
 
   /** Collects live state (OS, kernel, CPU, load, memory) for `hostIds` (SSH
-   * only), concurrently. Batch: resolves once every host has reported. */
-  collectFacts: (hostIds: HostId[]) => invoke<FactsOutcome[]>("collect_facts", { hostIds }),
+   * only), concurrently. Batch: resolves once every host has reported.
+   * Successful outcomes are persisted onto each host as `lastFacts` — the
+   * returned `workspace` already reflects that and is the source of truth
+   * to render from; `outcomes` additionally carries per-host errors. */
+  collectFacts: (hostIds: HostId[]) => invoke<CollectFactsResult>("collect_facts", { hostIds }),
 
   /** The persisted fleet run history (audit trail), newest first. */
   getFleetHistory: () => invoke<FleetRun[]>("get_fleet_history"),
+
+/** Asks the AI to write (`existingText: ""`) or extend a DSL program
+   * implementing `intent` — see `src/lib/operations.ts` for the syntax.
+   * The response is validated server-side before being returned; an
+   * invalid response rejects with a clear error rather than being handed
+   * back as-is. */
+  generateAdaptiveProgram: (existingText: string, intent: string) =>
+    invoke<string>("generate_adaptive_program", { existingText, intent }),
+
+  /** Parses `programText` and evaluates it against every host in `hostIds`
+   * (using each host's last collected facts), grouping hosts by the exact
+   * command they'd run. Purely deterministic — no AI call, no execution. */
+  previewAdaptiveProgram: (hostIds: HostId[], programText: string) =>
+    invoke<ExecutionGroup[]>("preview_adaptive_program", { hostIds, programText }),
+
+  /** Executes a reviewed preview — flattens `groups` into a per-host
+   * command dispatch, streamed the same way as `runFleetCommand` (same
+   * `onFleetOutcome`/`onFleetDone` events, same `runId` convention). Only
+   * pass groups that have a `command` — see `ExecutionGroup`. */
+  runAdaptivePlan: (runId: string, intent: string, groups: { hostIds: HostId[]; command: string }[]) =>
+    invoke<void>("run_adaptive_plan", { runId, intent, groups }),
+
+  /** Creates (`snippetId: null`) or updates an adaptive snippet — `command`
+   * is the DSL program text verbatim. */
+  saveAdaptiveSnippet: (snippetId: SnippetId | null, name: string, command: string) =>
+    invoke<Workspace>("save_adaptive_snippet", { snippetId, name, command }),
+
+  setAnthropicApiKey: (key: string) => invoke<void>("set_anthropic_api_key", { key }),
+  clearAnthropicApiKey: () => invoke<void>("clear_anthropic_api_key"),
+  /** Never returns the key itself — only whether one is configured. */
+  hasAnthropicApiKey: () => invoke<boolean>("has_anthropic_api_key"),
 };
 
 export function onTransferProgress(handler: (e: TransferProgressEvent) => void): Promise<UnlistenFn> {

@@ -257,6 +257,51 @@ Chromium/Playwright classique, headless ou non. C'est exactement ce que
 `npm run test:e2e` (section précédente) couvre — l'utiliser dès qu'une
 commande `invoke(...)` réelle doit être exercée, pas seulement son DOM.
 
+## Lancer l'app Windows en conditions réelles — OBLIGATOIRE après un changement
+
+Demande explicite de l'utilisateur (2026-07-16, après une session où seuls
+`clippy`/`tsc`/`vitest`/le smoke test E2E automatisé avaient tourné) : ces
+vérifications prouvent que le code compile et que la fenêtre s'ouvre sans
+crasher, mais aucune ne remplace un humain qui clique réellement dans l'app.
+**Après un changement qui touche le comportement de l'app (UI, commande
+Tauri, logique métier — pas seulement des tests/docs/scripts), construire et
+lancer le vrai binaire natif Windows (WebView2, ce que l'utilisateur lance
+réellement) pour qu'il puisse tester lui-même**, en plus des vérifications
+automatisées habituelles, jamais à leur place.
+
+Séquence (mêmes pièges que « Tests E2E réels » ci-dessus — NASM/PATH,
+`CARGO_TARGET_DIR` sur un chemin NTFS natif jamais UNC, feature
+`custom-protocol` obligatoire pour embarquer `dist/`, tuer un
+`guiterm.exe`/`rdp-sidecar.exe` resté ouvert avant de rebuilder sous peine de
+`PermissionDenied` sur la copie du binaire) :
+
+```bash
+# 1. Frontend — seulement si des fichiers de src/ ont changé (inutile pour
+#    un changement 100% Rust) :
+wsl.exe -e bash -lc "cd ~/gui-termius && npm run build"
+```
+```powershell
+# 2. Binaire Windows natif release (embarque le dist/ de l'étape 1) :
+$env:PATH += ";$env:USERPROFILE\.cargo\bin;C:\Program Files\NASM"
+$env:CARGO_TARGET_DIR = "$env:USERPROFILE\gui-termius-target-windows"
+Get-Process guiterm,rdp-sidecar -ErrorAction SilentlyContinue | Stop-Process -Force
+Set-Location "\\wsl.localhost\Ubuntu-24.04\home\glorin\gui-termius\src-tauri"
+& "$env:USERPROFILE\.cargo\bin\cargo.exe" build --release --features tauri/custom-protocol
+
+# 3. Lancer, détaché (ne doit jamais bloquer la session) :
+Start-Process "$env:CARGO_TARGET_DIR\release\guiterm.exe"
+```
+
+Prévenir l'utilisateur une fois la fenêtre lancée plutôt que de simplement
+dire « c'est vérifié » — c'est lui qui teste, pas l'agent. Le binaire de dev
+(`cargo build` sans `--release --features tauri/custom-protocol`, celui que
+`npm run test:e2e` pilote sous WSL/WebKitGTK) ne compte pas pour cette étape :
+il charge `devUrl` (Vite), pas `dist/`, et tourne sous WebKitGTK, pas
+WebView2 — l'un ne remplace pas l'autre, voir le tableau de la section E2E
+ci-dessus. Inutile de reconstruire pour un changement qui ne touche que des
+fichiers de test, de documentation, ou des scripts (`scripts/*.mjs`) sans
+effet sur `src/`/`src-tauri/`/`core/`.
+
 ## Stockage des secrets : trousseau OS ou coffre chiffré (opt-in)
 
 `core/src/vault.rs` est le point de passage unique pour les mots de passe et
@@ -1617,6 +1662,21 @@ Features majeures retenues, dans l'ordre de priorité restant :
    voir la section dédiée plus haut pour le détail complet des deux bugs et
    du fix final ; limites restantes détaillées dans la même section.
 
+5. **Opérations de flotte + moteur de snippets adaptatifs** — ✅ **fait**.
+   Exécution d'une commande sur plusieurs hôtes à la fois (`core/src/fleet.rs`,
+   onglet `FleetTab.tsx`, ouvrable via un bouton dédié dans la barre
+   d'onglets), avec état système collecté et persisté par hôte (`HostFacts`
+   sur `Host`) et filtres de sélection (RAM/CPU/charge/uptime/OS). Par-dessus :
+   un petit langage textuel (conditions `target os:`/`target ram: > N`,
+   option `sudo`, huit opérations d'infra courantes) qu'on peut écrire à la
+   main ou faire rédiger/étendre par une IA à partir d'une instruction en
+   français — l'IA n'écrit jamais de shell directement, seulement du texte
+   dans cette grammaire, validé par le même parseur que la saisie manuelle
+   avant d'être montré à l'utilisateur ; le rendu shell final par plateforme
+   reste une table déterministe écrite à la main. Voir la section « Moteur
+   de snippets adaptatifs » ci-dessous pour l'architecture complète et les
+   deux itérations abandonnées le même jour.
+
 **Avant de proposer une feature « évidente » de client SSH, vérifier
 `src/components/` : elle existe probablement déjà.** L'app est déjà très complète
 — palette de commandes (`CommandPalette`), broadcast/cluster (`BroadcastBar`),
@@ -1846,6 +1906,262 @@ liens du post technique — ont été corrigées vers `GulliGulli28/Guiterm`.
 --workspace`, `npx vitest run`, `node scripts/e2e-run.mjs` — tous verts,
 capture d'écran réelle confirmant "Guiterm" dans la barre de titre et les
 hôtes existants de l'utilisateur toujours chargés).
+
+## Opérations de flotte : bouton dédié, facts persistées, filtres étendus, snippets (2026-07-16)
+
+Le fleet executor existait déjà (`core/src/fleet.rs`, `FleetTab.tsx`, ouvert
+jusque-là uniquement via la palette de commandes) — cette session l'a rendu
+plus accessible et plus riche, sans toucher au mécanisme de fan-out
+lui-même.
+
+- **Bouton dédié dans la barre d'onglets** : nouvelle icône (`IconServerStack`,
+  `ui-icons.tsx`) à côté du bouton diffusion dans `TabBar.tsx`, plutôt que de
+  fusionner les deux concepts malgré leur icône partagée d'origine (diffusion
+  = terminaux déjà ouverts ; flotte = hôtes, indépendamment de tout onglet
+  ouvert). `App.tsx::openFleet` ne crée plus un nouvel onglet à chaque clic :
+  il refocalise l'onglet Flotte existant s'il y en a déjà un.
+- **État collecté (`facts`) persisté sur l'hôte**, plutôt que gardé en mémoire
+  React le temps de l'onglet : `Host` gagne `last_facts: Option<HostFacts>` +
+  `last_facts_at_ms: Option<u64>` (`core/src/model.rs`, `#[serde(default)]`
+  pour rester compatible avec un `workspace.json` existant). `HostFacts`
+  elle-même a été déplacée de `core/src/facts.rs` vers `model.rs` (c'est
+  maintenant une partie du modèle de données persisté, pas seulement le
+  type de retour d'une collecte ponctuelle). `commands::facts::collect_facts`
+  met à jour et sauvegarde le workspace après chaque collecte plutôt que de
+  se contenter de renvoyer les résultats ; une collecte en échec sur un hôte
+  laisse le dernier état connu inchangé plutôt que de l'effacer. Affiché en
+  petit sous chaque hôte SSH dans `HostsPanel.tsx` et dans la liste de cibles
+  de `FleetTab.tsx` (OS + RAM% + horodatage relatif via le nouveau
+  `src/lib/format.ts::formatRelativeTime`, extrait de `NotificationBell.tsx`
+  qui en avait déjà une copie locale). **Piège UX trouvé par l'utilisateur** :
+  OS et RAM sur la même ligne devenaient illisibles panneau réduit — les deux
+  informations sont maintenant sur des lignes séparées dans les deux
+  affichages.
+- **Filtres de sélection étendus** : le filtre RAM-seul d'origine est devenu
+  cinq critères combinables en ET (RAM/CPU/charge 1 min/uptime/OS), chacun
+  avec sa propre case à cocher (`FactFilters` dans `FleetTab.tsx`) — cocher
+  active le critère, pas besoin de valeur sentinelle « désactivé » pour les
+  champs numériques.
+- **Snippets exécutables depuis la flotte** : bouton « Snippet » dans le
+  composeur, ouvre le `SnippetPicker` déjà utilisé ailleurs dans l'app. Il
+  remplit la zone de commande plutôt que d'exécuter immédiatement — choix
+  délibéré : un run de flotte part potentiellement vers des dizaines
+  d'hôtes réels, l'étape de relecture explicite avant « Exécuter » reste la
+  garde-fou, contrairement au comportement usuel du picker sur un terminal
+  unique.
+- `core::fleet::run_on_hosts` généralisé de `(host_ids: Vec<HostId>,
+  command: String)` à `(commands: HashMap<HostId, String>)` — un hôte peut
+  désormais exécuter une commande différente des autres dans un même run,
+  brique nécessaire pour tout ce qui suit (moteur adaptatif). Un nouvel
+  helper `fleet::uniform_commands(&host_ids, &command)` reconstruit la carte
+  uniforme pour l'usage classique (`run_fleet_command`, `facts::collect`),
+  aucun appelant existant n'a eu besoin de changer de comportement.
+
+**Vérifié** : `cargo clippy --workspace --all-targets -- -D warnings`
+propre, `cargo test --workspace` vert, `npx tsc --noEmit`, `node
+scripts/e2e-run.mjs`, et un vrai build Windows relancé pour test utilisateur
+après chaque changement de cette section.
+
+## Moteur de snippets adaptatifs : d'une classification IA vers un petit langage textuel (2026-07-16)
+
+Trois itérations la même journée, chacune motivée par un retour direct de
+l'utilisateur une fois la précédente testée. Décrit ici l'architecture
+**finale** (la seule encore présente dans le code) puis, brièvement,
+pourquoi les deux précédentes ont été abandonnées — utile pour ne pas les
+redécouvrir en se demandant « pourquoi ne pas juste utiliser le tool-use
+d'Anthropic ici, ce serait plus simple ? ».
+
+### Le besoin
+
+Exécuter une opération sur une flotte hétérogène (Ubuntu, CentOS, Alpine…)
+sans écrire soi-même la commande spécifique à chaque gestionnaire de
+paquets/service, et sans confier à une IA la génération du shell final
+elle-même (risque d'hallucination sur la syntaxe exacte, différent par
+plateforme).
+
+### Architecture finale : un petit DSL textuel, l'IA comme rédactrice de ce texte
+
+Un *programme* est le seul artefact que le moteur manipule — écrit à la
+main, écrit/étendu par l'IA à partir d'une instruction en français, ou les
+deux à la fois sur le même texte (`Snippet.command` porte ce texte quand
+`adaptive: true`, exactement comme il porte déjà un `{{template}}` pour un
+snippet classique — les `{{variables}}` fonctionnent donc gratuitement,
+aucun traitement spécial nécessaire).
+
+**Grammaire** (`core/src/adaptive.rs`, en tête de fichier pour la version
+autoritative) : le programme est une suite de *blocs* séparés par une ligne
+vide. Un bloc = zéro ou plusieurs lignes de condition/option, puis
+exactement une ligne de commande :
+
+```
+target os: debian
+sudo: true
+install-package nginx
+
+target ram: > 80
+restart-service nginx
+```
+
+- `target <champ>: <valeur>` — `champ` ∈ {os, ram, cpu, load, uptime}. Pour
+  `os`, texte libre comparé en sous-chaîne insensible à la casse contre
+  `os_id`/`os_name`. Pour les champs numériques, un opérateur optionnel
+  (`>`, `>=`, `<`, `<=`, `=`, défaut `=`) puis un nombre — `uptime` est en
+  jours. Plusieurs `target` peuvent se combiner sur une même ligne avec
+  `&&` (ET) / `||` (OU) — `&&` prioritaire sur `||`, comme dans la plupart
+  des langages (voir « Opérateurs `&&`/`||` » ci-dessous). Plusieurs
+  *lignes* `target` dans un bloc se combinent toujours en ET entre elles,
+  quel que soit le contenu de chaque ligne ; un bloc sans aucun `target`
+  s'applique à tous les hôtes.
+- `sudo: true` (ou juste `sudo`) — préfixe la commande de ce bloc avec `sudo `.
+- La ligne de commande nomme une des huit fonctions connues —
+  `install-package`, `remove-package`, `update-packages`, `start-service`,
+  `stop-service`, `restart-service`, `enable-service`, `disable-service` —
+  avec un argument (nom de paquet/service) pour toutes sauf
+  `update-packages`.
+
+**Évaluation par hôte** (`compose_for_host`) : chaque bloc dont les
+conditions correspondent à l'hôte contribue sa commande rendue ; toutes les
+commandes retenues sont jointes par des retours à la ligne, dans l'ordre du
+programme — un hôte peut donc exécuter plusieurs blocs, pas un seul.
+`preview()` regroupe ensuite tous les hôtes ciblés par leur commande
+composée résultante (ou leur absence de commande + la raison) — c'est ce
+regroupement, pas un regroupement par plateforme, qui permet à l'écran de
+relecture d'afficher **la vraie liste des hôtes concernés par chaque
+commande**, demandé explicitement par l'utilisateur (avant : juste un
+nombre).
+
+**Rendu déterministe** (`render_command`, table écrite et testée à la main,
+inchangée dans son principe depuis la toute première itération) : familles
+de gestionnaires de paquets (apt/dnf/apk/pacman/zypper) et de services
+(systemd/openrc), un hôte inconnu ou une plateforme non couverte renvoie
+`None` plutôt qu'une supposition. `is_safe_token` valide chaque argument
+(paquet/service) contre une liste blanche de caractères avant de
+l'interpoler dans le gabarit shell — seul rempart réel contre une injection
+via un nom fourni par l'IA (ou tapé à la main), donc jamais retiré au fil
+des réécritures.
+
+**Le rôle de l'IA** (`generate_program`) : rédiger — jamais exécuter — du
+texte dans cette même grammaire, à partir d'une instruction en français et
+(si non vide) du programme déjà existant à étendre. Système d'invite qui
+décrit la grammaire complète ; la réponse est repassée dans le **même**
+`parse_program` que la saisie manuelle avant d'être renvoyée au frontend —
+une réponse mal formée remonte comme une erreur explicite, jamais acceptée
+telle quelle. Un seul appel IA par génération, quel que soit le nombre de
+plateformes distinctes parmi les hôtes ciblés (contrairement à la première
+itération, voir plus bas).
+
+**Opérateurs `&&`/`||` dans les conditions (2026-07-16, ajouté après coup à
+la demande de l'utilisateur).** Jusque-là, plusieurs `target` dans un bloc
+ne pouvaient se combiner qu'en ET (une ligne par condition), sans aucun
+moyen d'exprimer un OU — pour cibler par exemple « debian OU ubuntu » il
+aurait fallu dupliquer tout le bloc. `core/src/adaptive.rs` : `Condition`
+(un atome) reste inchangé, mais `Statement.conditions` est passé de
+`Vec<Condition>` à `Vec<ConditionExpr>` — un nouvel enum
+`ConditionExpr::{Atom, And, Or}` (arbre binaire) qui représente le résultat
+du parsing d'**une ligne** de condition. Une ligne peut désormais contenir
+plusieurs atomes `target …` combinés avec `&&`/`||` (`parse_condition_expr`,
+précédence conventionnelle : split d'abord sur `||` — priorité la plus
+basse —, puis chaque partie sur `&&`) ; plusieurs *lignes* dans un bloc
+continuent de se combiner en ET entre elles exactement comme avant, donc
+tout programme déjà écrit (une condition par ligne) reste valide et se
+comporte à l'identique — testé explicitement
+(`one_line_and_is_equivalent_to_two_separate_lines`). `condition_expr_matches`
+évalue l'arbre récursivement ; `statement_applies` en fait le ET sur les
+lignes, inchangé dans son principe. Le prompt système de l'IA
+(`SYSTEM_PROMPT`) documente la nouvelle syntaxe pour qu'elle puisse aussi
+écrire des `||`, pas seulement les révisions manuelles. Aide-mémoire mis à
+jour dans les deux endroits qui l'affichent (`FleetTab.tsx`,
+`SnippetsPanel.tsx`) — un seul texte statique ajouté à la main dans chacun,
+`src/lib/operations.ts` n'avait pas besoin de nouvelle structure de données
+pour une seule ligne d'aide. **Vérifié** : `cargo test -p termius-core`
+(33 tests dans `adaptive::tests`, dont 6 nouveaux couvrant `&&`, `||`, la
+précédence, l'équivalence une-ligne/deux-lignes, et une expression avec
+opérateur en trop — 27 existaient déjà avant cet ajout), `cargo clippy
+--workspace --all-targets -- -D warnings` propre, `npx tsc --noEmit` propre
+(aucun changement frontend au-delà de l'aide-mémoire — l'évaluation reste
+entièrement côté Rust, `preview_adaptive_program` inchangé dans sa
+signature).
+
+### Ce qui a été essayé puis abandonné le même jour
+
+- **Itération 1 : classification par tool-use Anthropic.** L'IA choisissait,
+  via le tool-use natif (sortie contrainte par schéma JSON), une parmi huit
+  « opérations » structurées (`Operation` — alors un champ persisté sur
+  `Snippet`, avec un `platform_commands: HashMap<os_id, String>` en guise de
+  cache), un appel IA **par plateforme détectée**. Séquence des étapes :
+  `core::vault` généralisé pour un secret global non lié à un hôte (clé API
+  Anthropic — `store_raw`/`load_raw`/`delete_raw` factorisés, les fonctions
+  par-hôte existantes deviennent de simples enveloppes), section « IA » dans
+  Paramètres → Sécurité (`AdaptiveEngineSettings.tsx`). Abandonnée : une
+  seule opération par snippet, pas de conditions, pas de `sudo`, et coder
+  des conditions/blocs multiples dans un schéma de tool-use aurait été
+  nettement plus complexe pour un bénéfice de sûreté équivalent à « l'IA
+  écrit du texte que mon propre parseur valide ».
+- **Itération 2 : création manuelle par menu déroulant.** Une fois le
+  besoin « je veux aussi pouvoir le faire sans IA » exprimé, un mode
+  « Adaptatif » dans `SnippetsPanel.tsx` proposait un `<select>` des huit
+  opérations + un champ argument, construisant le même `Operation`
+  structuré à la main. Abandonnée le jour même quand l'utilisateur a demandé
+  les conditions/`sudo`/blocs multiples : un menu déroulant ne s'y prêtait
+  pas, contrairement à du texte libre. Le mode « Adaptatif » de
+  `SnippetsPanel.tsx` est aujourd'hui une simple zone de texte (comme le
+  mode « Script »), avec un aide-mémoire de syntaxe repliable
+  (`<details>`) réutilisant `src/lib/operations.ts` — ce fichier, qui
+  contenait la liste pour le `<select>` disparu, sert maintenant uniquement
+  de référence statique affichée à l'utilisateur.
+
+Conséquence architecturale de cet historique : `Operation`/`Condition`/
+`Statement`/`Program` ne sont **plus** des champs persistés sur `Snippet`
+(model.rs) — ils vivent uniquement dans `core/src/adaptive.rs` comme
+représentation interne de parsing, jamais sérialisée. `Snippet` a perdu ses
+champs `operation`/`platform_commands` : un snippet adaptatif n'a plus que
+`command` (le texte du programme) et `adaptive: bool`. Plus rien n'est mis
+en cache — reparser et réévaluer est gratuit et déterministe, donc rejouer
+un snippet adaptatif sur une flotte jamais vue coûte toujours zéro appel IA,
+y compris sur une plateforme totalement nouvelle (contrairement à
+l'itération 1, où seule une plateforme *déjà rencontrée* évitait un nouvel
+appel).
+
+### Fichiers touchés (état final)
+
+- `core/src/adaptive.rs` — grammaire, parseur (`parse_program`), évaluateur
+  (`condition_matches`/`statement_applies`/`compose_for_host`/`preview`),
+  table de rendu, appel IA (`generate_program`). 27 tests unitaires.
+- `core/src/model.rs` — `Snippet` simplifié (`adaptive: bool` seulement en
+  plus de `command`/`name`/`tags`/`id`).
+- `core/src/vault.rs` — primitives génériques `store_raw`/`load_raw`/
+  `delete_raw` + `store_anthropic_api_key`/`load_anthropic_api_key`/
+  `delete_anthropic_api_key`.
+- `core/Cargo.toml` — dépendance directe `reqwest` (rustls, sans
+  native-tls) pour l'appel Anthropic ; vérifié qu'elle ne réintroduit pas de
+  conflit façon `ecdsa`/RDP (voir plus haut) — resolution propre et rapide
+  la première fois, aucun souci.
+- `src-tauri/src/commands/adaptive.rs` — `generate_adaptive_program`,
+  `preview_adaptive_program`, `run_adaptive_plan` (réutilise
+  `commands::fleet::execute_and_record`, factorisé hors de
+  `run_fleet_command` pour être partagé), `save_adaptive_snippet`,
+  gestion de la clé API.
+- Frontend : `FleetTab.tsx` (mode « Intention (IA) » = zone de texte pour le
+  programme + petit champ d'instruction français + bouton Générer, bouton
+  Prévisualiser séparé qui n'appelle jamais l'IA), `SnippetsPanel.tsx`
+  (mode « Adaptatif »), `src/lib/operations.ts` (aide-mémoire statique),
+  `src/lib/types.ts` (`ExecutionGroup` remplace les types des itérations
+  précédentes).
+
+**Vérifié à chaque itération** : `cargo clippy --workspace --all-targets --
+-D warnings` (+ `rdp-sidecar` séparément) propre, `cargo test --workspace`
+vert (91 tests unitaires au total après la version finale, dont 27 pour
+`adaptive.rs`), `npx tsc --noEmit`, `npx vitest run`, `node
+scripts/e2e-run.mjs`, et un vrai build Windows release reconstruit et
+relancé après chaque itération pour que l'utilisateur teste l'UI.
+
+**Non vérifié, à confirmer par l'utilisateur** : aucun appel réel à l'API
+Anthropic n'a eu lieu dans cet environnement de dev (aucune clé configurée
+ici) — seuls les chemins déterministes (parseur, évaluateur, rendu) ont été
+exercés pour de vrai. Le chemin manuel (écrire `install-package nginx` à la
+main dans Opérations de flotte, Prévisualiser, Exécuter) est le seul
+testable sans clé API et devrait être la première chose validée en
+conditions réelles, avant `generate_program` lui-même.
 
 ## Habitudes de collaboration sur ce projet
 

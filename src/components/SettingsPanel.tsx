@@ -11,6 +11,7 @@ import { TERMINAL_THEMES, FONT_FAMILIES, ACCENT_COLORS, BG_THEMES, type UiAccent
 import { SHORTCUT_ACTIONS, defaultShortcuts, comboFromEvent, shellBindingWarning } from "../lib/shortcuts";
 import { IconUpload, IconDownload, IconPalette, IconTerminal, IconTransfer, IconKeyboard, IconBell, IconSettings, IconSun, IconMoon, IconRefresh, IconShield } from "./ui-icons";
 import { VaultSettings } from "./VaultSettings";
+import { AdaptiveEngineSettings } from "./AdaptiveEngineSettings";
 
 type UpdateStatus = "idle" | "checking" | "upToDate" | "available" | "installing" | "error";
 
@@ -458,12 +459,15 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
         )}
 
         {category === "securite" && (
-          <VaultSettings
-            status={vaultStatus}
-            onChange={onVaultStatusChange}
-            preferences={preferences}
-            onPreferencesChange={onPreferencesChange}
-          />
+          <div className="space-y-3">
+            <VaultSettings
+              status={vaultStatus}
+              onChange={onVaultStatusChange}
+              preferences={preferences}
+              onPreferencesChange={onPreferencesChange}
+            />
+            <AdaptiveEngineSettings />
+          </div>
         )}
 
         {category === "raccourcis" && (
