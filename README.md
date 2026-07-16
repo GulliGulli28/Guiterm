@@ -4,11 +4,11 @@
 with Docker exec, an integrated RDP viewer, and an optional encrypted secrets
 vault built in. No mandatory cloud account, no subscription to use it.**
 
-[![CI](https://github.com/GulliGulli28/guiterm/actions/workflows/ci.yml/badge.svg)](https://github.com/GulliGulli28/guiterm/actions/workflows/ci.yml)
-[![Security](https://github.com/GulliGulli28/guiterm/actions/workflows/security.yml/badge.svg)](https://github.com/GulliGulli28/guiterm/actions/workflows/security.yml)
+[![CI](https://github.com/GulliGulli28/Guiterm/actions/workflows/ci.yml/badge.svg)](https://github.com/GulliGulli28/Guiterm/actions/workflows/ci.yml)
+[![Security](https://github.com/GulliGulli28/Guiterm/actions/workflows/security.yml/badge.svg)](https://github.com/GulliGulli28/Guiterm/actions/workflows/security.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
 [![Platform](https://img.shields.io/badge/platform-Windows%20%7C%20Linux-informational)](#installation)
-[![Latest release](https://img.shields.io/github/v/release/GulliGulli28/guiterm?include_prereleases)](https://github.com/GulliGulli28/guiterm/releases)
+[![Latest release](https://img.shields.io/github/v/release/GulliGulli28/Guiterm?include_prereleases)](https://github.com/GulliGulli28/Guiterm/releases)
 
 <!--
   TODO before publishing: replace this block with a real screenshot or short
@@ -176,7 +176,7 @@ for clipboard sync) — is written up in
 ## Installation
 
 Download the latest installer for your platform from the
-[Releases](https://github.com/GulliGulli28/guiterm/releases) page
+[Releases](https://github.com/GulliGulli28/Guiterm/releases) page
 (Windows `.msi`/`.exe`, Linux `.deb`/`.rpm`/AppImage). The app updates
 itself afterward (silent check on launch, or Settings → General → "Check
 for updates").

@@ -36,7 +36,7 @@
     "updater": {
       "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IEExQTUwMkI1OUY5RTlGNEEKUldSS241NmZ0UUtsb1lRSGNLS29ZS2NrMjJ4OTNjUlZ4NmVjY1VnMTNCeUVJK25mTWhFTjF2NzAK",
       "endpoints": [
-        "https://github.com/GulliGulli28/guiterm/releases/latest/download/latest.json"
+        "https://github.com/GulliGulli28/Guiterm/releases/latest/download/latest.json"
       ]
     }
   }

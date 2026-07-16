@@ -1830,19 +1830,22 @@ réfléchir à deux fois** :
   racine — maquette statique de design, pas branchée sur le build réel, non
   renommée.
 
-**Reste à faire, hors de portée d'un agent (actions sur le compte GitHub de
-l'utilisateur, ou décisions produit)** :
-- Renommer le dépôt GitHub lui-même (`GulliGulli28/gui-termius` →
-  `GulliGulli28/guiterm`, Settings → repository name). Tant que ce n'est pas
-  fait, les URLs déjà mises à jour dans `tauri.conf.json` (endpoint de
-  l'updater) et les badges/liens de `README.md` pointent vers un slug qui
-  n'existe pas encore — à faire avant la prochaine release, sous peine
-  d'updater cassé (404) pour les futurs installs construits depuis ce code.
-  Après le renommage GitHub, mettre à jour le remote local
-  (`git remote set-url origin ...`).
-- Régénérer `Cargo.lock`/`package-lock.json` après le renommage de package
-  (`cargo build --workspace`, `npm install`) — pas fait automatiquement par
-  une simple édition de `Cargo.toml`/`package.json`.
+**Fait le 2026-07-16, plus tard le même jour** : l'utilisateur a renommé le
+dépôt GitHub lui-même en `GulliGulli28/Guiterm` (casse exacte : majuscule sur
+le G, reste en minuscules — GitHub est insensible à la casse pour la
+résolution des URLs, mais toutes les références dans le code/la doc ont été
+alignées sur cette casse précise plutôt que de compter dessus) et mis à jour
+le remote local (`git remote set-url origin
+git@github.com:GulliGulli28/Guiterm.git`). Toutes les URLs qui pointaient
+vers `GulliGulli28/guiterm` (minuscule, anticipé avant le renommage réel) —
+badges/liens de `README.md`, endpoint de l'updater dans `tauri.conf.json`,
+liens du post technique — ont été corrigées vers `GulliGulli28/Guiterm`.
+`Cargo.lock`/`package-lock.json` régénérés (`cargo build --workspace`,
+`npm install`) et re-vérifiés (`cargo clippy --workspace --all-targets --
+-D warnings` sur les deux workspaces, `npx tsc --noEmit`, `cargo test
+--workspace`, `npx vitest run`, `node scripts/e2e-run.mjs` — tous verts,
+capture d'écran réelle confirmant "Guiterm" dans la barre de titre et les
+hôtes existants de l'utilisateur toujours chargés).
 
 ## Habitudes de collaboration sur ce projet
 

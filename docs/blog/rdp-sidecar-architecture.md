@@ -1,6 +1,6 @@
 # Adding RDP to a Rust SSH client, one process removed
 
-*How [Guiterm](https://github.com/GulliGulli28/guiterm) — a desktop
+*How [Guiterm](https://github.com/GulliGulli28/Guiterm) — a desktop
 SSH/SFTP client built with Tauri and Rust — ended up shipping its RDP
 viewer as an entirely separate process, and the three real bugs that only
 showed up once it talked to an actual RDP server.*
@@ -237,5 +237,5 @@ A few things from this that seem useful beyond this one project:
 
 The full protocol, the fast-path/clipboard code, and the rest of
 Guiterm are on GitHub:
-**[github.com/GulliGulli28/guiterm](https://github.com/GulliGulli28/guiterm)**
+**[github.com/GulliGulli28/Guiterm](https://github.com/GulliGulli28/Guiterm)**
 — MIT-licensed, contributions welcome.
