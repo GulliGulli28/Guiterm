@@ -1,6 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AuthMethod, CollectFactsResult, DockerContainer, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, GroupId, HostId, HostKind, ImportSelection, KeyAlgorithm, KeyId, KnownHostEntry, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, RdpClientMessage, RdpFrame, SnippetId, SshConfigHost, TransferProgressEvent, VaultStatus, Workspace } from "./types";
+import type { AuthMethod, CollectFactsResult, ComposeResult, DockerContainer, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostId, HostKind, ImportSelection, KeyAlgorithm, KeyId, KnownHostEntry, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, RdpClientMessage, RdpFrame, SnippetId, SshConfigHost, TransferProgressEvent, VaultStatus, Workspace } from "./types";
 
 /** Mirrors the 12-byte little-endian header `commands::rdp_view::connect_rdp_view`
  * writes ahead of each frame's raw RGBA8 pixels (see its doc comment for why
@@ -141,12 +141,13 @@ export const api = {
   uploadPaths: (paneId: string, cwd: string, localPaths: string[]) => invoke<string[]>("upload_paths", { paneId, cwd, localPaths }),
   cancelTransfer: (transferId: string) => invoke<void>("cancel_transfer", { transferId }),
 
-  /** Runs `command` on every host in `hostIds` (SSH only) off any PTY. Resolves
-   * once every host has reported; per-host results stream in via
-   * `onFleetOutcome`, followed by `onFleetDone`. `runId` (mint with
+  /** Runs `command` on every target in `targets` (an SSH host, a Docker exec
+   * container, or the local machine — see `FleetTarget`) off any PTY.
+   * Resolves once every target has reported; per-target results stream in
+   * via `onFleetOutcome`, followed by `onFleetDone`. `runId` (mint with
    * `crypto.randomUUID()`) tells concurrent runs apart on the shared events. */
-  runFleetCommand: (runId: string, hostIds: HostId[], command: string) =>
-    invoke<void>("run_fleet_command", { runId, hostIds, command }),
+  runFleetCommand: (runId: string, targets: FleetTarget[], command: string) =>
+    invoke<void>("run_fleet_command", { runId, targets, command }),
 
   /** Collects live state (OS, kernel, CPU, load, memory) for `hostIds` (SSH
    * only), concurrently. Batch: resolves once every host has reported.
@@ -171,6 +172,21 @@ export const api = {
    * command they'd run. Purely deterministic — no AI call, no execution. */
   previewAdaptiveProgram: (hostIds: HostId[], programText: string) =>
     invoke<ExecutionGroup[]>("preview_adaptive_program", { hostIds, programText }),
+
+  /** Translates `programText` for a local-terminal tab's shell — a native
+   * Windows shell (PowerShell/cmd) resolves instantly (no probing, the
+   * platform is simply whatever OS Guiterm runs on); any other shell (a
+   * real POSIX shell, WSL) is probed for real, locally. `shell` should be
+   * the tab's configured shell (`TabMeta`'s local-terminal variant),
+   * `null`/unset falls back to the same default `open_local_terminal` uses. */
+  composeAdaptiveForLocal: (programText: string, shell: string | null) =>
+    invoke<ComposeResult>("compose_adaptive_for_local", { programText, shell }),
+
+  /** Translates `programText` for a Docker exec terminal's container —
+   * probed fresh on every call (a `dockerExec` host isn't tied to one
+   * container, so there's nothing to cache facts against). */
+  composeAdaptiveForDocker: (programText: string, hostId: HostId, containerId: string) =>
+    invoke<ComposeResult>("compose_adaptive_for_docker", { programText, hostId, containerId }),
 
   /** Executes a reviewed preview — flattens `groups` into a per-host
    * command dispatch, streamed the same way as `runFleetCommand` (same

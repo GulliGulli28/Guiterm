@@ -232,12 +232,34 @@ export type TabMeta =
   | { id: string; kind: "local-terminal"; label: string; initialCommand?: string; shell?: string | null; status?: "connected" | "placeholder" }
   | { id: string; kind: "fleet"; label: string; status?: "connected" | "placeholder" };
 
-/** One host's result in a fleet run (`run_fleet_command` → `fleet-run-outcome`).
+/** A single fleet run target — an SSH host, a specific Docker exec
+ * container, or the local machine. Mirrors `termius_core::fleet::FleetTarget`.
+ * RDP/K8s exec aren't representable here — the UI never offers them as
+ * fleet targets. */
+export type FleetTarget =
+  | { kind: "ssh"; hostId: HostId }
+  | { kind: "docker"; hostId: HostId; containerId: string }
+  | { kind: "local" };
+
+/** Stable string key for a `FleetTarget`, used as the React selection/results
+ * state key (Sets/Maps need a primitive, not the target object itself). */
+export function fleetTargetKey(t: FleetTarget): string {
+  switch (t.kind) {
+    case "ssh":
+      return `ssh:${t.hostId}`;
+    case "docker":
+      return `docker:${t.hostId}:${t.containerId}`;
+    case "local":
+      return "local";
+  }
+}
+
+/** One target's result in a fleet run (`run_fleet_command` → `fleet-run-outcome`).
  * Mirrors `termius_core::fleet::HostOutcome`. `exitCode === 0 && error === null`
  * is success; a non-zero `exitCode` ran but failed; `error` means it never ran
  * (unreachable, auth, unsupported kind…). */
 export interface FleetOutcome {
-  hostId: HostId;
+  target: FleetTarget;
   exitCode: number | null;
   stdout: string;
   stderr: string;
@@ -284,7 +306,7 @@ export interface FleetRun {
   /** Literal command for a classic run; natural-language intent for an
    * adaptive run (see `perHostCommands` for what actually ran). */
   command: string;
-  hostIds: HostId[];
+  targets: FleetTarget[];
   outcomes: FleetOutcome[];
   /** Set only for an adaptive run — the actual command dispatched to each
    * host, grouped by platform. Absent/null for a classic run. */
@@ -300,6 +322,15 @@ export interface ExecutionGroup {
    * hosts — see `note`, and exclude this group when executing. */
   command: string | null;
   hostIds: HostId[];
+  note: string | null;
+}
+
+/** A single target's translated command — see `core::adaptive::ComposeResult`.
+ * Used for a local terminal or Docker exec target (`composeAdaptiveForLocal`/
+ * `composeAdaptiveForDocker`), which never need `ExecutionGroup`'s per-host
+ * grouping since there's only ever one target. */
+export interface ComposeResult {
+  command: string | null;
   note: string | null;
 }
 
