@@ -262,3 +262,29 @@ async fn start_remote(
         kind: ActiveKind::Remote,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn socks_reply_success() {
+        assert_eq!(socks_reply(0x00), [0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn socks_reply_command_not_supported() {
+        assert_eq!(socks_reply(0x07)[1], 0x07);
+    }
+
+    #[test]
+    fn socks_reply_host_unreachable() {
+        assert_eq!(socks_reply(0x05)[1], 0x05);
+    }
+
+    #[test]
+    fn socks_reply_bnd_addr_and_port_are_always_zero() {
+        let reply = socks_reply(0x00);
+        assert_eq!(&reply[4..], &[0, 0, 0, 0, 0, 0]);
+    }
+}

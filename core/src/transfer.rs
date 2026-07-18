@@ -225,7 +225,12 @@ fn copy_dir<'a>(
 
         // List source directory
         let entries = match source {
-            PaneRef::Local => local_fs::list(&src_path)?,
+            // Same reasoning as `list()` above: local_fs::list does
+            // synchronous std::fs I/O, keep it off the tokio worker thread.
+            PaneRef::Local => {
+                let src_path = src_path.clone();
+                tokio::task::spawn_blocking(move || local_fs::list(&src_path)).await??
+            }
             PaneRef::Remote(client) => client.list(&src_path).await?,
         };
 

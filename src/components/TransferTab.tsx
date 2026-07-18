@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from "react";
+import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, onTransferDone, onTransferError, onTransferProgress } from "../lib/api";
@@ -8,6 +8,7 @@ import { IconFolder, IconEdit, IconTrash, IconShield, IconClose } from "./ui-ico
 import { QuickEditModal } from "./QuickEditModal";
 import { ConnectionPickerModal } from "./ConnectionPickerModal";
 import { RdpTab } from "./RdpTab";
+import { useResizablePane } from "../hooks/useResizablePane";
 
 type Side = "left" | "right";
 type PanesState = Record<Side, PaneState>;
@@ -126,44 +127,12 @@ export function TransferTab({ host, workspace, preferences, onError, onPushed, d
   const isRdpTarget = (host.kind ?? "ssh") === "rdp";
   const rdpSessionIdRef = useRef<string | null>(null);
 
-  const [leftPercent, setLeftPercent] = useState(50);
-  const dividerDragRef = useRef<{ startX: number; startPercent: number; containerWidth: number } | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const leftPaneRef = useRef<HTMLDivElement>(null);
   const rightPaneRef = useRef<HTMLDivElement>(null);
   const [transfers, setTransfers] = useState<Record<string, TransferProgressState>>({});
 
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      if (!dividerDragRef.current) return;
-      const { startX, startPercent, containerWidth } = dividerDragRef.current;
-      const delta = e.clientX - startX;
-      const pct = startPercent + (delta / containerWidth) * 100;
-      setLeftPercent(Math.max(20, Math.min(80, pct)));
-    };
-    const onUp = () => {
-      if (dividerDragRef.current) {
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-        dividerDragRef.current = null;
-      }
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    return () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-  }, []);
-
-  const onDividerDrag = useCallback((e: React.MouseEvent) => {
-    const container = containerRef.current;
-    if (!container) return;
-    dividerDragRef.current = { startX: e.clientX, startPercent: leftPercent, containerWidth: container.clientWidth };
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    e.preventDefault();
-  }, [leftPercent]);
+  const divider = useResizablePane({ initial: 50, min: 20, max: 80, axis: "horizontal", mode: "percent", containerRef });
 
   const initialRightSource: PaneSource = dockerContainerId
     ? { kind: "docker", hostId: host.id, containerId: dockerContainerId }
@@ -436,11 +405,11 @@ export function TransferTab({ host, workspace, preferences, onError, onPushed, d
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div ref={containerRef} className="flex min-h-0 flex-1">
-        <div ref={leftPaneRef} style={{ width: `${leftPercent}%` }} className="flex min-h-0 shrink-0 flex-col overflow-hidden">
+        <div ref={leftPaneRef} style={{ width: `${divider.value}%` }} className="flex min-h-0 shrink-0 flex-col overflow-hidden">
           <PaneView side="left" pane={state.left} workspace={workspace} fontSize={fontSize} onNavigate={navigate} onSourceChange={changeSource} onCopy={copyOrPushToRdp} onMkdir={mkdir} onCreateFile={createFile} onRename={rename} onRemove={remove} onChmod={chmod} onEdit={openEdit} isRdpPush={isRdpTarget} />
         </div>
         <div
-          onMouseDown={onDividerDrag}
+          onMouseDown={divider.onMouseDown}
           className="group relative flex w-1 shrink-0 cursor-col-resize items-center justify-center"
         >
           <div className="h-full w-px bg-[var(--c-border)] transition-colors group-hover:bg-[var(--c-accent)]" />

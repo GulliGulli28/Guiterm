@@ -542,3 +542,78 @@ pub async fn probe(workspace: &Workspace, host_id: HostId) -> bool {
     .map(|r| r.is_ok())
     .unwrap_or(false)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn identity_of_uses_host_id_not_address() {
+        // Same address:port, but Host::new mints a fresh random id each time —
+        // identity_of must track that id, not the address, so two unrelated
+        // hosts that happen to reuse the same private IP never share a
+        // known-hosts trust entry (see the doc comment on identity_of).
+        let a = Host::new("web-a", "10.0.0.5", "root");
+        let b = Host::new("web-b", "10.0.0.5", "root");
+        assert_ne!(identity_of(&a), identity_of(&b));
+        assert_eq!(identity_of(&a), a.id.to_string());
+    }
+
+    #[test]
+    fn label_of_formats_label_address_port() {
+        let mut host = Host::new("prod-db", "10.0.0.5", "root");
+        host.port = 2222;
+        assert_eq!(label_of(&host), "prod-db (10.0.0.5:2222)");
+    }
+
+    #[test]
+    fn mismatch_error_uses_stored_mismatch_when_present() {
+        let mismatch = Arc::new(Mutex::new(Some(HostKeyMismatch {
+            host_label: "bastion".to_string(),
+            previous_fingerprint: "AA:BB".to_string(),
+            offered_fingerprint: "CC:DD".to_string(),
+        })));
+
+        let err = mismatch_error(&mismatch, || anyhow::anyhow!("unused fallback"));
+        let message = err.to_string();
+        assert!(message.contains("bastion"));
+        assert!(message.contains("AA:BB"));
+        assert!(message.contains("CC:DD"));
+
+        // take() must have emptied the slot, so a second handshake attempt on
+        // the same connection doesn't resurface a stale mismatch.
+        assert!(mismatch.lock_recover().is_none());
+    }
+
+    #[test]
+    fn mismatch_error_falls_back_when_absent() {
+        let mismatch: Arc<Mutex<Option<HostKeyMismatch>>> = Arc::new(Mutex::new(None));
+        let err = mismatch_error(&mismatch, || anyhow::anyhow!("could not reach 'x': boom"));
+        assert_eq!(err.to_string(), "could not reach 'x': boom");
+    }
+
+    #[test]
+    fn ensure_success_ok_on_auth_success() {
+        assert!(ensure_success(AuthResult::Success, "web1").is_ok());
+    }
+
+    #[test]
+    fn ensure_success_err_on_auth_failure() {
+        let result = AuthResult::Failure {
+            remaining_methods: russh::MethodSet::empty(),
+            partial_success: false,
+        };
+        let err = ensure_success(result, "web1").unwrap_err();
+        assert_eq!(err.to_string(), "authentication failed for 'web1'");
+    }
+
+    #[test]
+    fn ensure_success_notes_partial_success() {
+        let result = AuthResult::Failure {
+            remaining_methods: russh::MethodSet::empty(),
+            partial_success: true,
+        };
+        let err = ensure_success(result, "web1").unwrap_err();
+        assert!(err.to_string().ends_with(" (partial success, more steps required)"));
+    }
+}

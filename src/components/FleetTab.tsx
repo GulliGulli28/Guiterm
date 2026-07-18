@@ -1,11 +1,13 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import type { ExecutionGroup, FleetOutcome, FleetRun, Host, HostId, Snippet, SnippetId, Workspace } from "../lib/types";
+import type { DockerContainer, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, Host, HostFacts, HostId, Snippet, SnippetId, Workspace } from "../lib/types";
+import { fleetTargetKey } from "../lib/types";
 import { api, onFleetDone, onFleetOutcome } from "../lib/api";
 import { formatRelativeTime } from "../lib/format";
 import { ramColor } from "../lib/facts";
 import { DSL_CONDITION_FIELDS, DSL_FUNCTIONS } from "../lib/operations";
 import { SnippetPicker } from "./SnippetPicker";
 import { IconPlay, IconSearch, IconChevronRight, IconChevronDown, IconRefresh, IconSnippets, IconFlash } from "./ui-icons";
+import { useResizablePane } from "../hooks/useResizablePane";
 
 function formatTimestamp(ms: number): string {
   return new Date(ms).toLocaleString();
@@ -22,7 +24,8 @@ interface FleetTabProps {
 
 /** One fact-based selection criterion. `enabled` gates whether `selectByFacts`
  * checks it at all — lets several criteria combine (AND) without every
- * numeric field needing an explicit "off" sentinel value. */
+ * numeric field needing an explicit "off" sentinel value. SSH-only: Docker
+ * exec/local targets have no persisted `lastFacts` to filter by. */
 interface FactFilters {
   ram: { enabled: boolean; value: number }; // RAM used % > value
   cpu: { enabled: boolean; value: number }; // CPU count >= value
@@ -39,6 +42,21 @@ const DEFAULT_FILTERS: FactFilters = {
   os: { enabled: false, value: "" },
 };
 
+/** One selectable fleet target, resolved from either the workspace (SSH
+ * hosts, always; a single fixed "Terminal local" entry) or a live Docker
+ * container listing (per `dockerExec` host — see `dockerContainers` state).
+ * `key` is what selection/results state actually indexes by (`FleetTarget`
+ * itself isn't a valid Set/Map key — it's a structural object, not a
+ * primitive). */
+interface FleetTargetInfo {
+  key: string;
+  target: FleetTarget;
+  label: string;
+  sub: string;
+  facts?: HostFacts | null;
+  lastFactsAtMs?: number | null;
+}
+
 type RowStatus = "pending" | "ok" | "fail" | "error";
 
 function outcomeStatus(o: FleetOutcome): RowStatus {
@@ -46,9 +64,9 @@ function outcomeStatus(o: FleetOutcome): RowStatus {
   return o.exitCode === 0 ? "ok" : "fail";
 }
 
-function statusOf(hostId: HostId, results: Map<HostId, FleetOutcome>, pending: Set<HostId>): RowStatus {
-  if (pending.has(hostId)) return "pending";
-  const o = results.get(hostId);
+function statusOf(key: string, results: Map<string, FleetOutcome>, pending: Set<string>): RowStatus {
+  if (pending.has(key)) return "pending";
+  const o = results.get(key);
   if (!o) return "pending";
   return outcomeStatus(o);
 }
@@ -58,6 +76,38 @@ function countOutcomes(outcomes: FleetOutcome[]): { ok: number; fail: number } {
   let fail = 0;
   for (const o of outcomes) (outcomeStatus(o) === "ok" ? ok++ : fail++);
   return { ok, fail };
+}
+
+/** Best-effort display name for a target — used for both the live results
+ * table and Historique, where a Docker container may no longer be in the
+ * live `dockerContainers` listing (falls back to a truncated container id). */
+function targetLabel(t: FleetTarget, hostById: Map<HostId, Host>, dockerContainers: Map<HostId, DockerContainer[]>): string {
+  if (t.kind === "local") return "Terminal local";
+  if (t.kind === "ssh") return hostById.get(t.hostId)?.label ?? t.hostId;
+  const host = hostById.get(t.hostId);
+  const container = dockerContainers.get(t.hostId)?.find((c) => c.id === t.containerId);
+  const name = container?.name ?? t.containerId.slice(0, 12);
+  return host ? `${name} (${host.label})` : name;
+}
+
+/** Whether `text` has at least one `target …` condition line — same
+ * word-boundary check as `core::adaptive::looks_like_condition_line`
+ * ("target" must be the whole first word, not e.g. "targets"). Drives
+ * whether "Langage" mode's live auto-selection should manage the target
+ * checkboxes at all: a program with a `target` is host-scoped, so the
+ * checkboxes should reflect exactly what the DSL matched — but a program
+ * with none applies to every host by the DSL's own semantics (see
+ * `core::adaptive`'s module docs), which says nothing about *which* hosts
+ * to run it on. Forcing every SSH host selected in that case would be more
+ * surprising than useful, so those checkboxes are left to manual selection
+ * instead, same as "Commande" mode. */
+function programHasTargetLine(text: string): boolean {
+  return text.split("\n").some((line) => {
+    const t = line.trim();
+    if (!t.startsWith("target")) return false;
+    const rest = t.slice("target".length);
+    return rest.length === 0 || /^\s/.test(rest);
+  });
 }
 
 function StatusDot({ status }: { status: RowStatus }) {
@@ -70,25 +120,89 @@ function StatusDot({ status }: { status: RowStatus }) {
 
 export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProps) {
   const sshHosts = useMemo(() => workspace.hosts.filter((h) => h.kind === "ssh"), [workspace.hosts]);
+  const dockerHosts = useMemo(() => workspace.hosts.filter((h) => h.kind === "dockerExec"), [workspace.hosts]);
   const hostById = useMemo(() => new Map(workspace.hosts.map((h) => [h.id, h])), [workspace.hosts]);
   const groupName = (h: Host) => (h.groupId ? workspace.groups.find((g) => g.id === h.groupId)?.name ?? "" : "");
 
+  // Docker containers are a live daemon listing, not workspace-persisted
+  // state — fetched per `dockerExec` host, best-effort (an unreachable
+  // daemon just contributes no containers rather than erroring the panel).
+  // Only running containers are offered: a stopped one can't `exec` into.
+  const [dockerContainers, setDockerContainers] = useState<Map<HostId, DockerContainer[]>>(new Map());
+  const [loadingContainers, setLoadingContainers] = useState(false);
+  const refreshContainers = async () => {
+    if (dockerHosts.length === 0) return;
+    setLoadingContainers(true);
+    const next = new Map<HostId, DockerContainer[]>();
+    await Promise.all(
+      dockerHosts.map(async (h) => {
+        try {
+          next.set(h.id, (await api.listDockerContainers(h.id)).filter((c) => c.state === "running"));
+        } catch {
+          next.set(h.id, []);
+        }
+      }),
+    );
+    setDockerContainers(next);
+    setLoadingContainers(false);
+  };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { refreshContainers(); }, [dockerHosts.map((h) => h.id).join(",")]);
+
+  // Every selectable target: a single fixed "Terminal local", every SSH
+  // host, and every live-listed Docker container (grouped under its host).
+  const allTargets = useMemo<FleetTargetInfo[]>(() => {
+    const items: FleetTargetInfo[] = [{ key: "local", target: { kind: "local" }, label: "Terminal local", sub: "" }];
+    for (const h of sshHosts) {
+      items.push({
+        key: fleetTargetKey({ kind: "ssh", hostId: h.id }),
+        target: { kind: "ssh", hostId: h.id },
+        label: h.label,
+        sub: [groupName(h), h.address].filter(Boolean).join(" · "),
+        facts: h.lastFacts,
+        lastFactsAtMs: h.lastFactsAtMs,
+      });
+    }
+    for (const h of dockerHosts) {
+      for (const c of dockerContainers.get(h.id) ?? []) {
+        items.push({
+          key: fleetTargetKey({ kind: "docker", hostId: h.id, containerId: c.id }),
+          target: { kind: "docker", hostId: h.id, containerId: c.id },
+          label: c.name,
+          sub: `${h.label} · ${c.image}`,
+        });
+      }
+    }
+    return items;
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sshHosts, dockerHosts, dockerContainers, workspace.groups]);
+  const targetsByKey = useMemo(() => new Map(allTargets.map((t) => [t.key, t.target])), [allTargets]);
+
   const [filter, setFilter] = useState("");
-  const [selected, setSelected] = useState<Set<HostId>>(new Set());
+  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [command, setCommand] = useState("");
   const [running, setRunning] = useState(false);
 
-  // Results of the current / last run, keyed by host, plus the ordered target
-  // list so rows keep a stable order as outcomes stream in out of order.
-  const [runTargets, setRunTargets] = useState<HostId[]>([]);
-  const [results, setResults] = useState<Map<HostId, FleetOutcome>>(new Map());
-  const [pending, setPending] = useState<Set<HostId>>(new Set());
-  const [expanded, setExpanded] = useState<Set<HostId>>(new Set());
+  // Results of the current / last run, keyed by target, plus the ordered
+  // target list so rows keep a stable order as outcomes stream in out of order.
+  const [runTargets, setRunTargets] = useState<FleetTarget[]>([]);
+  const [results, setResults] = useState<Map<string, FleetOutcome>>(new Map());
+  const [pending, setPending] = useState<Set<string>>(new Set());
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const runIdRef = useRef<string | null>(null);
+
+  // ── Resizable panels ─────────────────────────────────────────────────────
+  // Same shared hook as App.tsx's sidebar/right-panel/split-pane and
+  // TransferTab.tsx's left/right panes. Neither of these persists across
+  // sessions — resets to these defaults every time, on purpose, for
+  // consistency.
+  const rightSectionRef = useRef<HTMLDivElement>(null);
+  const leftPane = useResizablePane({ initial: 288, min: 220, max: 500, axis: "horizontal", mode: "px" }); // matches the previous fixed `w-72`
+  const composer = useResizablePane({ initial: 40, min: 20, max: 70, axis: "vertical", mode: "percent", containerRef: rightSectionRef });
 
   // Collected host state ("facts") lives on the host itself (`lastFacts`,
   // persisted server-side by `collect_facts`) — no separate local copy to
-  // keep in sync.
+  // keep in sync. SSH-only, same as the fleet executor itself.
   const [collectingFacts, setCollectingFacts] = useState(false);
   const [filters, setFilters] = useState<FactFilters>(DEFAULT_FILTERS);
   const hasFacts = sshHosts.some((h) => h.lastFacts != null);
@@ -97,13 +211,20 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
   // Adaptive snippet engine: "Langage" mode edits a small DSL program (see
   // src/lib/operations.ts for the syntax) — written by hand, by the AI from
   // an English instruction, or both; the AI is only an optional assist
-  // (aiIntent/generateWithAi), never required. Evaluating the program against
-  // the target hosts is always deterministic and free, both for the live
-  // target selection below and for the explicit "Prévisualiser"
-  // (runPreview) step before running; only *writing*/extending the text via
-  // AI (generateWithAi) costs a call.
+  // (aiIntent/generateWithAi), never required. SSH-only for now (the DSL's
+  // per-host translation depends on `Host.lastFacts`, which Docker exec/
+  // local targets don't have) — see `selectedSshHostIds` below. Evaluating
+  // the program against the target hosts is always deterministic and free,
+  // both for the live target selection below and for the explicit
+  // "Prévisualiser" (runPreview) step before running; only *writing*/
+  // extending the text via AI (generateWithAi) costs a call.
   const [mode, setMode] = useState<"command" | "intent">("command");
   const [programText, setProgramText] = useState("");
+  // Whether the current program has at least one `target` line — see
+  // `programHasTargetLine`'s doc comment for what this changes (live
+  // auto-selection, and whether the SSH checkboxes below are manually
+  // selectable in "Langage" mode).
+  const hasTargetLine = useMemo(() => programHasTargetLine(programText), [programText]);
   const [aiIntent, setAiIntent] = useState("");
   const [activeSnippetId, setActiveSnippetId] = useState<SnippetId | null>(null);
   const [generatingAi, setGeneratingAi] = useState(false);
@@ -119,16 +240,17 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
-    if (!q) return sshHosts;
-    return sshHosts.filter(
-      (h) =>
-        h.label.toLowerCase().includes(q) ||
-        h.address.toLowerCase().includes(q) ||
-        h.tags.some((t) => t.toLowerCase().includes(q)) ||
-        groupName(h).toLowerCase().includes(q),
-    );
-    // groupName is derived from workspace.groups, included via sshHosts identity
-  }, [sshHosts, filter, workspace.groups]);
+    if (!q) return allTargets;
+    return allTargets.filter((t) => t.label.toLowerCase().includes(q) || t.sub.toLowerCase().includes(q));
+  }, [allTargets, filter]);
+
+  // Every currently selected target that's an SSH host — the only kind the
+  // adaptive DSL ("Langage" mode) can translate for.
+  const selectedSshHostIds = (): HostId[] =>
+    [...selected]
+      .map((k) => targetsByKey.get(k))
+      .filter((t): t is Extract<FleetTarget, { kind: "ssh" }> => t?.kind === "ssh")
+      .map((t) => t.hostId);
 
   // One subscription for the tab's lifetime; events are matched to the active
   // run by id so a stale run's late outcomes are ignored.
@@ -138,10 +260,11 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
     let offDone: (() => void) | undefined;
     onFleetOutcome((runId, outcome) => {
       if (runId !== runIdRef.current) return;
-      setResults((prev) => new Map(prev).set(outcome.hostId, outcome));
+      const key = fleetTargetKey(outcome.target);
+      setResults((prev) => new Map(prev).set(key, outcome));
       setPending((prev) => {
         const next = new Set(prev);
-        next.delete(outcome.hostId);
+        next.delete(key);
         return next;
       });
     }).then((fn) => (disposed ? fn() : (offOutcome = fn)));
@@ -169,31 +292,39 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
   // manual checkbox selection in this mode (see the aside below), reusing
   // the same deterministic evaluator `runPreview`/`runPlan` already call.
   // No I/O: it only reads facts already cached on each host, never re-probes
-  // over SSH — cheap enough to re-run on every keystroke.
+  // over SSH — cheap enough to re-run on every keystroke. SSH-only, so it
+  // only ever selects `ssh:` keys — Docker exec/local targets simply never
+  // get checked in this mode. Skipped entirely when the program has no
+  // `target` line at all (see `programHasTargetLine`): the DSL isn't
+  // host-scoped in that case, so the checkboxes stay under manual control
+  // instead of being force-selected to "every host".
   useEffect(() => {
     if (mode !== "intent") return;
     const text = programText.trim();
     if (!text) { setSelected(new Set()); return; }
+    if (!programHasTargetLine(text)) return;
     const timer = setTimeout(() => {
       api
         .previewAdaptiveProgram(sshHosts.map((h) => h.id), text)
         .then((groups) => {
-          const ids = groups.filter((g) => g.command != null).flatMap((g) => g.hostIds);
-          setSelected(new Set(ids));
+          const keys = groups
+            .filter((g) => g.command != null)
+            .flatMap((g) => g.hostIds.map((hostId) => fleetTargetKey({ kind: "ssh", hostId })));
+          setSelected(new Set(keys));
         })
         .catch(() => {}); // invalid/incomplete program mid-edit — ignore, keep the last selection
     }, 350);
     return () => clearTimeout(timer);
   }, [mode, programText, sshHosts]);
 
-  const toggle = (id: HostId) =>
+  const toggle = (key: string) =>
     setSelected((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
-  const selectAll = () => setSelected(new Set(filtered.map((h) => h.id)));
+  const selectAll = () => setSelected(new Set(filtered.map((t) => t.key)));
   const selectNone = () => setSelected(new Set());
 
   const collectFacts = async (hostIds?: HostId[]) => {
@@ -218,15 +349,15 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
 
   const anyFilterEnabled = filters.ram.enabled || filters.cpu.enabled || filters.load1.enabled || filters.uptimeDays.enabled || filters.os.enabled;
 
-  // Selects every host whose last collected facts satisfy *all* enabled
+  // Selects every SSH host whose last collected facts satisfy *all* enabled
   // filters (AND) — a disabled filter is simply skipped, not treated as
-  // "match anything".
+  // "match anything". Docker exec/local targets have no facts to filter by.
   const selectByFacts = () => {
     if (!anyFilterEnabled) {
       onError("Coche au moins un critère avant de sélectionner");
       return;
     }
-    const ids = sshHosts
+    const keys = sshHosts
       .filter((h) => {
         const f = h.lastFacts;
         if (!f) return false;
@@ -245,14 +376,14 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
         }
         return true;
       })
-      .map((h) => h.id);
-    setSelected(new Set(ids));
+      .map((h) => fleetTargetKey({ kind: "ssh", hostId: h.id }));
+    setSelected(new Set(keys));
   };
-  const toggleExpanded = (id: HostId) =>
+  const toggleExpanded = (key: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
       return next;
     });
   const toggleRun = (id: string) =>
@@ -264,18 +395,22 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
     });
 
   // Re-run a past run: load its command + re-select the targets that still
-  // exist, and switch back to the composer so the user reviews before running.
+  // exist, and switch back to the composer so the user reviews before
+  // running. An SSH target is dropped if its host was deleted since; Docker/
+  // local targets are always kept (no cheap way to verify a container still
+  // exists without a live fetch).
   const loadRun = (run: FleetRun) => {
     setCommand(run.command);
-    setSelected(new Set(run.hostIds.filter((id) => hostById.has(id))));
+    const keep = run.targets.filter((t) => t.kind !== "ssh" || hostById.has(t.hostId));
+    setSelected(new Set(keep.map(fleetTargetKey)));
     setView("run");
   };
 
   const run = async () => {
     if (running) return;
-    const targets = [...selected];
+    const targets = [...selected].map((k) => targetsByKey.get(k)).filter((t): t is FleetTarget => t != null);
     if (targets.length === 0) {
-      onError("Sélectionne au moins un hôte");
+      onError("Sélectionne au moins une cible");
       return;
     }
     if (!command.trim()) {
@@ -286,7 +421,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
     runIdRef.current = runId;
     setRunTargets(targets);
     setResults(new Map());
-    setPending(new Set(targets));
+    setPending(new Set(targets.map(fleetTargetKey)));
     setExpanded(new Set());
     setRunning(true);
     try {
@@ -318,14 +453,26 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
     }
   };
 
-  // Parses + evaluates the current program text against the selected hosts
-  // — pure and deterministic, no AI involved. Facts are collected first for
-  // any target still missing them, since evaluation depends on `lastFacts`.
+  // Facts older than this are treated the same as missing facts by
+  // `runPreview` below — a `target ram: > 80` decision made on a
+  // multi-hour-old snapshot is just as wrong as one made on no snapshot at
+  // all, and silently trusting stale data is worse than the extra latency
+  // of a re-probe (only paid when actually stale — see `runPreview`).
+  const STALE_FACTS_THRESHOLD_MS = 15 * 60 * 1000;
+  const factsAreStale = (host: Host | undefined) =>
+    !host?.lastFacts || host.lastFactsAtMs == null || Date.now() - host.lastFactsAtMs > STALE_FACTS_THRESHOLD_MS;
+
+  // Parses + evaluates the current program text against the selected SSH
+  // hosts — pure and deterministic, no AI involved. Facts are collected
+  // first for any target missing them *or* whose last collection is older
+  // than `STALE_FACTS_THRESHOLD_MS`, since evaluation (`target ram: > N`
+  // and friends) depends entirely on `lastFacts` being a reasonably current
+  // snapshot, not just a present one.
   const runPreview = async () => {
     if (previewing) return;
-    const targets = [...selected];
+    const targets = selectedSshHostIds();
     if (targets.length === 0) {
-      onError("Sélectionne au moins un hôte");
+      onError("Sélectionne au moins un hôte SSH");
       return;
     }
     if (!programText.trim()) {
@@ -334,7 +481,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
     }
     setPreviewing(true);
     try {
-      if (targets.some((id) => !hostById.get(id)?.lastFacts)) {
+      if (targets.some((id) => factsAreStale(hostById.get(id)))) {
         await collectFacts(targets);
       }
       const groups = await api.previewAdaptiveProgram(targets, programText);
@@ -358,12 +505,12 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
     if (!previewGroups || running) return;
     const runnable = previewGroups.filter((g): g is typeof g & { command: string } => g.command != null);
     if (runnable.length === 0) return;
-    const targets = runnable.flatMap((g) => g.hostIds);
+    const targets: FleetTarget[] = runnable.flatMap((g) => g.hostIds.map((hostId) => ({ kind: "ssh" as const, hostId })));
     const runId = crypto.randomUUID();
     runIdRef.current = runId;
     setRunTargets(targets);
     setResults(new Map());
-    setPending(new Set(targets));
+    setPending(new Set(targets.map(fleetTargetKey)));
     setExpanded(new Set());
     setRunning(true);
     try {
@@ -398,10 +545,10 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
   };
 
   // Picking an adaptive snippet switches into Langage mode with its DSL
-  // program text pre-filled (which in turn live-selects matching hosts, see
-  // above) and its id tracked (so "Sauvegarder" defaults to updating it). A
-  // classic snippet keeps filling the plain command box (handled by the
-  // existing onRun={setCommand} below).
+  // program text pre-filled (which in turn live-selects matching SSH hosts,
+  // see above) and its id tracked (so "Sauvegarder" defaults to updating
+  // it). A classic snippet keeps filling the plain command box (handled by
+  // the existing onRun={setCommand} below).
   const handleSnippetResolved = (snippet: Snippet, resolvedText: string) => {
     if (!snippet.adaptive) return;
     setMode("intent");
@@ -413,8 +560,8 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
   const summary = useMemo(() => {
     let ok = 0;
     let fail = 0;
-    for (const id of runTargets) {
-      const s = statusOf(id, results, pending);
+    for (const t of runTargets) {
+      const s = statusOf(fleetTargetKey(t), results, pending);
       if (s === "ok") ok++;
       else if (s === "fail" || s === "error") fail++;
     }
@@ -424,10 +571,10 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
   return (
     <div className="flex h-full min-h-0 bg-[var(--c-bg)] text-[var(--c-text)]">
       {/* ── Target picker ─────────────────────────────────────────────── */}
-      <aside className="flex w-72 shrink-0 flex-col border-r border-[var(--c-border)]">
+      <aside style={{ width: leftPane.value }} className="flex shrink-0 flex-col border-r border-[var(--c-border)]">
         <div className="flex items-center justify-between px-3 py-2.5">
           <span className="text-xs font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">
-            Cibles · {selected.size}/{sshHosts.length}
+            Cibles · {selected.size}/{allTargets.length}
           </span>
           {mode === "command" ? (
             <div className="flex gap-1 text-[11px]">
@@ -440,7 +587,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
             </div>
           ) : (
             <span
-              title="Calculée automatiquement d'après les « target … » du programme — repasse en mode Commande pour sélectionner à la main"
+              title="Calculée automatiquement d'après les « target … » du programme (hôtes SSH uniquement) — repasse en mode Commande pour sélectionner à la main"
               className="rounded bg-[var(--c-accent-dim)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--c-accent-text)]"
             >
               auto
@@ -458,19 +605,35 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
             />
           </div>
         </div>
-        {sshHosts.length > 0 && (
+        {(sshHosts.length > 0 || dockerHosts.length > 0) && (
           <div className="mb-1 space-y-1.5 px-3 pb-1">
-            <button
-              onClick={() => collectFacts()}
-              disabled={collectingFacts}
-              className="flex w-full items-center justify-center gap-1.5 rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)] disabled:opacity-50"
-            >
-              <IconRefresh size={12} className={collectingFacts ? "animate-spin" : ""} />
-              {collectingFacts ? "Collecte de l'état…" : "Collecter l'état (OS, RAM)"}
-            </button>
+            {sshHosts.length > 0 && (
+              <button
+                onClick={() => collectFacts()}
+                disabled={collectingFacts}
+                className="flex w-full items-center justify-center gap-1.5 rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)] disabled:opacity-50"
+              >
+                <IconRefresh size={12} className={collectingFacts ? "animate-spin" : ""} />
+                {collectingFacts ? "Collecte de l'état…" : "Collecter l'état (OS, RAM)"}
+              </button>
+            )}
+            {dockerHosts.length > 0 && (
+              <button
+                onClick={refreshContainers}
+                disabled={loadingContainers}
+                className="flex w-full items-center justify-center gap-1.5 rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)] disabled:opacity-50"
+              >
+                <IconRefresh size={12} className={loadingContainers ? "animate-spin" : ""} />
+                {loadingContainers ? "Actualisation…" : "Actualiser les conteneurs"}
+              </button>
+            )}
             {mode === "intent" && (
               <p className="rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1.5 text-[11px] text-[var(--c-text-faint)]">
-                Ciblage automatique : les cases ci-dessous reflètent les hôtes dont l'état collecté correspond aux <code className="font-mono">target …</code> du programme.
+                {hasTargetLine ? (
+                  <>Ciblage automatique (hôtes SSH uniquement) : les cases ci-dessous reflètent les hôtes dont l'état collecté correspond aux <code className="font-mono">target …</code> du programme.</>
+                ) : (
+                  <>Aucun <code className="font-mono">target …</code> dans le programme : sélectionne librement les hôtes SSH ci-dessous (Docker exec/terminal local restent indisponibles en mode Langage).</>
+                )}
               </p>
             )}
             {mode === "command" && hasFacts && (
@@ -533,51 +696,60 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
           </div>
         )}
         <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
-          {sshHosts.length === 0 ? (
-            <p className="px-2 py-4 text-xs text-[var(--c-text-faint)]">Aucun hôte SSH. La flotte ne cible que les hôtes SSH pour l'instant.</p>
-          ) : (
-            filtered.map((h) => {
-              const checked = selected.has(h.id);
-              const sub = [groupName(h), h.address].filter(Boolean).join(" · ");
-              const f = h.lastFacts;
-              return (
-                <label
-                  key={h.id}
-                  title={mode === "intent" ? "Sélection automatique en mode Langage" : undefined}
-                  className={`flex items-center gap-2.5 rounded-md px-2 py-1.5 ${mode === "command" ? "cursor-pointer" : ""} ${checked ? "bg-[var(--c-accent-dim)]" : mode === "command" ? "hover:bg-[var(--c-bg3)]" : ""}`}
-                >
-                  <input type="checkbox" checked={checked} disabled={mode === "intent"} onChange={() => toggle(h.id)} className="accent-[var(--c-accent)] disabled:opacity-60" />
-                  <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm text-[var(--c-text)]">{h.label}</span>
-                    {sub && <span className="block truncate text-[11px] text-[var(--c-text-faint)]">{sub}</span>}
-                    {f && (
-                      <span className="mt-0.5 block space-y-0.5 text-[11px]">
-                        {(f.osName || f.osId) && (
-                          <span className="block truncate text-[var(--c-text-muted)]">{f.osName || f.osId}</span>
+          {filtered.map((t) => {
+            const checked = selected.has(t.key);
+            const f = t.facts;
+            // In "Langage" mode, only SSH checkboxes ever become selectable
+            // (Docker exec/local aren't representable in an adaptive fleet
+            // run at all — see `run_adaptive_plan`'s doc comment), and even
+            // those stay auto-managed as long as the program has a `target`
+            // line (see `hasTargetLine`/`programHasTargetLine`).
+            const autoManaged = mode === "intent" && (hasTargetLine || t.target.kind !== "ssh");
+            return (
+              <label
+                key={t.key}
+                title={autoManaged ? "Sélection automatique en mode Langage" : undefined}
+                className={`flex items-center gap-2.5 rounded-md px-2 py-1.5 ${!autoManaged ? "cursor-pointer" : ""} ${checked ? "bg-[var(--c-accent-dim)]" : !autoManaged ? "hover:bg-[var(--c-bg3)]" : ""}`}
+              >
+                <input type="checkbox" checked={checked} disabled={autoManaged} onChange={() => toggle(t.key)} className="accent-[var(--c-accent)] disabled:opacity-60" />
+                <span className="min-w-0 flex-1">
+                  <span className="block truncate text-sm text-[var(--c-text)]">{t.label}</span>
+                  {t.sub && <span className="block truncate text-[11px] text-[var(--c-text-faint)]">{t.sub}</span>}
+                  {f && (
+                    <span className="mt-0.5 block space-y-0.5 text-[11px]">
+                      {(f.osName || f.osId) && (
+                        <span className="block truncate text-[var(--c-text-muted)]">{f.osName || f.osId}</span>
+                      )}
+                      <span className="flex items-center gap-2 truncate">
+                        {f.memUsedPct != null && (
+                          <span className="shrink-0 font-medium" style={{ color: ramColor(f.memUsedPct) }}>
+                            RAM {Math.round(f.memUsedPct)}%
+                          </span>
                         )}
-                        <span className="flex items-center gap-2 truncate">
-                          {f.memUsedPct != null && (
-                            <span className="shrink-0 font-medium" style={{ color: ramColor(f.memUsedPct) }}>
-                              RAM {Math.round(f.memUsedPct)}%
-                            </span>
-                          )}
-                          {h.lastFactsAtMs != null && (
-                            <span className="truncate text-[var(--c-text-faint)]">{formatRelativeTime(h.lastFactsAtMs)}</span>
-                          )}
-                        </span>
+                        {t.lastFactsAtMs != null && (
+                          <span className="truncate text-[var(--c-text-faint)]">{formatRelativeTime(t.lastFactsAtMs)}</span>
+                        )}
                       </span>
-                    )}
-                  </span>
-                </label>
-              );
-            })
-          )}
+                    </span>
+                  )}
+                </span>
+              </label>
+            );
+          })}
         </div>
       </aside>
 
+      {/* Target picker resize handle */}
+      <div
+        onMouseDown={leftPane.onMouseDown}
+        className="group relative flex w-1 shrink-0 cursor-col-resize items-center justify-center"
+      >
+        <div className="h-full w-px bg-[var(--c-border)] transition-colors group-hover:bg-[var(--c-accent)]" />
+      </div>
+
       {/* ── Command + results ─────────────────────────────────────────── */}
-      <section className="flex min-w-0 flex-1 flex-col">
-        <div className="border-b border-[var(--c-border)] p-3">
+      <section ref={rightSectionRef} className="flex min-w-0 flex-1 flex-col">
+        <div style={{ height: `${composer.value}%` }} className="shrink-0 overflow-y-auto border-b border-[var(--c-border)] p-3">
           <div className="mb-2 flex shrink-0 rounded-md bg-[var(--c-bg2)] p-0.5 text-[11px]">
             <button
               onClick={() => setMode("command")}
@@ -615,7 +787,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
                     }
                   }}
                   rows={2}
-                  placeholder="Commande à exécuter sur les hôtes sélectionnés…  (Ctrl+Entrée)"
+                  placeholder="Commande à exécuter sur les cibles sélectionnées…  (Ctrl+Entrée)"
                   spellCheck={false}
                   className="min-h-[2.5rem] flex-1 resize-y rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-3 py-2 font-mono text-sm text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] focus:border-[var(--c-accent)] focus:outline-none"
                 />
@@ -641,7 +813,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
                   />
                   <button
                     onClick={runPreview}
-                    disabled={previewing || selected.size === 0 || !programText.trim()}
+                    disabled={previewing || selectedSshHostIds().length === 0 || !programText.trim()}
                     title="Analyse le programme et montre quels hôtes exécuteraient quoi — ne lance rien"
                     className="flex items-center gap-1.5 self-stretch rounded-md bg-[var(--c-accent)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--c-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
                   >
@@ -668,7 +840,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
                 </div>
                 <details className="text-[11px] text-[var(--c-text-faint)]">
                   <summary className="cursor-pointer select-none hover:text-[var(--c-text-muted)]">Aide-mémoire de la syntaxe</summary>
-                  <div className="mt-1.5 space-y-1 rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] p-2">
+                  <div className="mt-1.5 max-h-64 space-y-1 overflow-y-auto rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] p-2">
                     <p>Un bloc = conditions/options facultatives, puis une commande. Blocs séparés par une ligne vide.</p>
                     <ul className="list-inside list-disc space-y-0.5">
                       {DSL_CONDITION_FIELDS.map((c) => (
@@ -738,9 +910,17 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
               <span className="text-[#22c55e]">✓ {summary.ok} ok</span>
               <span className="text-[#ef4444]">✕ {summary.fail} échec</span>
               {summary.pending > 0 && <span className="text-[var(--c-text-muted)]">◷ {summary.pending} en cours</span>}
-              <span className="text-[var(--c-text-faint)]">· {summary.total} hôte(s)</span>
+              <span className="text-[var(--c-text-faint)]">· {summary.total} cible(s)</span>
             </div>
           )}
+        </div>
+
+        {/* Composer resize handle */}
+        <div
+          onMouseDown={composer.onMouseDown}
+          className="group relative flex h-1 shrink-0 cursor-row-resize items-center justify-center"
+        >
+          <div className="h-px w-full bg-[var(--c-border)] transition-colors group-hover:bg-[var(--c-accent)]" />
         </div>
 
         {/* Résultats / Historique */}
@@ -784,7 +964,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
                         <div className="min-w-0 flex-1">
                           <div className="truncate font-mono text-xs text-[var(--c-text)]">{hrun.command}</div>
                           <div className="text-[11px] text-[var(--c-text-faint)]">
-                            {formatTimestamp(hrun.startedAtMs)} · {hrun.hostIds.length} hôte(s)
+                            {formatTimestamp(hrun.startedAtMs)} · {hrun.targets.length} cible(s)
                           </div>
                         </div>
                         <span className="shrink-0 text-xs text-[#22c55e]">✓{counts.ok}</span>
@@ -802,11 +982,11 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
                       {isOpen && (
                         <div className="space-y-1 px-3 pb-2 pl-7">
                           {hrun.outcomes.map((o) => (
-                            <div key={o.hostId} className="text-xs">
+                            <div key={fleetTargetKey(o.target)} className="text-xs">
                               <div className="flex items-center gap-2">
                                 <StatusDot status={outcomeStatus(o)} />
                                 <span className="flex-1 truncate text-[var(--c-text-secondary)]">
-                                  {hostById.get(o.hostId)?.label ?? o.hostId}
+                                  {targetLabel(o.target, hostById, dockerContainers)}
                                 </span>
                                 <span className="shrink-0 font-mono text-[var(--c-text-faint)]">
                                   {o.error != null ? "—" : o.exitCode ?? "—"} · {o.durationMs} ms
@@ -835,29 +1015,30 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
             )
           ) : runTargets.length === 0 ? (
             <div className="flex h-full items-center justify-center px-6 text-center text-sm text-[var(--c-text-faint)]">
-              Sélectionne des hôtes, saisis une commande, puis exécute — le résultat de chaque hôte s'affiche ici.
+              Sélectionne des cibles, saisis une commande, puis exécute — le résultat de chacune s'affiche ici.
             </div>
           ) : (
             <table className="w-full border-collapse text-sm">
               <thead>
                 <tr className="sticky top-0 bg-[var(--c-bg2)] text-left text-[11px] uppercase tracking-wide text-[var(--c-text-muted)]">
                   <th className="w-8 py-2 pl-3"></th>
-                  <th className="py-2">Hôte</th>
+                  <th className="py-2">Cible</th>
                   <th className="w-16 py-2 text-center">Code</th>
                   <th className="w-20 py-2 pr-3 text-right">Durée</th>
                 </tr>
               </thead>
               <tbody>
-                {runTargets.map((id) => {
-                  const host = hostById.get(id);
-                  const outcome = results.get(id);
-                  const status = statusOf(id, results, pending);
-                  const isOpen = expanded.has(id);
+                {runTargets.map((t) => {
+                  const key = fleetTargetKey(t);
+                  const label = targetLabel(t, hostById, dockerContainers);
+                  const outcome = results.get(key);
+                  const status = statusOf(key, results, pending);
+                  const isOpen = expanded.has(key);
                   const hasDetail = !!outcome && (!!outcome.stdout || !!outcome.stderr || !!outcome.error);
                   return (
-                    <Fragment key={id}>
+                    <Fragment key={key}>
                       <tr
-                        onClick={() => hasDetail && toggleExpanded(id)}
+                        onClick={() => hasDetail && toggleExpanded(key)}
                         className={`border-b border-[var(--c-border)] ${hasDetail ? "cursor-pointer hover:bg-[var(--c-bg2)]" : ""}`}
                       >
                         <td className="py-2 pl-3">
@@ -870,7 +1051,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
                             <StatusDot status={status} />
                           </div>
                         </td>
-                        <td className="py-2 text-[var(--c-text)]">{host?.label ?? id}</td>
+                        <td className="py-2 text-[var(--c-text)]">{label}</td>
                         <td className="py-2 text-center font-mono text-xs">
                           {outcome ? (outcome.error != null ? "—" : outcome.exitCode ?? "—") : ""}
                         </td>

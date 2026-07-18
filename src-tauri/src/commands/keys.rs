@@ -81,20 +81,27 @@ pub async fn deploy_public_key(
     host_id: HostId,
     key_id: KeyId,
 ) -> Result<(), String> {
-    let (workspace, public_key_line) = {
+    let (workspace, key) = {
         let workspace = state.workspace.lock_recover();
         let key = workspace
             .keychain
             .iter()
             .find(|k| k.id == key_id)
-            .ok_or_else(|| "clé inconnue".to_string())?;
-        let content = resolve_key_content(key)?;
-        let passphrase =
-            vault::load(key_id, SecretKind::KeyPassphrase).map_err(|e| e.to_string())?;
-        let public_key_line =
-            keygen::public_key_line(&content, passphrase.as_deref()).map_err(|e| e.to_string())?;
-        (workspace.clone(), public_key_line)
+            .ok_or_else(|| "clé inconnue".to_string())?
+            .clone();
+        (workspace.clone(), key)
     };
+    // resolve_key_content can do a synchronous std::fs read (imported keys
+    // not covered by the vault/workspace.json) — keep it off the tokio
+    // worker thread, same reasoning as transfer.rs's spawn_blocking uses.
+    // Done outside the lock_recover() block above so the mutex is never
+    // held across an .await.
+    let content = tokio::task::spawn_blocking(move || resolve_key_content(&key))
+        .await
+        .map_err(|e| e.to_string())??;
+    let passphrase = vault::load(key_id, SecretKind::KeyPassphrase).map_err(|e| e.to_string())?;
+    let public_key_line =
+        keygen::public_key_line(&content, passphrase.as_deref()).map_err(|e| e.to_string())?;
 
     let connection = ssh::connect(&workspace, host_id)
         .await

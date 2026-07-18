@@ -17,13 +17,14 @@ import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, loadPrefe
 import { SplitPane } from "./components/SplitPane";
 import { GroupForm, type GroupFormData } from "./components/GroupForm";
 import { IconTerminal, IconClose } from "./components/ui-icons";
-import { type AppNotification, type NotificationKind, createNotification } from "./lib/notifications";
 import { CommandPalette, type PaletteCommand } from "./components/CommandPalette";
 import { SnippetPicker } from "./components/SnippetPicker";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { VaultUnlockModal } from "./components/VaultUnlockModal";
 import { SHORTCUT_ACTIONS, useGlobalShortcuts } from "./lib/shortcuts";
 import { loadTabs, saveTabs } from "./lib/tabPersistence";
+import { useNotifications } from "./hooks/useNotifications";
+import { useResizablePane } from "./hooks/useResizablePane";
 
 let nextTabId = 0;
 const SPLIT_PANE_ID = "split-pane";
@@ -52,8 +53,16 @@ export default function App() {
   const [newHostDefaultGroupId, setNewHostDefaultGroupId] = useState<GroupId | null>(null);
   const [tabs, setTabs] = useState<TabMeta[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
-  const [status, setStatus] = useState<string | null>(null);
-  const [notifications, setNotifications] = useState<AppNotification[]>([]);
+  const {
+    status,
+    notifications,
+    pushNotification,
+    reportError,
+    clearStatus,
+    dismissNotification,
+    clearAllNotifications,
+    markAllNotificationsRead,
+  } = useNotifications();
   const [preferences, setPreferences] = useState<AppPreferences>(loadPreferences);
   const [splitOpen, setSplitOpen] = useState(false);
   const [splitSource, setSplitSource] = useState<"local" | HostId>("local");
@@ -68,75 +77,25 @@ export default function App() {
   const [unlockSubmitting, setUnlockSubmitting] = useState(false);
 
   // ── Resizable panels ─────────────────────────────────────────────────────
-  const [sidebarWidth, setSidebarWidth] = useState(320);
-  const [rightPanelWidth, setRightPanelWidth] = useState(420);
-  const [splitPercent, setSplitPercent] = useState(50);
-  const [isDragging, setIsDragging] = useState(false);
-  const sidebarDragData = useRef<{ startX: number; startWidth: number } | null>(null);
-  const rightDragData = useRef<{ startX: number; startWidth: number } | null>(null);
-  const splitDragData = useRef<{ startX: number; startPercent: number; containerWidth: number } | null>(null);
+  // Each pane tracks its own drag state; combined below into a single
+  // `isDragging` so the full-screen mouse-event-stealing overlay and the
+  // width/percent transitions behave exactly as before the extraction (any
+  // one of the three dragging counts as "a drag is in progress").
+  const [sidebarDragging, setSidebarDragging] = useState(false);
+  const [rightDragging, setRightDragging] = useState(false);
+  const [splitDragging, setSplitDragging] = useState(false);
+  const isDragging = sidebarDragging || rightDragging || splitDragging;
   const splitContainerRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const onMove = (e: MouseEvent) => {
-      if (sidebarDragData.current) {
-        const delta = e.clientX - sidebarDragData.current.startX;
-        setSidebarWidth(Math.max(240, Math.min(600, sidebarDragData.current.startWidth + delta)));
-      }
-      if (rightDragData.current) {
-        const delta = rightDragData.current.startX - e.clientX;
-        setRightPanelWidth(Math.max(280, Math.min(700, rightDragData.current.startWidth + delta)));
-      }
-      if (splitDragData.current) {
-        const { startX, startPercent, containerWidth } = splitDragData.current;
-        const delta = e.clientX - startX;
-        const pct = startPercent + (delta / containerWidth) * 100;
-        setSplitPercent(Math.max(20, Math.min(80, pct)));
-      }
-    };
-    const onUp = () => {
-      if (sidebarDragData.current || rightDragData.current || splitDragData.current) {
-        document.body.style.cursor = "";
-        document.body.style.userSelect = "";
-        sidebarDragData.current = null;
-        rightDragData.current = null;
-        splitDragData.current = null;
-        setIsDragging(false);
-      }
-    };
-    window.addEventListener("mousemove", onMove);
-    window.addEventListener("mouseup", onUp);
-    return () => {
-      window.removeEventListener("mousemove", onMove);
-      window.removeEventListener("mouseup", onUp);
-    };
-  }, []);
-
-  const onSidebarDragStart = useCallback((e: React.MouseEvent) => {
-    sidebarDragData.current = { startX: e.clientX, startWidth: sidebarWidth };
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    setIsDragging(true);
-    e.preventDefault();
-  }, [sidebarWidth]);
-
-  const onRightDragStart = useCallback((e: React.MouseEvent) => {
-    rightDragData.current = { startX: e.clientX, startWidth: rightPanelWidth };
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    setIsDragging(true);
-    e.preventDefault();
-  }, [rightPanelWidth]);
-
-  const onSplitDragStart = useCallback((e: React.MouseEvent) => {
-    const container = splitContainerRef.current;
-    if (!container) return;
-    splitDragData.current = { startX: e.clientX, startPercent: splitPercent, containerWidth: container.clientWidth };
-    document.body.style.cursor = "col-resize";
-    document.body.style.userSelect = "none";
-    setIsDragging(true);
-    e.preventDefault();
-  }, [splitPercent]);
+  const sidebar = useResizablePane({
+    initial: 320, min: 240, max: 600, axis: "horizontal", mode: "px", onDragChange: setSidebarDragging,
+  });
+  const rightPanel = useResizablePane({
+    initial: 420, min: 280, max: 700, axis: "horizontal", mode: "px", invert: true, onDragChange: setRightDragging,
+  });
+  const split = useResizablePane({
+    initial: 50, min: 20, max: 80, axis: "horizontal", mode: "percent", containerRef: splitContainerRef, onDragChange: setSplitDragging,
+  });
 
   // ── Preferences ──────────────────────────────────────────────────────────
   const updatePreferences = useCallback((p: AppPreferences) => {
@@ -166,26 +125,6 @@ export default function App() {
     root.style.setProperty("--c-border", shade.border);
     root.dataset.mode = mode;
   }, [preferences.uiBg, preferences.colorMode]);
-
-  // ── Notifications ────────────────────────────────────────────────────────
-  const pushNotification = useCallback((kind: NotificationKind, message: string) => {
-    setNotifications((prev) => [...prev, createNotification(kind, message)]);
-  }, []);
-
-  const reportError = useCallback((message: string) => {
-    setStatus(message);
-    pushNotification("error", message);
-  }, [pushNotification]);
-
-  const dismissNotification = useCallback((id: string) => {
-    setNotifications((prev) => prev.filter((n) => n.id !== id));
-  }, []);
-
-  const clearAllNotifications = useCallback(() => setNotifications([]), []);
-
-  const markAllNotificationsRead = useCallback(() => {
-    setNotifications((prev) => prev.map((n) => (n.read ? n : { ...n, read: true })));
-  }, []);
 
   useEffect(() => {
     api.getWorkspace().then(setWorkspace).catch((e) => reportError(String(e)));
@@ -316,7 +255,7 @@ export default function App() {
     const restored: TabMeta[] = persisted.flatMap((p): TabMeta[] => {
       const id = `tab-${nextTabId++}`;
       if (p.kind === "local-terminal") {
-        return [{ id, kind: "local-terminal", label: p.label, status: "placeholder" }];
+        return [{ id, kind: "local-terminal", label: p.label, status: "placeholder", shell: p.shell }];
       }
       if (!p.hostId || !workspace.hosts.some((h) => h.id === p.hostId)) return [];
       return [{ id, kind: p.kind, hostId: p.hostId, label: p.label, status: "placeholder", dockerContainerId: p.dockerContainerId }];
@@ -377,33 +316,58 @@ export default function App() {
   // Runs an adaptive (DSL) snippet on specific tabs, or the active tab when
   // no target is given — same convention as `runSnippet`. Unlike a classic
   // snippet, `programText` isn't a runnable command by itself: each target's
-  // host determines what actually gets typed (see `core::adaptive`), so this
-  // resolves per host — collecting facts first if missing, same as
-  // `FleetTab`'s "Prévisualiser" — before running the *translated* command.
-  // Only an SSH host has facts to translate against, so any other target
-  // (Docker exec, RDP, local terminal, or an SSH host without facts) is
-  // reported and skipped rather than silently typing the raw DSL text.
+  // platform determines what actually gets typed (see `core::adaptive`), so
+  // this resolves per target before running the *translated* command.
+  // Three kinds of target are supported, each with its own way of finding
+  // out "what platform is this": an SSH host's last collected facts
+  // (batched through `previewAdaptiveProgram`, collecting first if missing —
+  // same as `FleetTab`'s "Prévisualiser"), a Docker exec container (probed
+  // fresh via `composeAdaptiveForDocker`, one call per target — no facts to
+  // reuse across calls, a `dockerExec` host isn't tied to one container),
+  // or a local terminal's shell (`composeAdaptiveForLocal` — instant for a
+  // native Windows shell, probed locally otherwise). RDP and anything else
+  // is reported and skipped rather than silently typing the raw DSL text.
   const runAdaptiveSnippet = useCallback(async (programText: string, targetTabIds?: string[]) => {
     if (!workspace) return;
     const ids = targetTabIds && targetTabIds.length > 0 ? targetTabIds : activeTabId ? [activeTabId] : [];
     if (ids.length === 0) { reportError("Aucun terminal actif pour exécuter ce snippet"); return; }
 
-    const eligible: { label: string; hostId: HostId; handle: TerminalTabHandle }[] = [];
+    const runTranslated = (label: string, handle: TerminalTabHandle, result: { command: string | null; note: string | null }) => {
+      if (!result.command) { reportError(`« ${label} » : ${result.note ?? "rien à exécuter pour cet hôte"}`); return; }
+      runOnTerminalHandle(handle, result.command, true);
+    };
+
+    const sshTargets: { label: string; hostId: HostId; handle: TerminalTabHandle }[] = [];
     for (const id of ids) {
       const tab = tabs.find((t) => t.id === id);
       const handle = terminalRefs.current.get(id);
       if (!tab || !handle) continue;
-      const hostId = tab.kind === "terminal" ? tab.hostId : null;
-      const host = hostId ? workspace.hosts.find((h) => h.id === hostId) : null;
-      if (!host || host.kind !== "ssh") {
-        reportError(`« ${tab.label} » : un snippet adaptatif ne peut s'exécuter que sur un hôte SSH`);
+
+      if (tab.kind === "local-terminal") {
+        api.composeAdaptiveForLocal(programText, tab.shell ?? null)
+          .then((result) => runTranslated(tab.label, handle, result))
+          .catch((e) => reportError(String(e)));
         continue;
       }
-      eligible.push({ label: tab.label, hostId: host.id, handle });
-    }
-    if (eligible.length === 0) return;
 
-    const missingFacts = [...new Set(eligible.filter((e) => !workspace.hosts.find((h) => h.id === e.hostId)?.lastFacts).map((e) => e.hostId))];
+      const ineligible = () => reportError(`« ${tab.label} » : un snippet adaptatif ne peut s'exécuter que sur un terminal local, un hôte SSH ou Docker exec`);
+      if (tab.kind !== "terminal") { ineligible(); continue; }
+      const host = workspace.hosts.find((h) => h.id === tab.hostId);
+      if (!host) { ineligible(); continue; }
+
+      if (host.kind === "dockerExec") {
+        if (!tab.dockerContainerId) { reportError(`« ${tab.label} » : aucun conteneur associé à cet onglet`); continue; }
+        api.composeAdaptiveForDocker(programText, host.id, tab.dockerContainerId)
+          .then((result) => runTranslated(tab.label, handle, result))
+          .catch((e) => reportError(String(e)));
+        continue;
+      }
+      if (host.kind !== "ssh") { ineligible(); continue; }
+      sshTargets.push({ label: tab.label, hostId: host.id, handle });
+    }
+    if (sshTargets.length === 0) return;
+
+    const missingFacts = [...new Set(sshTargets.filter((e) => !workspace.hosts.find((h) => h.id === e.hostId)?.lastFacts).map((e) => e.hostId))];
     if (missingFacts.length > 0) {
       try {
         refreshWorkspace((await api.collectFacts(missingFacts)).workspace);
@@ -413,15 +377,10 @@ export default function App() {
     }
 
     try {
-      const groups = await api.previewAdaptiveProgram([...new Set(eligible.map((e) => e.hostId))], programText);
+      const groups = await api.previewAdaptiveProgram([...new Set(sshTargets.map((e) => e.hostId))], programText);
       const groupByHost = new Map(groups.flatMap((g) => g.hostIds.map((id) => [id, g] as const)));
-      for (const target of eligible) {
-        const group = groupByHost.get(target.hostId);
-        if (!group?.command) {
-          reportError(`« ${target.label} » : ${group?.note ?? "rien à exécuter pour cet hôte"}`);
-          continue;
-        }
-        runOnTerminalHandle(target.handle, group.command, true);
+      for (const target of sshTargets) {
+        runTranslated(target.label, target.handle, groupByHost.get(target.hostId) ?? { command: null, note: "rien à exécuter pour cet hôte" });
       }
     } catch (e) {
       reportError(String(e));
@@ -639,7 +598,7 @@ export default function App() {
       {status && (
         <div className="flex shrink-0 items-center justify-between bg-amber-900/60 px-4 py-2 text-sm text-amber-100">
           <span>{status}</span>
-          <button className="flex items-center justify-center rounded p-1 hover:bg-amber-800" onClick={() => setStatus(null)} aria-label="Fermer">
+          <button className="flex items-center justify-center rounded p-1 hover:bg-amber-800" onClick={clearStatus} aria-label="Fermer">
             <IconClose size={12} />
           </button>
         </div>
@@ -677,7 +636,7 @@ export default function App() {
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* Sidebar */}
         <div
-          style={{ width: sidebarVisible ? sidebarWidth : 0 }}
+          style={{ width: sidebarVisible ? sidebar.value : 0 }}
           className={`flex shrink-0 overflow-hidden ${isDragging ? "" : "transition-[width] duration-200 ease-in-out"}`}
         >
           <Sidebar
@@ -724,7 +683,7 @@ export default function App() {
         {/* Sidebar resize handle */}
         {sidebarVisible && (
           <div
-            onMouseDown={onSidebarDragStart}
+            onMouseDown={sidebar.onMouseDown}
             className="group relative flex w-1 shrink-0 cursor-col-resize items-center justify-center"
           >
             <div className="h-full w-px bg-[var(--c-border)] transition-colors group-hover:bg-[var(--c-accent)]" />
@@ -748,7 +707,7 @@ export default function App() {
               {/* Primary pane */}
               <div
                 className="relative min-w-0"
-                style={{ width: splitOpen ? `${splitPercent}%` : "100%" }}
+                style={{ width: splitOpen ? `${split.value}%` : "100%" }}
               >
                 {tabs.map((tab) => {
                   const isActive = tab.id === activeTabId;
@@ -841,7 +800,7 @@ export default function App() {
               {splitOpen && (
                 <>
                   <div
-                    onMouseDown={onSplitDragStart}
+                    onMouseDown={split.onMouseDown}
                     className="group relative flex w-1 shrink-0 cursor-col-resize items-center justify-center"
                   >
                     <div className="h-full w-px bg-[var(--c-border)] transition-colors group-hover:bg-[var(--c-accent)]" />
@@ -866,7 +825,7 @@ export default function App() {
         {/* Right panel resize handle */}
         {showRightPanel && (
           <div
-            onMouseDown={onRightDragStart}
+            onMouseDown={rightPanel.onMouseDown}
             className="group relative flex w-1 shrink-0 cursor-col-resize items-center justify-center"
           >
             <div className="h-full w-px bg-[var(--c-border)] transition-colors group-hover:bg-[var(--c-accent)]" />
@@ -875,7 +834,7 @@ export default function App() {
 
         {/* Right edit panel */}
         <div
-          style={{ width: showRightPanel ? rightPanelWidth : 0 }}
+          style={{ width: showRightPanel ? rightPanel.value : 0 }}
           className={`flex shrink-0 flex-col overflow-hidden bg-[var(--c-bg)] ${isDragging ? "" : "transition-[width] duration-200 ease-in-out"}`}
         >
           {editingHost && (

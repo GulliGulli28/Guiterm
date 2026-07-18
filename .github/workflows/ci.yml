@@ -48,6 +48,9 @@ jobs:
       - name: Clippy (rdp-sidecar)
         run: cd rdp-sidecar && cargo clippy --all-targets -- -D warnings
 
+      - name: Test (rdp-sidecar)
+        run: cd rdp-sidecar && cargo test --all-targets
+
   windows-workspace:
     # Full workspace (including the Tauri binary) mirrors release.yml's
     # environment, since Tauri needs WebView2 which ships on windows-latest.
@@ -131,6 +134,9 @@ jobs:
 
       - name: Type-check
         run: npx tsc --noEmit
+
+      - name: Test
+        run: npm run test
 
       - name: Build
         run: npm run build
