@@ -25,6 +25,7 @@ jobs:
           # older user systems to run the resulting binary.
           - platform: ubuntu-22.04
     runs-on: ${{ matrix.platform }}
+    timeout-minutes: 60
     permissions:
       contents: write
     steps:

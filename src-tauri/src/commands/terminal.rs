@@ -75,33 +75,43 @@ pub(crate) fn startup_commands(workspace: &Workspace, host_id: HostId) -> Vec<Ve
     cmds
 }
 
+/// Finishes wiring a freshly-opened shell session into the app: spawns the
+/// `terminal-data` output bridge, replays `host_id`'s startup commands, and
+/// registers the session under a new id. Shared tail of [`connect_terminal`]
+/// (SSH) and [`crate::commands::docker::connect_docker_exec`] — both hand it
+/// the very same [`ssh::ShellSession`] shape once their backend-specific
+/// connect step is done, so only that step still differs between the two.
+pub(crate) async fn register_shell_session(
+    app: AppHandle,
+    state: &AppState,
+    workspace: &Workspace,
+    host_id: HostId,
+    backend: TerminalBackend,
+    session: ssh::ShellSession,
+) -> String {
+    let session_id = Uuid::new_v4().to_string();
+    let ssh::ShellSession { input, output } = session;
+
+    spawn_output_bridge(app, session_id.clone(), output);
+
+    for cmd in startup_commands(workspace, host_id) {
+        let _ = input.send(ShellInput::Data(cmd)).await;
+    }
+
+    state.terminals.lock_recover().insert(session_id.clone(), TerminalSession { backend, input });
+    session_id
+}
+
 /// Connects to `host_id` and starts an interactive shell, emitting its
 /// output as `terminal-data` events (base64-encoded) until it closes.
 #[tauri::command]
 pub async fn connect_terminal(app: AppHandle, state: State<'_, AppState>, host_id: HostId) -> Result<String, String> {
     let workspace = state.workspace.lock_recover().clone();
-
-    // Collect startup commands before the async SSH calls.
-    let startup_cmds = startup_commands(&workspace, host_id);
-
     let agent_forward = workspace.host(host_id).map(|h| h.agent_forward).unwrap_or(false);
     let connection = ssh::connect(&workspace, host_id).await.map_err(|e| e.to_string())?;
     let shell = ssh::open_shell(&connection, 80, 24, agent_forward).await.map_err(|e| e.to_string())?;
 
-    let session_id = Uuid::new_v4().to_string();
-    let ssh::ShellSession { input, output } = shell;
-
-    spawn_output_bridge(app.clone(), session_id.clone(), output);
-
-    for cmd in startup_cmds {
-        let _ = input.send(ShellInput::Data(cmd)).await;
-    }
-
-    state.terminals.lock_recover().insert(
-        session_id.clone(),
-        TerminalSession { backend: TerminalBackend::Ssh(connection), input },
-    );
-    Ok(session_id)
+    Ok(register_shell_session(app, &state, &workspace, host_id, TerminalBackend::Ssh(connection), shell).await)
 }
 
 fn terminal_input(state: &AppState, session_id: &str) -> Result<tokio::sync::mpsc::Sender<ShellInput>, String> {

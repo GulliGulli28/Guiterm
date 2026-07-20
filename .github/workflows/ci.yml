@@ -12,6 +12,7 @@ jobs:
     # termius-core is pure Rust (no Tauri/webkit), so it builds and tests
     # fine on the default Linux runner — fast feedback loop.
     runs-on: ubuntu-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -60,6 +61,7 @@ jobs:
     # possible later addition. This job exists to catch macOS-specific Rust
     # portability regressions early, same reasoning as `core` for Linux.
     runs-on: macos-latest
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -97,6 +99,7 @@ jobs:
     # Full workspace (including the Tauri binary) mirrors release.yml's
     # environment, since Tauri needs WebView2 which ships on windows-latest.
     runs-on: windows-latest
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
 
@@ -163,6 +166,7 @@ jobs:
 
   frontend:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
 
