@@ -2,6 +2,7 @@ use termius_core::sync_ext::MutexExt;
 use crate::state::{AppState, TerminalBackend, TerminalSession};
 use crate::util;
 use serde::Serialize;
+use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Emitter, State};
 use termius_core::model::{HostId, Workspace};
 use termius_core::ssh::{self, ShellInput};
@@ -9,26 +10,22 @@ use tokio::sync::mpsc;
 use uuid::Uuid;
 
 #[derive(Serialize, Clone)]
-pub(crate) struct TerminalDataEvent {
-    id: String,
-    data: String,
-}
-
-#[derive(Serialize, Clone)]
 pub(crate) struct TerminalClosedEvent {
     id: String,
 }
 
-/// Forwards a session's raw output channel to the frontend as `terminal-data`
-/// events (base64-encoded) until it closes, then emits `terminal-closed` —
-/// shared by every session backend (SSH shell, Docker exec, ...) so each one
-/// only needs to produce a plain `mpsc::Receiver<Vec<u8>>`, not know about
-/// Tauri events itself.
-pub(crate) fn spawn_output_bridge(app: AppHandle, session_id: String, mut output: mpsc::Receiver<Vec<u8>>) {
+/// Forwards a session's raw output channel to the frontend as raw bytes over
+/// its dedicated `channel` (no JSON/base64 — same reasoning as RDP frames,
+/// see `commands::rdp_view::connect_rdp_view`'s doc comment) until it closes,
+/// then emits a plain `terminal-closed` event (fires at most once per
+/// session, so its JSON overhead doesn't matter). Shared by every session
+/// backend (SSH shell, Docker exec, ...) so each one only needs to produce a
+/// plain `mpsc::Receiver<Vec<u8>>`, not know about Tauri events/channels
+/// itself.
+pub(crate) fn spawn_output_bridge(app: AppHandle, session_id: String, channel: Channel, mut output: mpsc::Receiver<Vec<u8>>) {
     tokio::spawn(async move {
         while let Some(bytes) = output.recv().await {
-            let payload = TerminalDataEvent { id: session_id.clone(), data: util::encode(&bytes) };
-            if app.emit("terminal-data", payload).is_err() {
+            if channel.send(InvokeResponseBody::Raw(bytes)).is_err() {
                 break;
             }
         }
@@ -87,12 +84,13 @@ pub(crate) async fn register_shell_session(
     workspace: &Workspace,
     host_id: HostId,
     backend: TerminalBackend,
+    channel: Channel,
     session: ssh::ShellSession,
 ) -> String {
     let session_id = Uuid::new_v4().to_string();
     let ssh::ShellSession { input, output } = session;
 
-    spawn_output_bridge(app, session_id.clone(), output);
+    spawn_output_bridge(app, session_id.clone(), channel, output);
 
     for cmd in startup_commands(workspace, host_id) {
         let _ = input.send(ShellInput::Data(cmd)).await;
@@ -102,16 +100,18 @@ pub(crate) async fn register_shell_session(
     session_id
 }
 
-/// Connects to `host_id` and starts an interactive shell, emitting its
-/// output as `terminal-data` events (base64-encoded) until it closes.
+/// Connects to `host_id` and starts an interactive shell, streaming its
+/// output back as raw bytes over `channel` (see [`spawn_output_bridge`]) —
+/// `channel` is a dedicated `tauri::ipc::Channel` the caller creates just for
+/// this session, mirroring `connect_rdp_view`'s frame channel.
 #[tauri::command]
-pub async fn connect_terminal(app: AppHandle, state: State<'_, AppState>, host_id: HostId) -> Result<String, String> {
+pub async fn connect_terminal(app: AppHandle, state: State<'_, AppState>, host_id: HostId, channel: Channel) -> Result<String, String> {
     let workspace = state.workspace.lock_recover().clone();
     let agent_forward = workspace.host(host_id).map(|h| h.agent_forward).unwrap_or(false);
     let connection = ssh::connect(&workspace, host_id).await.map_err(|e| e.to_string())?;
     let shell = ssh::open_shell(&connection, 80, 24, agent_forward).await.map_err(|e| e.to_string())?;
 
-    Ok(register_shell_session(app, &state, &workspace, host_id, TerminalBackend::Ssh(connection), shell).await)
+    Ok(register_shell_session(app, &state, &workspace, host_id, TerminalBackend::Ssh(connection), channel, shell).await)
 }
 
 fn terminal_input(state: &AppState, session_id: &str) -> Result<tokio::sync::mpsc::Sender<ShellInput>, String> {
@@ -198,7 +198,7 @@ pub fn list_local_shells() -> Vec<ShellInfo> {
 }
 
 #[tauri::command]
-pub async fn open_local_terminal(app: AppHandle, state: State<'_, AppState>, shell: Option<String>) -> Result<String, String> {
+pub async fn open_local_terminal(app: AppHandle, state: State<'_, AppState>, shell: Option<String>, channel: Channel) -> Result<String, String> {
     use portable_pty::{native_pty_system, CommandBuilder, PtySize};
     use std::io::Read;
 
@@ -225,8 +225,7 @@ pub async fn open_local_terminal(app: AppHandle, state: State<'_, AppState>, she
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
-                    let payload = TerminalDataEvent { id: emit_id.clone(), data: util::encode(&buf[..n]) };
-                    if app_handle.emit("terminal-data", payload).is_err() {
+                    if channel.send(InvokeResponseBody::Raw(buf[..n].to_vec())).is_err() {
                         break;
                     }
                 }

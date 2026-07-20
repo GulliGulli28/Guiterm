@@ -4,7 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { api, base64ToBytes, bytesToBase64, onTerminalClosed, onTerminalData } from "../lib/api";
+import { api, bytesToBase64, onTerminalClosed } from "../lib/api";
 import { scrollbackText, type TerminalTabHandle } from "./TerminalTab";
 import type { AppPreferences } from "../lib/preferences";
 import { TERMINAL_THEMES, auroraLayerBackground } from "../lib/preferences";
@@ -65,7 +65,6 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
 
   useEffect(() => {
     let disposed = false;
-    let unlistenData: UnlistenFn | null = null;
     let unlistenClosed: UnlistenFn | null = null;
 
     const term = new Terminal({
@@ -133,7 +132,8 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
 
     (async () => {
       try {
-        const id = await api.openLocalTerminal(shell ?? null);
+        const onData = (chunk: Uint8Array) => term.write(chunk, () => ghost.handleOutputWritten());
+        const id = await api.openLocalTerminal(shell ?? null, onData);
         if (disposed) {
           api.closeLocalTerminal(id).catch(() => {});
           return;
@@ -141,10 +141,6 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
         sessionIdRef.current = id;
         setStatus("open");
 
-        unlistenData = await onTerminalData((eventId, data) => {
-          if (eventId !== id) return;
-          term.write(base64ToBytes(data), () => ghost.handleOutputWritten());
-        });
         unlistenClosed = await onTerminalClosed((eventId) => {
           if (eventId !== id) return;
           term.write("\r\n\x1b[31m[terminal fermé]\x1b[0m\r\n");
@@ -172,7 +168,6 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
 
     return () => {
       disposed = true;
-      unlistenData?.();
       unlistenClosed?.();
       if (sessionIdRef.current) api.closeLocalTerminal(sessionIdRef.current).catch(() => {});
       term.dispose();

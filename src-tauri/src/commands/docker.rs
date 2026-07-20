@@ -1,6 +1,7 @@
 use termius_core::sync_ext::MutexExt;
 use crate::commands::terminal::register_shell_session;
 use crate::state::{AppState, TerminalBackend};
+use tauri::ipc::Channel;
 use tauri::{AppHandle, State};
 use termius_core::docker;
 use termius_core::model::{Host, HostId, Workspace};
@@ -37,6 +38,7 @@ pub async fn connect_docker_exec(
     state: State<'_, AppState>,
     host_id: HostId,
     container_id: String,
+    channel: Channel,
 ) -> Result<String, String> {
     let workspace = state.workspace.lock_recover().clone();
     let host = find_host(&workspace, host_id)?;
@@ -45,5 +47,5 @@ pub async fn connect_docker_exec(
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(register_shell_session(app, &state, &workspace, host_id, TerminalBackend::Docker, session).await)
+    Ok(register_shell_session(app, &state, &workspace, host_id, TerminalBackend::Docker, channel, session).await)
 }

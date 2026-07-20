@@ -4,7 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { api, base64ToBytes, bytesToBase64, onTerminalClosed, onTerminalData } from "../lib/api";
+import { api, bytesToBase64, onTerminalClosed } from "../lib/api";
 import type { Host } from "../lib/types";
 import type { AppPreferences } from "../lib/preferences";
 import { TERMINAL_THEMES, auroraLayerBackground } from "../lib/preferences";
@@ -82,7 +82,6 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
 
   useEffect(() => {
     let disposed = false;
-    let unlistenData: UnlistenFn | null = null;
     let unlistenClosed: UnlistenFn | null = null;
 
     const term = new Terminal({
@@ -174,9 +173,10 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
       if (disposed) return;
       setStatus("connecting");
       try {
+        const onData = (chunk: Uint8Array) => term.write(chunk, () => ghost.handleOutputWritten());
         const id = dockerContainerId
-          ? await api.connectDockerExec(host.id, dockerContainerId)
-          : await api.connectTerminal(host.id);
+          ? await api.connectDockerExec(host.id, dockerContainerId, onData)
+          : await api.connectTerminal(host.id, onData);
         if (disposed) {
           api.closeTerminal(id).catch(() => {});
           return;
@@ -185,14 +185,8 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
         setStatus("open");
         reconnectAttempt = 0;
 
-        unlistenData = await onTerminalData((eventId, data) => {
-          if (eventId !== id) return;
-          term.write(base64ToBytes(data), () => ghost.handleOutputWritten());
-        });
         unlistenClosed = await onTerminalClosed((eventId) => {
           if (eventId !== id) return;
-          unlistenData?.();
-          unlistenData = null;
           unlistenClosed?.();
           unlistenClosed = null;
           handleClosed();
@@ -218,7 +212,6 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
     return () => {
       disposed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
-      unlistenData?.();
       unlistenClosed?.();
       if (sessionIdRef.current) api.closeTerminal(sessionIdRef.current).catch(() => {});
       term.dispose();

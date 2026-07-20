@@ -143,6 +143,47 @@ async function runScenarios(browser) {
     throw new Error(`invoke("master_password_status") n'a pas répondu correctement via IPC : ${JSON.stringify(vaultStatus)}`);
   }
 
+  // Open a local terminal (Ctrl+T) and read back real command output — the
+  // one path that exercises the `tauri::ipc::Channel`-based terminal-data
+  // bridge end to end (PTY read -> `channel.send` -> IPC -> xterm.write ->
+  // DOM), not just that some invoke() resolves. Doesn't touch the real
+  // profile/workspace: opening a local shell subprocess mutates nothing
+  // persisted.
+  await browser.keys(["Control", "t"]);
+  await browser.waitUntil(
+    async () => (await browser.execute(() => document.querySelector(".xterm-rows") !== null)),
+    { timeout: 10_000, timeoutMsg: "le terminal local ne s'est jamais ouvert (aucun .xterm-rows dans le DOM)" },
+  );
+
+  // A fresh terminal doesn't necessarily hold DOM focus the instant
+  // `.xterm-rows` appears (its own focus effect runs on a later render than
+  // the one that first mounts the element) — click it explicitly so the
+  // keystrokes below land on xterm's hidden textarea instead of nowhere.
+  await browser.$(".xterm").click();
+
+  const marker = `E2E_CHANNEL_${Date.now()}`;
+  // One `keys()` call per character rather than one bulk string: WebKitWebDriver
+  // has been observed to silently coalesce/drop a character when a whole string
+  // is sent as a single action, which isn't a real app bug — see the git history
+  // of this comment for the flaky run that surfaced it.
+  for (const ch of `echo ${marker}`) {
+    await browser.keys(ch);
+  }
+  await browser.keys("Enter");
+  try {
+    await browser.waitUntil(
+      async () => (await browser.execute((m) => document.body.innerText.includes(m), marker)),
+      { timeout: 10_000, timeoutMsg: `la sortie "${marker}" n'est jamais apparue dans le terminal — canal binaire terminal-data cassé ?` },
+    );
+  } catch (e) {
+    // The exact wait that failed above doesn't say what the terminal actually
+    // rendered — print it so a future failure is diagnosable from CI logs
+    // alone, without needing to reproduce locally first.
+    const rendered = await browser.execute(() => document.querySelector(".xterm-rows")?.textContent ?? "<pas de .xterm-rows>");
+    console.log("Contenu du terminal au moment de l'échec :", JSON.stringify(rendered));
+    throw e;
+  }
+
   await mkdir(outDir, { recursive: true });
   const screenshotPath = path.join(outDir, "e2e-smoke.png");
   await browser.saveScreenshot(screenshotPath);

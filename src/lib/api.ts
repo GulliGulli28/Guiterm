@@ -88,9 +88,23 @@ export const api = {
   previewSshConfigImport: (path: string | null) => invoke<SshConfigHost[]>("preview_ssh_config_import", { path }),
   importSshConfigHosts: (selections: ImportSelection[]) => invoke<Workspace>("import_ssh_config_hosts", { selections }),
 
-  connectTerminal: (hostId: HostId) => invoke<string>("connect_terminal", { hostId }),
+  /** `onData`: called with each raw output chunk over a dedicated
+   * `tauri::ipc::Channel` created just for this session — same reasoning as
+   * `connectRdpView`'s frame channel: terminal output is the single most
+   * frequent event in the app, so it skips JSON-stringify + base64 on the
+   * way out (and back on this side) rather than going through a global
+   * `terminal-data` event filtered by session id. */
+  connectTerminal: (hostId: HostId, onData: (chunk: Uint8Array) => void) => {
+    const channel = new Channel<ArrayBuffer>();
+    channel.onmessage = (buffer) => onData(new Uint8Array(buffer));
+    return invoke<string>("connect_terminal", { hostId, channel });
+  },
   listDockerContainers: (hostId: HostId) => invoke<DockerContainer[]>("list_docker_containers", { hostId }),
-  connectDockerExec: (hostId: HostId, containerId: string) => invoke<string>("connect_docker_exec", { hostId, containerId }),
+  connectDockerExec: (hostId: HostId, containerId: string, onData: (chunk: Uint8Array) => void) => {
+    const channel = new Channel<ArrayBuffer>();
+    channel.onmessage = (buffer) => onData(new Uint8Array(buffer));
+    return invoke<string>("connect_docker_exec", { hostId, containerId, channel });
+  },
   connectRdpView: (hostId: HostId, width: number, height: number, onFrame: (frame: RdpFrame) => void) => {
     const channel = new Channel<ArrayBuffer>();
     channel.onmessage = (buffer) => onFrame(parseRdpFrame(buffer));
@@ -116,7 +130,11 @@ export const api = {
   resizeTerminal: (sessionId: string, cols: number, rows: number) => invoke<void>("resize_terminal", { sessionId, cols, rows }),
   closeTerminal: (sessionId: string) => invoke<void>("close_terminal", { sessionId }),
 
-  openLocalTerminal: (shell: string | null = null) => invoke<string>("open_local_terminal", { shell }),
+  openLocalTerminal: (shell: string | null, onData: (chunk: Uint8Array) => void) => {
+    const channel = new Channel<ArrayBuffer>();
+    channel.onmessage = (buffer) => onData(new Uint8Array(buffer));
+    return invoke<string>("open_local_terminal", { shell, channel });
+  },
   listLocalShells: () => invoke<{ id: string; label: string }[]>("list_local_shells"),
   writeLocalTerminal: (sessionId: string, data: string) => invoke<void>("write_local_terminal", { sessionId, data }),
   resizeLocalTerminal: (sessionId: string, cols: number, rows: number) => invoke<void>("resize_local_terminal", { sessionId, cols, rows }),
@@ -218,10 +236,6 @@ export function onTransferError(handler: (transferId: string, message: string) =
   return listen<{ transferId: string; message: string }>("transfer-error", (event) => handler(event.payload.transferId, event.payload.message));
 }
 
-export function onTerminalData(handler: (id: string, data: string) => void): Promise<UnlistenFn> {
-  return listen<{ id: string; data: string }>("terminal-data", (event) => handler(event.payload.id, event.payload.data));
-}
-
 export function onTerminalClosed(handler: (id: string) => void): Promise<UnlistenFn> {
   return listen<{ id: string }>("terminal-closed", (event) => handler(event.payload.id));
 }
@@ -246,11 +260,4 @@ export function bytesToBase64(bytes: Uint8Array): string {
   let binary = "";
   for (const byte of bytes) binary += String.fromCharCode(byte);
   return btoa(binary);
-}
-
-export function base64ToBytes(text: string): Uint8Array {
-  const binary = atob(text);
-  const bytes = new Uint8Array(binary.length);
-  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
-  return bytes;
 }

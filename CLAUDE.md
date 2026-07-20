@@ -2745,7 +2745,8 @@ réseau/utilisateur sans aucun filet automatisé :
   tests TS existants ne sont vérifiés qu'en local.
 - Autres trous mineurs : aucun `timeout-minutes` sur aucun job, pas de job
   macOS (ni `ci.yml` ni `release.yml`), aucun ESLint configuré nulle part
-  (seul le type-check TS).
+  (seul le type-check TS). **Les trois ✅ faits le 2026-07-20** — voir la
+  section « Dette technique (suite) » plus bas.
 
 **Duplication reconnue mais pas encore factorisée** :
 - La logique de redimensionnement à la souris (ref de drag +
@@ -2760,18 +2761,23 @@ réseau/utilisateur sans aucun filet automatisé :
   la séquence clone workspace → `startup_commands` → connect backend →
   `spawn_output_bridge` → insertion dans `state.terminals` — pertinent à
   factoriser avant qu'un futur backend K8s exec ne rajoute une 3e copie.
+  **✅ fait le 2026-07-20** (`register_shell_session`) — voir plus bas.
 
 **`App.tsx` : complexité croissante, pas encore un problème mais à
 surveiller** — 942 lignes, 28 `useState`, 11 `useEffect`, 0 `useMemo`,
 mélange onglets/persistance, notifications, préférences, état du vault,
 layout redimensionnable, orchestration de connexion. Chaque feature récente
 (flotte, moteur adaptatif, RDP) y a ajouté du poids sans jamais en retirer.
+**Allégé à 605 lignes le 2026-07-20** (extraction de `useTabs`/
+`useBroadcast`/`runOnTerminalHandle`) — voir plus bas ; pas retombé à zéro,
+toujours à surveiller.
 
 **Fichiers hors code à la racine** : `gui-termius Prototype Connexions
 (standalone).html` (353 Ko, maquette statique déjà documentée comme non
 branchée au build) et `Redesign gui-termius.pdf` (272 Ko, jamais mentionné
 avant) — deux artefacts de design committés dans le repo de code, à
-déplacer ou `.gitignore` si non nécessaires au build.
+déplacer ou `.gitignore` si non nécessaires au build. **✅ déplacés vers
+`docs/design/` le 2026-07-20** (toujours versionnés, juste rangés).
 
 **Point de confiance noté, pas un bug** : importer un `workspace.json`
 externe (`export.rs`) peut ramener des `startup_snippets` qui s'exécutent
@@ -2779,6 +2785,113 @@ automatiquement à la prochaine connexion sur l'hôte importé — pas une
 injection (le shell-quoting est correct), mais un fichier importé non fiable
 peut faire exécuter une commande sans confirmation explicite au moment de
 l'import.
+
+## Dette technique (suite) : ESLint/CI macOS, factorisation connect_terminal/docker, canal binaire terminal-data (2026-07-20)
+
+Reprise de la liste laissée ouverte par l'audit du 2026-07-18 (section
+précédente), à la demande explicite de l'utilisateur (« on voit s'il y a des
+choses à améliorer » puis « on passe à la suite : dette technique »). Trois
+commits successifs le même jour.
+
+**1. ESLint + job CI macOS + allègement d'`App.tsx`** — repris depuis un WIP
+non committé trouvé en début de session (une session précédente s'était
+arrêtée avant de committer). `eslint.config.js` (nouveau,
+`typescript-eslint` + `eslint-plugin-react-hooks`), `npm run lint` ajouté à
+`package.json` et au job `frontend` de `ci.yml`. Nouveau job `core-macos`
+(clippy + test de `termius-core`/`rdp-sidecar` sur `macos-latest` — pas de
+build Tauri complet, `release.yml` ne shippe toujours pas macOS). `App.tsx`
+942 → 605 lignes via `src/hooks/useTabs.ts` (cycle de vie des onglets,
+snippets manuels/adaptatifs, export scrollback) et `src/hooks/useBroadcast.ts`
+(diffusion + synchro live), plus `src/lib/runOnTerminalHandle.ts` (le
+wrapping base64 partagé entre les deux). Escape ferme désormais
+`ConnectionPickerModal`/`QuickEditModal` comme le clic sur le fond.
+
+**2. Factorisation `connect_terminal`/`connect_docker_exec` + `timeout-minutes`
+CI + rangement des fichiers de design.** `commands/terminal.rs` gagne
+`register_shell_session` (`pub(crate) async fn`) : bridge de sortie, replay
+des startup snippets/env vars, insertion dans `state.terminals` — la queue
+commune aux deux backends, qui produisaient déjà le même `ssh::ShellSession`
+(voir « Docker exec est réel » plus haut). Seule la connexion elle-même
+(SSH vs Docker) reste spécifique à chaque commande. Prépare le terrain pour
+un futur backend K8s exec sans tripler cette séquence. `timeout-minutes`
+ajouté aux 4 jobs de `ci.yml` (20/20/30/15 min) et au job de `release.yml`
+(60 min) — aucun n'en avait. `Redesign gui-termius.pdf` et le prototype HTML
+standalone déplacés de la racine vers `docs/design/` (toujours versionnés).
+
+**3. Canal binaire pour `terminal-data`** — le morceau substantiel, seul
+point du backlog qualifié de « chantier le plus invasif ». Même
+transformation que celle déjà faite pour les frames RDP (voir plus haut,
+« Optimisation supplémentaire : `tauri::ipc::Channel` pour `Image` ») :
+`terminal-data` était un event Tauri JSON global (`{id, data: base64}`),
+filtré côté frontend par `session_id` — l'événement le plus fréquent de
+toute l'app (chaque chunk de sortie SSH/Docker exec/PTY local). Remplacé par
+un `tauri::ipc::Channel` **par session**, créé côté frontend juste avant
+l'appel `invoke`, transportant les octets bruts (`InvokeResponseBody::Raw`)
+sans JSON ni base64 — terminal-data n'a pas besoin d'un en-tête structuré
+comme les frames RDP, les octets sont directement ce que xterm attend.
+
+- `commands/terminal.rs::spawn_output_bridge` prend désormais un `channel:
+  Channel` en plus de `output: mpsc::Receiver<Vec<u8>>` et fait
+  `channel.send(InvokeResponseBody::Raw(bytes))` au lieu de
+  `app.emit("terminal-data", ...)` — partagé par `connect_terminal` (SSH,
+  via `register_shell_session`) et `connect_docker_exec` (Docker, idem).
+  `open_local_terminal` n'utilise pas ce helper (bridge synchrone dans un
+  `spawn_blocking`, pas un `mpsc::Receiver` async) : converti séparément,
+  même appel `channel.send(...)`. `terminal-closed` **reste** un event JSON
+  classique (fire au plus une fois par session, coût négligeable — même
+  raisonnement que `rdp-view-error`/`rdp-view-closed`).
+- `TerminalDataEvent` (struct) et `util::encode`/`onTerminalData`/
+  `base64ToBytes` (frontend) supprimés — plus aucun call site après cette
+  bascule sur la voie de sortie. `util::decode`/`bytesToBase64` restent :
+  la voie d'**entrée** (frappe clavier → `write_terminal`/
+  `write_local_terminal`) n'a pas été touchée, elle reste un `invoke` base64
+  classique (volume par appel bien plus faible qu'un flux de sortie
+  continu, pas le goulot identifié par l'audit).
+- Frontend : `api.connectTerminal`/`connectDockerExec`/`openLocalTerminal`
+  prennent maintenant un callback `onData: (chunk: Uint8Array) => void` et
+  créent/câblent le `Channel` en interne, plutôt que de renvoyer juste un
+  `session_id` que l'appelant doit ensuite associer à un listener global
+  séparé. `TerminalTab.tsx`/`LocalTerminalTab.tsx` passent directement
+  `(chunk) => term.write(chunk, () => ghost.handleOutputWritten())` — xterm
+  accepte déjà un `Uint8Array` en entrée de `write()`, aucune conversion
+  nécessaire. **Bénéfice de correction, pas seulement de perf** : avec
+  l'ancien event global, il existait une fenêtre de race entre la résolution
+  de `connect_terminal` et l'enregistrement du listener `onTerminalData` où
+  une sortie précoce (bannière de login) pouvait être perdue en silence ; le
+  `Channel` est câblé (son `onmessage`) avant même l'appel `invoke`, donc
+  cette fenêtre n'existe plus.
+- **Couverture E2E étendue** (`scripts/e2e-run.mjs`), plutôt qu'un nouveau
+  script séparé — suit la recommandation déjà écrite dans ce fichier.
+  Nouveau scénario dans `runScenarios()` : ouvre un terminal local (Ctrl+T),
+  attend `.xterm-rows`, clique dedans pour garantir le focus (l'effet de
+  focus du composant tourne sur un rendu ultérieur à celui qui monte
+  `.xterm-rows`, donc pas garanti au moment où l'attente précédente se
+  résout), tape `echo <marqueur unique>` + Entrée caractère par caractère
+  (pas une seule chaîne — `WebKitWebDriver` a été vu perdre un caractère
+  sur un envoi en bloc, reproduit puis contourné pendant cette session, sans
+  rapport avec le code de l'app : le premier essai donnait `CHANEL` au lieu
+  de `CHANNEL`, alors que la sortie affichée prouvait déjà que le canal
+  fonctionnait), puis vérifie que le marqueur apparaît dans le DOM. Seul
+  scénario de toute la suite E2E à exercer un vrai flux de sortie continu
+  via `invoke`+`Channel` de bout en bout (PTY → `channel.send` → IPC →
+  `xterm.write` → DOM), pas juste qu'un `invoke` ponctuel répond. En cas
+  d'échec futur, le contenu réel de `.xterm-rows` est loggué avant de
+  relancer l'erreur, pour rester diagnosticable depuis les seuls logs CI.
+- **Vérifié** : `cargo clippy --workspace --all-targets -- -D warnings`
+  propre, `cargo test -p termius-core -p guiterm` (148 + 4 tests) vert,
+  `npx tsc --noEmit` propre, `npm run lint` propre (mêmes 4 warnings
+  pré-existants, 0 erreur), `npx vitest run` (24 tests) vert,
+  `node scripts/e2e-run.mjs` — **y compris le nouveau scénario Ctrl+T +
+  echo, qui exerce réellement le canal binaire contre le vrai binaire
+  WebKitGTK**, pas seulement le smoke habituel. Binaire Windows natif
+  release reconstruit et relancé pour test utilisateur (SSH et Docker exec
+  sont les chemins directement concernés, pas seulement le terminal local
+  testé en E2E). **Non vérifié** : le mode diffusion/synchro live
+  (`useBroadcast.ts`) avec plusieurs terminaux ouverts simultanément — le
+  scénario E2E n'en ouvre qu'un seul ; le chemin de code est partagé
+  (`onData` par session, pas de couplage entre sessions) donc à faible
+  risque, mais pas exercé pour de vrai avec plusieurs channels actifs en
+  parallèle.
 
 ## Habitudes de collaboration sur ce projet
 
