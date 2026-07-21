@@ -72,9 +72,21 @@ export const api = {
   /** Opens a pool (directly, or through an ephemeral SSH tunnel invisible to
    * the Tunnels panel — see `core::sql::connect`) and returns an opaque
    * session id to pass to every `listSql*`/`runSqlQuery` call below, until
-   * `closeSqlSession`. */
-  openSqlSession: (connectionId: SqlConnectionId) => invoke<string>("open_sql_session", { connectionId }),
+   * `closeSqlSession`. `database`: `null` only for a PostgreSQL connection
+   * with no database configured — call `listSqlDatabases`/`switchSqlDatabase`
+   * first in that case rather than `listSqlSchemas` directly (PostgreSQL has
+   * no server-wide schema list the way MySQL does — see `core::sql`'s module
+   * doc comment). */
+  openSqlSession: (connectionId: SqlConnectionId) => invoke<{ sessionId: string; database: string | null }>("open_sql_session", { connectionId }),
   closeSqlSession: (sessionId: string) => invoke<void>("close_sql_session", { sessionId }),
+  /** PostgreSQL only, and only when `openSqlSession` returned `database:
+   * null` — the real list of databases on the server, via a bootstrap
+   * connection to the `postgres` maintenance database. */
+  listSqlDatabases: (sessionId: string) => invoke<string[]>("list_sql_databases", { sessionId }),
+  /** Reconnects the session in place to `database` (PostgreSQL can't switch
+   * database on an open connection) — same `sessionId` afterward, now scoped
+   * to it; call `listSqlSchemas` next. */
+  switchSqlDatabase: (sessionId: string, database: string) => invoke<void>("switch_sql_database", { sessionId, database }),
   /** One database (MySQL) or schema (PostgreSQL) per entry — see
    * `TableInfo`'s doc comment for why the two share this one call. */
   listSqlSchemas: (sessionId: string) => invoke<string[]>("list_sql_schemas", { sessionId }),

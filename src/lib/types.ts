@@ -204,14 +204,19 @@ export interface ColumnInfo {
   nullable: boolean;
 }
 
-/** Result of `runSqlQuery`. `rows[i][j]` corresponds to `columns[j]` — a
- * cell is `string | number | boolean | null` (never a nested object/array,
- * `core::sql::decode_value` only ever produces JSON scalars). `truncated`:
- * more than the server-side row cap matched, only the first N are here —
- * see `core::sql::MAX_RESULT_ROWS`. */
+/** A decoded cell value — `string | number | boolean | null` for ordinary
+ * columns, but a nested object/array for JSON(B) columns and (best-effort)
+ * text arrays: `core::sql::decode_pg_value`/`decode_mysql_value` pass a
+ * JSON(B) column's value through as real JSON rather than re-stringifying
+ * it. */
+export type SqlCellValue = string | number | boolean | null | SqlCellValue[] | { [key: string]: SqlCellValue };
+
+/** Result of `runSqlQuery`. `rows[i][j]` corresponds to `columns[j]`.
+ * `truncated`: more than the server-side row cap matched, only the first N
+ * are here — see `core::sql::MAX_RESULT_ROWS`. */
 export interface QueryResult {
   columns: string[];
-  rows: (string | number | boolean | null)[][];
+  rows: SqlCellValue[][];
   truncated: boolean;
 }
 

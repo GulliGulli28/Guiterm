@@ -81,6 +81,33 @@ pub enum SqlPool {
     Mysql(MySqlPool),
 }
 
+impl SqlPool {
+    pub async fn close(self) {
+        match self {
+            SqlPool::Postgres(pool) => pool.close().await,
+            SqlPool::Mysql(pool) => pool.close().await,
+        }
+    }
+}
+
+/// Everything needed to open a pool against a given database on the server
+/// `connect` already dialed (directly, or through its tunnel) — kept on
+/// [`SqlSession`] so [`open_database`] can open another database on the
+/// *same* already-established dial target (reusing an existing SSH tunnel
+/// rather than opening a second one) without needing the original
+/// `SqlConnection`/`Workspace` again. Fields are private: the command layer
+/// only ever holds this opaquely (via [`SqlSession::dial`]) and passes it
+/// straight back to [`open_database`] — connection details/secrets never
+/// need to cross into `commands::sql`.
+#[derive(Clone)]
+pub struct DialTarget {
+    engine: SqlEngine,
+    host: String,
+    port: u16,
+    username: String,
+    password: Option<String>,
+}
+
 /// A live SQL connection: the pool, plus — when tunnelled — the SSH
 /// connection and forward keeping the tunnel open for as long as the pool
 /// is. Dropping this without calling [`close`](SqlSession::close) first
@@ -90,18 +117,39 @@ pub enum SqlPool {
 /// already has to for a persisted tunnel.
 pub struct SqlSession {
     pub pool: SqlPool,
+    /// The database `pool` is actually scoped to — `None` only in the
+    /// PostgreSQL "no database configured" case, where `pool` is connected
+    /// to a bootstrap database (see [`connect`]) purely so [`list_databases`]
+    /// can enumerate real ones; the frontend shows a database picker instead
+    /// of a schema tree until [`SqlSession::replace_pool`] is called via the
+    /// `switch_sql_database` command. Always `Some` for MySQL (it lists
+    /// every database up front regardless — see this module's doc comment)
+    /// and for PostgreSQL connections with an explicit database configured.
+    pub database: Option<String>,
+    dial: DialTarget,
     tunnel: Option<(Arc<Connection>, ActiveForward)>,
 }
 
 impl SqlSession {
     pub async fn close(self) {
-        match self.pool {
-            SqlPool::Postgres(pool) => pool.close().await,
-            SqlPool::Mysql(pool) => pool.close().await,
-        }
+        self.pool.close().await;
         if let Some((connection, active)) = self.tunnel {
             active.stop(&connection).await;
         }
+    }
+
+    pub fn dial(&self) -> DialTarget {
+        self.dial.clone()
+    }
+
+    /// Swaps in an already-connected `pool` for `database`, returning the
+    /// previous pool for the caller to [`SqlPool::close`] — deliberately not
+    /// done here: closing is I/O that shouldn't happen while the caller
+    /// might still be holding a lock on the session map (see
+    /// `commands::sql::switch_sql_database`).
+    pub fn replace_pool(&mut self, pool: SqlPool, database: String) -> SqlPool {
+        self.database = Some(database);
+        std::mem::replace(&mut self.pool, pool)
     }
 }
 
@@ -129,6 +177,14 @@ fn build_url(engine: SqlEngine, host: &str, port: u16, username: &str, password:
     }
     Ok(url)
 }
+
+/// PostgreSQL requires a database name at connection time (unlike MySQL,
+/// where connecting without one is fine) — used to bootstrap a connection
+/// just to enumerate real databases via [`list_databases`] when the user
+/// left `SqlConnection::database` empty. `postgres` is the standard
+/// maintenance database present on effectively every real install (the one
+/// `psql`/`pgAdmin` themselves connect to for this exact purpose).
+const POSTGRES_BOOTSTRAP_DATABASE: &str = "postgres";
 
 /// Connects to `conn` — directly, or (when `tunnel_host_id` is set) via an
 /// ephemeral SSH local port forward through that saved host first. The
@@ -160,12 +216,11 @@ pub async fn connect(workspace: &Workspace, conn: &SqlConnection) -> anyhow::Res
         }
     };
 
-    let url = build_url(conn.engine, &dial_host, dial_port, &conn.username, password.as_deref(), conn.database.as_deref())?;
-    let connected = match conn.engine {
-        SqlEngine::Postgres => PgPoolOptions::new().max_connections(4).connect(url.as_str()).await.map(SqlPool::Postgres),
-        SqlEngine::Mysql => MySqlPoolOptions::new().max_connections(4).connect(url.as_str()).await.map(SqlPool::Mysql),
-    };
-    let pool = match connected {
+    let requested_database = conn.database.clone().filter(|d| !d.is_empty());
+    let bootstrap_database = requested_database.clone().or_else(|| (conn.engine == SqlEngine::Postgres).then(|| POSTGRES_BOOTSTRAP_DATABASE.to_string()));
+    let dial = DialTarget { engine: conn.engine, host: dial_host, port: dial_port, username: conn.username.clone(), password };
+
+    let pool = match open_database(&dial, bootstrap_database.as_deref().unwrap_or_default()).await {
         Ok(pool) => pool,
         Err(e) => {
             // The pool never opened — nothing to close, but the tunnel (if
@@ -174,11 +229,39 @@ pub async fn connect(workspace: &Workspace, conn: &SqlConnection) -> anyhow::Res
             if let Some((connection, active)) = tunnel {
                 active.stop(&connection).await;
             }
-            return Err(e.into());
+            return Err(e);
         }
     };
 
-    Ok(SqlSession { pool, tunnel })
+    Ok(SqlSession { pool, database: requested_database, dial, tunnel })
+}
+
+/// Opens a fresh pool for `database` against an already-resolved dial
+/// target — either the initial connection ([`connect`]) or a later switch
+/// to a different PostgreSQL database via the same tunnel
+/// (`commands::sql::switch_sql_database`), which PostgreSQL requires since a
+/// single connection can't change database once established (unlike
+/// MySQL's `USE`, which is why MySQL never needs this function at all).
+pub async fn open_database(dial: &DialTarget, database: &str) -> anyhow::Result<SqlPool> {
+    let url = build_url(dial.engine, &dial.host, dial.port, &dial.username, dial.password.as_deref(), Some(database))?;
+    match dial.engine {
+        SqlEngine::Postgres => Ok(SqlPool::Postgres(PgPoolOptions::new().max_connections(4).connect(url.as_str()).await?)),
+        SqlEngine::Mysql => Ok(SqlPool::Mysql(MySqlPoolOptions::new().max_connections(4).connect(url.as_str()).await?)),
+    }
+}
+
+/// Real databases on the server — PostgreSQL only. MySQL never needs this:
+/// [`list_schemas`] already lists every database up front regardless of
+/// whatever `SqlConnection::database` was configured (see this module's doc
+/// comment), so there's no separate "pick a database first" step for it.
+pub async fn list_databases(pool: &SqlPool) -> anyhow::Result<Vec<String>> {
+    match pool {
+        SqlPool::Postgres(pool) => {
+            let rows = sqlx::query("SELECT datname FROM pg_database WHERE datistemplate = false ORDER BY datname").fetch_all(pool).await?;
+            Ok(rows.iter().filter_map(|r| r.try_get::<String, _>(0).ok()).collect())
+        }
+        SqlPool::Mysql(_) => anyhow::bail!("list_databases ne s'applique qu'à PostgreSQL — MySQL liste déjà toutes ses bases via list_schemas"),
+    }
 }
 
 const MYSQL_SYSTEM_SCHEMAS: [&str; 4] = ["information_schema", "performance_schema", "mysql", "sys"];

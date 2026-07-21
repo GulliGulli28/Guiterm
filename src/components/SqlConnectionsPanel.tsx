@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { api } from "../lib/api";
 import type { SqlConnection, SqlConnectionId, SqlEngine, Workspace } from "../lib/types";
-import { IconDatabase, IconPlus, IconClose, IconTrash, IconEdit } from "./ui-icons";
+import { IconDatabase, IconPlus, IconClose, IconTrash, IconEdit, IconChevronDown, IconFlash } from "./ui-icons";
 
 interface SqlConnectionsPanelProps {
   workspace: Workspace;
@@ -14,6 +14,10 @@ const DEFAULT_PORTS: Record<SqlEngine, string> = { mysql: "3306", postgres: "543
 
 export function SqlConnectionsPanel({ workspace, onConnect, onWorkspaceUpdate, onError }: SqlConnectionsPanelProps) {
   const [editingId, setEditingId] = useState<SqlConnectionId | "new" | null>(null);
+  // Id of the connection whose "Modifier ▾" split button has its menu
+  // (currently just "Supprimer") open — same single-open-id convention as
+  // `HostsPanel`'s `openMenuHostId`.
+  const [deleteMenuId, setDeleteMenuId] = useState<SqlConnectionId | null>(null);
   const [label, setLabel] = useState("");
   const [engine, setEngine] = useState<SqlEngine>("mysql");
   const [tunnelHostId, setTunnelHostId] = useState("");
@@ -135,29 +139,52 @@ export function SqlConnectionsPanel({ workspace, onConnect, onWorkspaceUpdate, o
         </div>
         {workspace.sqlConnections.map((conn) => {
           const tunnelHost = conn.tunnelHostId ? workspace.hosts.find((h) => h.id === conn.tunnelHostId) : null;
+          const menuOpen = deleteMenuId === conn.id;
           return (
             <div key={conn.id} className="rounded-xl border border-transparent bg-[var(--c-bg3)] p-2.5 transition-all hover:border-white/15">
-              <button onClick={() => onConnect(conn)} className="flex w-full items-center gap-2 text-left">
+              <div className="flex items-center gap-2">
                 <IconDatabase size={14} className="shrink-0 text-[var(--c-text-faint)]" />
                 <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--c-text)]">{conn.label}</span>
-              </button>
+              </div>
               <p className="mt-0.5 pl-[22px] text-[10px] text-[var(--c-text-muted)]">
                 {conn.engine === "mysql" ? "MySQL" : "PostgreSQL"} · <span className="font-mono">{conn.address}:{conn.port}</span>
                 {tunnelHost && <> · via {tunnelHost.label}</>}
               </p>
-              <div className="mt-2 flex flex-wrap gap-1">
+              <div className="mt-2 flex gap-1">
                 <button
-                  onClick={() => startEdit(conn)}
-                  className="flex flex-1 basis-[80px] items-center justify-center gap-1.5 rounded-md bg-[var(--c-bg2)] px-1.5 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
+                  onClick={() => onConnect(conn)}
+                  className="accent-surface flex flex-1 items-center justify-center gap-1.5 rounded-md border py-1.5 text-xs font-medium"
                 >
-                  <IconEdit size={11} /> Modifier
+                  <IconFlash size={11} /> Connexion
                 </button>
-                <button
-                  onClick={() => remove(conn.id)}
-                  className="flex flex-1 basis-[80px] items-center justify-center gap-1.5 rounded-md bg-[var(--c-bg2)] px-1.5 py-1.5 text-xs text-rose-400 hover:bg-rose-900/60"
-                >
-                  <IconTrash size={11} /> Supprimer
-                </button>
+                <div className="relative flex shrink-0">
+                  <button
+                    onClick={() => startEdit(conn)}
+                    className="flex items-center gap-1.5 rounded-l-md bg-[var(--c-bg2)] px-2 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
+                  >
+                    <IconEdit size={11} /> Modifier
+                  </button>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); setDeleteMenuId(menuOpen ? null : conn.id); }}
+                    title="Options"
+                    className={`flex items-center rounded-r-md border-l border-[var(--c-bg)] bg-[var(--c-bg2)] px-1.5 py-1.5 text-xs hover:bg-white/5 ${menuOpen ? "text-[var(--c-text)]" : "text-[var(--c-text-secondary)]"}`}
+                  >
+                    <IconChevronDown size={11} />
+                  </button>
+                  {menuOpen && (
+                    <>
+                      <div className="fixed inset-0 z-10" onClick={() => setDeleteMenuId(null)} />
+                      <div className="absolute right-0 top-full z-20 mt-1 w-32 overflow-hidden rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] py-1 shadow-[var(--shadow-lg)]">
+                        <button
+                          onClick={() => { setDeleteMenuId(null); remove(conn.id); }}
+                          className="flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-xs text-rose-400 hover:bg-rose-900/40"
+                        >
+                          <IconTrash size={11} /> Supprimer
+                        </button>
+                      </div>
+                    </>
+                  )}
+                </div>
               </div>
             </div>
           );

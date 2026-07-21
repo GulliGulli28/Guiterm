@@ -10,9 +10,12 @@
 //!   `vault::load`, exactly like the app does — this example never sees it).
 //! - A PostgreSQL server reachable from *that host* at `127.0.0.1:5432`
 //!   (i.e. running on the SSH host itself), with a `postgres` role whose
-//!   password is given as argv[2], and a database named by argv[3].
+//!   password is given as argv[2], and a database named by argv[3] — pass
+//!   `-` instead to leave the connection's database unset and exercise the
+//!   "no database configured" flow instead (`list_databases`/`open_database`,
+//!   picking the first database returned).
 //!
-//! Usage: `cargo run --example sql_wsl_smoke -- <ssh-host-label> <pg-password> <database>`
+//! Usage: `cargo run --example sql_wsl_smoke -- <ssh-host-label> <pg-password> <database|->`
 //!
 //! Only ever run manually/by hand on a machine with this setup — never in CI.
 
@@ -23,9 +26,9 @@ use termius_core::{sql, store};
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let mut args = std::env::args().skip(1);
-    let host_label = args.next().expect("usage: sql_wsl_smoke <ssh-host-label> <pg-password> <database>");
+    let host_label = args.next().expect("usage: sql_wsl_smoke <ssh-host-label> <pg-password> <database|->");
     let pg_password = args.next().expect("missing <pg-password>");
-    let database = args.next().expect("missing <database>");
+    let database = args.next().expect("missing <database|->");
 
     let workspace = store::load()?;
     let host = workspace.hosts.iter().find(|h| h.label == host_label).unwrap_or_else(|| panic!("no host labeled {host_label:?} in workspace.json"));
@@ -34,7 +37,7 @@ async fn main() -> anyhow::Result<()> {
     let mut conn = SqlConnection::new("sql_wsl_smoke (temporary)", termius_core::model::SqlEngine::Postgres, "127.0.0.1", "postgres");
     conn.tunnel_host_id = Some(host.id);
     conn.port = 5432;
-    conn.database = Some(database.clone());
+    conn.database = (database != "-").then_some(database);
     vault::store(conn.id, SecretKind::SqlPassword, &pg_password)?;
 
     let result = run(&workspace, &conn).await;
@@ -45,8 +48,19 @@ async fn main() -> anyhow::Result<()> {
 
 async fn run(workspace: &termius_core::model::Workspace, conn: &SqlConnection) -> anyhow::Result<()> {
     println!("== connecting (tunnel + postgres handshake)...");
-    let session = sql::connect(workspace, conn).await?;
-    println!("== connected. listing schemas...");
+    let mut session = sql::connect(workspace, conn).await?;
+    println!("== connected. database = {:?}", session.database);
+
+    if session.database.is_none() {
+        let dbs = sql::list_databases(&session.pool).await?;
+        println!("== databases: {dbs:?}");
+        let pick = dbs.first().expect("no databases returned").clone();
+        println!("== switching to database {pick:?} (reusing the same tunnel)...");
+        let new_pool = sql::open_database(&session.dial(), &pick).await?;
+        let old_pool = session.replace_pool(new_pool, pick);
+        old_pool.close().await;
+        println!("== switched. database = {:?}", session.database);
+    }
 
     let schemas = sql::list_schemas(&session.pool).await?;
     println!("== schemas: {schemas:?}");
