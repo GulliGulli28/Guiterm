@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { check as checkForUpdate } from "@tauri-apps/plugin-updater";
 import { api } from "./lib/api";
 import type { GroupId, Host, HostId, TabMeta, VaultStatus, Workspace } from "./lib/types";
@@ -8,10 +8,18 @@ import { TabBar } from "./components/TabBar";
 import { BroadcastBar } from "./components/BroadcastBar";
 import { TerminalTab, type TerminalTabHandle } from "./components/TerminalTab";
 import { LocalTerminalTab } from "./components/LocalTerminalTab";
-import { TransferTab } from "./components/TransferTab";
-import { RdpTab } from "./components/RdpTab";
-import { FleetTab } from "./components/FleetTab";
 import { TitleBar } from "./components/TitleBar";
+import { TabLoadingFallback } from "./components/TabLoadingFallback";
+
+// Lazy-loaded: each of these is a large, not-always-used panel (RDP canvas
+// rendering, the 950-line file transfer UI, the 1000+-line fleet/adaptive-DSL
+// UI). Splitting them out of the main chunk shrinks what has to be
+// parsed/compiled before the app is interactive. Chunk load itself is
+// near-instant here (bundled locally by Tauri, no network round-trip) — this
+// is purely about initial bundle size, not perceived loading latency.
+const TransferTab = lazy(() => import("./components/TransferTab").then((m) => ({ default: m.TransferTab })));
+const RdpTab = lazy(() => import("./components/RdpTab").then((m) => ({ default: m.RdpTab })));
+const FleetTab = lazy(() => import("./components/FleetTab").then((m) => ({ default: m.FleetTab })));
 import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, loadPreferences, savePreferences } from "./lib/preferences";
 import { SplitPane } from "./components/SplitPane";
 import { GroupForm, type GroupFormData } from "./components/GroupForm";
@@ -474,7 +482,9 @@ export default function App() {
                   if (tab.kind === "fleet") {
                     return (
                       <div key={tab.id} className={isActive ? "absolute inset-0 flex flex-col" : "hidden"}>
-                        <FleetTab workspace={workspace} onError={reportError} onWorkspaceUpdate={refreshWorkspace} />
+                        <Suspense fallback={<TabLoadingFallback />}>
+                          <FleetTab workspace={workspace} onError={reportError} onWorkspaceUpdate={refreshWorkspace} />
+                        </Suspense>
                       </div>
                     );
                   }
@@ -498,27 +508,31 @@ export default function App() {
                           }}
                         />
                       ) : tab.kind === "rdp-view" ? (
-                        <RdpTab
-                          host={host}
-                          isActive={isActive}
-                          preferences={preferences}
-                          onDisconnect={() => closeTab(tab.id)}
-                          ref={(handle) => {
-                            if (handle) terminalRefs.current.set(tab.id, handle);
-                            else terminalRefs.current.delete(tab.id);
-                          }}
-                        />
+                        <Suspense fallback={<TabLoadingFallback />}>
+                          <RdpTab
+                            host={host}
+                            isActive={isActive}
+                            preferences={preferences}
+                            onDisconnect={() => closeTab(tab.id)}
+                            ref={(handle) => {
+                              if (handle) terminalRefs.current.set(tab.id, handle);
+                              else terminalRefs.current.delete(tab.id);
+                            }}
+                          />
+                        </Suspense>
                       ) : (
-                        <TransferTab
-                          host={host}
-                          workspace={workspace}
-                          preferences={preferences}
-                          onError={reportError}
-                          onPushed={(message) => pushNotification("success", message)}
-                          dockerContainerId={tab.kind === "transfer" ? tab.dockerContainerId : undefined}
-                          k8sPodName={tab.kind === "transfer" ? tab.k8sPodName : undefined}
-                          k8sContainerName={tab.kind === "transfer" ? tab.k8sContainerName : undefined}
-                        />
+                        <Suspense fallback={<TabLoadingFallback />}>
+                          <TransferTab
+                            host={host}
+                            workspace={workspace}
+                            preferences={preferences}
+                            onError={reportError}
+                            onPushed={(message) => pushNotification("success", message)}
+                            dockerContainerId={tab.kind === "transfer" ? tab.dockerContainerId : undefined}
+                            k8sPodName={tab.kind === "transfer" ? tab.k8sPodName : undefined}
+                            k8sContainerName={tab.kind === "transfer" ? tab.k8sContainerName : undefined}
+                          />
+                        </Suspense>
                       )}
                     </div>
                   );

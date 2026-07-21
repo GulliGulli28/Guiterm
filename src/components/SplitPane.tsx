@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useState } from "react";
 import type { DockerContainer, HostId, K8sPod, Workspace } from "../lib/types";
 import { parsePodPickerId, podPickerId } from "../lib/types";
 import type { AppPreferences } from "../lib/preferences";
@@ -6,8 +6,13 @@ import { api } from "../lib/api";
 import { hostKindMeta } from "../lib/hostKinds";
 import { LocalTerminalTab } from "./LocalTerminalTab";
 import { TerminalTab, type TerminalTabHandle } from "./TerminalTab";
-import { RdpTab } from "./RdpTab";
 import { ConnectionPickerModal } from "./ConnectionPickerModal";
+import { TabLoadingFallback } from "./TabLoadingFallback";
+
+// Lazy-loaded — see App.tsx's identical import for why. Vite/Rollup dedupe
+// this against App.tsx's own lazy(() => import("./RdpTab")) into a single
+// shared chunk, so having both call sites costs nothing extra.
+const RdpTab = lazy(() => import("./RdpTab").then((m) => ({ default: m.RdpTab })));
 
 type SplitSource = "local" | HostId;
 
@@ -112,7 +117,9 @@ export function SplitPane({ workspace, preferences, source, onSourceChange, onRe
               />
             )
           ) : kind === "rdp" ? (
-            <RdpTab key={source} host={host} isActive={true} preferences={preferences} onDisconnect={() => onSourceChange("local")} ref={onRef} />
+            <Suspense fallback={<TabLoadingFallback />}>
+              <RdpTab key={source} host={host} isActive={true} preferences={preferences} onDisconnect={() => onSourceChange("local")} ref={onRef} />
+            </Suspense>
           ) : kind === "dockerExec" ? (
             dockerContainerId ? (
               <TerminalTab

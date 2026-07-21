@@ -1,14 +1,19 @@
 import type { Group, GroupId, Host, HostId, KeyAlgorithm, KeyId, PortForwardId, PortForwardKind, SnippetId, VaultStatus, Workspace } from "../lib/types";
 import type { AppPreferences } from "../lib/preferences";
-import type { ComponentType } from "react";
+import { lazy, Suspense, type ComponentType } from "react";
 import { HostsPanel } from "./HostsPanel";
-import { KeychainPanel } from "./KeychainPanel";
-import { KnownHostsPanel } from "./KnownHostsPanel";
-import { SettingsPanel } from "./SettingsPanel";
-import { SnippetsPanel } from "./SnippetsPanel";
-import { SftpPanel } from "./SftpPanel";
-import { TunnelsPanel } from "./TunnelsPanel";
 import { IconHosts, IconSnippets, IconTunnels, IconKeychain, IconSettings, IconTransfer, IconShield } from "./ui-icons";
+import { TabLoadingFallback } from "./TabLoadingFallback";
+
+// Lazy-loaded: "Hôtes" is the default panel shown on launch (stays eager),
+// every other sidebar panel only needs to load once the user actually
+// clicks that tab.
+const KeychainPanel = lazy(() => import("./KeychainPanel").then((m) => ({ default: m.KeychainPanel })));
+const KnownHostsPanel = lazy(() => import("./KnownHostsPanel").then((m) => ({ default: m.KnownHostsPanel })));
+const SettingsPanel = lazy(() => import("./SettingsPanel").then((m) => ({ default: m.SettingsPanel })));
+const SnippetsPanel = lazy(() => import("./SnippetsPanel").then((m) => ({ default: m.SnippetsPanel })));
+const SftpPanel = lazy(() => import("./SftpPanel").then((m) => ({ default: m.SftpPanel })));
+const TunnelsPanel = lazy(() => import("./TunnelsPanel").then((m) => ({ default: m.TunnelsPanel })));
 
 export type SidebarPanelKind = "knownHosts" | "hosts" | "sftp" | "snippets" | "tunnels" | "keychain" | "settings";
 
@@ -102,6 +107,7 @@ export function Sidebar(props: SidebarProps) {
       {/* Panel content */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--c-bg2)]">
         <div className="min-h-0 min-w-0 flex-1 overflow-hidden p-2">
+          <Suspense fallback={<TabLoadingFallback />}>
           {panel === "knownHosts" && (
             <KnownHostsPanel onWorkspaceUpdate={props.onWorkspaceUpdate} onError={props.onError} />
           )}
@@ -169,6 +175,7 @@ export function Sidebar(props: SidebarProps) {
               onVaultStatusChange={props.onVaultStatusChange}
             />
           )}
+          </Suspense>
         </div>
       </div>
     </aside>
