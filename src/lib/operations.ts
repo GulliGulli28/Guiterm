@@ -31,10 +31,3 @@ export const DSL_CONDITION_FIELDS: { field: string; example: string }[] = [
   { field: "load", example: "target load: > 1.5" },
   { field: "uptime", example: "target uptime: > 30  (jours)" },
 ];
-
-export const DSL_EXAMPLE = `target os: debian
-sudo: true
-install-package nginx
-
-target ram: > 80
-restart-service nginx`;
