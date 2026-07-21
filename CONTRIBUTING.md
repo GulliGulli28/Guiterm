@@ -135,8 +135,6 @@ retroactively to contributions already made.
 
 ## Reporting a security issue
 
-Please **don't** open a public issue for a security vulnerability. Email
-the address listed in `package.json`/`LICENSE` instead, with enough detail
-to reproduce it. Dependency vulnerabilities are also scanned automatically
-(`.github/workflows/security.yml`, `cargo audit` + `npm audit`) — known,
-reviewed advisories are tracked in `.cargo/audit.toml`.
+See [`SECURITY.md`](SECURITY.md) — please **don't** open a public issue for
+a security vulnerability, use GitHub's private vulnerability reporting
+instead.
