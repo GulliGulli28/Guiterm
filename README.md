@@ -289,17 +289,16 @@ the hard way:
 
 Recently shipped: encrypted secrets vault, dynamic SOCKS tunnels, SSH key
 generation/deployment, Docker exec (direct or over an SSH bastion),
-integrated RDP viewer with input forwarding, clipboard sync, and dynamic
-resize.
+Kubernetes exec (real backend — terminal, file browsing, fleet target,
+adaptive snippets), integrated RDP viewer with input forwarding, clipboard
+sync and dynamic resize, and a binary IPC channel for terminal/RDP output
+(replacing the old JSON+base64 event path).
 
 Up next, roughly in priority order:
-- Kubernetes exec (real backend, not just the UI scaffold).
 - Keyboard-interactive auth (MFA/OTP) — currently missing from `AuthMethod`.
 - RDP cursor rendering.
-- A binary IPC channel for terminal output (mirroring the optimization
-  already done for RDP frames) — the current JSON+base64 event path is the
-  single most-invoked code path in the app and the most likely place left
-  with a measurable, fixable overhead.
+- Scoped rollback for fleet/adaptive-engine runs (reversible operations only
+  — files, packages — not a universal undo).
 
 Longer-term, as the open-core model takes shape: possibly a hosted
 sync/backup service and priority support as a paid offering *around* the
