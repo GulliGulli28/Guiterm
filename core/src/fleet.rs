@@ -164,6 +164,9 @@ async fn execute(
             let host = workspace
                 .host(*host_id)
                 .ok_or_else(|| anyhow::anyhow!("hôte Docker inconnu"))?;
+            if host.kind != HostKind::DockerExec {
+                anyhow::bail!("cet hôte n'est pas un hôte Docker exec");
+            }
             let docker_client = docker::connect_for_host(workspace, host).await?;
             let (exit_code, stdout, stderr) = docker::exec_with_exit_code(
                 &docker_client,
@@ -177,6 +180,9 @@ async fn execute(
             let host = workspace
                 .host(*host_id)
                 .ok_or_else(|| anyhow::anyhow!("hôte Kubernetes inconnu"))?;
+            if host.kind != HostKind::K8sExec {
+                anyhow::bail!("cet hôte n'est pas un hôte Kubernetes exec");
+            }
             let client = k8s::connect(&host.address).await?;
             let (exit_code, stdout, stderr) = k8s::exec_with_exit_code(
                 &client,

@@ -73,3 +73,35 @@ async fn fleet_reports_unsupported_kind_as_error() {
     assert!(o.error.is_some(), "unsupported kind should report an error");
     assert_eq!(o.exit_code, None);
 }
+
+#[tokio::test]
+async fn fleet_rejects_docker_and_k8s_targets_pointed_at_a_mismatched_host_kind() {
+    // `Host` fields are repurposed per-kind (see `HostKind`'s doc comment) —
+    // a `FleetTarget::Docker`/`::K8s` referencing a host that isn't actually
+    // that kind must be rejected up front rather than misinterpreting
+    // unrelated fields. No real daemon/cluster needed: the check happens
+    // before any connection attempt.
+    let mut ssh_host = Host::new("not-a-container-host", "10.0.0.9", "user");
+    ssh_host.kind = HostKind::Ssh;
+    let ssh_id = ssh_host.id;
+    let mut workspace = Workspace::default();
+    workspace.hosts.push(ssh_host);
+
+    let targets = vec![
+        FleetTarget::Docker { host_id: ssh_id, container_id: "c1".to_string() },
+        FleetTarget::K8s { host_id: ssh_id, pod_name: "p1".to_string(), container_name: None },
+    ];
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+    let commands = fleet::uniform_commands(&targets, "whoami");
+    fleet::run_on_hosts(Arc::new(workspace), commands, fleet::DEFAULT_CONCURRENCY, tx).await;
+
+    let mut outcomes = Vec::new();
+    while let Some(o) = rx.recv().await {
+        outcomes.push(o);
+    }
+    assert_eq!(outcomes.len(), 2);
+    for o in outcomes {
+        assert!(o.error.is_some(), "mismatched host kind should report an error, got {o:?}");
+        assert_eq!(o.exit_code, None);
+    }
+}
