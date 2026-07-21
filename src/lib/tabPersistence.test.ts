@@ -25,8 +25,33 @@ describe("tabPersistence", () => {
     ];
     saveTabs(tabs);
     expect(loadTabs()).toEqual([
-      { kind: "terminal", label: "web1", hostId: "h1", dockerContainerId: "c1", shell: undefined },
+      {
+        kind: "terminal", label: "web1", hostId: "h1", dockerContainerId: "c1",
+        k8sPodName: undefined, k8sContainerName: undefined, shell: undefined,
+      },
     ]);
+  });
+
+  it("round-trips a terminal tab's k8sPodName/k8sContainerName", () => {
+    const tabs: TabMeta[] = [
+      { id: "t1", kind: "terminal", label: "api", hostId: "h1", k8sPodName: "api-7d9f8b6c-x2kq9", k8sContainerName: "app" },
+    ];
+    saveTabs(tabs);
+    const [loaded] = loadTabs();
+    expect(loaded.k8sPodName).toBe("api-7d9f8b6c-x2kq9");
+    expect(loaded.k8sContainerName).toBe("app");
+  });
+
+  it("round-trips a transfer tab's dockerContainerId and k8sPodName (not just terminal tabs)", () => {
+    const tabs: TabMeta[] = [
+      { id: "t1", kind: "transfer", label: "web1", hostId: "h1", dockerContainerId: "c1" },
+      { id: "t2", kind: "transfer", label: "api", hostId: "h2", k8sPodName: "api-7d9f8b6c-x2kq9", k8sContainerName: null },
+    ];
+    saveTabs(tabs);
+    const [dockerLoaded, k8sLoaded] = loadTabs();
+    expect(dockerLoaded.dockerContainerId).toBe("c1");
+    expect(k8sLoaded.k8sPodName).toBe("api-7d9f8b6c-x2kq9");
+    expect(k8sLoaded.k8sContainerName).toBeNull();
   });
 
   it("drops hostId/dockerContainerId for a local-terminal tab but keeps shell", () => {

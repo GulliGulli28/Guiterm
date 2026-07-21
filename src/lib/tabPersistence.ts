@@ -7,18 +7,25 @@ export interface PersistedTab {
   label: string;
   hostId?: string;
   dockerContainerId?: string;
+  k8sPodName?: string;
+  k8sContainerName?: string | null;
   shell?: string | null;
 }
 
 /** Persists only enough to redraw placeholder tabs — never a live session id. */
 export function saveTabs(tabs: TabMeta[]): void {
-  const trimmed: PersistedTab[] = tabs.map((t) => ({
-    kind: t.kind,
-    label: t.label,
-    hostId: t.kind === "terminal" || t.kind === "transfer" ? t.hostId : undefined,
-    dockerContainerId: t.kind === "terminal" ? t.dockerContainerId : undefined,
-    shell: t.kind === "local-terminal" ? t.shell : undefined,
-  }));
+  const trimmed: PersistedTab[] = tabs.map((t) => {
+    const isRemote = t.kind === "terminal" || t.kind === "transfer";
+    return {
+      kind: t.kind,
+      label: t.label,
+      hostId: isRemote ? t.hostId : undefined,
+      dockerContainerId: isRemote ? t.dockerContainerId : undefined,
+      k8sPodName: isRemote ? t.k8sPodName : undefined,
+      k8sContainerName: isRemote ? t.k8sContainerName : undefined,
+      shell: t.kind === "local-terminal" ? t.shell : undefined,
+    };
+  });
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify(trimmed));
   } catch { /* ignore */ }

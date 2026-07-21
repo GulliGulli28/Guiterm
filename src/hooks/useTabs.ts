@@ -83,7 +83,10 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
         return [{ id, kind: "local-terminal", label: p.label, status: "placeholder", shell: p.shell }];
       }
       if (!p.hostId || !workspace.hosts.some((h) => h.id === p.hostId)) return [];
-      return [{ id, kind: p.kind, hostId: p.hostId, label: p.label, status: "placeholder", dockerContainerId: p.dockerContainerId }];
+      return [{
+        id, kind: p.kind, hostId: p.hostId, label: p.label, status: "placeholder",
+        dockerContainerId: p.dockerContainerId, k8sPodName: p.k8sPodName, k8sContainerName: p.k8sContainerName,
+      }];
     });
     if (restored.length > 0) {
       setTabs(restored);
