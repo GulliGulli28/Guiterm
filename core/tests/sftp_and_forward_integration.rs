@@ -123,6 +123,64 @@ async fn local_port_forward_reaches_a_local_service() {
     active.stop(&connection).await;
 }
 
+/// `bind_port: 0` (an OS-assigned ephemeral port) is exactly what
+/// `core::sql::connect` uses for its ad-hoc, never-persisted SSH tunnel —
+/// `ActiveForward::bound_addr()` is how the caller finds out which port was
+/// actually picked, since `TcpListener::bind` never reports it back on its
+/// own.
+#[tokio::test]
+async fn local_forward_with_ephemeral_bind_port_reports_the_bound_port() {
+    let key = ClientKey::generate();
+    let sshd = TestSshd::start("fwd-ephemeral", &key.public);
+    let host = test_host(&sshd, &key, "test-fwd-ephemeral");
+    let host_id = host.id;
+
+    let mut workspace = Workspace::default();
+    workspace.hosts.push(host);
+    let connection = Arc::new(
+        ssh::connect(&workspace, host_id)
+            .await
+            .expect("connect should succeed"),
+    );
+
+    let echo_listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let echo_port = echo_listener.local_addr().unwrap().port();
+    tokio::spawn(async move {
+        if let Ok((mut stream, _)) = echo_listener.accept().await {
+            let mut buf = [0u8; 64];
+            if let Ok(n) = stream.read(&mut buf).await {
+                let _ = stream.write_all(&buf[..n]).await;
+            }
+        }
+    });
+
+    let forward = PortForward {
+        id: Uuid::new_v4(),
+        host_id,
+        kind: PortForwardKind::Local,
+        bind_address: "127.0.0.1".to_string(),
+        bind_port: 0,
+        dest_address: "127.0.0.1".to_string(),
+        dest_port: echo_port,
+    };
+    let active = port_forward::start(connection.clone(), forward)
+        .await
+        .expect("start local forward");
+
+    let bound = active.bound_addr().expect("ephemeral bind reports its port");
+    assert_ne!(bound.port(), 0, "the OS should have assigned a real port");
+
+    let mut client = TcpStream::connect(bound)
+        .await
+        .expect("connect to the reported ephemeral port");
+    client.write_all(b"ping").await.unwrap();
+    let mut buf = [0u8; 4];
+    client.read_exact(&mut buf).await.unwrap();
+    assert_eq!(&buf, b"ping");
+
+    active.stop(&connection).await;
+}
+
 #[tokio::test]
 async fn remote_port_forward_reaches_a_local_service() {
     let key = ClientKey::generate();

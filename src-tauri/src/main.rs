@@ -138,6 +138,14 @@ fn main() {
             commands::vault::lock_vault,
             commands::vault::change_master_password,
             commands::vault::disable_master_password,
+            commands::sql::save_sql_connection,
+            commands::sql::delete_sql_connection,
+            commands::sql::open_sql_session,
+            commands::sql::close_sql_session,
+            commands::sql::list_sql_schemas,
+            commands::sql::list_sql_tables,
+            commands::sql::list_sql_columns,
+            commands::sql::run_sql_query,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

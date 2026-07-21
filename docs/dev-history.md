@@ -1088,3 +1088,222 @@ vert, `tsc --noEmit` propre, `npm run lint` propre (4 warnings
 pré-existants, 0 erreur), `vitest run` (24 tests) vert, `e2e-run.mjs` vert
 avec le nouveau scénario Ctrl+T. Binaire Windows natif release reconstruit
 et relancé pour test utilisateur.
+
+## Client SQL (MySQL/PostgreSQL) (2026-07-21)
+
+Grande fonctionnalité ajoutée sur demande explicite : arborescence de
+schéma + panneau d'exécution de requêtes pour MySQL/PostgreSQL, avec deux
+modes de connexion (directe, ou tunnelée via un hôte SSH enregistré). Quatre
+décisions de conception tranchées avec l'utilisateur via `AskUserQuestion`
+avant tout code (mode de connexion, emplacement UI, moteurs v1, éditeur) —
+toutes dans le sens recommandé.
+
+### Dépendance `sqlx` — vérifiée avant d'écrire une ligne de code métier
+
+Même discipline que pour `kube`/`k8s-openapi` en son temps (voir la section
+K8s exec plus haut) : `sqlx = { features = ["any", "postgres", "mysql",
+"tls-rustls", ...] }` ajouté à `core/Cargo.toml` à titre de sonde, `cargo
+check -p termius-core` lancé tel quel avant d'écrire quoi que ce soit
+d'autre. **Résolution propre** — un seul `ecdsa`/`rustls` dans tout le
+graphe, réutilisant les versions déjà présentes via `russh`/`kube`/
+`reqwest`. Aucun conflit façon `ironrdp-connector`/`picky` : `core/src/sql.rs`
+vit donc directement dans `core/`, pas de workspace/process séparé comme
+pour RDP.
+
+### Modèle de données : `SqlConnection`, volontairement pas un `HostKind`
+
+`core/src/model.rs` : `SqlConnection` (id, label, engine, `tunnel_host_id:
+Option<HostId>`, address, port, username, database, group_id, tags) —
+entité de premier niveau sur `Workspace` (`sql_connections: Vec<SqlConnection>`,
+`#[serde(default)]`, testé pour la compat ascendante comme `keychain`/
+`custom_icons` en leur temps), **pas** une nouvelle variante de `HostKind`.
+Raison : contrairement à SSH/Docker exec/K8s exec/RDP, une connexion SQL
+n'a pas de shell et n'est pas une cible de flotte — l'intégrer à `HostKind`
+aurait forcé fleet.rs/adaptive.rs/tabPersistence.ts/etc. à gérer un cas
+« ce type n'a pas de shell » de plus. Elle peut quand même *référencer* un
+`Host` SSH existant via `tunnel_host_id`, purement pour le tunnel — un
+simple champ optionnel, pas un couplage structurel.
+
+### Deux modes de connexion, un seul mécanisme de tunnel éphémère
+
+Décision utilisateur : les deux modes (direct, ou tunnelé via un hôte SSH
+enregistré), au choix par connexion — pas l'un ou l'autre en dur. Le tunnel
+n'est **jamais persisté** ni visible dans le panneau Tunnels :
+`core::port_forward::start(connection, forward)` accepte déjà un
+`PortForward` construit à la volée sans jamais toucher
+`workspace.port_forwards` — juste jamais exploité ainsi avant (le seul
+appelant existant, `commands::forward::start_forward`, va chercher son
+`PortForward` dans le workspace en premier). `core::sql::connect` construit
+un `PortForward` en mémoire avec `bind_port: 0` (port éphémère choisi par
+l'OS) et le passe directement à `port_forward::start`.
+
+**Piège réel trouvé en lisant `port_forward.rs`** : `TcpListener::bind` avec
+`bind_port: 0` fonctionne très bien, mais `start_local` ne remontait jamais
+le port réellement choisi par l'OS — `ActiveForward` ne stockait que la
+config *demandée*, jamais `listener.local_addr()`. Sans ce port, impossible
+de savoir où dialer ensuite. Fix : nouveau champ `ActiveForward.bound_addr:
+Option<SocketAddr>`, capturé juste après le `bind` dans `start_local` (et,
+par cohérence, `start_dynamic` — `start_remote` n'a pas de listener local à
+rapporter), exposé via `ActiveForward::bound_addr()`. Testé pour de vrai
+contre un `sshd` réel (`core/tests/sftp_and_forward_integration.rs`,
+`local_forward_with_ephemeral_bind_port_reports_the_bound_port` — bind sur
+le port 0, vérifie que le port rapporté n'est pas 0, s'y connecte
+réellement et fait un aller-retour de données à travers le tunnel).
+
+### Secrets : nouvelle variante de `SecretKind`, pas un nouveau mécanisme
+
+`vault::SecretKind::SqlPassword` (suffixe `"sql-password"`) — les fonctions
+existantes `vault::store/load/delete(host_id: HostId, kind, ...)`
+fonctionnent sans changement pour une `SqlConnectionId` puisque les deux
+types sont de simples alias de `Uuid` et que la clé n'est jamais qu'un
+`{uuid}:{suffixe}` — exactement le raisonnement déjà identifié par
+l'exploration préalable du code (`vault.rs`'s `global_key`/
+`store_anthropic_api_key` étant le précédent le plus proche pour un secret
+qui n'appartient pas littéralement à un `Host`).
+
+### Décodage générique des résultats de requête — vérifié dans les sources vendues
+
+Le point le plus risqué de toute l'implémentation : décoder une ligne de
+résultat *sans connaître à l'avance* le type de chaque colonne (le pilote
+`sqlx::Any` doit marcher aussi bien pour MySQL que PostgreSQL). Plutôt que
+de deviner, lecture des sources vendues de `sqlx-core-0.8.6/src/any/{type_info,row,value}.rs` :
+`AnyTypeInfoKind` est un jeu **fermé** de 9 variantes (`Null`/`Bool`/
+`SmallInt`/`Integer`/`BigInt`/`Real`/`Double`/`Text`/`Blob`) — tous les
+types natifs de chaque moteur sont normalisés vers ce petit ensemble par le
+pilote lui-même. `core::sql::decode_value` bascule sur
+`column.type_info().kind()` et appelle `row.try_get::<Option<T>, _>(i)`
+pour le type correspondant (jamais les champs `#[doc(hidden)]`
+`AnyValue`/`AnyValueKind` internes, uniquement l'API publique documentée
+`Row`/`Column`/`TypeInfo`) — `Option<T>` gère nativement les NULL quel que
+soit le type déclaré de la colonne. Un décodage qui échoue malgré tout
+(valeur qui ne rentre pas dans le type annoncé) retombe sur `null` JSON
+plutôt que de faire échouer toute la requête — perdre une cellule vaut
+mieux que perdre tout le résultat.
+
+**URL de connexion via `url::Url`, jamais `format!`** — un nom d'utilisateur/
+mot de passe contenant `@`/`:`/`/`/`%` casserait silencieusement une URL
+construite à la main (ces caractères seraient interprétés comme de la
+structure d'URL). `core::sql::build_url` utilise les setters de `url::Url`
+(`set_username`/`set_password`/`set_host`/`set_port`), qui percent-encodent
+correctement — testé unitairement avec un mot de passe contenant
+littéralement `@`, `:` et `/`, vérifiant que le round-trip
+stringify→re-parse récupère les valeurs exactes.
+
+**Cap de lignes appliqué en flux, pas après coup** — même discipline que le
+fix `k8s_pane.rs` de la session précédente (cap de téléchargement en flux
+plutôt qu'après bufferisation complète, voir plus haut) : `execute_query`
+utilise `sqlx::query(sql).fetch(&pool)` (un `Stream`, via
+`futures_util::TryStreamExt`) et s'arrête dès que `MAX_RESULT_ROWS` (5000)
+lignes sont atteintes, plutôt que `fetch_all` qui aurait tout bufferisé
+avant de tronquer.
+
+### Deux limitations connues, actées sciemment
+
+- **Pas de compte « N lignes affectées » pour INSERT/UPDATE/DELETE/DDL.**
+  `execute_query` utilise la même primitive (`fetch`) pour `SELECT` et pour
+  les instructions mutantes plutôt que d'appeler `execute()` séparément
+  pour obtenir ce compte — appeler les deux aurait exécuté une instruction
+  mutante **deux fois**, un risque jugé bien pire que l'absence de ce
+  compte. Une instruction mutante retourne simplement zéro ligne (`columns:
+  []`), affiché comme « requête exécutée » côté UI plutôt qu'un faux « 0
+  ligne affectée » trompeur.
+- **`list_columns` ne rapporte ni clé primaire ni index** — seulement nom/
+  type/nullabilité, via une requête `information_schema.columns` strictement
+  portable entre les deux moteurs. La détection de clé primaire aurait
+  demandé une jointure différente par moteur (MySQL : `key_column_usage`
+  filtré sur `constraint_name = 'PRIMARY'` ; PostgreSQL : jointure via
+  `table_constraints` faute de nom de contrainte prévisible) — complexité
+  et risque jugés disproportionnés pour une first version sans base réelle
+  contre laquelle vérifier la jointure.
+
+### MySQL vs PostgreSQL : bases vs schémas, assumé plutôt que masqué
+
+`list_schemas` sert un seul niveau d'arborescence aux deux moteurs pour une
+raison différente selon le moteur, documentée dans le doc-comment du module
+plutôt que laissée implicite : MySQL peut lister/changer de base sans se
+reconnecter (chaque requête `information_schema` est déjà qualifiée par nom
+de base) ; PostgreSQL reste connecté à **une seule** base fixée à la
+connexion — il n'y a donc rien à « lister » au niveau serveur qui soit
+réellement navigable sans reconnexion, seuls les schémas *à l'intérieur* de
+cette base le sont. Plutôt que de fabriquer une fausse notion uniforme de
+« bases de données », les deux notions partagent le même niveau d'arbre
+parce que c'est le même *grain de navigation* pour chaque moteur, pas parce
+que ce sont le même concept.
+
+### Frontend : nouvelle section dédiée, pas un `HostKind` de plus
+
+Décision utilisateur : section « Bases de données » séparée du panneau
+Hôtes (recommandé, pour les mêmes raisons que la décision « pas un
+`HostKind` » côté backend). `Sidebar.tsx` gagne un 7e panneau (`"database"`,
+lazy-loadé comme tous les autres panneaux sauf Hôtes depuis le chantier de
+découpage du bundle) → **`SqlConnectionsPanel.tsx`** (liste + formulaire
+inline, même forme que `TunnelsPanel.tsx` — plus simple qu'une page de
+formulaire séparée façon `HostForm.tsx`, suffisant pour le nombre de champs
+en jeu). Un nouveau type de tab `"sql"` dans `TabMeta` (`sqlConnectionId`,
+pas `hostId`) ouvre **`SqlTab.tsx`** (lazy-loadé comme `RdpTab`/
+`TransferTab`/`FleetTab`) : arbre schéma/tables/colonnes à gauche
+(redimensionnable via `useResizablePane`, même hook que `TransferTab.tsx`),
+éditeur `<textarea>` + résultats à droite (Ctrl+Entrée pour exécuter, zone
+de texte simple sans coloration syntaxique — décision utilisateur, cohérent
+avec l'éditeur DSL adaptatif existant, zéro nouvelle dépendance frontend).
+Cliquer sur un nom de table insère un `SELECT * FROM <schema>.<table> LIMIT
+100;` dans l'éditeur, un raccourci pratique plutôt qu'une fonctionnalité
+demandée.
+
+**`SqlTab` ne prend pas de prop `isActive`** — contrairement à `TerminalTab`/
+`RdpTab` (qui en ont besoin pour xterm/le canvas), `SqlTab` n'a rien
+d'équivalent à redessiner selon la visibilité — même choix déjà fait pour
+`TransferTab`/`FleetTab`. La session reste ouverte tant que l'onglet reste
+monté (masqué en CSS quand inactif, comme tous les autres onglets) ; elle ne
+se ferme (`closeSqlSession`) qu'au vrai démontage, donc à la fermeture de
+l'onglet.
+
+**Piège de narrowing TypeScript trouvé en ajoutant la 5ᵉ variante à
+`TabMeta`** : `useTabs.ts`'s logique de restauration d'onglets excluait déjà
+`"local-terminal"` puis traitait tout le reste comme
+`"terminal"|"transfer"|"rdp-view"` avec un `hostId` — ça « marchait » par
+accident pour `"fleet"` (pas de `hostId`, donc le check `if (!p.hostId...)
+return []` l'excluait quand même) mais l'ajout de `"sql"` (qui a lui aussi
+`sqlConnectionId` requis à la place de `hostId`) a fait échouer la
+vérification de type sur ce point précis — le littéral construit avait un
+`kind` trop large pour matcher une seule variante du union `TabMeta`.
+Corrigé en excluant explicitement `"fleet"`/`"sql"` avant le check
+`hostId` plutôt que de compter sur l'effet de bord — les onglets flotte et
+SQL ne se restaurent délibérément jamais au lancement (une session flotte
+ou SQL est un instantané, pas quelque chose à rouvrir silencieusement),
+maintenant vrai par construction plutôt que par accident.
+
+### Vérifié / non vérifié
+
+**Vérifié** : `cargo check -p termius-core` (sonde `sqlx` initiale, propre),
+`cargo clippy --workspace --all-targets -- -D warnings` propre,
+`cargo test -p termius-core -p guiterm` vert (160 tests unitaires — 8 de
+plus que la session précédente : 3 `sql::tests` sur `build_url`
+— percent-encoding, schéma/host/port/database, mot de passe absent/vide —
+plus les tests d'intégration réels avec un vrai `sshd`, dont le nouveau test
+de port éphémère), `npx tsc --noEmit` propre, `npm run lint` propre (4
+warnings pré-existants, 0 nouveau), `npx vitest run` (48 tests, aucun
+nouveau côté frontend — logique trop couplée à l'UI/Tauri pour être testée
+isolément, comme `HostsPanel`/`TransferTab`/`TunnelsPanel` avant elle),
+`npm run build` propre (nouveaux chunks lazy `SqlConnectionsPanel`/`SqlTab`
+correctement séparés du bundle principal), `node scripts/e2e-run.mjs` vert
+contre le binaire WSL/WebKitGTK fraîchement reconstruit (capture d'écran
+réelle confirmant la nouvelle icône de section dans la barre latérale et le
+chargement du vrai workspace de l'utilisateur). Binaire Windows natif
+release reconstruit (les crates `sqlx-mysql`/`sqlx-postgres` compilent
+proprement sous MSVC) et relancé pour test utilisateur.
+
+**Non vérifié** : aucun serveur MySQL/PostgreSQL joignable dans cet
+environnement de dev — même limitation que RDP/K8s/Docker-via-SSH en leur
+temps. Rien de tout le chemin métier (connexion directe, connexion
+tunnelée, introspection de schéma, exécution de requête, décodage de
+lignes réelles) n'a tourné contre un vrai serveur. Points les plus
+incertains à valider en premier, par ordre de risque : (1) le décodage
+générique des types de colonnes (`decode_value`) contre de vraies données
+— dérivé de la lecture attentive des sources vendues de `sqlx-core`, jamais
+observé en pratique ; (2) l'introspection PostgreSQL (jointures
+`information_schema` moins testées en pratique par l'auteur que
+l'équivalent MySQL) ; (3) le tunnel SSH éphémère bout-en-bout avec une
+vraie base de données au bout (le mécanisme de port forward lui-même est
+testé pour de vrai avec un service echo, mais jamais avec un vrai serveur
+SQL en bout de chaîne).

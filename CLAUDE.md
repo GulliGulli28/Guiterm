@@ -425,6 +425,14 @@ dans la mémoire long-terme `infra-control-plane-pivot.md` et dans
   validé par le même parseur que la saisie manuelle avant d'être montré à
   l'utilisateur. Cibles : hôtes SSH, conteneurs Docker exec, pods K8s,
   terminal local (Windows/POSIX).
+- **Client SQL (MySQL/PostgreSQL)** — fait (`core/src/sql.rs`,
+  `commands/sql.rs`, `SqlConnectionsPanel.tsx`, `SqlTab.tsx`). Entité à part
+  (`SqlConnection`), pas un `HostKind` de plus — pas de shell, pas de cible
+  de flotte, référence juste un `Host` SSH existant en option pour un tunnel
+  local éphémère jamais persisté. Connexion directe ou tunnelée au choix par
+  connexion ; arborescence bases/schémas → tables → colonnes ; panneau de
+  requêtes (zone de texte simple, pas d'éditeur de code). Voir
+  `docs/dev-history.md` pour l'architecture complète.
 - **Auth keyboard-interactive (MFA/OTP)** — pas encore fait, seule vraie
   lacune protocole restante identifiée à ce jour.
 

@@ -6,6 +6,7 @@ pub type GroupId = Uuid;
 pub type SnippetId = Uuid;
 pub type PortForwardId = Uuid;
 pub type KeyId = Uuid;
+pub type SqlConnectionId = Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -271,6 +272,75 @@ pub struct PortForward {
     pub dest_port: u16,
 }
 
+/// Which SQL wire protocol a [`SqlConnection`] speaks — see `crate::sql`.
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SqlEngine {
+    Mysql,
+    Postgres,
+}
+
+/// A saved MySQL/PostgreSQL connection — deliberately **not** a `Host`/
+/// `HostKind` variant: unlike SSH/Docker exec/K8s exec/RDP, a SQL connection
+/// has no shell and isn't a fleet target, so folding it into `HostKind`
+/// would force every one of those (fleet, adaptive snippets, tab restore…)
+/// to grow a "this kind has no shell" branch. It can still *reference* a
+/// saved `Host` via `tunnel_host_id`, purely to reach a database that isn't
+/// directly reachable from this machine.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SqlConnection {
+    pub id: SqlConnectionId,
+    pub label: String,
+    pub engine: SqlEngine,
+    /// `None`: connect directly to `address`/`port`. `Some(host_id)`: open
+    /// an SSH connection to that saved host first and reach `address`/
+    /// `port` through an ephemeral local port forward (see
+    /// `crate::sql::connect`) — for a database that's only reachable from
+    /// that host (bound to loopback server-side, a private subnet, etc.),
+    /// not necessarily "the database runs on that host".
+    #[serde(default)]
+    pub tunnel_host_id: Option<HostId>,
+    /// The database server's address — reachable directly from this
+    /// machine when `tunnel_host_id` is `None`, or reachable *from*
+    /// `tunnel_host_id` otherwise (often `127.0.0.1`, for a database bound
+    /// to loopback on that host).
+    pub address: String,
+    pub port: u16,
+    pub username: String,
+    /// Initial database to connect to. Required in practice for
+    /// PostgreSQL (a connection always targets exactly one database, and
+    /// never switches without reconnecting — see `crate::sql`'s module
+    /// docs); optional for MySQL (a database can be selected, or switched,
+    /// per query).
+    #[serde(default)]
+    pub database: Option<String>,
+    #[serde(default)]
+    pub group_id: Option<GroupId>,
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+impl SqlConnection {
+    pub fn new(label: impl Into<String>, engine: SqlEngine, address: impl Into<String>, username: impl Into<String>) -> Self {
+        Self {
+            id: Uuid::new_v4(),
+            label: label.into(),
+            engine,
+            tunnel_host_id: None,
+            address: address.into(),
+            port: match engine {
+                SqlEngine::Mysql => 3306,
+                SqlEngine::Postgres => 5432,
+            },
+            username: username.into(),
+            database: None,
+            group_id: None,
+            tags: Vec::new(),
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct Workspace {
@@ -282,11 +352,17 @@ pub struct Workspace {
     pub keychain: Vec<PrivateKey>,
     #[serde(default)]
     pub custom_icons: Vec<CustomIcon>,
+    #[serde(default)]
+    pub sql_connections: Vec<SqlConnection>,
 }
 
 impl Workspace {
     pub fn host(&self, id: HostId) -> Option<&Host> {
         self.hosts.iter().find(|h| h.id == id)
+    }
+
+    pub fn sql_connection(&self, id: SqlConnectionId) -> Option<&SqlConnection> {
+        self.sql_connections.iter().find(|c| c.id == id)
     }
 
     /// Resolves the bastion chain for a host: bastions first (in order), target last.

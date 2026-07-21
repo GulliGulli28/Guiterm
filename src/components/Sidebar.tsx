@@ -1,8 +1,8 @@
-import type { Group, GroupId, Host, HostId, KeyAlgorithm, KeyId, PortForwardId, PortForwardKind, SnippetId, VaultStatus, Workspace } from "../lib/types";
+import type { Group, GroupId, Host, HostId, KeyAlgorithm, KeyId, PortForwardId, PortForwardKind, SnippetId, SqlConnection, VaultStatus, Workspace } from "../lib/types";
 import type { AppPreferences } from "../lib/preferences";
 import { lazy, Suspense, type ComponentType } from "react";
 import { HostsPanel } from "./HostsPanel";
-import { IconHosts, IconSnippets, IconTunnels, IconKeychain, IconSettings, IconTransfer, IconShield } from "./ui-icons";
+import { IconHosts, IconSnippets, IconTunnels, IconKeychain, IconSettings, IconTransfer, IconShield, IconDatabase } from "./ui-icons";
 import { TabLoadingFallback } from "./TabLoadingFallback";
 
 // Lazy-loaded: "Hôtes" is the default panel shown on launch (stays eager),
@@ -14,8 +14,9 @@ const SettingsPanel = lazy(() => import("./SettingsPanel").then((m) => ({ defaul
 const SnippetsPanel = lazy(() => import("./SnippetsPanel").then((m) => ({ default: m.SnippetsPanel })));
 const SftpPanel = lazy(() => import("./SftpPanel").then((m) => ({ default: m.SftpPanel })));
 const TunnelsPanel = lazy(() => import("./TunnelsPanel").then((m) => ({ default: m.TunnelsPanel })));
+const SqlConnectionsPanel = lazy(() => import("./SqlConnectionsPanel").then((m) => ({ default: m.SqlConnectionsPanel })));
 
-export type SidebarPanelKind = "knownHosts" | "hosts" | "sftp" | "snippets" | "tunnels" | "keychain" | "settings";
+export type SidebarPanelKind = "knownHosts" | "hosts" | "sftp" | "snippets" | "tunnels" | "keychain" | "database" | "settings";
 
 interface SidebarProps {
   workspace: Workspace;
@@ -48,6 +49,7 @@ interface SidebarProps {
   onGenerateKey: (name: string, algorithm: KeyAlgorithm, passphrase: string | null) => void;
   onDeleteKey: (id: KeyId) => void;
   onRenameKey: (id: KeyId, name: string) => void;
+  onConnectSql: (conn: SqlConnection) => void;
   onWorkspaceUpdate: (ws: Workspace) => void;
   onError: (message: string) => void;
   preferences: AppPreferences;
@@ -62,6 +64,7 @@ const TABS: { key: Exclude<SidebarPanelKind, "settings">; label: string; Icon: C
   { key: "sftp",       label: "SFTP",        Icon: IconTransfer },
   { key: "snippets",   label: "Snippets",    Icon: IconSnippets },
   { key: "tunnels",    label: "Tunnels",     Icon: IconTunnels  },
+  { key: "database",   label: "Bases de données", Icon: IconDatabase },
   { key: "keychain",   label: "Clés",        Icon: IconKeychain },
 ];
 
@@ -152,6 +155,14 @@ export function Sidebar(props: SidebarProps) {
               workspace={workspace}
               onAddForward={props.onAddForward}
               onDeleteForward={props.onDeleteForward}
+              onError={props.onError}
+            />
+          )}
+          {panel === "database" && (
+            <SqlConnectionsPanel
+              workspace={workspace}
+              onConnect={props.onConnectSql}
+              onWorkspaceUpdate={props.onWorkspaceUpdate}
               onError={props.onError}
             />
           )}

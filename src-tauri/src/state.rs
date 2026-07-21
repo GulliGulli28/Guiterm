@@ -4,6 +4,7 @@ use std::sync::{Arc, Mutex};
 use termius_core::model::{PortForwardId, Workspace};
 use termius_core::port_forward::ActiveForward;
 use termius_core::sftp::RemoteFileClient;
+use termius_core::sql::SqlSession;
 use termius_core::ssh::{Connection, ShellInput};
 use tokio::sync::mpsc;
 
@@ -75,6 +76,10 @@ pub struct AppState {
     pub panes: Mutex<HashMap<String, Pane>>,
     pub forwards: Mutex<HashMap<PortForwardId, ForwardSession>>,
     pub rdp_views: Mutex<HashMap<String, RdpViewSession>>,
+    /// Live SQL connections (pool + tunnel, if tunnelled), keyed by a
+    /// generated session id the frontend passes back on every subsequent
+    /// call — same "opaque id → live resource" shape as `panes`.
+    pub sql_sessions: Mutex<HashMap<String, SqlSession>>,
     /// One cancellation flag per in-flight `upload_file`/`download_file` transfer, keyed by transfer id.
     pub transfers: Mutex<HashMap<String, Arc<AtomicBool>>>,
     /// Command history for local-terminal ghost-text suggestions, most recent last.

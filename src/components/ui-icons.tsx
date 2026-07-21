@@ -319,6 +319,16 @@ export function IconServerStack({ size = 16, className }: P) {
   );
 }
 
+export function IconDatabase({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <ellipse cx="8" cy="4" rx="6" ry="2.25" stroke="currentColor" strokeWidth="1.25" />
+      <path d="M2 4v4c0 1.24 2.69 2.25 6 2.25S14 9.24 14 8V4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+      <path d="M2 8v4c0 1.24 2.69 2.25 6 2.25S14 13.24 14 12V8" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function IconRefresh({ size = 16, className }: P) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>

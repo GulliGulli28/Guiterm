@@ -4,6 +4,7 @@ export type SnippetId = string;
 export type PortForwardId = string;
 
 export type KeyId = string;
+export type SqlConnectionId = string;
 
 export interface PrivateKey {
   id: KeyId;
@@ -167,6 +168,53 @@ export interface Group {
   color?: string | null;
 }
 
+/** Which SQL wire protocol a `SqlConnection` speaks. */
+export type SqlEngine = "mysql" | "postgres";
+
+/** A saved MySQL/PostgreSQL connection — deliberately not a `Host`/
+ * `HostKind` (see `core::model::SqlConnection`'s doc comment): no shell, not
+ * a fleet target. Can still reference a saved SSH `Host` via
+ * `tunnelHostId`, purely to reach a database that isn't directly reachable
+ * from this machine — `null`/absent connects directly to `address`/`port`. */
+export interface SqlConnection {
+  id: SqlConnectionId;
+  label: string;
+  engine: SqlEngine;
+  tunnelHostId?: HostId | null;
+  address: string;
+  port: number;
+  username: string;
+  /** Required in practice for PostgreSQL (a connection always targets one
+   * database); optional for MySQL. */
+  database?: string | null;
+  groupId?: GroupId | null;
+  tags: string[];
+}
+
+/** One database (MySQL) or schema (PostgreSQL) to browse — see
+ * `core::sql`'s module doc comment for why the two share this one level. */
+export interface TableInfo {
+  name: string;
+  kind: "table" | "view";
+}
+
+export interface ColumnInfo {
+  name: string;
+  dataType: string;
+  nullable: boolean;
+}
+
+/** Result of `runSqlQuery`. `rows[i][j]` corresponds to `columns[j]` — a
+ * cell is `string | number | boolean | null` (never a nested object/array,
+ * `core::sql::decode_value` only ever produces JSON scalars). `truncated`:
+ * more than the server-side row cap matched, only the first N are here —
+ * see `core::sql::MAX_RESULT_ROWS`. */
+export interface QueryResult {
+  columns: string[];
+  rows: (string | number | boolean | null)[][];
+  truncated: boolean;
+}
+
 export interface Workspace {
   groups: Group[];
   hosts: Host[];
@@ -174,6 +222,7 @@ export interface Workspace {
   portForwards: PortForward[];
   keychain: PrivateKey[];
   customIcons: CustomIcon[];
+  sqlConnections: SqlConnection[];
 }
 
 export interface KnownHostEntry {
@@ -270,7 +319,8 @@ export type TabMeta =
       k8sContainerName?: string | null;
     }
   | { id: string; kind: "local-terminal"; label: string; initialCommand?: string; shell?: string | null; status?: "connected" | "placeholder" }
-  | { id: string; kind: "fleet"; label: string; status?: "connected" | "placeholder" };
+  | { id: string; kind: "fleet"; label: string; status?: "connected" | "placeholder" }
+  | { id: string; kind: "sql"; label: string; sqlConnectionId: SqlConnectionId; status?: "connected" | "placeholder" };
 
 /** A single fleet run target — an SSH host, a specific Docker exec
  * container, a specific K8s exec pod/container, or the local machine.

@@ -54,6 +54,14 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 # no separate workspace needed here.
 kube = { version = "0.99", default-features = false, features = ["client", "rustls-tls", "ws"] }
 k8s-openapi = { version = "0.24", features = ["latest"] }
+# `sql`: MySQL/PostgreSQL client — checked against the RDP/ecdsa saga before
+# adding (see CLAUDE.md's "Pourquoi un processus RDP séparé"), resolves
+# cleanly alongside russh/bollard/reqwest/kube, no separate workspace needed.
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "any", "postgres", "mysql", "chrono", "uuid"] }
+# Already resolved transitively (reqwest/sqlx) — declared directly since
+# `sql::build_url` uses its setters (percent-encoding credentials safely,
+# see that function's doc comment) rather than just consuming it.
+url = "2"
 
 [dev-dependencies]
 tempfile = "3"

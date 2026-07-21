@@ -12,5 +12,6 @@ pub mod keys;
 pub mod known_hosts;
 pub mod rdp_view;
 pub mod sftp;
+pub mod sql;
 pub mod terminal;
 pub mod vault;

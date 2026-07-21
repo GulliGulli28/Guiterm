@@ -12,6 +12,12 @@ use tokio::task::JoinHandle;
 pub struct ActiveForward {
     config: PortForward,
     kind: ActiveKind,
+    /// The listener's actual bound address — only ever different from
+    /// `config.bind_address`/`config.bind_port` when the caller asked for an
+    /// OS-assigned ephemeral port (`bind_port: 0`), which `TcpListener::bind`
+    /// supports but never reports back on its own. `None` for `Remote` (no
+    /// local listener to report). See [`ActiveForward::bound_addr`].
+    bound_addr: Option<std::net::SocketAddr>,
 }
 
 enum ActiveKind {
@@ -20,6 +26,14 @@ enum ActiveKind {
 }
 
 impl ActiveForward {
+    /// The local address actually bound — needed by any caller that used
+    /// `bind_port: 0` (an ephemeral, not-persisted forward, e.g.
+    /// `crate::sql::connect`'s ad-hoc SSH tunnel) and now needs to know which
+    /// port the OS actually picked in order to dial it.
+    pub fn bound_addr(&self) -> Option<std::net::SocketAddr> {
+        self.bound_addr
+    }
+
     pub async fn stop(self, connection: &Connection) {
         match self.kind {
             ActiveKind::Local(accept_loop) => accept_loop.abort(),
@@ -70,6 +84,7 @@ async fn start_local(
                 forward.bind_port
             )
         })?;
+    let bound_addr = listener.local_addr().ok();
 
     let dest_address = forward.dest_address.clone();
     let dest_port = forward.dest_port;
@@ -105,6 +120,7 @@ async fn start_local(
     Ok(ActiveForward {
         config: forward,
         kind: ActiveKind::Local(accept_loop),
+        bound_addr,
     })
 }
 
@@ -125,6 +141,7 @@ async fn start_dynamic(
                 forward.bind_port
             )
         })?;
+    let bound_addr = listener.local_addr().ok();
 
     let accept_loop = tokio::spawn(async move {
         loop {
@@ -141,6 +158,7 @@ async fn start_dynamic(
     Ok(ActiveForward {
         config: forward,
         kind: ActiveKind::Local(accept_loop),
+        bound_addr,
     })
 }
 
@@ -260,6 +278,7 @@ async fn start_remote(
     Ok(ActiveForward {
         config: forward,
         kind: ActiveKind::Remote,
+        bound_addr: None,
     })
 }
 

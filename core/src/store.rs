@@ -166,6 +166,17 @@ mod tests {
     }
 
     #[test]
+    fn load_tolerates_old_workspace_missing_sql_connections() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("workspace.json");
+        std::fs::write(&path, r#"{"groups":[],"hosts":[],"snippets":[],"portForwards":[]}"#).unwrap();
+
+        let ws = load_from(&path).unwrap();
+
+        assert!(ws.sql_connections.is_empty());
+    }
+
+    #[test]
     fn resilient_load_returns_default_when_file_is_missing() {
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("workspace.json");

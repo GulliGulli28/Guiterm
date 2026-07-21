@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import { save } from "@tauri-apps/plugin-dialog";
 import { api } from "../lib/api";
 import { runOnTerminalHandle } from "../lib/runOnTerminalHandle";
-import type { Host, HostId, TabMeta, Workspace } from "../lib/types";
+import type { Host, HostId, SqlConnection, TabMeta, Workspace } from "../lib/types";
 import type { AppPreferences } from "../lib/preferences";
 import type { NotificationKind } from "../lib/notifications";
 import { loadTabs, saveTabs } from "../lib/tabPersistence";
@@ -65,6 +65,23 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
     });
   }, []);
 
+  // One tab per SQL connection — reopening an already-open connection just
+  // focuses it, same idea as `openFleet`'s single-tab dedup (there, a global
+  // singleton; here, keyed per connection so different connections can each
+  // have their own tab).
+  const openSql = useCallback((conn: SqlConnection) => {
+    setTabs((prev) => {
+      const existing = prev.find((t) => t.kind === "sql" && t.sqlConnectionId === conn.id);
+      if (existing) {
+        setActiveTabId(existing.id);
+        return prev;
+      }
+      const id = `tab-${nextTabId++}`;
+      setActiveTabId(id);
+      return [...prev, { id, kind: "sql", label: conn.label, sqlConnectionId: conn.id }];
+    });
+  }, []);
+
   const reconnectTab = useCallback((id: string) => {
     setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, status: "connected" } : t)));
   }, []);
@@ -82,6 +99,13 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
       if (p.kind === "local-terminal") {
         return [{ id, kind: "local-terminal", label: p.label, status: "placeholder", shell: p.shell }];
       }
+      // "fleet"/"sql" tabs are deliberately never restored (a fleet run and
+      // a SQL session are both point-in-time things, not something to
+      // silently reopen) — narrowed explicitly rather than just falling
+      // through the `!p.hostId` check below, which happened to reject them
+      // too but for the wrong (accidental) reason and didn't type-check
+      // once a second no-`hostId` kind ("sql") joined "fleet".
+      if (p.kind !== "terminal" && p.kind !== "transfer" && p.kind !== "rdp-view") return [];
       if (!p.hostId || !workspace.hosts.some((h) => h.id === p.hostId)) return [];
       return [{
         id, kind: p.kind, hostId: p.hostId, label: p.label, status: "placeholder",
@@ -240,7 +264,7 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
   return {
     tabs, setTabs, activeTabId, setActiveTabId,
     pendingCloseTabId, setPendingCloseTabId,
-    openTab, openLocalTerminal, openFleet, reconnectTab,
+    openTab, openLocalTerminal, openFleet, openSql, reconnectTab,
     closeTab, requestCloseTab,
     runSnippet, runAdaptiveSnippet, exportActiveScrollback,
   };

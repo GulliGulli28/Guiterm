@@ -20,6 +20,7 @@ import { TabLoadingFallback } from "./components/TabLoadingFallback";
 const TransferTab = lazy(() => import("./components/TransferTab").then((m) => ({ default: m.TransferTab })));
 const RdpTab = lazy(() => import("./components/RdpTab").then((m) => ({ default: m.RdpTab })));
 const FleetTab = lazy(() => import("./components/FleetTab").then((m) => ({ default: m.FleetTab })));
+const SqlTab = lazy(() => import("./components/SqlTab").then((m) => ({ default: m.SqlTab })));
 import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, loadPreferences, savePreferences } from "./lib/preferences";
 import { SplitPane } from "./components/SplitPane";
 import { GroupForm, type GroupFormData } from "./components/GroupForm";
@@ -195,7 +196,7 @@ export default function App() {
   const {
     tabs, setTabs, activeTabId, setActiveTabId,
     pendingCloseTabId, setPendingCloseTabId,
-    openTab, openLocalTerminal, openFleet, reconnectTab,
+    openTab, openLocalTerminal, openFleet, openSql, reconnectTab,
     closeTab, requestCloseTab,
     runSnippet, runAdaptiveSnippet, exportActiveScrollback,
   } = useTabs({ workspace, preferences, terminalRefs, pushNotification, reportError, refreshWorkspace });
@@ -282,12 +283,12 @@ export default function App() {
 
   const showRightPanel = !!(editingHost || editingGroup);
   const activeTab = tabs.find((t) => t.id === activeTabId);
-  const activeHostId = activeTab && activeTab.kind !== "local-terminal" && activeTab.kind !== "fleet" ? activeTab.hostId : null;
+  const activeHostId = activeTab && activeTab.kind !== "local-terminal" && activeTab.kind !== "fleet" && activeTab.kind !== "sql" ? activeTab.hostId : null;
 
   // Resolves a tab to its host's group color tag (if the host, its group, and a
   // color are all set), so TabBar can show a small dot without knowing about hosts/groups.
   const tabColor = (tab: TabMeta): string | undefined => {
-    if (tab.kind === "local-terminal" || tab.kind === "fleet") return undefined;
+    if (tab.kind === "local-terminal" || tab.kind === "fleet" || tab.kind === "sql") return undefined;
     const host = workspace.hosts.find((h) => h.id === tab.hostId);
     const group = host?.groupId ? workspace.groups.find((g) => g.id === host.groupId) : null;
     const accent = group?.color as UiAccent | undefined;
@@ -405,6 +406,7 @@ export default function App() {
             onGenerateKey={(name, algorithm, passphrase) => api.generatePrivateKey(name, algorithm, passphrase).then(refreshWorkspace).catch((e) => reportError(String(e)))}
             onDeleteKey={(id) => api.deletePrivateKey(id).then(refreshWorkspace).catch((e) => reportError(String(e)))}
             onRenameKey={(id, name) => api.renamePrivateKey(id, name).then(refreshWorkspace).catch((e) => reportError(String(e)))}
+            onConnectSql={(conn) => openSql(conn)}
             onError={reportError}
             preferences={preferences}
             onPreferencesChange={updatePreferences}
@@ -484,6 +486,17 @@ export default function App() {
                       <div key={tab.id} className={isActive ? "absolute inset-0 flex flex-col" : "hidden"}>
                         <Suspense fallback={<TabLoadingFallback />}>
                           <FleetTab workspace={workspace} onError={reportError} onWorkspaceUpdate={refreshWorkspace} />
+                        </Suspense>
+                      </div>
+                    );
+                  }
+                  if (tab.kind === "sql") {
+                    const connection = workspace.sqlConnections.find((c) => c.id === tab.sqlConnectionId);
+                    if (!connection) return null;
+                    return (
+                      <div key={tab.id} className={isActive ? "absolute inset-0 flex flex-col" : "hidden"}>
+                        <Suspense fallback={<TabLoadingFallback />}>
+                          <SqlTab connection={connection} onError={reportError} />
                         </Suspense>
                       </div>
                     );

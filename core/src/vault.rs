@@ -26,6 +26,12 @@ const SERVICE: &str = "gui-termius";
 pub enum SecretKind {
     Password,
     KeyPassphrase,
+    /// A `SqlConnection`'s password — `store`/`load`/`delete` below are
+    /// typed `host_id: HostId`, but since `HostId`/`SqlConnectionId` are
+    /// both plain `Uuid` aliases and the key is just `{uuid}:{suffix}`,
+    /// passing a `SqlConnectionId` here works unchanged and can never
+    /// collide with a real host's secrets (different uuid).
+    SqlPassword,
 }
 
 impl SecretKind {
@@ -33,6 +39,7 @@ impl SecretKind {
         match self {
             SecretKind::Password => "password",
             SecretKind::KeyPassphrase => "passphrase",
+            SecretKind::SqlPassword => "sql-password",
         }
     }
 }

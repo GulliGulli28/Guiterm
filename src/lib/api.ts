@@ -1,6 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AuthMethod, CollectFactsResult, ComposeResult, DockerContainer, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostId, HostKind, ImportSelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, RdpClientMessage, RdpFrame, SnippetId, SshConfigHost, TransferProgressEvent, VaultStatus, Workspace } from "./types";
+import type { AuthMethod, ColumnInfo, CollectFactsResult, ComposeResult, DockerContainer, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostId, HostKind, ImportSelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, QueryResult, RdpClientMessage, RdpFrame, SnippetId, SqlConnectionId, SqlEngine, SshConfigHost, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
 
 /** Mirrors the 12-byte little-endian header `commands::rdp_view::connect_rdp_view`
  * writes ahead of each frame's raw RGBA8 pixels (see its doc comment for why
@@ -54,6 +54,33 @@ export const api = {
   addForward: (input: { hostId: HostId; kind: PortForwardKind; bindAddress: string; bindPort: number; destAddress: string; destPort: number }) =>
     invoke<Workspace>("add_forward", { input }),
   deleteForward: (forwardId: PortForwardId) => invoke<Workspace>("delete_forward", { forwardId }),
+
+  saveSqlConnection: (input: {
+    id: SqlConnectionId | null;
+    label: string;
+    engine: SqlEngine;
+    tunnelHostId: HostId | null;
+    address: string;
+    port: number;
+    username: string;
+    database: string | null;
+    groupId: GroupId | null;
+    tags: string[];
+    secret: string | null;
+  }) => invoke<Workspace>("save_sql_connection", { input }),
+  deleteSqlConnection: (connectionId: SqlConnectionId) => invoke<Workspace>("delete_sql_connection", { connectionId }),
+  /** Opens a pool (directly, or through an ephemeral SSH tunnel invisible to
+   * the Tunnels panel — see `core::sql::connect`) and returns an opaque
+   * session id to pass to every `listSql*`/`runSqlQuery` call below, until
+   * `closeSqlSession`. */
+  openSqlSession: (connectionId: SqlConnectionId) => invoke<string>("open_sql_session", { connectionId }),
+  closeSqlSession: (sessionId: string) => invoke<void>("close_sql_session", { sessionId }),
+  /** One database (MySQL) or schema (PostgreSQL) per entry — see
+   * `TableInfo`'s doc comment for why the two share this one call. */
+  listSqlSchemas: (sessionId: string) => invoke<string[]>("list_sql_schemas", { sessionId }),
+  listSqlTables: (sessionId: string, schema: string) => invoke<TableInfo[]>("list_sql_tables", { sessionId, schema }),
+  listSqlColumns: (sessionId: string, schema: string, table: string) => invoke<ColumnInfo[]>("list_sql_columns", { sessionId, schema, table }),
+  runSqlQuery: (sessionId: string, sql: string) => invoke<QueryResult>("run_sql_query", { sessionId, sql }),
 
   addPrivateKey: (name: string, path: string, passphrase: string | null) => invoke<Workspace>("add_private_key", { name, path, passphrase }),
   deletePrivateKey: (keyId: KeyId) => invoke<Workspace>("delete_private_key", { keyId }),

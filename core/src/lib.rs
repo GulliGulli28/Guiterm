@@ -19,6 +19,7 @@ pub mod port_forward;
 pub mod remote_shell_pane;
 pub mod secure_file;
 pub mod sftp;
+pub mod sql;
 pub mod ssh;
 pub mod ssh_config;
 pub mod store;
