@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
 import type { ColumnInfo, QueryResult, SqlCellValue, SqlConnection, TableInfo } from "../lib/types";
 import { useResizablePane } from "../hooks/useResizablePane";
-import { IconChevronDown, IconChevronRight, IconDatabase, IconFolder, IconPlay } from "./ui-icons";
+import { IconChevronDown, IconChevronRight, IconDatabase, IconFolder, IconPlay, IconRefresh } from "./ui-icons";
 
 interface SqlTabProps {
   connection: SqlConnection;
@@ -11,24 +11,25 @@ interface SqlTabProps {
 
 type Status = "connecting" | "connected" | "failed";
 
-/** What the right-hand pane's "Structure" tab currently shows — set by
+/** What the right-hand pane's "Structure"/"Data" tabs currently show — set by
  * clicking a schema/database or a table in the tree on the left. `null`
  * before anything's been clicked yet (the pane defaults to "Query" then). */
 type Selected = { kind: "schema"; schema: string } | { kind: "table"; schema: string; table: string } | null;
 
-/** Schema tree (left) + a two-tab pane (right: "Structure" of whatever was
- * last clicked in the tree, and "Query") for one SQL connection — opens a
- * session on mount, closes it on unmount (the tab itself staying
- * mounted-but-hidden while inactive, like every other tab kind, keeps the
- * session alive across switching tabs; only actually closing the tab tears
- * it down). No `isActive` prop needed: unlike `TerminalTab`/`RdpTab`, there's
- * no canvas/xterm redraw concern here — same reasoning `TransferTab`/
- * `FleetTab` already skip it for.
+/** Schema tree (left) + a tabbed pane (right: "Structure" of whatever was
+ * last clicked in the tree, "Data" — a table's full row preview, only
+ * offered once a table specifically is selected — and "Query") for one SQL
+ * connection — opens a session on mount, closes it on unmount (the tab
+ * itself staying mounted-but-hidden while inactive, like every other tab
+ * kind, keeps the session alive across switching tabs; only actually
+ * closing the tab tears it down). No `isActive` prop needed: unlike
+ * `TerminalTab`/`RdpTab`, there's no canvas/xterm redraw concern here — same
+ * reasoning `TransferTab`/`FleetTab` already skip it for.
  *
  * The "Query" tab is a single persistent editor for the whole connection —
- * clicking around the tree only changes what "Structure" shows, it never
- * resets the query text/results, so switching back and forth to check a
- * table's columns while iterating on a query doesn't lose anything. */
+ * clicking around the tree only changes what "Structure"/"Data" show, it
+ * never resets the query text/results, so switching back and forth to check
+ * a table's columns/rows while iterating on a query doesn't lose anything. */
 export function SqlTab({ connection, onError }: SqlTabProps) {
   const [status, setStatus] = useState<Status>("connecting");
   const [connectError, setConnectError] = useState<string | null>(null);
@@ -54,7 +55,18 @@ export function SqlTab({ connection, onError }: SqlTabProps) {
   const [columnsByTable, setColumnsByTable] = useState<Record<string, ColumnInfo[]>>({});
 
   const [selected, setSelected] = useState<Selected>(null);
-  const [activeSubTab, setActiveSubTab] = useState<"structure" | "query">("query");
+  const [activeSubTab, setActiveSubTab] = useState<"structure" | "data" | "query">("query");
+
+  // Full-table preview shown by the "Data" tab — only ever offered for a
+  // `Selected` of kind "table" (see the tab bar below), keyed the same way
+  // as `columnsByTable` so switching between tables already visited doesn't
+  // re-run the query. Lazily fetched (unlike columns, this is a real query
+  // against — potentially — a huge table, so it only runs once the tab is
+  // actually opened), and re-runnable via a "Rafraîchir" button since the
+  // underlying data can change between visits.
+  const [dataByTable, setDataByTable] = useState<Record<string, QueryResult>>({});
+  const [dataErrorByTable, setDataErrorByTable] = useState<Record<string, string>>({});
+  const [loadingDataKey, setLoadingDataKey] = useState<string | null>(null);
 
   const [query, setQuery] = useState("");
   const [running, setRunning] = useState(false);
@@ -104,6 +116,23 @@ export function SqlTab({ connection, onError }: SqlTabProps) {
       .catch((e) => onError(String(e)));
   };
 
+  // Runs (or re-runs) the "Data" tab's query for one table — a plain
+  // unfiltered `SELECT *`, relying on the server-side `MAX_RESULT_ROWS` cap
+  // (surfaced back as `QueryResult.truncated`) rather than an explicit
+  // `LIMIT`, same trust as the "Query" tab's own result table.
+  const loadTableData = (schema: string, table: string) => {
+    if (!sessionIdRef.current) return;
+    const key = `${schema}.${table}`;
+    setLoadingDataKey(key);
+    api.runSqlQuery(sessionIdRef.current, `SELECT * FROM ${table}`, schema)
+      .then((res) => {
+        setDataByTable((prev) => ({ ...prev, [key]: res }));
+        setDataErrorByTable((prev) => { const { [key]: _drop, ...rest } = prev; return rest; });
+      })
+      .catch((e) => setDataErrorByTable((prev) => ({ ...prev, [key]: String(e) })))
+      .finally(() => setLoadingDataKey((k) => (k === key ? null : k)));
+  };
+
   const toggleSchema = (schema: string) => {
     setSelected({ kind: "schema", schema });
     setActiveSubTab("structure");
@@ -120,17 +149,36 @@ export function SqlTab({ connection, onError }: SqlTabProps) {
     }
   };
 
-  // Selects a table for the "Structure" tab — no expand/collapse of its own
-  // (unlike a schema): its columns are shown in the dedicated Structure tab
-  // now, not previewed inline in the tree.
+  // Selects a table for the "Structure"/"Data" tabs — no expand/collapse of
+  // its own (unlike a schema): its columns are shown in the dedicated
+  // Structure tab now, not previewed inline in the tree. Clicking a table
+  // defaults to "Structure" like before, *unless* "Data" was already the
+  // active tab — in that case it stays put and loads the new table's rows,
+  // so browsing several tables' data one after another only takes one click
+  // each rather than "table, then Data tab" every time.
   const selectTable = (schema: string, table: string) => {
     const key = `${schema}.${table}`;
     setSelected({ kind: "table", schema, table });
-    setActiveSubTab("structure");
     if (!columnsByTable[key] && sessionIdRef.current) {
       api.listSqlColumns(sessionIdRef.current, schema, table)
         .then((columns) => setColumnsByTable((prev) => ({ ...prev, [key]: columns })))
         .catch((e) => onError(String(e)));
+    }
+    if (activeSubTab === "data") {
+      if (!dataByTable[key] && loadingDataKey !== key) loadTableData(schema, table);
+    } else {
+      setActiveSubTab("structure");
+    }
+  };
+
+  // Opens the "Data" tab for whichever table is currently selected —
+  // only reachable when one is (see the tab bar below) — fetching its rows
+  // on first visit and reusing the cached result afterwards.
+  const openDataTab = () => {
+    setActiveSubTab("data");
+    if (selected?.kind === "table") {
+      const key = `${selected.schema}.${selected.table}`;
+      if (!dataByTable[key] && loadingDataKey !== key) loadTableData(selected.schema, selected.table);
     }
   };
 
@@ -173,57 +221,65 @@ export function SqlTab({ connection, onError }: SqlTabProps) {
   ) : schemas.length === 0 ? (
     <p className="p-2 text-xs text-[var(--c-text-muted)]">Aucune base/schéma visible</p>
   ) : (
-    schemas.map((schema) => (
-      <div key={schema}>
-        <button
-          onClick={() => toggleSchema(schema)}
-          className={`flex w-full items-center gap-1 rounded-md px-1.5 py-1 text-left text-[13px] text-[var(--c-text-secondary)] hover:bg-white/5 ${
-            selected?.kind === "schema" && selected.schema === schema ? "bg-white/5" : ""
-          }`}
-        >
-          {expandedSchemas.has(schema) ? <IconChevronDown size={11} /> : <IconChevronRight size={11} />}
-          <IconDatabase size={12} className="shrink-0 text-[var(--c-text-faint)]" />
-          <span className="min-w-0 flex-1 truncate">{schema}</span>
-        </button>
-        {expandedSchemas.has(schema) && (
-          <div className="ml-4 border-l border-[var(--c-border)] pl-2">
-            {!tablesBySchema[schema] ? (
-              <p className="px-1 py-1 text-[11px] text-[var(--c-text-muted)]">…</p>
-            ) : tablesBySchema[schema].length === 0 ? (
-              <p className="px-1 py-1 text-[11px] text-[var(--c-text-muted)]">Vide</p>
-            ) : (
-              tablesBySchema[schema].map((t) => (
-                <div key={`${schema}.${t.name}`} className="flex items-center gap-1">
-                  <button
-                    onClick={() => selectTable(schema, t.name)}
-                    className={`flex min-w-0 flex-1 items-center gap-1 rounded-md px-1.5 py-1 text-left text-[12px] text-[var(--c-text-secondary)] hover:bg-white/5 ${
-                      selected?.kind === "table" && selected.schema === schema && selected.table === t.name ? "bg-white/5" : ""
-                    }`}
-                  >
-                    <IconFolder size={11} className="shrink-0 text-[var(--c-text-faint)]" />
-                    <span className="min-w-0 flex-1 truncate">{t.name}</span>
-                    {t.kind === "view" && <span className="shrink-0 text-[9px] text-[var(--c-text-faint)]">vue</span>}
-                  </button>
-                  <button
-                    onClick={() => insertSelect(t.name)}
-                    title="Insérer un SELECT dans l'éditeur"
-                    className="shrink-0 rounded px-1 text-[10px] text-[var(--c-text-faint)] hover:bg-white/5 hover:text-[var(--c-text-secondary)]"
-                  >
-                    SQL
-                  </button>
-                </div>
-              ))
-            )}
-          </div>
-        )}
-      </div>
-    ))
+    schemas.map((schema) => {
+      const schemaActive = selected?.kind === "schema" && selected.schema === schema;
+      return (
+        <div key={schema}>
+          <button
+            onClick={() => toggleSchema(schema)}
+            className={`flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[14px] font-semibold transition-colors ${
+              schemaActive ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text)] hover:bg-white/[0.07]"
+            }`}
+          >
+            {expandedSchemas.has(schema) ? <IconChevronDown size={13} className="shrink-0" /> : <IconChevronRight size={13} className="shrink-0" />}
+            <IconDatabase size={15} className={`shrink-0 ${schemaActive ? "text-[var(--c-accent-text)]" : "text-[var(--c-text-secondary)]"}`} />
+            <span className="min-w-0 flex-1 truncate">{schema}</span>
+          </button>
+          {expandedSchemas.has(schema) && (
+            <div className="ml-4 border-l-2 border-[var(--c-border)] pl-2.5">
+              {!tablesBySchema[schema] ? (
+                <p className="px-1.5 py-1 text-[11.5px] text-[var(--c-text-muted)]">…</p>
+              ) : tablesBySchema[schema].length === 0 ? (
+                <p className="px-1.5 py-1 text-[11.5px] text-[var(--c-text-muted)]">Vide</p>
+              ) : (
+                tablesBySchema[schema].map((t) => {
+                  const tableActive = selected?.kind === "table" && selected.schema === schema && selected.table === t.name;
+                  return (
+                    <div key={`${schema}.${t.name}`} className="flex items-center gap-1">
+                      <button
+                        onClick={() => selectTable(schema, t.name)}
+                        className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] font-medium transition-colors ${
+                          tableActive ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-secondary)] hover:bg-white/[0.07] hover:text-[var(--c-text)]"
+                        }`}
+                      >
+                        <IconFolder size={13} className={`shrink-0 ${tableActive ? "text-[var(--c-accent-text)]" : "text-[var(--c-text-faint)]"}`} />
+                        <span className="min-w-0 flex-1 truncate">{t.name}</span>
+                        {t.kind === "view" && (
+                          <span className="shrink-0 rounded-full bg-[var(--c-bg2)] px-1.5 py-0.5 text-[9px] font-normal text-[var(--c-text-secondary)]">vue</span>
+                        )}
+                      </button>
+                      <button
+                        onClick={() => insertSelect(t.name)}
+                        title="Insérer un SELECT dans l'éditeur"
+                        className="shrink-0 rounded px-1.5 py-1 text-[10px] text-[var(--c-text-faint)] hover:bg-white/[0.07] hover:text-[var(--c-text-secondary)]"
+                      >
+                        SQL
+                      </button>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          )}
+        </div>
+      );
+    })
   );
 
   return (
     <div className="flex min-h-0 flex-1">
       {/* Schema tree */}
-      <div style={{ width: split.value }} className="sidebar-scroll flex shrink-0 flex-col overflow-y-auto border-r border-[var(--c-border)] bg-[var(--c-bg2)] p-2">
+      <div style={{ width: split.value }} className="sidebar-scroll flex shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-[var(--c-border)] bg-[var(--c-bg2)] p-2.5">
         {multiDatabase ? (
           databases === null ? (
             <p className="p-2 text-xs text-[var(--c-text-muted)]">Chargement des bases…</p>
@@ -236,13 +292,15 @@ export function SqlTab({ connection, onError }: SqlTabProps) {
                 <div key={db}>
                   <button
                     onClick={() => selectDatabase(db)}
-                    className={`flex w-full items-center gap-1 rounded-md px-1.5 py-1 text-left text-[13px] text-[var(--c-text-secondary)] hover:bg-white/5 ${active ? "bg-white/5" : ""}`}
+                    className={`flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[14px] font-semibold transition-colors ${
+                      active ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text)] hover:bg-white/[0.07]"
+                    }`}
                   >
-                    {active ? <IconChevronDown size={11} /> : <IconChevronRight size={11} />}
-                    <IconDatabase size={12} className="shrink-0 text-[var(--c-text-faint)]" />
+                    {active ? <IconChevronDown size={13} className="shrink-0" /> : <IconChevronRight size={13} className="shrink-0" />}
+                    <IconDatabase size={15} className={`shrink-0 ${active ? "text-[var(--c-accent-text)]" : "text-[var(--c-text-secondary)]"}`} />
                     <span className="min-w-0 flex-1 truncate">{db}</span>
                   </button>
-                  {active && <div className="ml-4 border-l border-[var(--c-border)] pl-2">{schemaTree}</div>}
+                  {active && <div className="ml-4 border-l-2 border-[var(--c-border)] pl-2.5">{schemaTree}</div>}
                 </div>
               );
             })
@@ -267,6 +325,19 @@ export function SqlTab({ connection, onError }: SqlTabProps) {
           >
             {structureLabel}
           </button>
+          {/* Only offered once a table (not a schema/database) is selected —
+           * "all the rows" has no meaning for the schema-level Structure
+           * view above. */}
+          {selected?.kind === "table" && (
+            <button
+              onClick={openDataTab}
+              className={`px-3 py-2 text-xs font-medium ${
+                activeSubTab === "data" ? "border-b-2 border-[var(--c-accent)] text-[var(--c-text)]" : "text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)]"
+              }`}
+            >
+              Data
+            </button>
+          )}
           <button
             onClick={() => setActiveSubTab("query")}
             className={`px-3 py-2 text-xs font-medium ${
@@ -287,6 +358,17 @@ export function SqlTab({ connection, onError }: SqlTabProps) {
               <StructureColumns table={selected.table} columns={columnsByTable[`${selected.schema}.${selected.table}`]} />
             )}
           </div>
+        )}
+
+        {activeSubTab === "data" && selected?.kind === "table" && (
+          <TableData
+            schema={selected.schema}
+            table={selected.table}
+            result={dataByTable[`${selected.schema}.${selected.table}`]}
+            error={dataErrorByTable[`${selected.schema}.${selected.table}`]}
+            loading={loadingDataKey === `${selected.schema}.${selected.table}`}
+            onRefresh={() => loadTableData(selected.schema, selected.table)}
+          />
         )}
 
         {/* Kept mounted (just hidden) rather than conditionally rendered when
@@ -328,26 +410,7 @@ export function SqlTab({ connection, onError }: SqlTabProps) {
                 {result.columns.length === 0 ? (
                   <p className="text-xs text-[var(--c-text-muted)]">Requête exécutée — aucune ligne retournée.</p>
                 ) : (
-                  <table className="w-full border-collapse text-left text-[12px]">
-                    <thead>
-                      <tr>
-                        {result.columns.map((c) => (
-                          <th key={c} className="sticky top-0 border-b border-[var(--c-border)] bg-[var(--c-bg)] px-2 py-1 font-medium text-[var(--c-text-secondary)]">{c}</th>
-                        ))}
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {result.rows.map((row, i) => (
-                        <tr key={i} className="hover:bg-white/5">
-                          {row.map((cell, j) => (
-                            <td key={j} className="whitespace-nowrap border-b border-[var(--c-border)] px-2 py-1 font-mono text-[var(--c-text)]">
-                              {formatCell(cell)}
-                            </td>
-                          ))}
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                  <ResultTable columns={result.columns} rows={result.rows} />
                 )}
               </>
             )}
@@ -367,6 +430,83 @@ function formatCell(cell: SqlCellValue) {
   if (cell === null) return <span className="italic text-[var(--c-text-faint)]">NULL</span>;
   if (typeof cell === "object") return JSON.stringify(cell);
   return String(cell);
+}
+
+/** The rows/columns table shared by the "Query" tab's results and the
+ * "Data" tab's full-table preview below — same rendering either way, only
+ * the query that produced `rows` differs. */
+function ResultTable({ columns, rows }: { columns: string[]; rows: SqlCellValue[][] }) {
+  return (
+    <table className="w-full border-collapse text-left text-[12px]">
+      <thead>
+        <tr>
+          {columns.map((c) => (
+            <th key={c} className="sticky top-0 border-b border-[var(--c-border)] bg-[var(--c-bg)] px-2 py-1 font-medium text-[var(--c-text-secondary)]">{c}</th>
+          ))}
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((row, i) => (
+          <tr key={i} className="hover:bg-white/5">
+            {row.map((cell, j) => (
+              <td key={j} className="whitespace-nowrap border-b border-[var(--c-border)] px-2 py-1 font-mono text-[var(--c-text)]">
+                {formatCell(cell)}
+              </td>
+            ))}
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  );
+}
+
+/** The "Data" tab's body — a read-only preview of every row currently in
+ * `table` (capped server-side, see `core::sql::MAX_RESULT_ROWS`), fetched
+ * on first visit and cached by `SqlTab` until `onRefresh` is clicked. */
+function TableData({
+  schema, table, result, error, loading, onRefresh,
+}: {
+  schema: string;
+  table: string;
+  result: QueryResult | undefined;
+  error: string | undefined;
+  loading: boolean;
+  onRefresh: () => void;
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--c-border)] px-3 py-1.5">
+        <span className="truncate text-[11px] text-[var(--c-text-faint)]">
+          {result ? `${result.rows.length} ligne${result.rows.length === 1 ? "" : "s"}${result.truncated ? " (tronqué)" : ""}` : `${schema}.${table}`}
+        </span>
+        <button
+          onClick={onRefresh}
+          disabled={loading}
+          className="flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 disabled:opacity-50"
+        >
+          <IconRefresh size={11} /> {loading ? "Chargement…" : "Rafraîchir"}
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-auto p-2">
+        {error && <p className="whitespace-pre-wrap text-xs text-rose-400">{error}</p>}
+        {!error && result && (
+          <>
+            {result.truncated && (
+              <p className="mb-2 text-[11px] text-amber-400">
+                Résultat tronqué — seules les {result.rows.length} premières lignes sont affichées.
+              </p>
+            )}
+            {result.columns.length === 0 ? (
+              <p className="text-xs text-[var(--c-text-muted)]">Table vide — aucune ligne.</p>
+            ) : (
+              <ResultTable columns={result.columns} rows={result.rows} />
+            )}
+          </>
+        )}
+        {!error && !result && <p className="text-xs text-[var(--c-text-faint)]">{loading ? "Chargement des données…" : "…"}</p>}
+      </div>
+    </div>
+  );
 }
 
 function StructureTables({ schema, tables }: { schema: string; tables: TableInfo[] | undefined }) {
