@@ -39,7 +39,7 @@ hyper-util = { version = "0.1", features = ["http1", "client-legacy", "tokio"] }
 tower-service = "0.3"
 # Master-password vault (optional, opt-in): Argon2id KDF + XChaCha20-Poly1305 AEAD.
 argon2 = "0.5"
-chacha20poly1305 = "0.10"
+chacha20poly1305 = "0.11"
 base64 = "0.22"
 # `adaptive`: calls the Anthropic Messages API to generate a per-OS command
 # from a natural-language intent. rustls (not native-tls) to avoid an
