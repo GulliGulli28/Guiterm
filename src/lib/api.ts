@@ -1,6 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AuthMethod, ColumnInfo, CollectFactsResult, ComposeResult, DockerContainer, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostId, HostKind, ImportSelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, QueryResult, RdpClientMessage, RdpFrame, SnippetId, SqlConnectionId, SqlEngine, SshConfigHost, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
+import type { AuthMethod, ColumnInfo, CollectFactsResult, ComposeResult, DockerContainer, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostId, HostKind, ImportSelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, QueryResult, RdpClientMessage, RdpFrame, SnippetId, SqlConnectionId, SqlEngine, SqlExportDestination, SqlExportGroup, SshConfigHost, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
 
 /** Mirrors the 12-byte little-endian header `commands::rdp_view::connect_rdp_view`
  * writes ahead of each frame's raw RGBA8 pixels (see its doc comment for why
@@ -107,6 +107,13 @@ export const api = {
    * resolves there instead of needing `schema.table`. See
    * `core::sql::execute_query`'s doc comment. */
   runSqlQuery: (sessionId: string, sql: string, schema?: string | null) => invoke<QueryResult>("run_sql_query", { sessionId, sql, schema: schema ?? null }),
+  /** The "Exporter" tab's backing action — dumps `DROP TABLE IF EXISTS` +
+   * `CREATE TABLE` + `INSERT` statements for every table in every group of
+   * `groups` (each spanning one schema/database — a single export can cover
+   * several) to `destination`, either a local file or a path on a saved SSH
+   * host (uploaded over SFTP). See `core::sql::dump_tables`'s doc comment. */
+  exportSqlDump: (sessionId: string, groups: SqlExportGroup[], destination: SqlExportDestination) =>
+    invoke<void>("export_sql_dump", { sessionId, groups, destination }),
 
   addPrivateKey: (name: string, path: string, passphrase: string | null) => invoke<Workspace>("add_private_key", { name, path, passphrase }),
   deletePrivateKey: (keyId: KeyId) => invoke<Workspace>("delete_private_key", { keyId }),

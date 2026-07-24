@@ -245,6 +245,22 @@ export interface QueryResult {
   truncated: boolean;
 }
 
+/** Where `exportSqlDump` writes the generated dump — see
+ * `commands::sql::SqlExportDestination`'s doc comment for why `hostId`
+ * (not `host_id`) actually needs `rename_all_fields` on the Rust side. */
+export type SqlExportDestination =
+  | { kind: "local"; path: string }
+  | { kind: "remoteHost"; hostId: HostId; path: string };
+
+/** One schema/database's worth of tables to include in `exportSqlDump` — a
+ * single export can span several of these (e.g. every database on a MySQL
+ * connection), concatenated into one file. See
+ * `commands::sql::SqlExportGroup`. */
+export interface SqlExportGroup {
+  schema: string;
+  tables: string[];
+}
+
 export interface Workspace {
   groups: Group[];
   hosts: Host[];

@@ -237,3 +237,84 @@ pub async fn run_sql_query(state: State<'_, AppState>, session_id: String, sql: 
     let pool = session_pool(&state, &session_id)?;
     sql::execute_query(&pool, schema.as_deref(), &sql).await.map_err(|e| e.to_string())
 }
+
+/// Where `export_sql_dump` writes the generated dump — a local path on this
+/// machine, or (via a local temp file uploaded over SFTP and then removed
+/// either way, same shape as `sql::SqlSession`'s remote-SQLite handling) a
+/// path on a saved SSH host's filesystem. An internally-tagged enum with
+/// struct variants — `rename_all_fields` (not just `rename_all`) is required
+/// for `host_id` to actually deserialize as `hostId` from the frontend, see
+/// CLAUDE.md's note on this exact gotcha.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase", tag = "kind", rename_all_fields = "camelCase")]
+pub enum SqlExportDestination {
+    Local { path: String },
+    RemoteHost { host_id: termius_core::model::HostId, path: String },
+}
+
+/// One schema/database's worth of tables to dump — `export_sql_dump` takes a
+/// list of these so a single export can span every schema/database visible
+/// to the connection (MySQL: every database; PostgreSQL: every schema within
+/// whichever database the session is currently scoped to; SQLite: always one
+/// entry, `"main"`), not just one at a time.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SqlExportGroup {
+    pub schema: String,
+    pub tables: Vec<String>,
+}
+
+/// Dumps `DROP TABLE IF EXISTS` + `CREATE TABLE` + `INSERT` statements for
+/// every table in every group of `groups` to `destination` — see
+/// `sql::dump_tables`'s doc comment for one group's exact output shape; here
+/// they're simply concatenated into the same file/stream, group after group.
+/// `RemoteHost` writes to a local temp file first since `dump_tables` needs a
+/// plain `AsyncWrite`, not an SFTP-backed one — removed after the upload
+/// whether it succeeds or fails, never left behind.
+#[tauri::command]
+pub async fn export_sql_dump(
+    state: State<'_, AppState>,
+    session_id: String,
+    groups: Vec<SqlExportGroup>,
+    destination: SqlExportDestination,
+) -> Result<(), String> {
+    use tokio::io::AsyncWriteExt;
+    let pool = session_pool(&state, &session_id)?;
+    match destination {
+        SqlExportDestination::Local { path } => {
+            let file = tokio::fs::File::create(&path).await.map_err(|e| e.to_string())?;
+            let mut writer = tokio::io::BufWriter::new(file);
+            let result = dump_groups(&pool, &groups, &mut writer).await;
+            let _ = writer.flush().await;
+            result.map_err(|e| e.to_string())
+        }
+        SqlExportDestination::RemoteHost { host_id, path } => {
+            let workspace = state.workspace.lock_recover().clone();
+            let temp_path = std::env::temp_dir().join(format!("guiterm-sql-dump-{}.sql", uuid::Uuid::new_v4()));
+            termius_core::secure_file::create_private(&temp_path).map_err(|e| e.to_string())?;
+            {
+                let file = tokio::fs::File::create(&temp_path).await.map_err(|e| e.to_string())?;
+                let mut writer = tokio::io::BufWriter::new(file);
+                let result = dump_groups(&pool, &groups, &mut writer).await;
+                let _ = writer.flush().await;
+                if let Err(e) = result {
+                    let _ = tokio::fs::remove_file(&temp_path).await;
+                    return Err(e.to_string());
+                }
+            }
+            let connection = termius_core::ssh::connect(&workspace, host_id).await.map_err(|e| e.to_string())?;
+            let client = termius_core::sftp::SftpClient::open(&connection).await.map_err(|e| e.to_string())?;
+            let cancel = std::sync::atomic::AtomicBool::new(false);
+            let upload_result = client.upload(&temp_path, &path, &cancel, |_, _| {}).await;
+            let _ = tokio::fs::remove_file(&temp_path).await;
+            upload_result.map_err(|e| e.to_string())
+        }
+    }
+}
+
+async fn dump_groups(pool: &SqlPool, groups: &[SqlExportGroup], writer: &mut (impl tokio::io::AsyncWrite + Unpin)) -> anyhow::Result<()> {
+    for group in groups {
+        sql::dump_tables(pool, &group.schema, &group.tables, writer).await?;
+    }
+    Ok(())
+}

@@ -500,7 +500,7 @@ export default function App() {
                     return (
                       <div key={tab.id} className={isActive ? "absolute inset-0 flex flex-col" : "hidden"}>
                         <Suspense fallback={<TabLoadingFallback />}>
-                          <SqlTab connection={connection} onError={reportError} />
+                          <SqlTab connection={connection} hosts={workspace.hosts} onError={reportError} />
                         </Suspense>
                       </div>
                     );

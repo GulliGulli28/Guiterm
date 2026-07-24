@@ -866,6 +866,280 @@ fn quote_sqlite_identifier(name: &str) -> String {
     format!("\"{}\"", name.replace('"', "\"\""))
 }
 
+fn quote_identifier(engine: SqlEngine, name: &str) -> String {
+    match engine {
+        SqlEngine::Postgres => quote_pg_identifier(name),
+        SqlEngine::Mysql => quote_mysql_identifier(name),
+        SqlEngine::Sqlite => quote_sqlite_identifier(name),
+    }
+}
+
+/// Single-quoted SQL string literal for [`sql_literal`]/[`dump_tables`].
+/// **Not** the same escaping for every engine: PostgreSQL/SQLite treat `\`
+/// as a plain character inside a `'...'` literal (`standard_conforming_strings`,
+/// on by default since PostgreSQL 9.1), so only doubling `'` is needed —
+/// doubling `\` there too would insert extra backslashes into the restored
+/// data. MySQL, unless `NO_BACKSLASH_ESCAPES` is set (not assumed here),
+/// treats `\` as an escape character in string literals, so a literal
+/// backslash in the data must itself be escaped as `\\` or it would escape
+/// whatever character follows it on re-import.
+fn quote_sql_string(engine: SqlEngine, s: &str) -> String {
+    match engine {
+        SqlEngine::Mysql => format!("'{}'", s.replace('\\', "\\\\").replace('\'', "\\'")),
+        SqlEngine::Postgres | SqlEngine::Sqlite => format!("'{}'", s.replace('\'', "''")),
+    }
+}
+
+/// Renders one already-decoded cell (see `decode_pg_value`/`decode_mysql_value`/
+/// `decode_sqlite_value`) as a SQL literal for [`write_insert_batch`]. Only
+/// booleans differ by engine below — MySQL/SQLite have no boolean literal —
+/// everything else has the same textual form across all three.
+fn sql_literal(engine: SqlEngine, value: &serde_json::Value) -> String {
+    match value {
+        serde_json::Value::Null => "NULL".to_string(),
+        serde_json::Value::Bool(b) => match engine {
+            SqlEngine::Postgres => if *b { "TRUE" } else { "FALSE" }.to_string(),
+            SqlEngine::Mysql | SqlEngine::Sqlite => if *b { "1" } else { "0" }.to_string(),
+        },
+        serde_json::Value::Number(n) => n.to_string(),
+        serde_json::Value::String(s) => quote_sql_string(engine, s),
+        // JSON(B) columns and the best-effort text-array case (see
+        // `decode_pg_value`) — re-serialized as a quoted JSON string, which is
+        // valid input for a real JSON(B) column on both engines and at least a
+        // faithful (if flattened) round trip for anything else.
+        serde_json::Value::Array(_) | serde_json::Value::Object(_) => quote_sql_string(engine, &value.to_string()),
+    }
+}
+
+/// Reconstructs (MySQL/SQLite: fetches verbatim) the `CREATE TABLE` statement
+/// for `schema.table` — used by [`dump_tables`] so an exported dump recreates
+/// the table's structure, not just its rows.
+async fn table_ddl(pool: &SqlPool, schema: &str, table: &str) -> anyhow::Result<String> {
+    match pool {
+        SqlPool::Mysql(pool) => {
+            let row = sqlx::query(&format!("SHOW CREATE TABLE {}.{}", quote_mysql_identifier(schema), quote_mysql_identifier(table)))
+                .fetch_one(pool)
+                .await?;
+            Ok(row.try_get::<String, _>(1)?)
+        }
+        SqlPool::Postgres(pool) => postgres_table_ddl(pool, schema, table).await,
+        // SQLite already keeps the original `CREATE TABLE` text verbatim in
+        // `sqlite_master` — nothing to reconstruct.
+        SqlPool::Sqlite(pool) => {
+            let row = sqlx::query("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = ?")
+                .bind(table)
+                .fetch_one(pool)
+                .await?;
+            Ok(row.try_get::<String, _>(0)?)
+        }
+    }
+}
+
+/// PostgreSQL has no built-in equivalent of MySQL's `SHOW CREATE TABLE`, so
+/// this reconstructs one from `pg_catalog` directly rather than
+/// `information_schema`: `format_type(atttypid, atttypmod)` returns the exact
+/// type PostgreSQL itself would print — including length/precision (e.g.
+/// `character varying(255)`, `numeric(10,2)`) — sidestepping having to
+/// manually recombine `information_schema.columns`' separate
+/// `character_maximum_length`/`numeric_precision`/`numeric_scale` fields by
+/// hand. Primary key columns (if any) are looked up separately via
+/// `pg_index`/`pg_attribute` and appended as a table-level `PRIMARY KEY (...)`
+/// constraint — the one piece of structure `list_columns` deliberately
+/// doesn't carry (see this module's doc comment on that limitation).
+async fn postgres_table_ddl(pool: &PgPool, schema: &str, table: &str) -> anyhow::Result<String> {
+    let cols = sqlx::query(
+        "SELECT a.attname, format_type(a.atttypid, a.atttypmod), a.attnotnull, pg_get_expr(d.adbin, d.adrelid) \
+         FROM pg_attribute a \
+         JOIN pg_class c ON a.attrelid = c.oid \
+         JOIN pg_namespace n ON c.relnamespace = n.oid \
+         LEFT JOIN pg_attrdef d ON d.adrelid = a.attrelid AND d.adnum = a.attnum \
+         WHERE n.nspname = $1 AND c.relname = $2 AND a.attnum > 0 AND NOT a.attisdropped \
+         ORDER BY a.attnum",
+    )
+    .bind(schema)
+    .bind(table)
+    .fetch_all(pool)
+    .await?;
+    if cols.is_empty() {
+        anyhow::bail!("table introuvable : {schema}.{table}");
+    }
+
+    // `quote_ident` here is PostgreSQL's own built-in function (via `$1`/`$2`
+    // binds, not string interpolation) — needed so the `::regclass` cast
+    // resolves a schema/table pair correctly regardless of case or reserved
+    // words, exactly like a hand-written `"schema"."table"` would.
+    let pk_rows = sqlx::query(
+        "SELECT a.attname FROM pg_index i \
+         JOIN pg_attribute a ON a.attrelid = i.indrelid AND a.attnum = ANY(i.indkey) \
+         WHERE i.indrelid = (quote_ident($1) || '.' || quote_ident($2))::regclass AND i.indisprimary \
+         ORDER BY array_position(i.indkey, a.attnum)",
+    )
+    .bind(schema)
+    .bind(table)
+    .fetch_all(pool)
+    .await?;
+    let pk_cols: Vec<String> = pk_rows.iter().filter_map(|r| r.try_get::<String, _>(0).ok()).collect();
+
+    let mut lines: Vec<String> = cols
+        .iter()
+        .map(|r| {
+            let name: String = r.try_get(0).unwrap_or_default();
+            let data_type: String = r.try_get(1).unwrap_or_default();
+            let not_null: bool = r.try_get(2).unwrap_or_default();
+            let default_expr: Option<String> = r.try_get(3).ok();
+            let mut line = format!("  {} {}", quote_pg_identifier(&name), data_type);
+            if not_null {
+                line.push_str(" NOT NULL");
+            }
+            if let Some(default) = default_expr {
+                line.push_str(&format!(" DEFAULT {default}"));
+            }
+            line
+        })
+        .collect();
+    if !pk_cols.is_empty() {
+        let quoted = pk_cols.iter().map(|c| quote_pg_identifier(c)).collect::<Vec<_>>().join(", ");
+        lines.push(format!("  PRIMARY KEY ({quoted})"));
+    }
+    Ok(format!("CREATE TABLE {} (\n{}\n)", quote_pg_identifier(table), lines.join(",\n")))
+}
+
+/// Row batch size for the `INSERT INTO ... VALUES (...), (...), ...`
+/// statements [`dump_tables`] writes — large enough to keep the output
+/// reasonably compact, small enough that one statement's text doesn't grow
+/// unbounded for a huge table.
+const DUMP_INSERT_BATCH: usize = 500;
+
+/// Streams `DROP TABLE IF EXISTS` + `CREATE TABLE` + batched `INSERT`
+/// statements for every table in `tables` (all within `schema`) to `writer` —
+/// the backing action of the SQL tab's "Exporter" tab
+/// (`commands::sql::export_sql_dump`), for both a local file and (via a local
+/// temp file uploaded over SFTP afterward) a path on a saved SSH host.
+///
+/// Unlike [`execute_query`], row fetching here is never capped at
+/// [`MAX_RESULT_ROWS`]: a dump's whole point is *every* row, and rows are
+/// streamed straight to `writer` rather than buffered as a [`QueryResult`] in
+/// memory, so an arbitrarily large table doesn't need to fit in RAM at once.
+///
+/// `DROP TABLE IF EXISTS` is written before each `CREATE TABLE` — matching
+/// `mysqldump`'s default behavior — so running the generated file back
+/// against a database that already has same-named tables replaces them
+/// rather than erroring; this makes the file a "restore/replace" script, not
+/// an additive merge into whatever's already there.
+pub async fn dump_tables(pool: &SqlPool, schema: &str, tables: &[String], writer: &mut (impl tokio::io::AsyncWrite + Unpin)) -> anyhow::Result<()> {
+    use tokio::io::AsyncWriteExt;
+    let engine = match pool {
+        SqlPool::Postgres(_) => SqlEngine::Postgres,
+        SqlPool::Mysql(_) => SqlEngine::Mysql,
+        SqlPool::Sqlite(_) => SqlEngine::Sqlite,
+    };
+    for table in tables {
+        let ddl = table_ddl(pool, schema, table).await?;
+        writer.write_all(format!("-- Table: {table}\n").as_bytes()).await?;
+        writer.write_all(format!("DROP TABLE IF EXISTS {};\n", quote_identifier(engine, table)).as_bytes()).await?;
+        writer.write_all(ddl.trim_end().as_bytes()).await?;
+        writer.write_all(b";\n\n").await?;
+        dump_table_rows(pool, engine, schema, table, writer).await?;
+        writer.write_all(b"\n").await?;
+    }
+    writer.flush().await?;
+    Ok(())
+}
+
+/// Streams every row of `schema.table` and writes it out as batched `INSERT`
+/// statements via [`write_insert_batch`] — one branch per engine, same
+/// context-setting (`SET search_path`/`USE`) and single-acquired-connection
+/// approach as [`execute_query`], and the same per-engine cell decoder
+/// (`decode_pg_value`/`decode_mysql_value`/`decode_sqlite_value`) so a dumped
+/// value matches exactly what the "Data"/"Query" tabs would show for it.
+async fn dump_table_rows(pool: &SqlPool, engine: SqlEngine, schema: &str, table: &str, writer: &mut (impl tokio::io::AsyncWrite + Unpin)) -> anyhow::Result<()> {
+    match pool {
+        SqlPool::Postgres(pg) => {
+            let mut conn = pg.acquire().await?;
+            sqlx::query(&format!("SET search_path TO {}", quote_pg_identifier(schema))).execute(&mut *conn).await?;
+            let select_sql = format!("SELECT * FROM {}", quote_pg_identifier(table));
+            let mut stream = sqlx::query(&select_sql).fetch(&mut *conn);
+            let mut columns: Vec<String> = Vec::new();
+            let mut batch: Vec<Vec<serde_json::Value>> = Vec::new();
+            while let Some(row) = stream.try_next().await? {
+                if columns.is_empty() {
+                    columns = row.columns().iter().map(|c| c.name().to_string()).collect();
+                }
+                batch.push((0..row.columns().len()).map(|i| decode_pg_value(&row, i)).collect());
+                if batch.len() >= DUMP_INSERT_BATCH {
+                    write_insert_batch(writer, engine, table, &columns, &batch).await?;
+                    batch.clear();
+                }
+            }
+            write_insert_batch(writer, engine, table, &columns, &batch).await
+        }
+        SqlPool::Mysql(my) => {
+            let mut conn = my.acquire().await?;
+            sqlx::query(&format!("USE {}", quote_mysql_identifier(schema))).execute(&mut *conn).await?;
+            let select_sql = format!("SELECT * FROM {}", quote_mysql_identifier(table));
+            let mut stream = sqlx::query(&select_sql).fetch(&mut *conn);
+            let mut columns: Vec<String> = Vec::new();
+            let mut batch: Vec<Vec<serde_json::Value>> = Vec::new();
+            while let Some(row) = stream.try_next().await? {
+                if columns.is_empty() {
+                    columns = row.columns().iter().map(|c| c.name().to_string()).collect();
+                }
+                batch.push((0..row.columns().len()).map(|i| decode_mysql_value(&row, i)).collect());
+                if batch.len() >= DUMP_INSERT_BATCH {
+                    write_insert_batch(writer, engine, table, &columns, &batch).await?;
+                    batch.clear();
+                }
+            }
+            write_insert_batch(writer, engine, table, &columns, &batch).await
+        }
+        SqlPool::Sqlite(lite) => {
+            let mut conn = lite.acquire().await?;
+            let select_sql = format!("SELECT * FROM {}", quote_sqlite_identifier(table));
+            let mut stream = sqlx::query(&select_sql).fetch(&mut *conn);
+            let mut columns: Vec<String> = Vec::new();
+            let mut batch: Vec<Vec<serde_json::Value>> = Vec::new();
+            while let Some(row) = stream.try_next().await? {
+                if columns.is_empty() {
+                    columns = row.columns().iter().map(|c| c.name().to_string()).collect();
+                }
+                batch.push((0..row.columns().len()).map(|i| decode_sqlite_value(&row, i)).collect());
+                if batch.len() >= DUMP_INSERT_BATCH {
+                    write_insert_batch(writer, engine, table, &columns, &batch).await?;
+                    batch.clear();
+                }
+            }
+            write_insert_batch(writer, engine, table, &columns, &batch).await
+        }
+    }
+}
+
+/// Writes one `INSERT INTO ... VALUES (...), (...), ...;` statement covering
+/// `rows` — a no-op when `rows` is empty (the trailing flush in
+/// `dump_table_rows` for a table whose row count is an exact multiple of
+/// [`DUMP_INSERT_BATCH`], or an empty table), so an empty table's dump is just
+/// its `CREATE TABLE` with no dangling `INSERT`.
+async fn write_insert_batch(
+    writer: &mut (impl tokio::io::AsyncWrite + Unpin),
+    engine: SqlEngine,
+    table: &str,
+    columns: &[String],
+    rows: &[Vec<serde_json::Value>],
+) -> anyhow::Result<()> {
+    use tokio::io::AsyncWriteExt;
+    if rows.is_empty() {
+        return Ok(());
+    }
+    let cols = columns.iter().map(|c| quote_identifier(engine, c)).collect::<Vec<_>>().join(", ");
+    let mut sql = format!("INSERT INTO {} ({}) VALUES\n", quote_identifier(engine, table), cols);
+    for (i, row) in rows.iter().enumerate() {
+        let values = row.iter().map(|v| sql_literal(engine, v)).collect::<Vec<_>>().join(", ");
+        sql.push_str(&format!("  ({values})"));
+        sql.push_str(if i + 1 == rows.len() { ";\n" } else { ",\n" });
+    }
+    writer.write_all(sql.as_bytes()).await?;
+    Ok(())
+}
+
 fn hex_encode(bytes: &[u8]) -> String {
     format!("\\x{}", bytes.iter().map(|byte| format!("{byte:02x}")).collect::<String>())
 }
@@ -1100,5 +1374,54 @@ mod tests {
         assert_eq!(result.rows, vec![vec![serde_json::json!(1), serde_json::json!("bonjour")]]);
 
         session.close().await.unwrap();
+    }
+
+    /// Exercises `dump_tables` end to end against real SQLite databases: dumps
+    /// a table containing values that stress the trickiest parts of
+    /// `sql_literal`/`quote_sql_string` (an embedded `'`, a `NULL`, a
+    /// negative number), then replays the generated SQL against a second,
+    /// empty database and checks the restored rows match exactly — proving
+    /// the dump is actually re-importable, not just "looks like SQL".
+    #[tokio::test]
+    async fn dump_tables_round_trips_through_a_second_database() {
+        let dir = tempfile::tempdir().unwrap();
+        let source_path = dir.path().join("source.sqlite");
+        std::fs::File::create(&source_path).unwrap();
+        let workspace = Workspace::default();
+        let mut source_conn = SqlConnection::new("source", SqlEngine::Sqlite, "", "");
+        source_conn.path = Some(source_path.to_string_lossy().to_string());
+        let source = connect(&workspace, &source_conn).await.unwrap();
+
+        execute_query(&source.pool, None, "CREATE TABLE widgets (id INTEGER PRIMARY KEY, name TEXT, qty INTEGER)").await.unwrap();
+        execute_query(&source.pool, None, "INSERT INTO widgets (name, qty) VALUES ('O''Brien''s gadget', -3)").await.unwrap();
+        execute_query(&source.pool, None, "INSERT INTO widgets (name, qty) VALUES (NULL, 0)").await.unwrap();
+
+        let mut dump: Vec<u8> = Vec::new();
+        dump_tables(&source.pool, SQLITE_MAIN_SCHEMA, &["widgets".to_string()], &mut dump).await.unwrap();
+        let dump_text = String::from_utf8(dump).unwrap();
+        assert!(dump_text.contains("DROP TABLE IF EXISTS \"widgets\""));
+        assert!(dump_text.contains("CREATE TABLE"));
+        assert!(dump_text.contains("INSERT INTO"));
+
+        let dest_path = dir.path().join("dest.sqlite");
+        std::fs::File::create(&dest_path).unwrap();
+        let mut dest_conn = SqlConnection::new("dest", SqlEngine::Sqlite, "", "");
+        dest_conn.path = Some(dest_path.to_string_lossy().to_string());
+        let dest = connect(&workspace, &dest_conn).await.unwrap();
+        for statement in dump_text.split(";\n").map(str::trim).filter(|s| !s.is_empty()) {
+            execute_query(&dest.pool, None, statement).await.unwrap();
+        }
+
+        let result = execute_query(&dest.pool, None, "SELECT id, name, qty FROM widgets ORDER BY id").await.unwrap();
+        assert_eq!(
+            result.rows,
+            vec![
+                vec![serde_json::json!(1), serde_json::json!("O'Brien's gadget"), serde_json::json!(-3)],
+                vec![serde_json::json!(2), serde_json::Value::Null, serde_json::json!(0)],
+            ]
+        );
+
+        source.close().await.unwrap();
+        dest.close().await.unwrap();
     }
 }

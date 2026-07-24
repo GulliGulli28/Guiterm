@@ -149,6 +149,7 @@ fn main() {
             commands::sql::list_sql_tables,
             commands::sql::list_sql_columns,
             commands::sql::run_sql_query,
+            commands::sql::export_sql_dump,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
