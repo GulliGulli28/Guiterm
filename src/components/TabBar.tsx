@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { TabMeta } from "../lib/types";
-import { IconTerminal, IconTransfer, IconMonitor, IconSplit, IconClose, IconBroadcast } from "./ui-icons";
+import { IconTerminal, IconTransfer, IconMonitor, IconSplit, IconClose, IconBroadcast, IconDatabase } from "./ui-icons";
 
 interface TabBarProps {
   tabs: TabMeta[];
@@ -20,6 +20,7 @@ function TabIcon({ kind }: { kind: TabMeta["kind"] }) {
   if (kind === "terminal") return <IconTerminal size={13} />;
   if (kind === "transfer") return <IconTransfer size={13} />;
   if (kind === "fleet") return <IconBroadcast size={13} />;
+  if (kind === "sql") return <IconDatabase size={13} />;
   return <IconMonitor size={13} />;
 }
 

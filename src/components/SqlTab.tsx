@@ -1,11 +1,16 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { save } from "@tauri-apps/plugin-dialog";
 import { api } from "../lib/api";
-import type { ColumnInfo, QueryResult, SqlCellValue, SqlConnection, TableInfo } from "../lib/types";
+import { sqlEngineLabel, type ColumnInfo, type Host, type QueryResult, type SqlCellValue, type SqlConnection, type SqlExportDestination, type TableInfo } from "../lib/types";
 import { useResizablePane } from "../hooks/useResizablePane";
-import { IconChevronDown, IconChevronRight, IconDatabase, IconFolder, IconPlay, IconRefresh } from "./ui-icons";
+import { RemoteSavePathPicker } from "./RemoteSavePathPicker";
+import { IconChevronDown, IconChevronRight, IconDatabase, IconDownload, IconFolder, IconPlay, IconRefresh } from "./ui-icons";
 
 interface SqlTabProps {
   connection: SqlConnection;
+  /** For the "Exporter" tab's "hôte distant" destination — every saved SSH
+   * host to offer as an SFTP upload target for the generated dump. */
+  hosts: Host[];
   onError: (message: string) => void;
 }
 
@@ -79,7 +84,7 @@ type Selected = { kind: "schema"; schema: string } | { kind: "table"; schema: st
  * clicking around the tree only changes what "Structure"/"Data" show, it
  * never resets the query text/results, so switching back and forth to check
  * a table's columns/rows while iterating on a query doesn't lose anything. */
-export function SqlTab({ connection, onError }: SqlTabProps) {
+export function SqlTab({ connection, hosts, onError }: SqlTabProps) {
   const [status, setStatus] = useState<Status>("connecting");
   const [connectError, setConnectError] = useState<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
@@ -105,7 +110,7 @@ export function SqlTab({ connection, onError }: SqlTabProps) {
   const [refreshingTree, setRefreshingTree] = useState(false);
 
   const [selected, setSelected] = useState<Selected>(null);
-  const [activeSubTab, setActiveSubTab] = useState<"structure" | "data" | "query">("query");
+  const [activeSubTab, setActiveSubTab] = useState<"structure" | "data" | "query" | "export">("query");
 
   // Full-table preview shown by the "Data" tab — only ever offered for a
   // `Selected` of kind "table" (see the tab bar below), keyed the same way
@@ -123,6 +128,30 @@ export function SqlTab({ connection, onError }: SqlTabProps) {
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<QueryResult | null>(null);
   const [queryError, setQueryError] = useState<string | null>(null);
+
+  // "Exporter" tab: dumps CREATE TABLE + INSERT statements for one or more
+  // tables across one or more schemas/databases, to a local file or to a path
+  // on a saved SSH host (via SFTP) — see `core::sql::dump_tables`.
+  // `exportSelected` maps schema -> set of its tables to include (a schema
+  // absent from the map, or mapped to an empty set, contributes nothing);
+  // spanning several schemas at once (e.g. "every database" on a MySQL
+  // connection) just means several entries here, concatenated into one file
+  // by `export_sql_dump`. `pendingFullSelectRef` tracks schemas whose table
+  // list was requested purely to select all of it once it arrives (a schema
+  // not yet browsed in the tree has no cached `tablesBySchema` entry to
+  // select from immediately) — the effect below applies each one, at most
+  // once, the moment its tables show up.
+  const [exportSelected, setExportSelected] = useState<Record<string, Set<string>>>({});
+  const [exportExpandedSchemas, setExportExpandedSchemas] = useState<Set<string>>(new Set());
+  const [exportDestKind, setExportDestKind] = useState<"local" | "remoteHost">("local");
+  const [exportHostId, setExportHostId] = useState("");
+  const [exportRemotePath, setExportRemotePath] = useState("");
+  const [showRemotePicker, setShowRemotePicker] = useState(false);
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState<string | null>(null);
+  const [exportDone, setExportDone] = useState<string | null>(null);
+  const pendingFullSelectRef = useRef<Set<string>>(new Set());
+  const exportOpenedOnceRef = useRef(false);
 
   const split = useResizablePane({ initial: 260, min: 180, max: 480, axis: "horizontal", mode: "px" });
 
@@ -280,6 +309,27 @@ export function SqlTab({ connection, onError }: SqlTabProps) {
       known.forEach(fetchTables);
     });
 
+  // Re-fetches whichever table is currently selected in the tree.
+  // `refreshTree` below wipes `columnsByTable`/`dataByTable` wholesale (the
+  // tree/table list itself may have changed), but nothing else would ever
+  // re-populate the Structure tab's columns for an already-selected table
+  // afterward — unlike the Data tab, which self-heals the next time it's
+  // opened (`openDataTab`/`selectTable` already re-fetch on a cache miss).
+  // Without this, "select a table, then hit actualiser" left Structure
+  // stuck on "Chargement…" forever, regardless of which sub-tab was active
+  // at the time (a real bug this used to have). Runs after the tree itself
+  // has been refreshed, so it reflects the table's current columns, not
+  // whatever was cached before the refresh.
+  const reloadSelectedTable = () => {
+    if (selected?.kind !== "table" || !sessionIdRef.current) return;
+    const { schema, table } = selected;
+    const key = `${schema}.${table}`;
+    api.listSqlColumns(sessionIdRef.current, schema, table)
+      .then((columns) => setColumnsByTable((prev) => ({ ...prev, [key]: columns })))
+      .catch((e) => onError(String(e)));
+    if (activeSubTab === "data") loadTableData(schema, table);
+  };
+
   // The tree's "actualiser" button. Unlike `refreshAfterMutation` below
   // (which only re-fetches tables already known within schemas already in
   // the tree, right after a query that's likely to have changed them), this
@@ -308,10 +358,10 @@ export function SqlTab({ connection, onError }: SqlTabProps) {
               setSelected(null);
               return undefined;
             }
-            return refreshSchemasAndTables(sessionId);
+            return refreshSchemasAndTables(sessionId).then(reloadSelectedTable);
           });
         }
-        return refreshSchemasAndTables(sessionId);
+        return refreshSchemasAndTables(sessionId).then(reloadSelectedTable);
       })
       .catch((e) => onError(String(e)))
       .finally(() => setRefreshingTree(false));
@@ -326,6 +376,134 @@ export function SqlTab({ connection, onError }: SqlTabProps) {
       .then((res) => { setResult(res); if (isMutation) refreshAfterMutation(); })
       .catch((e) => { setQueryError(String(e)); setResult(null); })
       .finally(() => setRunning(false));
+  };
+
+  // Selects every table of `schema` for export, fetching its table list
+  // first if it hasn't been browsed yet (`pendingFullSelectRef` — applied by
+  // the effect below the moment it arrives) — shared by the schema-level
+  // "select all" checkbox, "Toutes les bases", and the Export tab's
+  // first-open default.
+  const selectAllTablesIn = (schema: string) => {
+    const tables = tablesBySchema[schema];
+    if (tables) {
+      setExportSelected((prev) => ({ ...prev, [schema]: new Set(tables.map((t) => t.name)) }));
+    } else {
+      pendingFullSelectRef.current.add(schema);
+      fetchTables(schema);
+    }
+  };
+
+  // Applies every schema in `pendingFullSelectRef` whose table list has just
+  // arrived — at most once per schema (removed from the set as soon as it's
+  // applied), so a later manual deselect isn't silently reset by an
+  // unrelated re-fetch of the same schema.
+  useEffect(() => {
+    const ready = Array.from(pendingFullSelectRef.current).filter((schema) => tablesBySchema[schema]);
+    if (ready.length === 0) return;
+    ready.forEach((schema) => pendingFullSelectRef.current.delete(schema));
+    setExportSelected((prev) => {
+      const next = { ...prev };
+      ready.forEach((schema) => { next[schema] = new Set(tablesBySchema[schema].map((t) => t.name)); });
+      return next;
+    });
+  }, [tablesBySchema]);
+
+  // The "Exporter" tab button — the first time it's opened, defaults to
+  // whichever schema is currently selected in the tree (or the first one),
+  // fully selected, expanded so its tables are visible right away. Only
+  // fires once per mount (`exportOpenedOnceRef`) so reopening the tab later
+  // never overrides a selection the user has since changed.
+  const openExportTab = () => {
+    setActiveSubTab("export");
+    if (!exportOpenedOnceRef.current) {
+      exportOpenedOnceRef.current = true;
+      const schema = selected?.schema ?? schemas?.[0] ?? null;
+      if (schema) {
+        setExportExpandedSchemas((prev) => new Set(prev).add(schema));
+        selectAllTablesIn(schema);
+      }
+    }
+  };
+
+  const toggleExportSchemaExpand = (schema: string) => {
+    setExportExpandedSchemas((prev) => {
+      const next = new Set(prev);
+      if (next.has(schema)) next.delete(schema); else next.add(schema);
+      return next;
+    });
+    if (!tablesBySchema[schema]) fetchTables(schema);
+  };
+
+  const toggleExportSchemaAll = (schema: string) => {
+    const tables = tablesBySchema[schema];
+    const current = exportSelected[schema];
+    const allSelected = !!tables && !!current && current.size === tables.length;
+    if (allSelected) {
+      setExportSelected((prev) => { const next = { ...prev }; delete next[schema]; return next; });
+    } else {
+      selectAllTablesIn(schema);
+    }
+  };
+
+  const toggleExportTable = (schema: string, table: string) => {
+    setExportSelected((prev) => {
+      const current = new Set(prev[schema] ?? []);
+      if (current.has(table)) current.delete(table); else current.add(table);
+      const next = { ...prev };
+      if (current.size === 0) delete next[schema]; else next[schema] = current;
+      return next;
+    });
+  };
+
+  // "Toutes les bases" — selects every table of every schema currently
+  // visible, expanding them all so the result is visible at a glance. For a
+  // PostgreSQL connection with no database configured, this only covers the
+  // schemas of whichever database is currently active (see `multiDatabase`'s
+  // doc comment) — switching database mid-export isn't attempted.
+  const selectAllSchemasForExport = () => {
+    const all = schemas ?? [];
+    setExportExpandedSchemas(new Set(all));
+    all.forEach(selectAllTablesIn);
+  };
+
+  const deselectAllForExport = () => setExportSelected({});
+
+  const runExport = async () => {
+    const groups = Object.entries(exportSelected)
+      .filter(([, tables]) => tables.size > 0)
+      .map(([schema, tables]) => ({ schema, tables: Array.from(tables) }));
+    if (!sessionIdRef.current || groups.length === 0 || exporting) return;
+    const sessionId = sessionIdRef.current;
+    setExportError(null);
+    setExportDone(null);
+
+    let destination: SqlExportDestination;
+    if (exportDestKind === "local") {
+      const defaultName = groups.length === 1 ? `${groups[0].schema}.sql` : `${connection.label.replace(/[^\w.-]+/g, "_") || "export"}.sql`;
+      let path: string | null;
+      try {
+        path = await save({
+          title: "Exporter le dump SQL",
+          defaultPath: defaultName,
+          filters: [{ name: "SQL", extensions: ["sql"] }, { name: "Tous les fichiers", extensions: ["*"] }],
+        });
+      } catch (e) { setExportError(String(e)); return; }
+      if (!path) return;
+      destination = { kind: "local", path };
+    } else {
+      if (!exportHostId || !exportRemotePath.trim()) return;
+      destination = { kind: "remoteHost", hostId: exportHostId, path: exportRemotePath.trim() };
+    }
+
+    setExporting(true);
+    try {
+      await api.exportSqlDump(sessionId, groups, destination);
+      setExportDone(`Export réussi vers ${destination.path}`);
+    } catch (e) {
+      setExportError(String(e));
+    } finally {
+      setExporting(false);
+    }
   };
 
   if (status === "connecting") {
@@ -416,10 +594,19 @@ export function SqlTab({ connection, onError }: SqlTabProps) {
   );
 
   return (
-    <div className="flex min-h-0 flex-1">
-      {/* Schema tree */}
-      <div style={{ width: split.value }} className="sidebar-scroll flex shrink-0 flex-col gap-0.5 overflow-y-auto border-r border-[var(--c-border)] bg-[var(--c-bg2)] p-2.5">
-        <div className="mb-0.5 flex items-center justify-end">
+    <div className="flex min-h-0 min-w-0 flex-1">
+      {/* Schema tree. `max-w-[50%]` caps the sidebar's own fixed pixel width
+       * (`split.value`, dragged via the handle below) as a share of this
+       * tab's *own* container rather than the window — CSS resolves
+       * `max-width` after flexbox's `flex-shrink: 0` would otherwise leave
+       * it untouched, so squeezing this tab very narrow (e.g. opening the
+       * split-terminal view and dragging it wide) shrinks the tree instead
+       * of overflowing past the content pane, which is what broke before. */}
+      <div style={{ width: split.value }} className="flex max-w-[50%] shrink-0 flex-col overflow-hidden border-r border-[var(--c-border)] bg-[var(--c-bg2)]">
+        <div className="flex shrink-0 items-center justify-between border-b border-[var(--c-border)] px-3 py-2.5">
+          <span className="truncate text-xs font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">
+            {sqlEngineLabel(connection.engine)}
+          </span>
           <button
             onClick={refreshTree}
             disabled={refreshingTree}
@@ -429,34 +616,36 @@ export function SqlTab({ connection, onError }: SqlTabProps) {
             <IconRefresh size={13} className={refreshingTree ? "animate-spin" : ""} />
           </button>
         </div>
-        {multiDatabase ? (
-          databases === null ? (
-            <p className="p-2 text-xs text-[var(--c-text-muted)]">Chargement des bases…</p>
-          ) : databases.length === 0 ? (
-            <p className="p-2 text-xs text-[var(--c-text-muted)]">Aucune base visible</p>
+        <div className="sidebar-scroll min-h-0 flex-1 space-y-0.5 overflow-y-auto p-2">
+          {multiDatabase ? (
+            databases === null ? (
+              <p className="p-2 text-xs text-[var(--c-text-muted)]">Chargement des bases…</p>
+            ) : databases.length === 0 ? (
+              <p className="p-2 text-xs text-[var(--c-text-muted)]">Aucune base visible</p>
+            ) : (
+              databases.map((db) => {
+                const active = db === activeDatabase;
+                return (
+                  <div key={db}>
+                    <button
+                      onClick={() => selectDatabase(db)}
+                      className={`flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[14px] font-semibold transition-colors ${
+                        active ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text)] hover:bg-white/[0.07]"
+                      }`}
+                    >
+                      {active ? <IconChevronDown size={13} className="shrink-0" /> : <IconChevronRight size={13} className="shrink-0" />}
+                      <IconDatabase size={15} className={`shrink-0 ${active ? "text-[var(--c-accent-text)]" : "text-[var(--c-text-secondary)]"}`} />
+                      <span className="min-w-0 flex-1 truncate">{db}</span>
+                    </button>
+                    {active && <div className="ml-4 border-l-2 border-[var(--c-border)] pl-2.5">{schemaTree}</div>}
+                  </div>
+                );
+              })
+            )
           ) : (
-            databases.map((db) => {
-              const active = db === activeDatabase;
-              return (
-                <div key={db}>
-                  <button
-                    onClick={() => selectDatabase(db)}
-                    className={`flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[14px] font-semibold transition-colors ${
-                      active ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text)] hover:bg-white/[0.07]"
-                    }`}
-                  >
-                    {active ? <IconChevronDown size={13} className="shrink-0" /> : <IconChevronRight size={13} className="shrink-0" />}
-                    <IconDatabase size={15} className={`shrink-0 ${active ? "text-[var(--c-accent-text)]" : "text-[var(--c-text-secondary)]"}`} />
-                    <span className="min-w-0 flex-1 truncate">{db}</span>
-                  </button>
-                  {active && <div className="ml-4 border-l-2 border-[var(--c-border)] pl-2.5">{schemaTree}</div>}
-                </div>
-              );
-            })
-          )
-        ) : (
-          schemaTree
-        )}
+            schemaTree
+          )}
+        </div>
       </div>
 
       <div onMouseDown={split.onMouseDown} className="group relative flex w-1 shrink-0 cursor-col-resize items-center justify-center">
@@ -465,11 +654,14 @@ export function SqlTab({ connection, onError }: SqlTabProps) {
 
       {/* Structure / Query pane */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
-        <div className="flex shrink-0 border-b border-[var(--c-border)]">
+        {/* Segmented pill bar — same idiom as `FleetTab`'s "Résultats/Historique"
+         * switcher, used instead of this tab's previous underline style for
+         * consistency with the rest of the app's sub-view switchers. */}
+        <div className="flex shrink-0 items-center gap-1 border-b border-[var(--c-border)] px-2 py-1.5">
           <button
             onClick={() => setActiveSubTab("structure")}
-            className={`truncate px-3 py-2 text-xs font-medium ${
-              activeSubTab === "structure" ? "border-b-2 border-[var(--c-accent)] text-[var(--c-text)]" : "text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)]"
+            className={`truncate rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+              activeSubTab === "structure" ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-muted)] hover:bg-[var(--c-bg2)] hover:text-[var(--c-text-secondary)]"
             }`}
           >
             {structureLabel}
@@ -480,25 +672,33 @@ export function SqlTab({ connection, onError }: SqlTabProps) {
           {selected?.kind === "table" && (
             <button
               onClick={openDataTab}
-              className={`px-3 py-2 text-xs font-medium ${
-                activeSubTab === "data" ? "border-b-2 border-[var(--c-accent)] text-[var(--c-text)]" : "text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)]"
+              className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+                activeSubTab === "data" ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-muted)] hover:bg-[var(--c-bg2)] hover:text-[var(--c-text-secondary)]"
               }`}
             >
-              Data
+              Données
             </button>
           )}
           <button
             onClick={() => setActiveSubTab("query")}
-            className={`px-3 py-2 text-xs font-medium ${
-              activeSubTab === "query" ? "border-b-2 border-[var(--c-accent)] text-[var(--c-text)]" : "text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)]"
+            className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+              activeSubTab === "query" ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-muted)] hover:bg-[var(--c-bg2)] hover:text-[var(--c-text-secondary)]"
             }`}
           >
-            Query
+            Requête
+          </button>
+          <button
+            onClick={openExportTab}
+            className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
+              activeSubTab === "export" ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-muted)] hover:bg-[var(--c-bg2)] hover:text-[var(--c-text-secondary)]"
+            }`}
+          >
+            Exporter
           </button>
         </div>
 
         {activeSubTab === "structure" && (
-          <div className="min-h-0 flex-1 overflow-auto p-3">
+          <div className="m-3 min-h-0 flex-1 overflow-auto rounded-lg border border-[var(--c-border)] p-3">
             {selected === null ? (
               <p className="text-xs text-[var(--c-text-faint)]">Cliquez une base/un schéma ou une table dans l'arbre pour voir sa structure.</p>
             ) : selected.kind === "schema" ? (
@@ -518,6 +718,49 @@ export function SqlTab({ connection, onError }: SqlTabProps) {
             loading={loadingDataKey === `${selected.schema}.${selected.table}`}
             onRefresh={() => loadTableData(selected.schema, selected.table)}
           />
+        )}
+
+        {activeSubTab === "export" && (
+          <div className="min-h-0 flex-1 overflow-auto p-3">
+            <ExportPanel
+              schemas={schemas ?? []}
+              tablesBySchema={tablesBySchema}
+              expandedSchemas={exportExpandedSchemas}
+              onToggleExpand={toggleExportSchemaExpand}
+              selected={exportSelected}
+              onToggleSchemaAll={toggleExportSchemaAll}
+              onToggleTable={toggleExportTable}
+              onSelectAllSchemas={selectAllSchemasForExport}
+              onDeselectAll={deselectAllForExport}
+              destKind={exportDestKind}
+              onDestKindChange={setExportDestKind}
+              hosts={hosts}
+              hostId={exportHostId}
+              onHostIdChange={setExportHostId}
+              remotePath={exportRemotePath}
+              onRemotePathChange={setExportRemotePath}
+              onBrowseRemote={() => setShowRemotePicker(true)}
+              multiDatabase={multiDatabase}
+              exporting={exporting}
+              error={exportError}
+              done={exportDone}
+              onExport={runExport}
+            />
+            {showRemotePicker && (
+              <RemoteSavePathPicker
+                hosts={hosts}
+                initialHostId={exportHostId || undefined}
+                defaultFileName={
+                  (() => {
+                    const included = Object.entries(exportSelected).filter(([, t]) => t.size > 0);
+                    return included.length === 1 ? `${included[0][0]}.sql` : `${connection.label.replace(/[^\w.-]+/g, "_") || "export"}.sql`;
+                  })()
+                }
+                onCancel={() => setShowRemotePicker(false)}
+                onSelect={(hostId, path) => { setExportHostId(hostId); setExportRemotePath(path); setShowRemotePicker(false); }}
+              />
+            )}
+          </div>
         )}
 
         {/* Kept mounted (just hidden) rather than conditionally rendered when
@@ -571,7 +814,7 @@ export function SqlTab({ connection, onError }: SqlTabProps) {
             </div>
           </div>
 
-          <div className="min-h-0 flex-1 overflow-auto p-2">
+          <div className="m-2 min-h-0 flex-1 overflow-auto rounded-lg border border-[var(--c-border)] p-2">
             {queryError && <p className="whitespace-pre-wrap text-xs text-rose-400">{queryError}</p>}
             {!queryError && result && (
               <>
@@ -614,7 +857,7 @@ function ResultTable({ columns, rows }: { columns: string[]; rows: SqlCellValue[
       <thead>
         <tr>
           {columns.map((c) => (
-            <th key={c} className="sticky top-0 border-b border-[var(--c-border)] bg-[var(--c-bg)] px-2 py-1 font-medium text-[var(--c-text-secondary)]">{c}</th>
+            <th key={c} className="sticky top-0 border-b border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1 font-medium text-[var(--c-text-secondary)]">{c}</th>
           ))}
         </tr>
       </thead>
@@ -660,7 +903,7 @@ function TableData({
           <IconRefresh size={11} /> {loading ? "Chargement…" : "Rafraîchir"}
         </button>
       </div>
-      <div className="min-h-0 flex-1 overflow-auto p-2">
+      <div className="m-2 min-h-0 flex-1 overflow-auto rounded-lg border border-[var(--c-border)] p-2">
         {error && <p className="whitespace-pre-wrap text-xs text-rose-400">{error}</p>}
         {!error && result && (
           <>
@@ -689,8 +932,8 @@ function StructureTables({ schema, tables }: { schema: string; tables: TableInfo
     <table className="w-full border-collapse text-left text-[12px]">
       <thead>
         <tr>
-          <th className="border-b border-[var(--c-border)] px-2 py-1 font-medium text-[var(--c-text-secondary)]">Nom</th>
-          <th className="border-b border-[var(--c-border)] px-2 py-1 font-medium text-[var(--c-text-secondary)]">Type</th>
+          <th className="border-b border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1 font-medium text-[var(--c-text-secondary)]">Nom</th>
+          <th className="border-b border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1 font-medium text-[var(--c-text-secondary)]">Type</th>
         </tr>
       </thead>
       <tbody>
@@ -712,9 +955,9 @@ function StructureColumns({ table, columns }: { table: string; columns: ColumnIn
     <table className="w-full border-collapse text-left text-[12px]">
       <thead>
         <tr>
-          <th className="border-b border-[var(--c-border)] px-2 py-1 font-medium text-[var(--c-text-secondary)]">Colonne</th>
-          <th className="border-b border-[var(--c-border)] px-2 py-1 font-medium text-[var(--c-text-secondary)]">Type</th>
-          <th className="border-b border-[var(--c-border)] px-2 py-1 font-medium text-[var(--c-text-secondary)]">Nullable</th>
+          <th className="border-b border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1 font-medium text-[var(--c-text-secondary)]">Colonne</th>
+          <th className="border-b border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1 font-medium text-[var(--c-text-secondary)]">Type</th>
+          <th className="border-b border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1 font-medium text-[var(--c-text-secondary)]">Nullable</th>
         </tr>
       </thead>
       <tbody>
@@ -727,5 +970,181 @@ function StructureColumns({ table, columns }: { table: string; columns: ColumnIn
         ))}
       </tbody>
     </table>
+  );
+}
+
+const exportSelectClass = "w-full rounded-md bg-[var(--c-bg2)] px-3 py-2 text-sm text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]";
+const exportInputClass = `${exportSelectClass} font-mono placeholder:text-[var(--c-text-muted)]`;
+const EMPTY_TABLE_SET: Set<string> = new Set();
+
+/** The "Exporter" tab's body — a checklist tree spanning every schema/database
+ * currently visible (each expandable to individual tables, plus a schema-level
+ * "select all" checkbox and a top-level "Toutes les bases" shortcut so a full
+ * export is a single click), and a destination (a local file via the native
+ * save dialog, or a path on a saved SSH host — typed directly or picked via
+ * `RemoteSavePathPicker`'s directory browser — uploaded over SFTP) before
+ * calling `api.exportSqlDump`. Produces a single `.sql` file with
+ * `DROP TABLE IF EXISTS` + `CREATE TABLE` + batched `INSERT` statements per
+ * selected table, one schema's worth after another — see
+ * `core::sql::dump_tables`'s doc comment. */
+function ExportPanel({
+  schemas, tablesBySchema, expandedSchemas, onToggleExpand, selected, onToggleSchemaAll, onToggleTable,
+  onSelectAllSchemas, onDeselectAll, destKind, onDestKindChange, hosts, hostId, onHostIdChange, remotePath,
+  onRemotePathChange, onBrowseRemote, multiDatabase, exporting, error, done, onExport,
+}: {
+  schemas: string[];
+  tablesBySchema: Record<string, TableInfo[]>;
+  expandedSchemas: Set<string>;
+  onToggleExpand: (schema: string) => void;
+  selected: Record<string, Set<string>>;
+  onToggleSchemaAll: (schema: string) => void;
+  onToggleTable: (schema: string, table: string) => void;
+  onSelectAllSchemas: () => void;
+  onDeselectAll: () => void;
+  destKind: "local" | "remoteHost";
+  onDestKindChange: (kind: "local" | "remoteHost") => void;
+  hosts: Host[];
+  hostId: string;
+  onHostIdChange: (id: string) => void;
+  remotePath: string;
+  onRemotePathChange: (path: string) => void;
+  onBrowseRemote: () => void;
+  multiDatabase: boolean;
+  exporting: boolean;
+  error: string | null;
+  done: string | null;
+  onExport: () => void;
+}) {
+  if (schemas.length === 0) {
+    return <p className="text-xs text-[var(--c-text-faint)]">Aucune base/schéma à exporter pour le moment.</p>;
+  }
+  // Tunnel targets are SSH hosts by nature (SFTP needs a real shell account) —
+  // same filter `SqlConnectionForm` already applies to its own host pickers.
+  const sshHosts = hosts.filter((h) => (h.kind ?? "ssh") === "ssh");
+  const hasSelection = Object.values(selected).some((tables) => tables.size > 0);
+  const canExport = hasSelection && (destKind === "local" || (!!hostId && !!remotePath.trim()));
+
+  return (
+    <div className="max-w-lg space-y-4">
+      <div className="space-y-1">
+        <div className="flex items-center justify-between">
+          <span className="text-xs font-medium text-[var(--c-text-secondary)]">Bases/schémas et tables</span>
+          <div className="flex gap-2.5">
+            <button onClick={onSelectAllSchemas} className="text-[11px] text-[var(--c-accent-text)] hover:underline">
+              Toutes les bases
+            </button>
+            <button onClick={onDeselectAll} className="text-[11px] text-[var(--c-text-faint)] hover:underline">
+              Tout désélectionner
+            </button>
+          </div>
+        </div>
+        {multiDatabase && (
+          <p className="px-0.5 text-[11px] leading-relaxed text-[var(--c-text-muted)]">
+            « Toutes les bases » ne couvre que la base PostgreSQL actuellement active — changer de base
+            réinitialiserait la session en cours.
+          </p>
+        )}
+        <div className="max-h-64 overflow-y-auto rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] p-1.5">
+          {schemas.map((schema) => {
+            const tables = tablesBySchema[schema];
+            const selectedSet = selected[schema] ?? EMPTY_TABLE_SET;
+            const expanded = expandedSchemas.has(schema);
+            const allSelected = !!tables && tables.length > 0 && selectedSet.size === tables.length;
+            const partiallySelected = selectedSet.size > 0 && !allSelected;
+            return (
+              <div key={schema}>
+                <div className="flex items-center gap-1 rounded px-1 py-1 hover:bg-white/5">
+                  <button onClick={() => onToggleExpand(schema)} className="shrink-0 p-0.5 text-[var(--c-text-faint)]">
+                    {expanded ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
+                  </button>
+                  <input
+                    type="checkbox"
+                    checked={allSelected}
+                    ref={(el) => { if (el) el.indeterminate = partiallySelected; }}
+                    onChange={() => onToggleSchemaAll(schema)}
+                  />
+                  <button onClick={() => onToggleExpand(schema)} className="min-w-0 flex-1 truncate py-0.5 text-left font-mono text-[13px] text-[var(--c-text)]">
+                    {schema}
+                  </button>
+                  {selectedSet.size > 0 && (
+                    <span className="shrink-0 text-[10px] text-[var(--c-text-faint)]">
+                      {selectedSet.size} table{selectedSet.size > 1 ? "s" : ""}
+                    </span>
+                  )}
+                </div>
+                {expanded && (
+                  <div className="ml-5 border-l-2 border-[var(--c-border)] pl-2">
+                    {!tables ? (
+                      <p className="px-1 py-1 text-[11px] text-[var(--c-text-muted)]">Chargement…</p>
+                    ) : tables.length === 0 ? (
+                      <p className="px-1 py-1 text-[11px] text-[var(--c-text-muted)]">Aucune table.</p>
+                    ) : (
+                      tables.map((t) => (
+                        <label key={t.name} className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-[12.5px] text-[var(--c-text)] hover:bg-white/5">
+                          <input type="checkbox" checked={selectedSet.has(t.name)} onChange={() => onToggleTable(schema, t.name)} />
+                          <span className="min-w-0 flex-1 truncate font-mono">{t.name}</span>
+                          {t.kind === "view" && (
+                            <span className="shrink-0 rounded-full bg-[var(--c-bg3)] px-1.5 py-0.5 text-[9px] text-[var(--c-text-secondary)]">vue</span>
+                          )}
+                        </label>
+                      ))
+                    )}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="space-y-1">
+        <span className="text-xs font-medium text-[var(--c-text-secondary)]">Destination</span>
+        <div className="flex gap-4 text-[13px] text-[var(--c-text)]">
+          <label className="flex cursor-pointer items-center gap-1.5">
+            <input type="radio" checked={destKind === "local"} onChange={() => onDestKindChange("local")} /> Local
+          </label>
+          <label className="flex cursor-pointer items-center gap-1.5">
+            <input type="radio" checked={destKind === "remoteHost"} onChange={() => onDestKindChange("remoteHost")} /> Hôte distant
+          </label>
+        </div>
+        {destKind === "local" ? (
+          <p className="px-0.5 text-[11px] leading-relaxed text-[var(--c-text-muted)]">
+            Un sélecteur de fichier s'ouvre au clic sur « Exporter ».
+          </p>
+        ) : (
+          <div className="space-y-1.5">
+            <select value={hostId} onChange={(e) => onHostIdChange(e.target.value)} className={exportSelectClass}>
+              <option value="">Sélectionner un hôte…</option>
+              {sshHosts.map((h) => <option key={h.id} value={h.id}>{h.label}</option>)}
+            </select>
+            <div className="flex gap-1.5">
+              <input
+                value={remotePath}
+                onChange={(e) => onRemotePathChange(e.target.value)}
+                placeholder="/home/utilisateur/dump.sql"
+                className={`${exportInputClass} flex-1`}
+              />
+              <button
+                onClick={onBrowseRemote}
+                className="shrink-0 rounded-md bg-[var(--c-bg3)] px-3 py-2 text-xs font-medium text-[var(--c-text-secondary)] hover:bg-white/5"
+              >
+                Parcourir…
+              </button>
+            </div>
+          </div>
+        )}
+      </div>
+
+      {error && <p className="whitespace-pre-wrap text-xs text-rose-400">{error}</p>}
+      {done && <p className="text-xs text-emerald-400">{done}</p>}
+
+      <button
+        onClick={onExport}
+        disabled={!canExport || exporting}
+        className="accent-surface flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+      >
+        <IconDownload size={11} /> {exporting ? "Export en cours…" : "Exporter"}
+      </button>
+    </div>
   );
 }

@@ -43,15 +43,15 @@ export function SqlConnectionsPanel({ workspace, onConnect, onNewConnection, onE
               <div className="mt-2 flex gap-1">
                 <button
                   onClick={() => onConnect(conn)}
-                  className="accent-surface flex flex-1 items-center justify-center gap-1.5 rounded-md border py-1.5 text-xs font-medium"
+                  className="accent-surface flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md border py-1.5 text-xs font-medium"
                 >
-                  <IconFlash size={11} /> Connexion
+                  <IconFlash size={11} className="shrink-0" /> <span className="truncate">Connexion</span>
                 </button>
                 <button
                   onClick={() => onEditConnection(conn)}
-                  className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-[var(--c-bg2)] px-2 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
+                  className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-[var(--c-bg2)] px-2 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
                 >
-                  <IconEdit size={11} /> Modifier
+                  <IconEdit size={11} className="shrink-0" /> <span className="truncate">Modifier</span>
                 </button>
               </div>
             </div>

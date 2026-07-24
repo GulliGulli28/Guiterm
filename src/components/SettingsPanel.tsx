@@ -44,7 +44,7 @@ function ShortcutRow({ label, combo, onChange }: { label: string; combo: string;
   const warning = shellBindingWarning(combo);
   return (
     <div className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 hover:bg-white/5">
-      <span className="text-[13px] text-[var(--c-text-secondary)]">
+      <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--c-text-secondary)]">
         {label}
         {warning && (
           <span title={`Combinaison déjà utilisée par le shell : ${warning}. Cette action ne se déclenchera donc que lorsque le focus n'est pas dans un terminal.`} className="ml-1.5 cursor-help text-[11px] text-amber-400">
@@ -80,7 +80,7 @@ function ShortcutRow({ label, combo, onChange }: { label: string; combo: string;
 function ToggleRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
   return (
     <label className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 hover:bg-white/5">
-      <span className="text-[13px] text-[var(--c-text-secondary)]">{label}</span>
+      <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--c-text-secondary)]">{label}</span>
       <input
         type="checkbox"
         checked={checked}

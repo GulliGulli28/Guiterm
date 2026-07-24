@@ -615,9 +615,14 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
   }, [runTargets, results, pending]);
 
   return (
-    <div className="flex h-full min-h-0 bg-[var(--c-bg)] text-[var(--c-text)]">
+    <div className="flex h-full min-h-0 min-w-0 bg-[var(--c-bg)] text-[var(--c-text)]">
       {/* ── Target picker ─────────────────────────────────────────────── */}
-      <aside style={{ width: leftPane.value }} className="flex shrink-0 flex-col border-r border-[var(--c-border)]">
+      {/* `max-w-[50%]` caps this fixed-pixel sidebar (`leftPane.value`) as a
+       * share of this tab's own container rather than the window — without
+       * it, squeezing this tab very narrow (e.g. the split-terminal view
+       * dragged wide) overflows past the content section instead of
+       * shrinking, same bug `SqlTab`'s schema tree used to have. */}
+      <aside style={{ width: leftPane.value }} className="flex max-w-[50%] shrink-0 flex-col border-r border-[var(--c-border)]">
         <div className="flex items-center justify-between px-3 py-2.5">
           <span className="text-xs font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">
             Cibles · {selected.size}/{allTargets.length}
