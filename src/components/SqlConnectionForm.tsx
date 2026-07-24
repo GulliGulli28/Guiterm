@@ -29,7 +29,7 @@ interface SqlConnectionFormProps {
   onDeleteConnection?: (id: SqlConnectionId) => void;
 }
 
-const DEFAULT_PORTS: Record<Exclude<SqlEngine, "sqlite">, string> = { mysql: "3306", postgres: "5432" };
+const DEFAULT_PORTS: Record<Exclude<SqlEngine, "sqlite">, string> = { mysql: "3306", postgres: "5432", redis: "6379" };
 
 const SQLITE_FILTERS = [{ name: "SQLite", extensions: ["sqlite", "sqlite3", "db"] }, { name: "Tous les fichiers", extensions: ["*"] }];
 
@@ -101,7 +101,9 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
       return;
     }
     const p = Number(port);
-    if (!address.trim() || !username.trim() || !Number.isInteger(p) || p < 1 || p > 65535) {
+    // `username` is optional for Redis (empty means legacy `requirepass`-only
+    // auth, still the common case) — required for MySQL/PostgreSQL.
+    if (!address.trim() || (engine !== "redis" && !username.trim()) || !Number.isInteger(p) || p < 1 || p > 65535) {
       setError("Champs de connexion SQL invalides");
       return;
     }
@@ -142,6 +144,7 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
             <option value="mysql">MySQL</option>
             <option value="postgres">PostgreSQL</option>
             <option value="sqlite">SQLite</option>
+            <option value="redis">Redis</option>
           </select>
         </div>
 
@@ -205,8 +208,20 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
             </div>
 
             <div className="space-y-1">
-              <span className="text-xs font-medium text-[var(--c-text-secondary)]">Utilisateur</span>
-              <input value={username} onChange={(e) => setUsername(e.target.value)} placeholder="Utilisateur" className={inputFullClass} />
+              <span className="text-xs font-medium text-[var(--c-text-secondary)]">
+                Utilisateur{engine === "redis" ? " (optionnel)" : ""}
+              </span>
+              <input
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder={engine === "redis" ? "Utilisateur ACL (optionnel)" : "Utilisateur"}
+                className={inputFullClass}
+              />
+              {engine === "redis" && !username.trim() && (
+                <p className="px-0.5 text-[11px] leading-relaxed text-[var(--c-text-muted)]">
+                  Laissé vide : authentification par mot de passe seul (`requirepass`), le cas le plus courant.
+                </p>
+              )}
             </div>
 
             <div className="space-y-1">
@@ -220,15 +235,26 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
               />
             </div>
 
-            <div className="space-y-1">
-              <span className="text-xs font-medium text-[var(--c-text-secondary)]">Base de données (optionnel)</span>
-              <input value={database} onChange={(e) => setDatabase(e.target.value)} placeholder="Base de données (optionnel)" className={inputFullClass} />
-              {engine === "postgres" && !database.trim() && (
-                <p className="px-0.5 text-[11px] leading-relaxed text-[var(--c-text-muted)]">
-                  Laissé vide : la connexion listera toutes les bases du serveur au lieu d'une seule.
-                </p>
-              )}
-            </div>
+            {engine === "redis" ? (
+              <div className="space-y-1">
+                <span className="text-xs font-medium text-[var(--c-text-secondary)]">Base (0-15)</span>
+                <select value={database || "0"} onChange={(e) => setDatabase(e.target.value)} className={selectClass}>
+                  {Array.from({ length: 16 }, (_, i) => (
+                    <option key={i} value={i}>{i}</option>
+                  ))}
+                </select>
+              </div>
+            ) : (
+              <div className="space-y-1">
+                <span className="text-xs font-medium text-[var(--c-text-secondary)]">Base de données (optionnel)</span>
+                <input value={database} onChange={(e) => setDatabase(e.target.value)} placeholder="Base de données (optionnel)" className={inputFullClass} />
+                {engine === "postgres" && !database.trim() && (
+                  <p className="px-0.5 text-[11px] leading-relaxed text-[var(--c-text-muted)]">
+                    Laissé vide : la connexion listera toutes les bases du serveur au lieu d'une seule.
+                  </p>
+                )}
+              </div>
+            )}
           </>
         )}
 

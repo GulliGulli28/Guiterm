@@ -170,38 +170,44 @@ export interface Group {
 
 /** Which SQL engine a `SqlConnection` speaks. Unlike MySQL/PostgreSQL,
  * `sqlite` has no server/wire protocol — a connection uses `path`/
- * `sqliteHostId` instead of `address`/`port`/`username`/`database`. */
-export type SqlEngine = "mysql" | "postgres" | "sqlite";
+ * `sqliteHostId` instead of `address`/`port`/`username`/`database`. `redis`
+ * reuses `address`/`port`/`username`/`database` (as a DB index 0-15) but
+ * renders through `RedisTab`, not `SqlTab` — a key-value store has no
+ * schema/table tree or SQL query language to browse. */
+export type SqlEngine = "mysql" | "postgres" | "sqlite" | "redis";
 
 export function sqlEngineLabel(engine: SqlEngine): string {
   switch (engine) {
     case "mysql": return "MySQL";
     case "postgres": return "PostgreSQL";
     case "sqlite": return "SQLite";
+    case "redis": return "Redis";
   }
 }
 
-/** A saved MySQL/PostgreSQL/SQLite connection — deliberately not a `Host`/
- * `HostKind` (see `core::model::SqlConnection`'s doc comment): no shell, not
- * a fleet target. Can still reference a saved SSH `Host` via
+/** A saved MySQL/PostgreSQL/SQLite/Redis connection — deliberately not a
+ * `Host`/`HostKind` (see `core::model::SqlConnection`'s doc comment): no
+ * shell, not a fleet target. Can still reference a saved SSH `Host` via
  * `tunnelHostId`/`sqliteHostId`, purely to reach a database that isn't
  * directly reachable from this machine — `null`/absent connects directly
- * (`address`/`port` for MySQL/PostgreSQL, a local file for SQLite). */
+ * (`address`/`port` for MySQL/PostgreSQL/Redis, a local file for SQLite). */
 export interface SqlConnection {
   id: SqlConnectionId;
   label: string;
   engine: SqlEngine;
-  /** MySQL/PostgreSQL only. */
+  /** MySQL/PostgreSQL/Redis only. */
   tunnelHostId?: HostId | null;
-  /** MySQL/PostgreSQL only — empty for `sqlite`. */
+  /** MySQL/PostgreSQL/Redis — empty for `sqlite`. */
   address: string;
-  /** MySQL/PostgreSQL only — `0` for `sqlite`. */
+  /** MySQL/PostgreSQL/Redis — `0` for `sqlite`. */
   port: number;
-  /** MySQL/PostgreSQL only — empty for `sqlite`. */
+  /** MySQL/PostgreSQL/Redis (an optional Redis 6+ ACL username — empty means
+   * legacy `requirepass`-only auth) — empty for `sqlite`. */
   username: string;
-  /** MySQL/PostgreSQL only. Required in practice for PostgreSQL (a
-   * connection always targets one database); optional for MySQL. Always
-   * `null` for `sqlite`. */
+  /** MySQL/PostgreSQL: required in practice for PostgreSQL (a connection
+   * always targets one database); optional for MySQL. `redis`: the numbered
+   * database index (0-15 by default) as a string, e.g. `"0"` — empty/absent
+   * defaults to `0`. Always `null` for `sqlite`. */
   database?: string | null;
   /** `sqlite` only — the file's absolute path, local to this machine when
    * `sqliteHostId` is unset, or a path on that host's filesystem otherwise. */
@@ -260,6 +266,49 @@ export interface SqlExportGroup {
   schema: string;
   tables: string[];
 }
+
+/** One entry in the "Clés" list — `keyType` is the raw Redis `TYPE` reply
+ * ("string"/"hash"/"list"/"set"/"zset"/…), `ttlSecs` is `null` for both "no
+ * expiry" and "key doesn't exist" (see `core::redis_client::ttl_from_raw`). */
+export interface RedisKeyEntry {
+  key: string;
+  keyType: string;
+  ttlSecs: number | null;
+}
+
+/** Result of `scanRedisKeys` — `cursor` is `0` once the keyspace (or
+ * everything matching the search pattern) has been fully iterated; the
+ * frontend's "charger plus" button hides once this comes back `0`. */
+export interface ScanPage {
+  keys: RedisKeyEntry[];
+  cursor: number;
+}
+
+/** A key's type-rendered value — see `core::redis_client::RedisValue`'s doc
+ * comment for why this needs `rename_all_fields` (not just `rename_all`) on
+ * the Rust side for `entries`/`members`/`typeName` to actually come through
+ * camelCase. `unsupported` covers streams and module types (RedisJSON, Bloom
+ * filters, …) the "Valeur" tab doesn't render structurally — reachable via
+ * the Console tab's raw commands instead. */
+export type RedisValue =
+  | { kind: "string"; value: string }
+  | { kind: "hash"; entries: [string, string][]; truncated: boolean }
+  | { kind: "list"; items: string[]; truncated: boolean }
+  | { kind: "set"; members: string[]; truncated: boolean }
+  | { kind: "sortedSet"; members: [string, number][]; truncated: boolean }
+  | { kind: "unsupported"; typeName: string };
+
+export interface RedisKeyDetail {
+  keyType: string;
+  ttlSecs: number | null;
+  value: RedisValue;
+}
+
+/** A generic RESP reply, rendered by the Console tab — `null`/a bare
+ * number/a bare string/a bare array for the ordinary cases, `{ error }` is
+ * the one shape that needs to stay distinguishable from a plain string
+ * reply. See `core::redis_client::RedisReply`'s doc comment. */
+export type RedisReply = null | number | string | RedisReply[] | { error: string };
 
 export interface Workspace {
   groups: Group[];

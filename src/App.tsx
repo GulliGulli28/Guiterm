@@ -21,6 +21,7 @@ const TransferTab = lazy(() => import("./components/TransferTab").then((m) => ({
 const RdpTab = lazy(() => import("./components/RdpTab").then((m) => ({ default: m.RdpTab })));
 const FleetTab = lazy(() => import("./components/FleetTab").then((m) => ({ default: m.FleetTab })));
 const SqlTab = lazy(() => import("./components/SqlTab").then((m) => ({ default: m.SqlTab })));
+const RedisTab = lazy(() => import("./components/RedisTab").then((m) => ({ default: m.RedisTab })));
 import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, loadPreferences, savePreferences } from "./lib/preferences";
 import { SplitPane } from "./components/SplitPane";
 import { GroupForm, type GroupFormData } from "./components/GroupForm";
@@ -500,7 +501,11 @@ export default function App() {
                     return (
                       <div key={tab.id} className={isActive ? "absolute inset-0 flex flex-col" : "hidden"}>
                         <Suspense fallback={<TabLoadingFallback />}>
-                          <SqlTab connection={connection} hosts={workspace.hosts} onError={reportError} />
+                          {connection.engine === "redis" ? (
+                            <RedisTab connection={connection} onError={reportError} />
+                          ) : (
+                            <SqlTab connection={connection} hosts={workspace.hosts} onError={reportError} />
+                          )}
                         </Suspense>
                       </div>
                     );

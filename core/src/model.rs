@@ -283,9 +283,14 @@ pub enum SqlEngine {
     Mysql,
     Postgres,
     Sqlite,
+    /// See `crate::redis_client`'s module doc comment — reuses this same
+    /// `SqlConnection`/`SqlEngine`/panel rather than a separate entity, but
+    /// renders through `RedisTab` (frontend), not `SqlTab`: a key-value store
+    /// has no schema/table tree or SQL query language to browse.
+    Redis,
 }
 
-/// A saved MySQL/PostgreSQL/SQLite connection — deliberately **not** a
+/// A saved MySQL/PostgreSQL/SQLite/Redis connection — deliberately **not** a
 /// `Host`/`HostKind` variant: unlike SSH/Docker exec/K8s exec/RDP, a SQL
 /// connection has no shell and isn't a fleet target, so folding it into
 /// `HostKind` would force every one of those (fleet, adaptive snippets, tab
@@ -298,31 +303,37 @@ pub struct SqlConnection {
     pub id: SqlConnectionId,
     pub label: String,
     pub engine: SqlEngine,
-    /// MySQL/PostgreSQL only. `None`: connect directly to `address`/`port`.
+    /// MySQL/PostgreSQL/Redis. `None`: connect directly to `address`/`port`.
     /// `Some(host_id)`: open an SSH connection to that saved host first and
     /// reach `address`/`port` through an ephemeral local port forward (see
-    /// `crate::sql::connect`) — for a database that's only reachable from
-    /// that host (bound to loopback server-side, a private subnet, etc.),
-    /// not necessarily "the database runs on that host".
+    /// `crate::sql::connect`/`crate::redis_client::connect`) — for a database
+    /// that's only reachable from that host (bound to loopback server-side,
+    /// a private subnet, etc.), not necessarily "the database runs on that
+    /// host".
     #[serde(default)]
     pub tunnel_host_id: Option<HostId>,
-    /// MySQL/PostgreSQL only — the database server's address, reachable
-    /// directly from this machine when `tunnel_host_id` is `None`, or
-    /// reachable *from* `tunnel_host_id` otherwise (often `127.0.0.1`, for a
-    /// database bound to loopback on that host). Empty for `Sqlite`.
+    /// MySQL/PostgreSQL/Redis — the server's address, reachable directly
+    /// from this machine when `tunnel_host_id` is `None`, or reachable
+    /// *from* `tunnel_host_id` otherwise (often `127.0.0.1`, for a database
+    /// bound to loopback on that host). Empty for `Sqlite`.
     #[serde(default)]
     pub address: String,
-    /// MySQL/PostgreSQL only. `0` for `Sqlite`.
+    /// MySQL/PostgreSQL/Redis. `0` for `Sqlite`.
     #[serde(default)]
     pub port: u16,
-    /// MySQL/PostgreSQL only. Empty for `Sqlite`.
+    /// MySQL/PostgreSQL/Redis (an optional Redis 6+ ACL username — empty
+    /// means legacy `requirepass`-only auth, still the common case). Empty
+    /// for `Sqlite`.
     #[serde(default)]
     pub username: String,
-    /// MySQL/PostgreSQL only. Initial database to connect to. Required in
+    /// MySQL/PostgreSQL: initial database to connect to. Required in
     /// practice for PostgreSQL (a connection always targets exactly one
     /// database, and never switches without reconnecting — see
     /// `crate::sql`'s module docs); optional for MySQL (a database can be
-    /// selected, or switched, per query). Always `None` for `Sqlite`.
+    /// selected, or switched, per query). `Redis`: the numbered database
+    /// index (0–15 by default), stored as a string, e.g. `Some("0")` —
+    /// `None`/empty defaults to `0` at connect time. Always `None` for
+    /// `Sqlite`.
     #[serde(default)]
     pub database: Option<String>,
     /// `Sqlite` only — the file's absolute path. Local to this machine when
@@ -357,6 +368,7 @@ impl SqlConnection {
             port: match engine {
                 SqlEngine::Mysql => 3306,
                 SqlEngine::Postgres => 5432,
+                SqlEngine::Redis => 6379,
                 SqlEngine::Sqlite => 0,
             },
             username: username.into(),

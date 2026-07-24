@@ -11,6 +11,7 @@ pub mod k8s;
 pub mod keys;
 pub mod known_hosts;
 pub mod rdp_view;
+pub mod redis;
 pub mod sftp;
 pub mod sql;
 pub mod terminal;

@@ -35,7 +35,9 @@ export function SqlConnectionsPanel({ workspace, onConnect, onNewConnection, onE
                 {conn.engine === "sqlite" ? (
                   <span className="font-mono">{conn.path}</span>
                 ) : (
-                  <span className="font-mono">{conn.address}:{conn.port}</span>
+                  <span className="font-mono">
+                    {conn.address}:{conn.port}{conn.engine === "redis" ? `/${conn.database || "0"}` : ""}
+                  </span>
                 )}
                 {tunnelHost && <> · via {tunnelHost.label}</>}
                 {sqliteHost && <> · sur {sqliteHost.label}</>}

@@ -150,6 +150,11 @@ fn main() {
             commands::sql::list_sql_columns,
             commands::sql::run_sql_query,
             commands::sql::export_sql_dump,
+            commands::redis::open_redis_session,
+            commands::redis::close_redis_session,
+            commands::redis::scan_redis_keys,
+            commands::redis::get_redis_value,
+            commands::redis::run_redis_command,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

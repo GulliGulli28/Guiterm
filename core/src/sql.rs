@@ -389,6 +389,7 @@ fn scheme(engine: SqlEngine) -> &'static str {
         SqlEngine::Mysql => "mysql",
         SqlEngine::Postgres => "postgres",
         SqlEngine::Sqlite => "sqlite",
+        SqlEngine::Redis => "redis",
     }
 }
 
@@ -427,10 +428,17 @@ const POSTGRES_BOOTSTRAP_DATABASE: &str = "postgres";
 ///
 /// `Sqlite` is dispatched to [`connect_sqlite`] instead — an embedded
 /// single-file engine has no TCP dial/tunnel to set up here at all (see this
-/// module's doc comment).
+/// module's doc comment). Never called with `Redis` — a `SqlConnection` with
+/// that engine is routed to `crate::redis_client::connect` instead (see its
+/// module doc comment for why it's a separate client rather than a `SqlPool`
+/// variant); guarded against here defensively since `SqlEngine` has no
+/// type-level way to exclude it from this function's argument.
 pub async fn connect(workspace: &Workspace, conn: &SqlConnection) -> anyhow::Result<SqlSession> {
     if conn.engine == SqlEngine::Sqlite {
         return connect_sqlite(workspace, conn).await;
+    }
+    if conn.engine == SqlEngine::Redis {
+        anyhow::bail!("sql::connect ne s'applique pas à Redis — utiliser redis_client::connect");
     }
     let password = vault::load(conn.id, SecretKind::SqlPassword)?;
 
@@ -496,6 +504,7 @@ pub async fn open_database(dial: &DialTarget, database: &str) -> anyhow::Result<
         SqlEngine::Postgres => Ok(SqlPool::Postgres(PgPoolOptions::new().max_connections(4).connect(url.as_str()).await?)),
         SqlEngine::Mysql => Ok(SqlPool::Mysql(MySqlPoolOptions::new().max_connections(4).connect(url.as_str()).await?)),
         SqlEngine::Sqlite => unreachable!("returned above"),
+        SqlEngine::Redis => unreachable!("a DialTarget is never constructed for Redis — see sql::connect"),
     }
 }
 
@@ -871,6 +880,10 @@ fn quote_identifier(engine: SqlEngine, name: &str) -> String {
         SqlEngine::Postgres => quote_pg_identifier(name),
         SqlEngine::Mysql => quote_mysql_identifier(name),
         SqlEngine::Sqlite => quote_sqlite_identifier(name),
+        // `engine` here is always derived from a live `SqlPool` (see e.g.
+        // `dump_tables`), which has no `Redis` variant at all — Redis never
+        // reaches this module (see `connect`'s doc comment).
+        SqlEngine::Redis => unreachable!("SqlPool has no Redis variant"),
     }
 }
 
@@ -887,6 +900,7 @@ fn quote_sql_string(engine: SqlEngine, s: &str) -> String {
     match engine {
         SqlEngine::Mysql => format!("'{}'", s.replace('\\', "\\\\").replace('\'', "\\'")),
         SqlEngine::Postgres | SqlEngine::Sqlite => format!("'{}'", s.replace('\'', "''")),
+        SqlEngine::Redis => unreachable!("SqlPool has no Redis variant"),
     }
 }
 
@@ -900,6 +914,7 @@ fn sql_literal(engine: SqlEngine, value: &serde_json::Value) -> String {
         serde_json::Value::Bool(b) => match engine {
             SqlEngine::Postgres => if *b { "TRUE" } else { "FALSE" }.to_string(),
             SqlEngine::Mysql | SqlEngine::Sqlite => if *b { "1" } else { "0" }.to_string(),
+            SqlEngine::Redis => unreachable!("SqlPool has no Redis variant"),
         },
         serde_json::Value::Number(n) => n.to_string(),
         serde_json::Value::String(s) => quote_sql_string(engine, s),
@@ -1140,7 +1155,11 @@ async fn write_insert_batch(
     Ok(())
 }
 
-fn hex_encode(bytes: &[u8]) -> String {
+/// `pub(crate)` (not private) — reused by `crate::redis_client`'s own
+/// binary-bulk-string fallback, so the two modules share one "how do we
+/// render bytes that aren't valid text" convention instead of inventing a
+/// second one.
+pub(crate) fn hex_encode(bytes: &[u8]) -> String {
     format!("\\x{}", bytes.iter().map(|byte| format!("{byte:02x}")).collect::<String>())
 }
 

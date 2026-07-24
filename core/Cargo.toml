@@ -76,6 +76,17 @@ libsqlite3-sys = { version = "0.30", features = ["bundled"] }
 # `sql::build_url` uses its setters (percent-encoding credentials safely,
 # see that function's doc comment) rather than just consuming it.
 url = "2"
+# `redis_client`: Redis client — checked against the RDP/ecdsa saga before
+# adding (see CLAUDE.md's "Pourquoi un processus RDP séparé"). `tokio-comp`
+# for the async API; `connection-manager` for `redis::aio::ConnectionManager`,
+# an auto-reconnecting multiplexed connection used in place of a real pool
+# (redis-rs has none of its own — a single multiplexed connection matches
+# this app's per-tab usage, not a connection-per-request web server). No TLS
+# feature: `sql::build_url` has no TLS support today for MySQL/PostgreSQL
+# either, and it wouldn't make sense through this app's SSH-tunnel path
+# anyway (a cert issued for the real host would never match `127.0.0.1`) —
+# revisit as a cross-engine addition later if needed, not Redis-only.
+redis = { version = "1", default-features = false, features = ["tokio-comp", "connection-manager"] }
 
 [dev-dependencies]
 tempfile = "3"
@@ -87,3 +98,6 @@ name = "docker_ssh_debug"
 
 [[example]]
 name = "sql_wsl_smoke"
+
+[[example]]
+name = "redis_wsl_smoke"

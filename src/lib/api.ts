@@ -1,6 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AuthMethod, ColumnInfo, CollectFactsResult, ComposeResult, DockerContainer, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostId, HostKind, ImportSelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, QueryResult, RdpClientMessage, RdpFrame, SnippetId, SqlConnectionId, SqlEngine, SqlExportDestination, SqlExportGroup, SshConfigHost, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
+import type { AuthMethod, ColumnInfo, CollectFactsResult, ComposeResult, DockerContainer, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostId, HostKind, ImportSelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, QueryResult, RdpClientMessage, RdpFrame, RedisKeyDetail, RedisReply, ScanPage, SnippetId, SqlConnectionId, SqlEngine, SqlExportDestination, SqlExportGroup, SshConfigHost, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
 
 /** Mirrors the 12-byte little-endian header `commands::rdp_view::connect_rdp_view`
  * writes ahead of each frame's raw RGBA8 pixels (see its doc comment for why
@@ -114,6 +114,23 @@ export const api = {
    * host (uploaded over SFTP). See `core::sql::dump_tables`'s doc comment. */
   exportSqlDump: (sessionId: string, groups: SqlExportGroup[], destination: SqlExportDestination) =>
     invoke<void>("export_sql_dump", { sessionId, groups, destination }),
+
+  /** Opens a connection (directly, or through an ephemeral SSH tunnel — see
+   * `core::redis_client::connect`) and returns an opaque session id to pass
+   * to every `scanRedisKeys`/`getRedisValue`/`runRedisCommand` call below,
+   * until `closeRedisSession`. */
+  openRedisSession: (connectionId: SqlConnectionId) => invoke<{ sessionId: string; database: number }>("open_redis_session", { connectionId }),
+  closeRedisSession: (sessionId: string) => invoke<void>("close_redis_session", { sessionId }),
+  /** `cursor`: `0` to start a fresh scan (also what "Rafraîchir" passes);
+   * otherwise the previous call's returned cursor, for "charger plus".
+   * `pattern`: a plain substring search unless it already contains a glob
+   * metacharacter — see `core::redis_client::scan_keys`'s doc comment. */
+  scanRedisKeys: (sessionId: string, cursor: number, pattern?: string | null) =>
+    invoke<ScanPage>("scan_redis_keys", { sessionId, cursor, pattern: pattern ?? null }),
+  getRedisValue: (sessionId: string, key: string) => invoke<RedisKeyDetail | null>("get_redis_value", { sessionId, key }),
+  /** The Console tab's backing action — no command blocklist, see
+   * `core::redis_client::run_command`'s doc comment. */
+  runRedisCommand: (sessionId: string, command: string) => invoke<RedisReply>("run_redis_command", { sessionId, command }),
 
   addPrivateKey: (name: string, path: string, passphrase: string | null) => invoke<Workspace>("add_private_key", { name, path, passphrase }),
   deletePrivateKey: (keyId: KeyId) => invoke<Workspace>("delete_private_key", { keyId }),

@@ -3,6 +3,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use termius_core::model::{PortForwardId, Workspace};
 use termius_core::port_forward::ActiveForward;
+use termius_core::redis_client::RedisSession;
 use termius_core::sftp::RemoteFileClient;
 use termius_core::sql::SqlSession;
 use termius_core::ssh::{Connection, ShellInput};
@@ -80,6 +81,10 @@ pub struct AppState {
     /// generated session id the frontend passes back on every subsequent
     /// call — same "opaque id → live resource" shape as `panes`.
     pub sql_sessions: Mutex<HashMap<String, SqlSession>>,
+    /// Live Redis connections — same "opaque id → live resource" shape as
+    /// `sql_sessions`, kept separate since a `RedisSession` isn't a `SqlPool`
+    /// (see `termius_core::redis_client`'s module doc comment).
+    pub redis_sessions: Mutex<HashMap<String, RedisSession>>,
     /// One cancellation flag per in-flight `upload_file`/`download_file` transfer, keyed by transfer id.
     pub transfers: Mutex<HashMap<String, Arc<AtomicBool>>>,
     /// Command history for local-terminal ghost-text suggestions, most recent last.
