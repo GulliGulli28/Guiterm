@@ -190,17 +190,23 @@ pub fn connect_via_ssh(connection: Arc<Connection>) -> anyhow::Result<Docker> {
 /// `host.docker_via_host_id` when that's set. `workspace` is only consulted
 /// in the SSH case, to establish that other host's connection (auth,
 /// known_hosts, bastion chaining all handled by [`crate::ssh::connect`]).
-/// **Deliberately not leased from [`crate::ssh_pool`]**, unlike every other
-/// SSH entry point. The pool's unit of accounting is "one lease ≈ one
-/// channel", and this connection doesn't fit that shape: every HTTP request
-/// bollard makes opens its own `docker system dial-stdio` exec channel, and
-/// `DialStdioConnector` is `Clone` (hyper requires it) and duplicated freely
-/// inside the connection pool — so there is no one place a lease could be
-/// held that would honestly track how many channels are in flight. A
-/// dedicated connection per Docker-over-SSH host is also a far smaller cost
-/// than the tab/pane/tunnel case the pool exists for: it's opened once per
-/// host and kept for the lifetime of the `Docker` client, rather than
-/// re-dialled per user action.
+/// **Not leased from [`crate::ssh_pool`] yet**, unlike every other SSH entry
+/// point. The pool's unit of accounting is "one lease ≈ one channel", and this
+/// connection doesn't fit that shape: every HTTP request bollard makes opens
+/// its own `docker system dial-stdio` exec channel, and `DialStdioConnector`
+/// is `Clone` (hyper requires it) and duplicated freely inside the connection
+/// pool — so there is no one obvious place a lease could be held that would
+/// honestly track how many channels are in flight.
+///
+/// **This is a known cost, not a free pass.** `HostsPanel` polls
+/// `list_docker_containers` every 30 seconds per `dockerExec` host, and each
+/// poll lands here and builds a *fresh* `Docker` client — so a
+/// `docker_via_host_id` host pays a full SSH handshake (TCP + kex + auth +
+/// known_hosts) twice a minute for as long as the panel is open. Confirmed by
+/// reading the app's own log after `crate::logging` landed, not theorised.
+/// Fixing it properly means either caching the `Docker` client per host or
+/// giving the connector a lease whose accounting reflects hyper's pooling —
+/// both bigger than the pool change itself, hence left out for now.
 pub async fn connect_for_host(workspace: &crate::model::Workspace, host: &crate::model::Host) -> anyhow::Result<Docker> {
     match host.docker_via_host_id {
         Some(via_host_id) => {
