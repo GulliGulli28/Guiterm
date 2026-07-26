@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { api } from "../lib/api";
-import { sqlEngineLabel, type ColumnInfo, type Host, type QueryResult, type SqlCellValue, type SqlConnection, type SqlExportDestination, type TableInfo } from "../lib/types";
+import { sqlEngineLabel, type ColumnInfo, type Host, type QueryResult, type SqlConnection, type SqlExportDestination, type TableInfo } from "../lib/types";
 import { useResizablePane } from "../hooks/useResizablePane";
 import { RemoteSavePathPicker } from "./RemoteSavePathPicker";
+import { ResultTable } from "./ResultTable";
 import { IconChevronDown, IconChevronRight, IconDatabase, IconDownload, IconFolder, IconPlay, IconRefresh } from "./ui-icons";
 
 interface SqlTabProps {
@@ -814,12 +815,14 @@ export function SqlTab({ connection, hosts, onError }: SqlTabProps) {
             </div>
           </div>
 
-          <div className="m-2 min-h-0 flex-1 overflow-auto rounded-lg border border-[var(--c-border)] p-2">
+          {/* `overflow-hidden`, not `overflow-auto`: `ResultTable` owns the
+              scrolling itself so it can window its rows (see its doc comment). */}
+          <div className="m-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-[var(--c-border)] p-2">
             {queryError && <p className="whitespace-pre-wrap text-xs text-rose-400">{queryError}</p>}
             {!queryError && result && (
               <>
                 {result.truncated && (
-                  <p className="mb-2 text-[11px] text-amber-400">
+                  <p className="mb-2 shrink-0 text-[11px] text-amber-400">
                     Résultat tronqué — seules les {result.rows.length} premières lignes sont affichées.
                   </p>
                 )}
@@ -835,44 +838,6 @@ export function SqlTab({ connection, hosts, onError }: SqlTabProps) {
         </div>
       </div>
     </div>
-  );
-}
-
-/** A cell is a JSON scalar for most columns, but a nested object/array for
- * JSON(B) columns and (best-effort) text arrays — see `SqlCellValue`'s doc
- * comment. Only the scalar `null` gets the "NULL" treatment; an empty
- * object/array is a real (non-null) value and is shown as such. */
-function formatCell(cell: SqlCellValue) {
-  if (cell === null) return <span className="italic text-[var(--c-text-faint)]">NULL</span>;
-  if (typeof cell === "object") return JSON.stringify(cell);
-  return String(cell);
-}
-
-/** The rows/columns table shared by the "Query" tab's results and the
- * "Data" tab's full-table preview below — same rendering either way, only
- * the query that produced `rows` differs. */
-function ResultTable({ columns, rows }: { columns: string[]; rows: SqlCellValue[][] }) {
-  return (
-    <table className="w-full border-collapse text-left text-[12px]">
-      <thead>
-        <tr>
-          {columns.map((c) => (
-            <th key={c} className="sticky top-0 border-b border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1 font-medium text-[var(--c-text-secondary)]">{c}</th>
-          ))}
-        </tr>
-      </thead>
-      <tbody>
-        {rows.map((row, i) => (
-          <tr key={i} className="hover:bg-white/5">
-            {row.map((cell, j) => (
-              <td key={j} className="whitespace-nowrap border-b border-[var(--c-border)] px-2 py-1 font-mono text-[var(--c-text)]">
-                {formatCell(cell)}
-              </td>
-            ))}
-          </tr>
-        ))}
-      </tbody>
-    </table>
   );
 }
 
@@ -903,12 +868,13 @@ function TableData({
           <IconRefresh size={11} /> {loading ? "Chargement…" : "Rafraîchir"}
         </button>
       </div>
-      <div className="m-2 min-h-0 flex-1 overflow-auto rounded-lg border border-[var(--c-border)] p-2">
+      {/* See the query tab's matching container — `ResultTable` scrolls itself. */}
+      <div className="m-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-[var(--c-border)] p-2">
         {error && <p className="whitespace-pre-wrap text-xs text-rose-400">{error}</p>}
         {!error && result && (
           <>
             {result.truncated && (
-              <p className="mb-2 text-[11px] text-amber-400">
+              <p className="mb-2 shrink-0 text-[11px] text-amber-400">
                 Résultat tronqué — seules les {result.rows.length} premières lignes sont affichées.
               </p>
             )}

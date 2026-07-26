@@ -11,6 +11,7 @@ import { TERMINAL_THEMES, auroraLayerBackground } from "../lib/preferences";
 import { shouldBubbleToShortcut } from "../lib/shortcuts";
 import { TerminalSearchBar, type SearchOptions } from "./TerminalSearchBar";
 import { createGhostTextController, type GhostSuggestion, type GhostTextController } from "../lib/ghostText";
+import { attachWebglRenderer } from "../lib/xtermRenderer";
 
 export { type TerminalTabHandle };
 
@@ -77,7 +78,13 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
     const search = new SearchAddon();
     term.loadAddon(fit);
     term.loadAddon(search);
-    if (containerRef.current) term.open(containerRef.current);
+    // The WebGL renderer needs a terminal that's already attached to the DOM,
+    // so it loads after `open()` — unlike fit/search, which don't care.
+    let disposeRenderer: (() => void) | null = null;
+    if (containerRef.current) {
+      term.open(containerRef.current);
+      disposeRenderer = attachWebglRenderer(term);
+    }
     termRef.current = term;
     fitRef.current = fit;
     searchRef.current = search;
@@ -170,6 +177,7 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
       disposed = true;
       unlistenClosed?.();
       if (sessionIdRef.current) api.closeLocalTerminal(sessionIdRef.current).catch(() => {});
+      disposeRenderer?.();
       term.dispose();
     };
   }, []);

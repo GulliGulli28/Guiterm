@@ -17,6 +17,38 @@ version = "2.3.0"
 edition = "2024"
 license = "MIT"
 
+# Applies to the shipped binary only (`cargo build --release`), never to
+# `cargo check`/`cargo test`/`cargo clippy`, so the everyday verification loop
+# is unaffected. Cargo profiles are only read from the workspace root, hence
+# here rather than in `src-tauri/Cargo.toml` — `rdp-sidecar` is a separate
+# workspace and carries its own copy of this block.
+[profile.release]
+# This is tuned for runtime speed, NOT binary size — measured, not assumed:
+# on the shipped MSVC target it makes `guiterm.exe` *bigger* (36.9 MB -> 41.0
+# MB), because Windows keeps debug symbols in a separate `.pdb` (8.4 MB here)
+# rather than in the executable, so `strip` has almost nothing to remove,
+# while the extra cross-crate inlining below adds real code. Worth it for an
+# app whose hot paths are terminal I/O and SSH crypto; revisit if install size
+# ever matters more than throughput.
+#
+# Thin LTO rather than "fat": most of the cross-crate inlining win for a
+# fraction of the link time, which matters because this dependency graph is
+# large (russh + sqlx + kube + mongodb + bollard + reqwest) and the release
+# binary gets rebuilt by hand for every manual Windows test.
+lto = "thin"
+# One codegen unit per crate — better optimisation across each crate's own
+# code, at the cost of losing intra-crate codegen parallelism.
+codegen-units = 1
+# No effect worth measuring on MSVC (see above), but it does strip the Linux
+# build, where symbols are in the binary itself. Panic messages survive either
+# way; only backtrace frame names are lost.
+strip = true
+# Deliberately NOT `panic = "abort"`: `ssh::AppHandler::check_server_key`
+# recovers from a panic inside `spawn_blocking` by turning the `JoinError`
+# into a refused host key (see its `unwrap_or_else`). Aborting would kill the
+# whole app there instead of failing that one connection, and tokio can't
+# catch a panic that aborts.
+
 [workspace.dependencies]
 termius-core = { path = "core" }
 

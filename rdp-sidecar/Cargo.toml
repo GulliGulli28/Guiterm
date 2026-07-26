@@ -11,6 +11,15 @@
 [workspace]
 members = ["."]
 
+# Mirrors the root workspace's `[profile.release]` — a separate workspace gets
+# none of the root's profile settings, and this binary ships inside the same
+# bundle (`tauri.conf.json`'s `bundle.externalBin`), so it should be built to
+# the same standard. Same reasoning for each key, see the root `Cargo.toml`.
+[profile.release]
+lto = "thin"
+codegen-units = 1
+strip = true
+
 [package]
 name = "rdp-sidecar"
 version = "1.5.0"
