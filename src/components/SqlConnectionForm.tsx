@@ -1,24 +1,21 @@
 import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { HostId, SqlConnection, SqlConnectionId, SqlEngine, Workspace } from "../lib/types";
+import type { HostId, SqlConnection, SqlConnectionId, SqlEngine, SqlEngineConfig, Workspace } from "../lib/types";
 import { IconTrash } from "./ui-icons";
 import { SqliteRemoteFilePicker } from "./SqliteRemoteFilePicker";
 
-export interface SqlConnectionFormData {
+/** What the form submits: the identity/grouping fields plus exactly the
+ * engine-specific config that engine actually has (see `SqlEngineConfig`),
+ * which is the same flattened shape `save_sql_connection` deserialises. */
+export type SqlConnectionFormData = {
   id: SqlConnectionId | null;
   label: string;
-  engine: SqlEngine;
-  tunnelHostId: string | null;
-  address: string;
-  port: number;
-  username: string;
-  database: string | null;
-  path: string | null;
-  sqliteHostId: string | null;
   groupId: null;
   tags: string[];
+  /** Plaintext password, stored in the vault by the backend — `null` leaves
+   * whichever password is already stored untouched. */
   secret: string | null;
-}
+} & SqlEngineConfig;
 
 interface SqlConnectionFormProps {
   workspace: Workspace;
@@ -29,34 +26,59 @@ interface SqlConnectionFormProps {
   onDeleteConnection?: (id: SqlConnectionId) => void;
 }
 
-const DEFAULT_PORTS: Record<Exclude<SqlEngine, "sqlite">, string> = { mysql: "3306", postgres: "5432", redis: "6379" };
+const DEFAULT_PORTS: Record<Exclude<SqlEngine, "sqlite" | "mongodb">, string> = { mysql: "3306", postgres: "5432", redis: "6379" };
 
 const SQLITE_FILTERS = [{ name: "SQLite", extensions: ["sqlite", "sqlite3", "db"] }, { name: "Tous les fichiers", extensions: ["*"] }];
+
+/** Client-side heuristic only (the backend has the authoritative check at
+ * connect time) — a plain single-host `mongodb://host:port/...` string can
+ * be tunnelled through one TCP forward; `mongodb+srv://` (DNS-based
+ * discovery) or a comma-joined multi-host string can't, see
+ * `core::mongo_client::connect`'s doc comment for why. */
+function isTunnelableMongoUri(uri: string): boolean {
+  const trimmed = uri.trim();
+  if (!trimmed.startsWith("mongodb://")) return false;
+  const afterScheme = trimmed.slice("mongodb://".length);
+  const hostPart = afterScheme.split("@").pop() ?? afterScheme;
+  const hostOnly = hostPart.split(/[/?]/)[0];
+  return hostOnly.length > 0 && !hostOnly.includes(",");
+}
 
 /** Right-panel form for creating/editing a SQL connection — same slot and
  * layout as `HostForm`/`GroupForm` (see `App.tsx`'s `showRightPanel`), rather
  * than an inline expansion in `SqlConnectionsPanel`'s list. */
 export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onDeleteConnection }: SqlConnectionFormProps) {
+  // The form keeps one flat field per input regardless of engine (so switching
+  // engine mid-edit doesn't discard what's already typed); these narrow the
+  // incoming connection once so each `useState` below can seed from it.
+  const existingServer =
+    connection && (connection.engine === "mysql" || connection.engine === "postgres" || connection.engine === "redis")
+      ? connection
+      : null;
+  const existingSqlite = connection?.engine === "sqlite" ? connection : null;
+  const existingMongo = connection?.engine === "mongodb" ? connection : null;
+
   const [label, setLabel] = useState(connection?.label ?? "");
   const [engine, setEngine] = useState<SqlEngine>(connection?.engine ?? "mysql");
-  const [tunnelHostId, setTunnelHostId] = useState(connection?.tunnelHostId ?? "");
-  const [address, setAddress] = useState(connection?.address ?? "");
-  const [port, setPort] = useState(String(connection?.port ?? DEFAULT_PORTS.mysql));
-  const [username, setUsername] = useState(connection?.username ?? "");
+  const [tunnelHostId, setTunnelHostId] = useState(existingServer?.tunnelHostId ?? existingMongo?.tunnelHostId ?? "");
+  const [address, setAddress] = useState(existingServer?.address ?? "");
+  const [port, setPort] = useState(String(existingServer?.port ?? DEFAULT_PORTS.mysql));
+  const [username, setUsername] = useState(existingServer?.username ?? existingMongo?.username ?? "");
   const [password, setPassword] = useState("");
-  const [database, setDatabase] = useState(connection?.database ?? "");
-  const [path, setPath] = useState(connection?.path ?? "");
-  const [sqliteHostId, setSqliteHostId] = useState<HostId | "">(connection?.sqliteHostId ?? "");
+  const [database, setDatabase] = useState(existingServer?.database ?? "");
+  const [path, setPath] = useState(existingSqlite?.path ?? "");
+  const [sqliteHostId, setSqliteHostId] = useState<HostId | "">(existingSqlite?.sqliteHostId ?? "");
+  const [connectionString, setConnectionString] = useState(existingMongo?.connectionString ?? "");
   const [showRemotePicker, setShowRemotePicker] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [confirmDelete, setConfirmDelete] = useState(false);
 
   // Only switches the port if it's still at one engine's default — a custom
   // port the user already typed in is left untouched. No port to switch for
-  // `sqlite` (it has none — see `DEFAULT_PORTS`).
+  // `sqlite`/`mongodb` (neither uses a discrete port field — see `DEFAULT_PORTS`).
   const onEngineChange = (next: SqlEngine) => {
     setEngine(next);
-    if (next !== "sqlite" && Object.values(DEFAULT_PORTS).includes(port)) setPort(DEFAULT_PORTS[next]);
+    if (next !== "sqlite" && next !== "mongodb" && Object.values(DEFAULT_PORTS).includes(port)) setPort(DEFAULT_PORTS[next]);
   };
 
   const browseLocalFile = async () => {
@@ -86,17 +108,30 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
       onSave({
         id: connection?.id ?? null,
         label: label.trim(),
-        engine,
-        tunnelHostId: null,
-        address: "",
-        port: 0,
-        username: "",
-        database: null,
+        engine: "sqlite",
         path: path.trim(),
         sqliteHostId: sqliteHostId || null,
         groupId: null,
         tags: [],
         secret: null,
+      });
+      return;
+    }
+    if (engine === "mongodb") {
+      if (!connectionString.trim()) {
+        setError("Chaîne de connexion MongoDB manquante");
+        return;
+      }
+      onSave({
+        id: connection?.id ?? null,
+        label: label.trim(),
+        engine: "mongodb",
+        connectionString: connectionString.trim(),
+        username: username.trim(),
+        tunnelHostId: tunnelHostId || null,
+        groupId: null,
+        tags: [],
+        secret: password || null,
       });
       return;
     }
@@ -110,14 +145,14 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
     onSave({
       id: connection?.id ?? null,
       label: label.trim(),
+      // Narrowed by the two early returns above: `sqlite`/`mongodb` are
+      // already handled, so only the TCP-dialled engines reach here.
       engine,
       tunnelHostId: tunnelHostId || null,
       address: address.trim(),
       port: p,
       username: username.trim(),
       database: database.trim() || null,
-      path: null,
-      sqliteHostId: null,
       groupId: null,
       tags: [],
       secret: password || null,
@@ -145,6 +180,7 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
             <option value="postgres">PostgreSQL</option>
             <option value="sqlite">SQLite</option>
             <option value="redis">Redis</option>
+            <option value="mongodb">MongoDB</option>
           </select>
         </div>
 
@@ -176,6 +212,64 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
               </p>
             )}
           </div>
+        ) : engine === "mongodb" ? (
+          <>
+            <div className="space-y-1">
+              <span className="text-xs font-medium text-[var(--c-text-secondary)]">Chaîne de connexion</span>
+              <textarea
+                value={connectionString}
+                onChange={(e) => setConnectionString(e.target.value)}
+                placeholder="mongodb://hôte:27017/ma_base ou mongodb+srv://cluster.xyz.mongodb.net/ma_base"
+                rows={2}
+                spellCheck={false}
+                className={`${inputClass} w-full resize-y font-mono`}
+              />
+              <p className="px-0.5 text-[11px] leading-relaxed text-[var(--c-text-muted)]">
+                Peut inclure directement les identifiants (mongodb://utilisateur:motdepasse@hôte/base), ou les
+                laisser dans les champs ci-dessous — insérés automatiquement à la connexion.
+              </p>
+            </div>
+
+            <div className="space-y-1">
+              <span className="text-xs font-medium text-[var(--c-text-secondary)]">Tunnel</span>
+              <select value={tunnelHostId} onChange={(e) => setTunnelHostId(e.target.value)} className={selectClass}>
+                <option value="">Connexion directe (pas de tunnel)</option>
+                {workspace.hosts
+                  .filter((h) => (h.kind ?? "ssh") === "ssh")
+                  .map((h) => (
+                    <option key={h.id} value={h.id}>Tunnel SSH via {h.label}</option>
+                  ))}
+              </select>
+              {tunnelHostId && !isTunnelableMongoUri(connectionString) && (
+                <p className="px-0.5 text-[11px] leading-relaxed text-amber-400">
+                  Le tunnel SSH ne fonctionne qu'avec une chaîne mongodb:// mono-hôte — mongodb+srv:// ou une
+                  liste d'hôtes séparés par des virgules ne peut pas passer par un tunnel TCP unique. La
+                  connexion échouera tant que ce tunnel est sélectionné avec cette chaîne.
+                </p>
+              )}
+            </div>
+
+            <div className="space-y-1">
+              <span className="text-xs font-medium text-[var(--c-text-secondary)]">Utilisateur (optionnel)</span>
+              <input
+                value={username}
+                onChange={(e) => setUsername(e.target.value)}
+                placeholder="Si non inclus dans la chaîne de connexion"
+                className={inputFullClass}
+              />
+            </div>
+
+            <div className="space-y-1">
+              <span className="text-xs font-medium text-[var(--c-text-secondary)]">Mot de passe</span>
+              <input
+                value={password}
+                onChange={(e) => setPassword(e.target.value)}
+                type="password"
+                placeholder={connection ? "Laisser vide pour ne pas changer" : "Mot de passe (optionnel)"}
+                className={inputFullClass}
+              />
+            </div>
+          </>
         ) : (
           <>
             <div className="space-y-1">

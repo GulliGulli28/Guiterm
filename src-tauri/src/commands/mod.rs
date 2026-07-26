@@ -10,6 +10,7 @@ pub mod hosts;
 pub mod k8s;
 pub mod keys;
 pub mod known_hosts;
+pub mod mongo;
 pub mod rdp_view;
 pub mod redis;
 pub mod sftp;

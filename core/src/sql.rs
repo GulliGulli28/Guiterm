@@ -78,10 +78,10 @@
 //!   session is closed cleanly — an app crash/kill between `connect` and
 //!   `close` loses them (same accepted tradeoff `SqlSession`'s doc comment
 //!   already states for the MySQL/PostgreSQL tunnel case).
-use crate::model::{PortForward, PortForwardKind, SqlConnection, SqlEngine, Workspace};
+use crate::model::{EngineConfig, PortForward, PortForwardKind, SqlConnection, SqlEngine, Workspace};
 use crate::port_forward::{self, ActiveForward};
 use crate::sftp::SftpClient;
-use crate::ssh::{self, Connection};
+use crate::ssh_pool::{self, SshLease};
 use crate::vault::{self, SecretKind};
 use futures_util::TryStreamExt;
 use serde::Serialize;
@@ -91,7 +91,6 @@ use sqlx::sqlite::{SqliteConnectOptions, SqlitePool, SqlitePoolOptions};
 use sqlx::types::chrono::{DateTime, NaiveDate, NaiveDateTime, NaiveTime, Utc};
 use sqlx::types::{Decimal, Uuid};
 use sqlx::{Column, Row};
-use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
 /// The live pool behind a [`SqlSession`] — see this module's doc comment for
@@ -149,7 +148,10 @@ pub struct DialTarget {
 /// reliable enough for a check whose entire purpose is not silently losing
 /// data.
 struct SqliteRemote {
-    _connection: Arc<Connection>,
+    /// Held purely to keep the SSH connection the SFTP channel rides on alive
+    /// for the session's lifetime — a lease now, so it's shared with whatever
+    /// else is already talking to that host (see [`crate::ssh_pool`]).
+    _connection: SshLease,
     client: SftpClient,
     remote_path: String,
     local_path: std::path::PathBuf,
@@ -217,7 +219,7 @@ pub struct SqlSession {
     /// for `Sqlite` (always `Some("main")`).
     pub database: Option<String>,
     dial: DialTarget,
-    tunnel: Option<(Arc<Connection>, ActiveForward)>,
+    tunnel: Option<(SshLease, ActiveForward)>,
     sqlite_remote: Option<SqliteRemote>,
 }
 
@@ -390,6 +392,7 @@ fn scheme(engine: SqlEngine) -> &'static str {
         SqlEngine::Postgres => "postgres",
         SqlEngine::Sqlite => "sqlite",
         SqlEngine::Redis => "redis",
+        SqlEngine::Mongodb => "mongodb",
     }
 }
 
@@ -428,34 +431,41 @@ const POSTGRES_BOOTSTRAP_DATABASE: &str = "postgres";
 ///
 /// `Sqlite` is dispatched to [`connect_sqlite`] instead — an embedded
 /// single-file engine has no TCP dial/tunnel to set up here at all (see this
-/// module's doc comment). Never called with `Redis` — a `SqlConnection` with
-/// that engine is routed to `crate::redis_client::connect` instead (see its
-/// module doc comment for why it's a separate client rather than a `SqlPool`
-/// variant); guarded against here defensively since `SqlEngine` has no
-/// type-level way to exclude it from this function's argument.
+/// module's doc comment). `Redis`/`Mongodb` are rejected: a `SqlConnection`
+/// with either engine is routed to `crate::redis_client::connect`/
+/// `crate::mongo_client::connect` instead (see their module doc comments for
+/// why each is a separate client rather than a `SqlPool` variant).
 pub async fn connect(workspace: &Workspace, conn: &SqlConnection) -> anyhow::Result<SqlSession> {
-    if conn.engine == SqlEngine::Sqlite {
-        return connect_sqlite(workspace, conn).await;
-    }
-    if conn.engine == SqlEngine::Redis {
-        anyhow::bail!("sql::connect ne s'applique pas à Redis — utiliser redis_client::connect");
-    }
+    // Matching the config (rather than testing `engine` and then reading
+    // `address`/`port`/`database` off a flat struct) is what makes the
+    // server-only fields *exist* only on the branch that has them.
+    let server = match &conn.config {
+        EngineConfig::Mysql(server) | EngineConfig::Postgres(server) => server,
+        EngineConfig::Sqlite(_) => return connect_sqlite(workspace, conn).await,
+        EngineConfig::Redis(_) => {
+            anyhow::bail!("sql::connect ne s'applique pas à Redis — utiliser redis_client::connect")
+        }
+        EngineConfig::Mongodb(_) => {
+            anyhow::bail!("sql::connect ne s'applique pas à MongoDB — utiliser mongo_client::connect")
+        }
+    };
+    let engine = conn.engine();
     let password = vault::load(conn.id, SecretKind::SqlPassword)?;
 
-    let (dial_host, dial_port, tunnel) = match conn.tunnel_host_id {
-        None => (conn.address.clone(), conn.port, None),
+    let (dial_host, dial_port, tunnel) = match server.tunnel_host_id {
+        None => (server.address.clone(), server.port, None),
         Some(host_id) => {
-            let connection = Arc::new(ssh::connect(workspace, host_id).await?);
+            let connection = ssh_pool::acquire(workspace, host_id).await?;
             let forward = PortForward {
                 id: uuid::Uuid::new_v4(),
                 host_id,
                 kind: PortForwardKind::Local,
                 bind_address: "127.0.0.1".to_string(),
                 bind_port: 0,
-                dest_address: conn.address.clone(),
-                dest_port: conn.port,
+                dest_address: server.address.clone(),
+                dest_port: server.port,
             };
-            let active = port_forward::start(connection.clone(), forward).await?;
+            let active = port_forward::start(connection.connection(), forward).await?;
             let bound = active
                 .bound_addr()
                 .ok_or_else(|| anyhow::anyhow!("le tunnel SSH n'a pas pu s'ouvrir"))?;
@@ -463,9 +473,9 @@ pub async fn connect(workspace: &Workspace, conn: &SqlConnection) -> anyhow::Res
         }
     };
 
-    let requested_database = conn.database.clone().filter(|d| !d.is_empty());
-    let bootstrap_database = requested_database.clone().or_else(|| (conn.engine == SqlEngine::Postgres).then(|| POSTGRES_BOOTSTRAP_DATABASE.to_string()));
-    let dial = DialTarget { engine: conn.engine, host: dial_host, port: dial_port, username: conn.username.clone(), password };
+    let requested_database = server.database.clone().filter(|d| !d.is_empty());
+    let bootstrap_database = requested_database.clone().or_else(|| (engine == SqlEngine::Postgres).then(|| POSTGRES_BOOTSTRAP_DATABASE.to_string()));
+    let dial = DialTarget { engine, host: dial_host, port: dial_port, username: server.username.clone(), password };
 
     let pool = match open_database(&dial, bootstrap_database.as_deref().unwrap_or_default()).await {
         Ok(pool) => pool,
@@ -504,7 +514,7 @@ pub async fn open_database(dial: &DialTarget, database: &str) -> anyhow::Result<
         SqlEngine::Postgres => Ok(SqlPool::Postgres(PgPoolOptions::new().max_connections(4).connect(url.as_str()).await?)),
         SqlEngine::Mysql => Ok(SqlPool::Mysql(MySqlPoolOptions::new().max_connections(4).connect(url.as_str()).await?)),
         SqlEngine::Sqlite => unreachable!("returned above"),
-        SqlEngine::Redis => unreachable!("a DialTarget is never constructed for Redis — see sql::connect"),
+        SqlEngine::Redis | SqlEngine::Mongodb => unreachable!("a DialTarget is never constructed for Redis/MongoDB — see sql::connect"),
     }
 }
 
@@ -531,19 +541,25 @@ fn split_remote_path(path: &str) -> anyhow::Result<(String, String)> {
     Ok((parent, name))
 }
 
-/// Connects a `Sqlite` [`SqlConnection`] — see this module's doc comment.
-/// `conn.path` is required; `conn.sqlite_host_id`, if set, means it lives on
-/// that saved host's filesystem rather than locally, fetched whole over SFTP
-/// into a fresh private local temp file first (the SSH connection and SFTP
-/// client are kept alive on the returned session purely so `close()` can
-/// write the file back to `conn.path` on that host afterward).
+/// Connects a `Sqlite` [`SqlConnection`] — see this module's doc comment. The
+/// config's `path` is required; its `sqlite_host_id`, if set, means the file
+/// lives on that saved host's filesystem rather than locally, fetched whole
+/// over SFTP into a fresh private local temp file first (the SSH connection
+/// and SFTP client are kept alive on the returned session purely so `close()`
+/// can write the file back to that path on that host afterward).
 async fn connect_sqlite(workspace: &Workspace, conn: &SqlConnection) -> anyhow::Result<SqlSession> {
-    let remote_path = conn.path.clone().filter(|p| !p.is_empty()).ok_or_else(|| anyhow::anyhow!("chemin du fichier SQLite manquant"))?;
+    let EngineConfig::Sqlite(sqlite) = &conn.config else {
+        anyhow::bail!("connect_sqlite ne s'applique qu'à une connexion SQLite");
+    };
+    if sqlite.path.is_empty() {
+        anyhow::bail!("chemin du fichier SQLite manquant");
+    }
+    let remote_path = sqlite.path.clone();
 
-    let (local_path, sqlite_remote) = match conn.sqlite_host_id {
+    let (local_path, sqlite_remote) = match sqlite.sqlite_host_id {
         None => (std::path::PathBuf::from(&remote_path), None),
         Some(host_id) => {
-            let connection = Arc::new(ssh::connect(workspace, host_id).await?);
+            let connection = ssh_pool::acquire(workspace, host_id).await?;
             let client = SftpClient::open(&connection).await?;
             let (parent_dir, file_name) = split_remote_path(&remote_path)?;
             let source_entry = client
@@ -755,7 +771,10 @@ pub async fn list_columns(pool: &SqlPool, schema: &str, table: &str) -> anyhow::
 /// while streaming (`fetch`, not `fetch_all`), so a `SELECT` without a
 /// `LIMIT` against a huge table doesn't have to be fully buffered in memory
 /// first, same discipline as `core::k8s_pane`'s size-capped downloads.
-const MAX_RESULT_ROWS: usize = 5000;
+/// `pub(crate)` — reused by `crate::mongo_client::find_documents` for the
+/// same reason, rather than declaring an independent constant that could
+/// silently drift from this one.
+pub(crate) const MAX_RESULT_ROWS: usize = 5000;
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -883,7 +902,7 @@ fn quote_identifier(engine: SqlEngine, name: &str) -> String {
         // `engine` here is always derived from a live `SqlPool` (see e.g.
         // `dump_tables`), which has no `Redis` variant at all — Redis never
         // reaches this module (see `connect`'s doc comment).
-        SqlEngine::Redis => unreachable!("SqlPool has no Redis variant"),
+        SqlEngine::Redis | SqlEngine::Mongodb => unreachable!("SqlPool has no Redis/MongoDB variant"),
     }
 }
 
@@ -900,7 +919,7 @@ fn quote_sql_string(engine: SqlEngine, s: &str) -> String {
     match engine {
         SqlEngine::Mysql => format!("'{}'", s.replace('\\', "\\\\").replace('\'', "\\'")),
         SqlEngine::Postgres | SqlEngine::Sqlite => format!("'{}'", s.replace('\'', "''")),
-        SqlEngine::Redis => unreachable!("SqlPool has no Redis variant"),
+        SqlEngine::Redis | SqlEngine::Mongodb => unreachable!("SqlPool has no Redis/MongoDB variant"),
     }
 }
 
@@ -914,7 +933,7 @@ fn sql_literal(engine: SqlEngine, value: &serde_json::Value) -> String {
         serde_json::Value::Bool(b) => match engine {
             SqlEngine::Postgres => if *b { "TRUE" } else { "FALSE" }.to_string(),
             SqlEngine::Mysql | SqlEngine::Sqlite => if *b { "1" } else { "0" }.to_string(),
-            SqlEngine::Redis => unreachable!("SqlPool has no Redis variant"),
+            SqlEngine::Redis | SqlEngine::Mongodb => unreachable!("SqlPool has no Redis/MongoDB variant"),
         },
         serde_json::Value::Number(n) => n.to_string(),
         serde_json::Value::String(s) => quote_sql_string(engine, s),
@@ -1368,8 +1387,7 @@ mod tests {
         std::fs::File::create(&path).unwrap();
 
         let workspace = Workspace::default();
-        let mut conn = SqlConnection::new("test", SqlEngine::Sqlite, "", "");
-        conn.path = Some(path.to_string_lossy().to_string());
+        let conn = SqlConnection::new_sqlite_local("test", path.to_string_lossy().to_string());
 
         let session = connect(&workspace, &conn).await.unwrap();
         assert_eq!(session.database.as_deref(), Some("main"));
@@ -1407,8 +1425,7 @@ mod tests {
         let source_path = dir.path().join("source.sqlite");
         std::fs::File::create(&source_path).unwrap();
         let workspace = Workspace::default();
-        let mut source_conn = SqlConnection::new("source", SqlEngine::Sqlite, "", "");
-        source_conn.path = Some(source_path.to_string_lossy().to_string());
+        let source_conn = SqlConnection::new_sqlite_local("source", source_path.to_string_lossy().to_string());
         let source = connect(&workspace, &source_conn).await.unwrap();
 
         execute_query(&source.pool, None, "CREATE TABLE widgets (id INTEGER PRIMARY KEY, name TEXT, qty INTEGER)").await.unwrap();
@@ -1424,8 +1441,7 @@ mod tests {
 
         let dest_path = dir.path().join("dest.sqlite");
         std::fs::File::create(&dest_path).unwrap();
-        let mut dest_conn = SqlConnection::new("dest", SqlEngine::Sqlite, "", "");
-        dest_conn.path = Some(dest_path.to_string_lossy().to_string());
+        let dest_conn = SqlConnection::new_sqlite_local("dest", dest_path.to_string_lossy().to_string());
         let dest = connect(&workspace, &dest_conn).await.unwrap();
         for statement in dump_text.split(";\n").map(str::trim).filter(|s| !s.is_empty()) {
             execute_query(&dest.pool, None, statement).await.unwrap();

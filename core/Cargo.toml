@@ -7,6 +7,11 @@ license.workspace = true
 [dependencies]
 tokio.workspace = true
 russh.workspace = true
+# `logging`: the shipped Windows binary has no console (`windows_subsystem =
+# "windows"`), so tracing output has to go to a file to be retrievable at all
+# — see that module's doc comment. `env-filter` to honour `RUST_LOG`.
+tracing-subscriber = { workspace = true, features = ["env-filter"] }
+tracing-appender = "0.2"
 russh-sftp.workspace = true
 serde.workspace = true
 serde_json.workspace = true
@@ -87,11 +92,31 @@ url = "2"
 # anyway (a cert issued for the real host would never match `127.0.0.1`) —
 # revisit as a cross-engine addition later if needed, not Redis-only.
 redis = { version = "1", default-features = false, features = ["tokio-comp", "connection-manager"] }
+# `mongo_client`: official MongoDB driver — checked against the RDP/ecdsa
+# saga before adding (see CLAUDE.md's "Pourquoi un processus RDP séparé"),
+# and actually compiled (not just `cargo check`) to confirm no exact-pin
+# conflict — a single resolved `chrono`/`rustls`/`time`/`hickory-resolver`
+# throughout, matching what was already there before this line. `bson-3` +
+# `compat-3-3-0`: with `default-features = false`, exactly one of `bson-2`/
+# `bson-3` is mandatory (selects which major version of the separate `bson`
+# crate the driver uses internally), not optional — the crate fails to
+# *compile* (not just resolve) without one. `rustls-tls` to stay consistent
+# with this workspace's rustls-only policy (reqwest/kube/sqlx all use it,
+# never native-tls/OpenSSL); `dns-resolver` for `mongodb+srv://` (Atlas)
+# SRV/TXT resolution — resolved `hickory-resolver` version is well past the
+# old Windows-specific DNS performance bug, worth checking explicitly since
+# this app's primary shipped target is native Windows.
+mongodb = { version = "3", default-features = false, features = ["bson-3", "compat-3-3-0", "rustls-tls", "dns-resolver"] }
+# Same underlying crate as `mongodb`'s internal `bson3` dependency (Cargo
+# unifies features across every requester of one resolved package) — added
+# directly only to turn on `serde_json-1`, which `mongodb`'s own dependency
+# declaration doesn't enable by default and which `mongo_client` needs for
+# `Bson::try_from(serde_json::Value)`/`Bson::into_relaxed_extjson` (the
+# Extended JSON conversions the "Requête"/"Données" tabs are built on).
+bson = { version = "3", features = ["serde_json-1"] }
 
 [dev-dependencies]
 tempfile = "3"
-# examples/docker_ssh_debug.rs only.
-tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 
 [[example]]
 name = "docker_ssh_debug"
@@ -101,3 +126,6 @@ name = "sql_wsl_smoke"
 
 [[example]]
 name = "redis_wsl_smoke"
+
+[[example]]
+name = "mongo_wsl_smoke"

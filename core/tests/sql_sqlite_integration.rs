@@ -9,7 +9,7 @@ mod common;
 use common::{ClientKey, TestSshd, test_host};
 use std::sync::atomic::AtomicBool;
 use std::sync::LazyLock;
-use termius_core::model::{SqlConnection, SqlEngine, Workspace};
+use termius_core::model::{EngineConfig, SqlConnection, SqliteConfig, Workspace};
 use termius_core::sftp::{self, SftpClient};
 use termius_core::sql;
 use tokio::sync::Mutex;
@@ -31,8 +31,7 @@ static TEST_LOCK: LazyLock<Mutex<()>> = LazyLock::new(|| Mutex::new(()));
 async fn make_local_sqlite(seed_value: Option<&str>) -> std::path::PathBuf {
     let path = std::env::temp_dir().join(format!("guiterm-test-sqlite-src-{}.sqlite", Uuid::new_v4()));
     std::fs::File::create(&path).unwrap();
-    let mut conn = SqlConnection::new("seed", SqlEngine::Sqlite, "", "");
-    conn.path = Some(path.to_string_lossy().to_string());
+    let conn = SqlConnection::new_sqlite_local("seed", path.to_string_lossy().to_string());
     let workspace = Workspace::default();
     let session = sql::connect(&workspace, &conn).await.expect("connect to seed local sqlite");
     sql::execute_query(&session.pool, None, "CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)").await.expect("create table");
@@ -53,8 +52,7 @@ async fn read_remote_values(client: &SftpClient, remote_path: &str) -> Vec<Strin
     let tmp = std::env::temp_dir().join(format!("guiterm-test-sqlite-check-{}.sqlite", Uuid::new_v4()));
     client.download(remote_path, &tmp, size, &AtomicBool::new(false), |_, _| {}).await.expect("download for verification");
 
-    let mut conn = SqlConnection::new("check", SqlEngine::Sqlite, "", "");
-    conn.path = Some(tmp.to_string_lossy().to_string());
+    let conn = SqlConnection::new_sqlite_local("check", tmp.to_string_lossy().to_string());
     let workspace = Workspace::default();
     let session = sql::connect(&workspace, &conn).await.expect("open verification copy");
     let result = sql::execute_query(&session.pool, None, "SELECT v FROM t ORDER BY id").await.expect("select for verification");
@@ -121,10 +119,13 @@ async fn setup(name: &str, seed_value: Option<&str>) -> RemoteFixture {
 }
 
 fn sqlite_connection(fixture: &RemoteFixture) -> SqlConnection {
-    let mut conn = SqlConnection::new("remote-db", SqlEngine::Sqlite, "", "");
-    conn.path = Some(fixture.remote_path.clone());
-    conn.sqlite_host_id = Some(fixture.host_id);
-    conn
+    SqlConnection::new(
+        "remote-db",
+        EngineConfig::Sqlite(SqliteConfig {
+            path: fixture.remote_path.clone(),
+            sqlite_host_id: Some(fixture.host_id),
+        }),
+    )
 }
 
 #[tokio::test]

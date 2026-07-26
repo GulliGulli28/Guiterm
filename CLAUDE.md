@@ -74,6 +74,17 @@ surprises de cache dupliqué ou d'échecs de résolution de binaire natif.
 **Accès écran réel : oui, via WSLg.** Ce WSL a un vrai serveur X actif
 (`DISPLAY=:0`, `xdpyinfo`/`xrandr` répondent, résolution réelle détectée).
 
+## `npm run lint` ne tourne pas sur cette machine (Node trop ancien)
+
+ESLint 10 utilise `util.styleText`, apparu dans Node 20.12 — ce WSL est en
+Node 18.19, donc `npm run lint` échoue systématiquement sur
+`TypeError: util.styleText is not a function`, **avant même d'analyser le
+code**. Ce n'est pas une erreur de lint : c'est le formateur qui plante. Ne
+pas en conclure que le code est fautif, et ne pas essayer de le « corriger »
+dans `eslint.config.js`. Le CI, lui, tourne sur Node 20 et lint normalement.
+En local, la vérification frontend utilisable reste `npx tsc -b` +
+`npm run test` + `npm run test:e2e`.
+
 ## Vérification Rust : `clippy -D warnings` est un gate CI bloquant
 
 Le workflow GitHub (job **`windows-workspace`**) lance
@@ -433,8 +444,29 @@ dans la mémoire long-terme `infra-control-plane-pivot.md` et dans
   connexion ; arborescence bases/schémas → tables → colonnes ; panneau de
   requêtes (zone de texte simple, pas d'éditeur de code). Voir
   `docs/dev-history.md` pour l'architecture complète.
+  **Les réglages par moteur vivent dans `EngineConfig`** (`core/src/model.rs`),
+  un enum à tag interne sur `engine` aplati dans `SqlConnection` — et son
+  miroir TypeScript `SqlEngineConfig`, une union discriminée. Ajouter un
+  moteur = ajouter une variante, pas des champs optionnels à un struct plat
+  (ce qu'était la version précédente, qui obligeait `sql.rs` à porter six
+  `unreachable!()` pour des combinaisons que le type autorisait). Le JSON sur
+  disque est inchangé, et les tests de `model.rs` désérialisent l'ancienne
+  forme à plat écrite à la main — les garder verts, un `workspace.json`
+  illisible fait disparaître les connexions de l'utilisateur.
+- **Mutualisation des connexions SSH** — fait (`core/src/ssh_pool.rs`).
+  **Ne plus appeler `ssh::connect` directement** : passer par
+  `ssh_pool::acquire`, qui rend un `SshLease` partagé entre onglets, panneaux
+  de transfert, tunnels et sessions SQL/Redis/Mongo tunnelées du même hôte
+  (avant : une connexion complète — TCP + handshake + auth — par usage).
+  Débordement automatique sur une 2ᵉ connexion au-delà de 8 baux, pour ne pas
+  buter sur `MaxSessions` de sshd. Le bail doit vivre aussi longtemps que ce
+  qu'il a ouvert : le stocker dans la structure de session, jamais le laisser
+  tomber en gardant seulement l'`Arc<Connection>`. Deux exceptions
+  documentées : `docker::connect_for_host` (le modèle « un bail ≈ un canal »
+  ne s'applique pas, voir son doc comment) et les tests d'intégration.
 - **Auth keyboard-interactive (MFA/OTP)** — pas encore fait, seule vraie
-  lacune protocole restante identifiée à ce jour.
+  lacune protocole restante identifiée à ce jour. Le pool ci-dessus en est le
+  prérequis : sans lui, chaque onglet redemanderait un code OTP.
 
 Chaque fonctionnalité ci-dessus a son lot de décisions de conception et de
 bugs déjà corrigés en conditions réelles — voir `docs/dev-history.md` avant

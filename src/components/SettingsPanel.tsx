@@ -102,9 +102,11 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [pendingUpdate, setPendingUpdate] = useState<Update | null>(null);
   const [localShells, setLocalShells] = useState<{ id: string; label: string }[]>([]);
+  const [diagnosticsPath, setDiagnosticsPath] = useState<string | null>(null);
 
   useEffect(() => { getVersion().then(setAppVersion).catch(() => {}); }, []);
   useEffect(() => { api.listLocalShells().then(setLocalShells).catch(() => {}); }, []);
+  useEffect(() => { api.diagnosticsDirectory().then(setDiagnosticsPath).catch(() => {}); }, []);
 
   const fileFilters = [{ name: "JSON", extensions: ["json"] }];
 
@@ -569,6 +571,23 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
                 <p className="px-2 pb-1 text-[12px] leading-relaxed text-[var(--c-text-muted)]">
                   Les onglets réapparaissent sans se reconnecter automatiquement — cliquez sur un onglet restauré pour vous reconnecter.
                 </p>
+              </div>
+            </section>
+
+            <section className="space-y-2">
+              <p className="text-[13px] font-medium text-[var(--c-text)]">Diagnostic</p>
+              <div className="space-y-2 rounded-lg bg-[var(--c-bg3)] p-3">
+                <p className="text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+                  Guiterm enregistre un journal technique (un fichier par jour, les 7 derniers conservés).
+                  En cas de problème, joignez le fichier du jour à votre signalement.
+                </p>
+                {diagnosticsPath ? (
+                  <p className="select-text break-all rounded-md bg-[var(--c-bg2)] px-2.5 py-2 font-mono text-[11px] text-[var(--c-text-secondary)]">
+                    {diagnosticsPath}
+                  </p>
+                ) : (
+                  <p className="text-[12px] text-[var(--c-text-faint)]">Emplacement indisponible.</p>
+                )}
               </div>
             </section>
 

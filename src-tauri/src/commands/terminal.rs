@@ -6,6 +6,7 @@ use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Emitter, State};
 use termius_core::model::{HostId, Workspace};
 use termius_core::ssh::{self, ShellInput};
+use termius_core::ssh_pool;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
@@ -108,7 +109,7 @@ pub(crate) async fn register_shell_session(
 pub async fn connect_terminal(app: AppHandle, state: State<'_, AppState>, host_id: HostId, channel: Channel) -> Result<String, String> {
     let workspace = state.workspace.lock_recover().clone();
     let agent_forward = workspace.host(host_id).map(|h| h.agent_forward).unwrap_or(false);
-    let connection = ssh::connect(&workspace, host_id).await.map_err(|e| e.to_string())?;
+    let connection = ssh_pool::acquire(&workspace, host_id).await.map_err(|e| e.to_string())?;
     let shell = ssh::open_shell(&connection, 80, 24, agent_forward).await.map_err(|e| e.to_string())?;
 
     Ok(register_shell_session(app, &state, &workspace, host_id, TerminalBackend::Ssh(connection), channel, shell).await)

@@ -1,6 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AuthMethod, ColumnInfo, CollectFactsResult, ComposeResult, DockerContainer, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostId, HostKind, ImportSelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, QueryResult, RdpClientMessage, RdpFrame, RedisKeyDetail, RedisReply, ScanPage, SnippetId, SqlConnectionId, SqlEngine, SqlExportDestination, SqlExportGroup, SshConfigHost, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
+import type { AuthMethod, CollectionInfo, ColumnInfo, CollectFactsResult, ComposeResult, DockerContainer, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostId, HostKind, ImportSelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, QueryResult, RdpClientMessage, RdpFrame, RedisKeyDetail, RedisReply, ScanPage, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SshConfigHost, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
 
 /** Mirrors the 12-byte little-endian header `commands::rdp_view::connect_rdp_view`
  * writes ahead of each frame's raw RGBA8 pixels (see its doc comment for why
@@ -55,21 +55,17 @@ export const api = {
     invoke<Workspace>("add_forward", { input }),
   deleteForward: (forwardId: PortForwardId) => invoke<Workspace>("delete_forward", { forwardId }),
 
+  /** `input` carries the engine tag plus that engine's own settings,
+   * flattened — the same shape `SqlConnection` itself has (see
+   * `SqlEngineConfig`), which is exactly what `save_sql_connection`
+   * deserialises on the Rust side. */
   saveSqlConnection: (input: {
     id: SqlConnectionId | null;
     label: string;
-    engine: SqlEngine;
-    tunnelHostId: HostId | null;
-    address: string;
-    port: number;
-    username: string;
-    database: string | null;
-    path: string | null;
-    sqliteHostId: HostId | null;
     groupId: GroupId | null;
     tags: string[];
     secret: string | null;
-  }) => invoke<Workspace>("save_sql_connection", { input }),
+  } & SqlEngineConfig) => invoke<Workspace>("save_sql_connection", { input }),
   deleteSqlConnection: (connectionId: SqlConnectionId) => invoke<Workspace>("delete_sql_connection", { connectionId }),
   /** Opens a pool (directly, or through an ephemeral SSH tunnel invisible to
    * the Tunnels panel — see `core::sql::connect`) and returns an opaque
@@ -132,6 +128,20 @@ export const api = {
    * `core::redis_client::run_command`'s doc comment. */
   runRedisCommand: (sessionId: string, command: string) => invoke<RedisReply>("run_redis_command", { sessionId, command }),
 
+  /** Opens a connection (directly, or through an ephemeral SSH tunnel — see
+   * `core::mongo_client::connect`) and returns an opaque session id to pass
+   * to every `listMongoDatabases`/`listMongoCollections`/`findMongoDocuments`
+   * call below, until `closeMongoSession`. */
+  openMongoSession: (connectionId: SqlConnectionId) => invoke<string>("open_mongo_session", { connectionId }),
+  closeMongoSession: (sessionId: string) => invoke<void>("close_mongo_session", { sessionId }),
+  listMongoDatabases: (sessionId: string) => invoke<string[]>("list_mongo_databases", { sessionId }),
+  listMongoCollections: (sessionId: string, database: string) => invoke<CollectionInfo[]>("list_mongo_collections", { sessionId, database }),
+  /** `filter`: a JSON filter typed into the "Requête" tab, or omitted for
+   * the "Données" tab's unfiltered listing — see
+   * `core::mongo_client::find_documents`'s doc comment. */
+  findMongoDocuments: (sessionId: string, database: string, collection: string, filter?: string | null) =>
+    invoke<MongoQueryResult>("find_mongo_documents", { sessionId, database, collection, filter: filter ?? null }),
+
   addPrivateKey: (name: string, path: string, passphrase: string | null) => invoke<Workspace>("add_private_key", { name, path, passphrase }),
   deletePrivateKey: (keyId: KeyId) => invoke<Workspace>("delete_private_key", { keyId }),
   renamePrivateKey: (keyId: KeyId, name: string) => invoke<Workspace>("rename_private_key", { keyId, name }),
@@ -155,6 +165,9 @@ export const api = {
   /** See `importWorkspace`'s `keepAutomation` doc — same reasoning, single-host import. */
   importHostFromFile: (path: string, keepAutomation: boolean) => invoke<Workspace>("import_host_from_file", { path, keepAutomation }),
   exportText: (path: string, content: string) => invoke<void>("export_text", { path, content }),
+  /** Absolute path of the app's diagnostic log directory — shown in
+   * Paramètres so a user reporting a problem can retrieve the logs. */
+  diagnosticsDirectory: () => invoke<string>("diagnostics_directory"),
   startForward: (forwardId: PortForwardId) => invoke<void>("start_forward", { forwardId }),
   stopForward: (forwardId: PortForwardId) => invoke<void>("stop_forward", { forwardId }),
   runningForwards: () => invoke<PortForwardId[]>("running_forwards"),

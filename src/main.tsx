@@ -1,6 +1,7 @@
 import React from "react";
 import ReactDOM from "react-dom/client";
 import App from "./App";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import "./index.css";
 // Latin + latin-ext only (covers French/European text) rather than the full
 // charset (which also ships cyrillic/cyrillic-ext/greek/greek-ext, ~50%
@@ -25,6 +26,8 @@ import "@fontsource/ubuntu-mono/latin-ext-700.css";
 
 ReactDOM.createRoot(document.getElementById("root")!).render(
   <React.StrictMode>
-    <App />
+    <ErrorBoundary>
+      <App />
+    </ErrorBoundary>
   </React.StrictMode>,
 );

@@ -1,9 +1,8 @@
 use termius_core::sync_ext::MutexExt;
 use crate::state::{AppState, ForwardSession};
-use std::sync::Arc;
 use tauri::State;
 use termius_core::model::PortForwardId;
-use termius_core::{port_forward, ssh};
+use termius_core::{port_forward, ssh_pool};
 
 #[tauri::command]
 pub async fn start_forward(
@@ -28,12 +27,10 @@ pub async fn start_forward(
         (workspace.clone(), forward)
     };
 
-    let connection = Arc::new(
-        ssh::connect(&workspace, forward.host_id)
-            .await
-            .map_err(|e| e.to_string())?,
-    );
-    let active = port_forward::start(connection.clone(), forward)
+    let connection = ssh_pool::acquire(&workspace, forward.host_id)
+        .await
+        .map_err(|e| e.to_string())?;
+    let active = port_forward::start(connection.connection(), forward)
         .await
         .map_err(|e| e.to_string())?;
     state

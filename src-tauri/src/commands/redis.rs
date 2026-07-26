@@ -26,7 +26,7 @@ pub async fn open_redis_session(state: State<'_, AppState>, connection_id: SqlCo
             .sql_connection(connection_id)
             .cloned()
             .ok_or_else(|| "connexion inconnue".to_string())?;
-        if conn.engine != SqlEngine::Redis {
+        if conn.engine() != SqlEngine::Redis {
             return Err("cette connexion n'est pas une connexion Redis".to_string());
         }
         (workspace.clone(), conn)

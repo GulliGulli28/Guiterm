@@ -11,7 +11,7 @@
 //!
 //! Only ever run manually/by hand — never in CI (no Redis server there, same
 //! as `sql_wsl_smoke`'s PostgreSQL/SSH-host requirement).
-use termius_core::model::{SqlConnection, SqlEngine, Workspace};
+use termius_core::model::{EngineConfig, ServerConfig, SqlConnection, Workspace};
 use termius_core::redis_client;
 
 #[tokio::main]
@@ -21,8 +21,10 @@ async fn main() -> anyhow::Result<()> {
     let port: u16 = args.next().expect("missing <port>").parse()?;
 
     let workspace = Workspace::default();
-    let mut conn = SqlConnection::new("redis_wsl_smoke (temporary)", SqlEngine::Redis, &host, "");
-    conn.port = port;
+    let conn = SqlConnection::new(
+        "redis_wsl_smoke (temporary)",
+        EngineConfig::Redis(ServerConfig { address: host.clone(), port, ..Default::default() }),
+    );
 
     println!("== connecting to {host}:{port}...");
     let session = redis_client::connect(&workspace, &conn).await?;

@@ -34,10 +34,16 @@ async fn main() -> anyhow::Result<()> {
     let host = workspace.hosts.iter().find(|h| h.label == host_label).unwrap_or_else(|| panic!("no host labeled {host_label:?} in workspace.json"));
     println!("== tunnelling through host: {} ({})", host.label, host.id);
 
-    let mut conn = SqlConnection::new("sql_wsl_smoke (temporary)", termius_core::model::SqlEngine::Postgres, "127.0.0.1", "postgres");
-    conn.tunnel_host_id = Some(host.id);
-    conn.port = 5432;
-    conn.database = (database != "-").then_some(database);
+    let conn = SqlConnection::new(
+        "sql_wsl_smoke (temporary)",
+        termius_core::model::EngineConfig::Postgres(termius_core::model::ServerConfig {
+            tunnel_host_id: Some(host.id),
+            address: "127.0.0.1".to_string(),
+            port: 5432,
+            username: "postgres".to_string(),
+            database: (database != "-").then_some(database),
+        }),
+    );
     vault::store(conn.id, SecretKind::SqlPassword, &pg_password)?;
 
     let result = run(&workspace, &conn).await;

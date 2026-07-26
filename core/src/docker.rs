@@ -190,6 +190,17 @@ pub fn connect_via_ssh(connection: Arc<Connection>) -> anyhow::Result<Docker> {
 /// `host.docker_via_host_id` when that's set. `workspace` is only consulted
 /// in the SSH case, to establish that other host's connection (auth,
 /// known_hosts, bastion chaining all handled by [`crate::ssh::connect`]).
+/// **Deliberately not leased from [`crate::ssh_pool`]**, unlike every other
+/// SSH entry point. The pool's unit of accounting is "one lease ≈ one
+/// channel", and this connection doesn't fit that shape: every HTTP request
+/// bollard makes opens its own `docker system dial-stdio` exec channel, and
+/// `DialStdioConnector` is `Clone` (hyper requires it) and duplicated freely
+/// inside the connection pool — so there is no one place a lease could be
+/// held that would honestly track how many channels are in flight. A
+/// dedicated connection per Docker-over-SSH host is also a far smaller cost
+/// than the tab/pane/tunnel case the pool exists for: it's opened once per
+/// host and kept for the lifetime of the `Docker` client, rather than
+/// re-dialled per user action.
 pub async fn connect_for_host(workspace: &crate::model::Workspace, host: &crate::model::Host) -> anyhow::Result<Docker> {
     match host.docker_via_host_id {
         Some(via_host_id) => {

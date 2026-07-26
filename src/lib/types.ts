@@ -173,8 +173,10 @@ export interface Group {
  * `sqliteHostId` instead of `address`/`port`/`username`/`database`. `redis`
  * reuses `address`/`port`/`username`/`database` (as a DB index 0-15) but
  * renders through `RedisTab`, not `SqlTab` — a key-value store has no
- * schema/table tree or SQL query language to browse. */
-export type SqlEngine = "mysql" | "postgres" | "sqlite" | "redis";
+ * schema/table tree or SQL query language to browse. `mongodb` connects via
+ * `connectionString` instead (see its doc comment) and renders through
+ * `MongoTab`, for the same reason. */
+export type SqlEngine = "mysql" | "postgres" | "sqlite" | "redis" | "mongodb";
 
 export function sqlEngineLabel(engine: SqlEngine): string {
   switch (engine) {
@@ -182,44 +184,105 @@ export function sqlEngineLabel(engine: SqlEngine): string {
     case "postgres": return "PostgreSQL";
     case "sqlite": return "SQLite";
     case "redis": return "Redis";
+    case "mongodb": return "MongoDB";
   }
 }
 
-/** A saved MySQL/PostgreSQL/SQLite/Redis connection — deliberately not a
- * `Host`/`HostKind` (see `core::model::SqlConnection`'s doc comment): no
- * shell, not a fleet target. Can still reference a saved SSH `Host` via
+/** A saved MySQL/PostgreSQL/SQLite/Redis/MongoDB connection — deliberately
+ * not a `Host`/`HostKind` (see `core::model::SqlConnection`'s doc comment):
+ * no shell, not a fleet target. Can still reference a saved SSH `Host` via
  * `tunnelHostId`/`sqliteHostId`, purely to reach a database that isn't
  * directly reachable from this machine — `null`/absent connects directly
- * (`address`/`port` for MySQL/PostgreSQL/Redis, a local file for SQLite). */
-export interface SqlConnection {
-  id: SqlConnectionId;
-  label: string;
-  engine: SqlEngine;
-  /** MySQL/PostgreSQL/Redis only. */
+ * (`address`/`port` for MySQL/PostgreSQL/Redis, a local file for SQLite, a
+ * full URI in `connectionString` for MongoDB). */
+/** How to reach a database server that speaks a discrete
+ * address/port/credentials protocol — MySQL, PostgreSQL and Redis all do.
+ * Mirrors `core::model::ServerConfig`. */
+export interface SqlServerConfig {
+  /** Unset: connect directly to `address`/`port`. Set: reach them through an
+   * ephemeral SSH local port forward via that saved host first — for a
+   * database only reachable from there (bound to loopback server-side, a
+   * private subnet…), not necessarily "the database runs on that host". */
   tunnelHostId?: HostId | null;
-  /** MySQL/PostgreSQL/Redis — empty for `sqlite`. */
   address: string;
-  /** MySQL/PostgreSQL/Redis — `0` for `sqlite`. */
   port: number;
-  /** MySQL/PostgreSQL/Redis (an optional Redis 6+ ACL username — empty means
-   * legacy `requirepass`-only auth) — empty for `sqlite`. */
+  /** For `redis`, an optional Redis 6+ ACL username — empty means legacy
+   * `requirepass`-only auth, still the common case. */
   username: string;
   /** MySQL/PostgreSQL: required in practice for PostgreSQL (a connection
    * always targets one database); optional for MySQL. `redis`: the numbered
    * database index (0-15 by default) as a string, e.g. `"0"` — empty/absent
-   * defaults to `0`. Always `null` for `sqlite`. */
+   * defaults to `0`. */
   database?: string | null;
-  /** `sqlite` only — the file's absolute path, local to this machine when
-   * `sqliteHostId` is unset, or a path on that host's filesystem otherwise. */
-  path?: string | null;
-  /** `sqlite` only. `null`/absent: `path` is a local file. Set: `path`
-   * lives on that saved host instead, fetched over SFTP into a local temp
-   * copy when the connection is opened and written back on a clean close —
-   * deliberately a separate field from `tunnelHostId` (an SSH *tunnel to a
-   * TCP port*, not an SFTP *file fetch*, are genuinely different things). */
-  sqliteHostId?: HostId | null;
+}
+
+/** Which engine a connection speaks, plus everything needed to dial it — a
+ * discriminated union on `engine`, mirroring `core::model::EngineConfig` (an
+ * internally-tagged enum flattened into the struct, so this is exactly the
+ * JSON shape the backend sends and accepts).
+ *
+ * Narrow on `engine` before reading engine-specific fields — that's the
+ * point: it's no longer possible to read `port` off a SQLite connection or
+ * `path` off a MySQL one, which the previous all-fields-optional shape
+ * allowed silently. */
+export type SqlEngineConfig =
+  | ({ engine: "mysql" } & SqlServerConfig)
+  | ({ engine: "postgres" } & SqlServerConfig)
+  | ({ engine: "redis" } & SqlServerConfig)
+  | {
+      engine: "sqlite";
+      /** The file's absolute path, local to this machine when `sqliteHostId`
+       * is unset, or a path on that host's filesystem otherwise. */
+      path: string;
+      /** Unset: `path` is a local file. Set: `path` lives on that saved host
+       * instead, fetched over SFTP into a local temp copy when the connection
+       * is opened and written back on a clean close — deliberately separate
+       * from `tunnelHostId` (an SSH *tunnel to a TCP port* and an SFTP *file
+       * fetch* are genuinely different things). */
+      sqliteHostId?: HostId | null;
+    }
+  | {
+      engine: "mongodb";
+      /** A full `mongodb://`/`mongodb+srv://` connection string (e.g. pasted
+       * from Atlas) — a single address/port pair can't describe a replica set,
+       * and `+srv` has no discrete port at all. */
+      connectionString: string;
+      /** Injected into `connectionString` at connect time if it doesn't
+       * already carry its own credentials — left empty if it does, or none
+       * are needed. */
+      username: string;
+      /** Only honored for a plain single-host `mongodb://host:port/...`
+       * string — rejected for `mongodb+srv://` or a multi-host string
+       * (neither can be tunnelled through one TCP forward). */
+      tunnelHostId?: HostId | null;
+    };
+
+/** A saved database connection — deliberately not a `Host`/`HostKind` (see
+ * `core::model::SqlConnection`'s doc comment). */
+export type SqlConnection = {
+  id: SqlConnectionId;
+  label: string;
   groupId?: GroupId | null;
   tags: string[];
+} & SqlEngineConfig;
+
+/** The saved host this connection reaches through, whichever way it does so —
+ * an SSH tunnel for the server engines and MongoDB, an SFTP file fetch for
+ * SQLite. Mirrors `EngineConfig::via_host_id`, so callers that just want to
+ * show "via <host>" don't each have to narrow on `engine` themselves. */
+export function sqlConnectionViaHostId(conn: SqlConnection): HostId | null {
+  return (conn.engine === "sqlite" ? conn.sqliteHostId : conn.tunnelHostId) ?? null;
+}
+
+/** One-line "where does this point at" summary, for the connections list. */
+export function sqlConnectionTarget(conn: SqlConnection): string {
+  switch (conn.engine) {
+    case "sqlite": return conn.path;
+    case "mongodb": return conn.connectionString;
+    case "redis": return `${conn.address}:${conn.port}/${conn.database || "0"}`;
+    case "mysql":
+    case "postgres": return `${conn.address}:${conn.port}`;
+  }
 }
 
 /** One database (MySQL) or schema (PostgreSQL) to browse — see
@@ -309,6 +372,23 @@ export interface RedisKeyDetail {
  * the one shape that needs to stay distinguishable from a plain string
  * reply. See `core::redis_client::RedisReply`'s doc comment. */
 export type RedisReply = null | number | string | RedisReply[] | { error: string };
+
+/** One database's collection, or view, or timeseries — mirrors `TableInfo`,
+ * see `core::mongo_client::CollectionInfo`'s doc comment for why. */
+export interface CollectionInfo {
+  name: string;
+  kind: "collection" | "view" | "timeseries";
+}
+
+/** Result of `findMongoDocuments` — backs both the "Données" tab (no
+ * filter) and the "Requête" tab (a JSON filter), see
+ * `core::mongo_client::find_documents`'s doc comment. Each document is
+ * rendered as relaxed MongoDB Extended JSON (`$oid`/`$date`-style wrapper
+ * objects only where JSON can't represent the BSON type directly). */
+export interface MongoQueryResult {
+  documents: unknown[];
+  truncated: boolean;
+}
 
 export interface Workspace {
   groups: Group[];

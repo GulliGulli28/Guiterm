@@ -42,13 +42,12 @@
 //! this module's SSH-tunnel path specifically (a certificate issued for the
 //! real hostname would never match `127.0.0.1`, the tunnel's local endpoint).
 //! Revisit as a cross-engine addition later if it's ever needed, not here.
-use crate::model::{PortForward, PortForwardKind, SqlConnection, Workspace};
+use crate::model::{EngineConfig, PortForward, PortForwardKind, SqlConnection, Workspace};
 use crate::port_forward::{self, ActiveForward};
 use crate::sql::hex_encode;
-use crate::ssh::{self, Connection};
+use crate::ssh_pool::{self, SshLease};
 use crate::vault::{self, SecretKind};
 use serde::Serialize;
-use std::sync::Arc;
 
 /// The live connection behind a [`RedisSession`] — deliberately opaque
 /// (wraps `redis::aio::ConnectionManager` privately) so `commands::redis` in
@@ -74,7 +73,7 @@ pub struct RedisSession {
     /// changed without reconnecting (unlike MySQL's `USE`, Redis has no
     /// per-command database override).
     pub database: u8,
-    tunnel: Option<(Arc<Connection>, ActiveForward)>,
+    tunnel: Option<(SshLease, ActiveForward)>,
 }
 
 impl RedisSession {
@@ -96,11 +95,11 @@ impl RedisSession {
 /// Tunnels panel: built in memory with `bind_port: 0`, torn down by
 /// [`RedisSession::close`]).
 pub async fn connect(workspace: &Workspace, conn: &SqlConnection) -> anyhow::Result<RedisSession> {
-    if conn.engine != crate::model::SqlEngine::Redis {
+    let EngineConfig::Redis(server) = &conn.config else {
         anyhow::bail!("redis_client::connect ne s'applique qu'aux connexions Redis");
-    }
+    };
 
-    let database = match conn.database.as_deref().filter(|d| !d.is_empty()) {
+    let database = match server.database.as_deref().filter(|d| !d.is_empty()) {
         None => 0u8,
         Some(raw) => raw
             .parse::<u8>()
@@ -111,20 +110,20 @@ pub async fn connect(workspace: &Workspace, conn: &SqlConnection) -> anyhow::Res
 
     let password = vault::load(conn.id, SecretKind::SqlPassword)?;
 
-    let (dial_host, dial_port, tunnel) = match conn.tunnel_host_id {
-        None => (conn.address.clone(), conn.port, None),
+    let (dial_host, dial_port, tunnel) = match server.tunnel_host_id {
+        None => (server.address.clone(), server.port, None),
         Some(host_id) => {
-            let connection = Arc::new(ssh::connect(workspace, host_id).await?);
+            let connection = ssh_pool::acquire(workspace, host_id).await?;
             let forward = PortForward {
                 id: uuid::Uuid::new_v4(),
                 host_id,
                 kind: PortForwardKind::Local,
                 bind_address: "127.0.0.1".to_string(),
                 bind_port: 0,
-                dest_address: conn.address.clone(),
-                dest_port: conn.port,
+                dest_address: server.address.clone(),
+                dest_port: server.port,
             };
-            let active = port_forward::start(connection.clone(), forward).await?;
+            let active = port_forward::start(connection.connection(), forward).await?;
             let bound = active
                 .bound_addr()
                 .ok_or_else(|| anyhow::anyhow!("le tunnel SSH n'a pas pu s'ouvrir"))?;
@@ -141,8 +140,8 @@ pub async fn connect(workspace: &Workspace, conn: &SqlConnection) -> anyhow::Res
     let mut url = url::Url::parse("redis://placeholder").expect("valid literal");
     url.set_host(Some(&dial_host)).map_err(|_| anyhow::anyhow!("adresse invalide : {dial_host:?}"))?;
     url.set_port(Some(dial_port)).map_err(|_| anyhow::anyhow!("port invalide"))?;
-    if !conn.username.is_empty() {
-        url.set_username(&conn.username).map_err(|_| anyhow::anyhow!("nom d'utilisateur invalide"))?;
+    if !server.username.is_empty() {
+        url.set_username(&server.username).map_err(|_| anyhow::anyhow!("nom d'utilisateur invalide"))?;
     }
     url.set_password(password.as_deref().filter(|p| !p.is_empty())).map_err(|_| anyhow::anyhow!("mot de passe invalide"))?;
     url.set_path(&database.to_string());

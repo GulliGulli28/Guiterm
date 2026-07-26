@@ -8,7 +8,10 @@ use state::AppState;
 use tauri::Manager;
 
 fn main() {
-    tracing_subscriber::fmt::init();
+    // Bound to a named variable, not `_`: dropping the guard shuts the
+    // background log writer down, so `let _ = ...` here would discard every
+    // line the app goes on to emit. Held until `main` returns.
+    let _log_guard = termius_core::logging::init();
 
     let workspace = match termius_core::store::load_resilient() {
         Ok(termius_core::store::LoadOutcome::Loaded(ws)) => ws,
@@ -100,6 +103,7 @@ fn main() {
             commands::export::export_host,
             commands::export::import_host_from_file,
             commands::export::export_text,
+            commands::export::diagnostics_directory,
             commands::terminal::connect_terminal,
             commands::terminal::write_terminal,
             commands::terminal::resize_terminal,
@@ -155,6 +159,11 @@ fn main() {
             commands::redis::scan_redis_keys,
             commands::redis::get_redis_value,
             commands::redis::run_redis_command,
+            commands::mongo::open_mongo_session,
+            commands::mongo::close_mongo_session,
+            commands::mongo::list_mongo_databases,
+            commands::mongo::list_mongo_collections,
+            commands::mongo::find_mongo_documents,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -3,7 +3,7 @@ use tauri::State;
 use termius_core::model::{HostId, KeyId, PrivateKey, Workspace};
 use termius_core::sync_ext::MutexExt;
 use termius_core::vault::{self, SecretKind};
-use termius_core::{keygen, sftp, ssh, store};
+use termius_core::{keygen, sftp, ssh_pool, store};
 
 fn persist(workspace: &Workspace) -> Result<(), String> {
     store::save(workspace).map_err(|e| e.to_string())
@@ -103,7 +103,7 @@ pub async fn deploy_public_key(
     let public_key_line =
         keygen::public_key_line(&content, passphrase.as_deref()).map_err(|e| e.to_string())?;
 
-    let connection = ssh::connect(&workspace, host_id)
+    let connection = ssh_pool::acquire(&workspace, host_id)
         .await
         .map_err(|e| e.to_string())?;
     let sftp_client = sftp::SftpClient::open(&connection)

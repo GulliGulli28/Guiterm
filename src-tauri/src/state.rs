@@ -2,21 +2,24 @@ use std::collections::HashMap;
 use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use termius_core::model::{PortForwardId, Workspace};
+use termius_core::mongo_client::MongoSession;
 use termius_core::port_forward::ActiveForward;
 use termius_core::redis_client::RedisSession;
 use termius_core::sftp::RemoteFileClient;
 use termius_core::sql::SqlSession;
-use termius_core::ssh::{Connection, ShellInput};
+use termius_core::ssh::ShellInput;
+use termius_core::ssh_pool::SshLease;
 use tokio::sync::mpsc;
 
 /// Which backend a [`TerminalSession`] actually runs over. Only `Ssh` needs
-/// to retain anything beyond the input channel: dropping the `Connection`
-/// would tear down the SSH session the shell runs on. A Docker exec or K8s
-/// exec session owns its resources entirely inside the task spawned by
+/// to retain anything beyond the input channel: dropping the lease would let
+/// the SSH connection the shell runs on close, if nothing else holds one (see
+/// `termius_core::ssh_pool`). A Docker exec or K8s exec session owns its
+/// resources entirely inside the task spawned by
 /// `termius_core::docker::open_exec`/`termius_core::k8s::open_exec`, so
 /// there's nothing extra to keep alive.
 pub enum TerminalBackend {
-    Ssh(#[allow(dead_code)] Connection),
+    Ssh(#[allow(dead_code)] SshLease),
     Docker,
     K8s,
 }
@@ -40,12 +43,15 @@ pub struct TerminalSession {
 /// isn't a leak.
 pub struct Pane {
     #[allow(dead_code)]
-    pub connection: Option<Connection>,
+    pub connection: Option<SshLease>,
     pub client: Option<Arc<dyn RemoteFileClient>>,
 }
 
 pub struct ForwardSession {
-    pub connection: Arc<Connection>,
+    /// The lease, not a bare `Arc<Connection>`: a tunnel outlives the call
+    /// that opened it, so it has to hold the pool slot for its whole life —
+    /// see `termius_core::ssh_pool::SshLease`'s doc comment.
+    pub connection: SshLease,
     pub active: ActiveForward,
 }
 
@@ -85,6 +91,10 @@ pub struct AppState {
     /// `sql_sessions`, kept separate since a `RedisSession` isn't a `SqlPool`
     /// (see `termius_core::redis_client`'s module doc comment).
     pub redis_sessions: Mutex<HashMap<String, RedisSession>>,
+    /// Live MongoDB connections — same "opaque id → live resource" shape as
+    /// `sql_sessions`/`redis_sessions` (see `termius_core::mongo_client`'s
+    /// module doc comment for why it's a separate client).
+    pub mongo_sessions: Mutex<HashMap<String, MongoSession>>,
     /// One cancellation flag per in-flight `upload_file`/`download_file` transfer, keyed by transfer id.
     pub transfers: Mutex<HashMap<String, Arc<AtomicBool>>>,
     /// Command history for local-terminal ghost-text suggestions, most recent last.

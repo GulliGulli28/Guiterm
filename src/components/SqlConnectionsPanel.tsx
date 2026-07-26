@@ -1,4 +1,4 @@
-import { sqlEngineLabel, type SqlConnection, type Workspace } from "../lib/types";
+import { sqlConnectionTarget, sqlConnectionViaHostId, sqlEngineLabel, type SqlConnection, type Workspace } from "../lib/types";
 import { IconDatabase, IconPlus, IconEdit, IconFlash } from "./ui-icons";
 
 interface SqlConnectionsPanelProps {
@@ -22,8 +22,11 @@ export function SqlConnectionsPanel({ workspace, onConnect, onNewConnection, onE
           <IconPlus size={13} /> Ajouter une connexion
         </button>
         {workspace.sqlConnections.map((conn) => {
-          const tunnelHost = conn.tunnelHostId ? workspace.hosts.find((h) => h.id === conn.tunnelHostId) : null;
-          const sqliteHost = conn.sqliteHostId ? workspace.hosts.find((h) => h.id === conn.sqliteHostId) : null;
+          const viaHostId = sqlConnectionViaHostId(conn);
+          const viaHost = viaHostId ? workspace.hosts.find((h) => h.id === viaHostId) : null;
+          // "sur" for SQLite (the file lives there), "via" for everything else
+          // (the connection is tunnelled through it) — see `sqlConnectionViaHostId`.
+          const viaPreposition = conn.engine === "sqlite" ? "sur" : "via";
           return (
             <div key={conn.id} className="rounded-xl border border-transparent bg-[var(--c-bg3)] p-2.5 transition-all hover:border-white/15">
               <div className="flex items-center gap-2">
@@ -32,15 +35,8 @@ export function SqlConnectionsPanel({ workspace, onConnect, onNewConnection, onE
               </div>
               <p className="mt-0.5 truncate pl-[22px] text-[10px] text-[var(--c-text-muted)]">
                 {sqlEngineLabel(conn.engine)} ·{" "}
-                {conn.engine === "sqlite" ? (
-                  <span className="font-mono">{conn.path}</span>
-                ) : (
-                  <span className="font-mono">
-                    {conn.address}:{conn.port}{conn.engine === "redis" ? `/${conn.database || "0"}` : ""}
-                  </span>
-                )}
-                {tunnelHost && <> · via {tunnelHost.label}</>}
-                {sqliteHost && <> · sur {sqliteHost.label}</>}
+                <span className="font-mono">{sqlConnectionTarget(conn)}</span>
+                {viaHost && <> · {viaPreposition} {viaHost.label}</>}
               </p>
               <div className="mt-2 flex gap-1">
                 <button

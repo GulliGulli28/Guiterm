@@ -10,7 +10,7 @@
 //! offers it.
 
 use crate::model::{HostId, HostKind, Workspace};
-use crate::{docker, k8s, local_shell, ssh};
+use crate::{docker, k8s, local_shell, ssh, ssh_pool};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -155,10 +155,17 @@ async fn execute(
             if host.kind != HostKind::Ssh {
                 anyhow::bail!("cet hôte n'est pas un hôte SSH");
             }
-            let mut connection = ssh::connect(workspace, *host_id).await?;
-            let output = ssh::run_command_capture(&connection, command).await;
-            connection.disconnect().await;
-            output
+            // Leased, not connected directly — a fleet run over 50 hosts is
+            // the single heaviest source of handshakes in the app, and it
+            // routinely targets hosts the user already has a tab open on.
+            //
+            // No explicit `disconnect()` any more: the connection may now be
+            // shared with that tab, and tearing it down here would kill a
+            // session the user is actively using. Dropping the lease closes it
+            // if and only if nothing else still holds one — which is what the
+            // explicit disconnect was for in the first place.
+            let connection = ssh_pool::acquire(workspace, *host_id).await?;
+            ssh::run_command_capture(&connection, command).await
         }
         FleetTarget::Docker { host_id, container_id } => {
             let host = workspace

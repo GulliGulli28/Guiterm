@@ -129,3 +129,15 @@ pub fn import_host_from_file(
     store::save(&workspace).map_err(|e| e.to_string())?;
     Ok(workspace.clone())
 }
+
+/// Absolute path of the directory the app writes its diagnostic log to (see
+/// `termius_core::logging`). Surfaced in the settings UI so a user reporting a
+/// problem can find the logs without being told to hunt through `%APPDATA%` —
+/// the shipped Windows binary has no console, so this file is the only record
+/// of what actually went wrong.
+#[tauri::command]
+pub fn diagnostics_directory() -> Result<String, String> {
+    termius_core::logging::directory()
+        .map(|p| p.to_string_lossy().into_owned())
+        .map_err(|e| e.to_string())
+}

@@ -10,7 +10,7 @@ use termius_core::k8s;
 use termius_core::k8s_pane::K8sPaneClient;
 use termius_core::model::HostId;
 use termius_core::sftp::{Entry, RemoteFileClient, SftpClient};
-use termius_core::ssh;
+use termius_core::ssh_pool;
 use termius_core::transfer::{self, PaneRef};
 use uuid::Uuid;
 
@@ -83,7 +83,7 @@ pub async fn open_pane(
         }
         PaneSource::Remote { host_id } => {
             let workspace = state.workspace.lock_recover().clone();
-            let connection = ssh::connect(&workspace, host_id)
+            let connection = ssh_pool::acquire(&workspace, host_id)
                 .await
                 .map_err(|e| e.to_string())?;
             let client = Arc::new(

@@ -162,6 +162,17 @@ impl Connection {
         self.remote_forward_routes.clone()
     }
 
+    /// Whether every hop in the chain is still usable. Consulted by
+    /// [`crate::ssh_pool`] before handing this connection to another caller:
+    /// a connection the server or the network has since dropped would fail on
+    /// channel open, and the pool must replace it rather than reuse it.
+    ///
+    /// Every hop counts, not just the target — a bastion that went away takes
+    /// the tunnel the later hops ride on with it.
+    pub fn is_alive(&self) -> bool {
+        self.chain.iter().all(|hop| !hop.is_closed())
+    }
+
     pub async fn disconnect(&mut self) {
         for handle in self.chain.iter().rev() {
             let _ = handle.disconnect(Disconnect::ByApplication, "", "en").await;
@@ -314,8 +325,30 @@ fn ensure_success(result: AuthResult, host_label: &str) -> anyhow::Result<()> {
 }
 
 /// Connects to `target`, transparently chaining through its bastion hosts (if any).
+///
+/// Traced (host label, address, hop count, outcome) — "I can't connect and I
+/// don't know why" is the single most common thing a user needs help with, and
+/// the shipped Windows binary has no console, so without this the log file
+/// says nothing about it. Deliberately logs labels/addresses only: never a
+/// password, passphrase, or key material.
 pub async fn connect(workspace: &Workspace, target: HostId) -> anyhow::Result<Connection> {
     let chain = workspace.jump_chain(target)?;
+    let target_label = chain.last().map(|h| label_of(h)).unwrap_or_default();
+    let hops = chain.len() - 1;
+    tracing::info!(host = %target_label, bastions = hops, "connexion SSH : début");
+    let started = std::time::Instant::now();
+    let result = connect_chain(workspace, chain).await;
+    match &result {
+        Ok(_) => tracing::info!(host = %target_label, elapsed_ms = started.elapsed().as_millis() as u64, "connexion SSH : établie"),
+        Err(e) => tracing::warn!(host = %target_label, error = %e, "connexion SSH : échec"),
+    }
+    result
+}
+
+/// The body of [`connect`], split out so the tracing wrapper above can report
+/// one outcome for the whole chain rather than being threaded through every
+/// early return.
+async fn connect_chain(workspace: &Workspace, chain: Vec<&Host>) -> anyhow::Result<Connection> {
 
     // Keepalive is configured off the *target* host only — bastions just relay bytes,
     // so what matters for keeping the interactive session alive is the last hop.

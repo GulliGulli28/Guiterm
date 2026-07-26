@@ -1,7 +1,7 @@
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 use tauri::State;
-use termius_core::model::{GroupId, SqlConnection, SqlConnectionId, SqlEngine, Workspace};
+use termius_core::model::{EngineConfig, GroupId, SqlConnection, SqlConnectionId, Workspace};
 use termius_core::sql::{self, ColumnInfo, QueryResult, SqlPool, TableInfo};
 use termius_core::store;
 use termius_core::sync_ext::MutexExt;
@@ -16,20 +16,14 @@ fn persist(workspace: &Workspace) -> Result<(), String> {
 pub struct SaveSqlConnectionInput {
     pub id: Option<SqlConnectionId>,
     pub label: String,
-    pub engine: SqlEngine,
-    #[serde(default)]
-    pub tunnel_host_id: Option<termius_core::model::HostId>,
-    pub address: String,
-    pub port: u16,
-    pub username: String,
-    #[serde(default)]
-    pub database: Option<String>,
-    /// `Sqlite` only — see `SqlConnection::path`'s doc comment.
-    #[serde(default)]
-    pub path: Option<String>,
-    /// `Sqlite` only — see `SqlConnection::sqlite_host_id`'s doc comment.
-    #[serde(default)]
-    pub sqlite_host_id: Option<termius_core::model::HostId>,
+    /// The engine tag plus that engine's own settings, flattened — the exact
+    /// same wire shape `SqlConnection` itself persists (see
+    /// `termius_core::model::EngineConfig`), so the form sends one object and
+    /// no field-by-field translation is needed here. An engine/field
+    /// combination that doesn't exist (a port on a SQLite connection, say) is
+    /// now rejected at deserialisation rather than silently stored.
+    #[serde(flatten)]
+    pub config: EngineConfig,
     #[serde(default)]
     pub group_id: Option<GroupId>,
     #[serde(default)]
@@ -50,26 +44,14 @@ pub fn save_sql_connection(state: State<'_, AppState>, input: SaveSqlConnectionI
         Some(id) => {
             if let Some(conn) = workspace.sql_connections.iter_mut().find(|c| c.id == id) {
                 conn.label = input.label;
-                conn.engine = input.engine;
-                conn.tunnel_host_id = input.tunnel_host_id;
-                conn.address = input.address;
-                conn.port = input.port;
-                conn.username = input.username;
-                conn.database = input.database;
-                conn.path = input.path;
-                conn.sqlite_host_id = input.sqlite_host_id;
+                conn.config = input.config;
                 conn.group_id = input.group_id;
                 conn.tags = input.tags;
             }
             id
         }
         None => {
-            let mut conn = SqlConnection::new(input.label, input.engine, input.address, input.username);
-            conn.tunnel_host_id = input.tunnel_host_id;
-            conn.port = input.port;
-            conn.database = input.database;
-            conn.path = input.path;
-            conn.sqlite_host_id = input.sqlite_host_id;
+            let mut conn = SqlConnection::new(input.label, input.config);
             conn.group_id = input.group_id;
             conn.tags = input.tags;
             let id = conn.id;
