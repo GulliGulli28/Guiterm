@@ -1389,3 +1389,223 @@ requête) contre un vrai serveur sans avoir à automatiser la fenêtre
 WebView2 (aucun outil de ce genre disponible). À garder pour la prochaine
 fois qu'un point du client SQL doit être vérifié en conditions réelles —
 usage : `cargo run --example sql_wsl_smoke -- <label-hôte-ssh> <mot-de-passe-pg> <base>`.
+
+## Redis dans le client BDD (2026-07-24)
+
+Nouvelle connexion Redis dans le même panneau et la même entité que les
+connexions SQL (`SqlConnection` + `SqlEngine::Redis`), mais rendue par un
+composant dédié `RedisTab` plutôt qu'une branche de `SqlTab` : une base
+clé-valeur n'a ni arborescence de tables ni langage de requête SQL à
+parcourir. Même raisonnement que le `RdpTab` séparé de `TerminalTab`.
+
+Côté `core/src/redis_client.rs` :
+
+- Connexion directe ou via le même tunnel SSH éphémère que `core::sql`, mot
+  de passe dans le même trousseau (`SecretKind::SqlPassword` réutilisé, pas
+  une nouvelle variante).
+- Parcours de clés **borné** : boucle `SCAN` par lots, jamais un `KEYS *`
+  bloquant — sur une base de production, `KEYS *` fige le serveur le temps du
+  parcours.
+- Lecture de valeur type-aware et bornée (string/hash/list/set/zset), avec
+  repli explicite « non pris en charge » pour les streams et les types de
+  module, plus le TTL.
+- Console de commandes brutes : tokenizer avec support des guillemets,
+  **aucune liste noire** — cohérent avec l'onglet Query SQL, qui n'interdit
+  pas non plus le `DROP`. Rafraîchissement ciblé de la clé affichée après une
+  commande qui la modifie.
+
+**Vérifié en conditions réelles** contre un vrai serveur Redis en Docker
+(`core/examples/redis_wsl_smoke.rs`, sur le modèle de `sql_wsl_smoke.rs`) :
+tous les types de valeurs, TTL, recherche par motif, et les trois cas de la
+console (lecture, écriture, erreur).
+
+## Mutualisation des connexions SSH — `core/src/ssh_pool.rs` (2026-07-26)
+
+**Le problème.** Chaque fonctionnalité appelait `ssh::connect` pour son
+compte : onglet terminal, panneau de transfert, tunnel, session SQL/Redis
+tunnelée, run de flotte, collecte de facts, déploiement de clé. Ouvrir un
+terminal, un transfert et un tunnel sur le même hôte, c'était donc trois
+connexions TCP, trois échanges de clés, trois authentifications et trois
+vérifications `known_hosts` contre le même serveur — et le triple encore à
+travers deux bastions, chaque saut étant recomposé. SSH multiplexe les canaux
+nativement : ces poignées de main n'achetaient rien. C'est exactement ce que
+résout `ControlMaster` côté OpenSSH.
+
+**La forme retenue.** `ssh_pool::acquire` rend un `SshLease` qui déréférence
+vers une `Connection` partagée.
+
+**Pourquoi un débordement plutôt qu'une seule connexion par hôte.**
+`MaxSessions` de sshd (10 par défaut) plafonne le nombre de canaux
+shell/exec/subsystem d'une *même* connexion. Multiplexer sans limite aurait
+transformé « le 11ᵉ onglet sur cet hôte » de « marche » en « échoue » — une
+régression pour les utilisateurs les plus chargés, précisément ceux que
+l'optimisation vise. D'où `MAX_LEASES_PER_CONNECTION = 8`, délibérément sous
+`MaxSessions` : les port forwards sont loués ici aussi mais ouvrent des canaux
+`direct-tcpip`, que `MaxSessions` ne compte **pas** — la marge absorbe cette
+approximation.
+
+**Durée de vie.** Le pool ne retient que des `Weak`. Une connexion vit tant
+qu'au moins un bail la tient et se ferme au dernier — exactement la durée de
+vie d'avant, donc fermer tous les onglets d'un hôte ferme toujours sa
+connexion au lieu de laisser une connexion inactive garée dans un cache.
+
+**Conséquence non évidente sur `fleet.rs`** : il ne déconnecte plus
+explicitement après un run. La connexion peut désormais être partagée avec un
+onglet ouvert, et la couper tuerait une session en cours d'utilisation. Le
+drop du bail s'en charge, et seulement si plus personne ne l'utilise.
+
+**Exception documentée** : `docker::connect_for_host` reste volontairement
+hors du pool — chaque requête HTTP y ouvre son propre canal exec et le
+connecteur est cloné librement par hyper, donc le modèle « un bail ≈ un
+canal » n'y tient pas.
+
+Prérequis de l'auth interactive (plus bas) : sans mutualisation, un code à
+usage unique aurait été redemandé à chaque nouvel onglet.
+
+## `EngineConfig` : typer les connexions BDD par moteur (2026-07-26)
+
+`SqlConnection` était un struct **plat** portant les champs des cinq moteurs
+côte à côte, chacun documenté par les moteurs auxquels il s'appliquait
+(« Sqlite uniquement », « 0 pour Sqlite », « inutilisé pour ce moteur »). Le
+type autorisait donc des connexions impossibles — une SQLite avec un port, une
+MongoDB avec une adresse — et `sql.rs` portait six `unreachable!()` dont
+l'unique rôle était d'affirmer que ces combinaisons n'arrivaient pas.
+
+Remplacé par un enum à tag interne sur `engine`, aplati dans la structure :
+**le JSON sur disque est identique**, et `SqlEngineConfig` en donne le miroir
+TypeScript en union discriminée, donc le frontend ne peut plus lire `port` sur
+une connexion SQLite. Les six `unreachable!()` deviennent des branches réelles
+d'un `match`.
+
+**Le test de compatibilité a immédiatement attrapé un vrai bug.** Les tests
+désérialisent l'ancienne forme à plat *écrite à la main* (un aller-retour
+Rust→Rust ne prouverait rien sur la casse réelle du JSON) :
+`#[serde(default)]` ne couvre pas un `null` explicite, seulement un champ
+**absent** — or l'ancien format écrivait `"path": null`. Sans le
+`deserialize_with` ajouté ici, un `workspace.json` existant devenait
+illisible, donc mis de côté au démarrage, et **toutes les connexions
+enregistrées disparaissaient de l'interface**. À garder en tête pour toute
+évolution de schéma : tester avec du JSON écrit à la main, pas avec un
+roundtrip.
+
+## MongoDB : backend livré, onglet frontend jamais écrit (2026-07-26, constaté le 2026-07-27)
+
+Repris sur le modèle `EngineConfig` ci-dessus. `core/src/mongo_client.rs`
+connecte via une **chaîne de connexion complète** (`mongodb://` ou
+`mongodb+srv://`, typiquement collée depuis Atlas) plutôt que les champs
+discrets adresse/port que partagent MySQL/PostgreSQL/Redis — d'où sa propre
+variante d'`EngineConfig`. Seule une chaîne `mongodb://` mono-hôte peut être
+tunnelée à travers un forward TCP ; `mongodb+srv://` (résolution DNS,
+multi-hôtes) est rejetée pour le tunnel, vérifié à la saisie.
+
+Le crate `mongodb` se résout proprement dans le graphe de dépendances de ce
+workspace (une seule version de `chrono`/`rustls`/`time`/`hickory-resolver`,
+aucun pin exact conflictuel comme le `picky` d'`ironrdp-connector`) : pas
+besoin d'un sidecar séparé, contrairement au RDP. Détails de feature flags
+dans les commentaires de `core/Cargo.toml` (`bson-3`/`compat-3-3-0`
+obligatoires, et une ligne `bson` **directe** uniquement pour unifier dans
+`serde_json-1`).
+
+**Ce qui manque, découvert le 2026-07-27** : `MongoTab.tsx` n'a jamais été
+écrit. Tout le reste est en place et complet — `mongo_client.rs`,
+`commands/mongo.rs`, les bindings `api.ts`, les types TS, et même
+`core/examples/mongo_wsl_smoke.rs`. Quatre commentaires (`types.ts`,
+`model.rs`, `mongo_client.rs`, `mongo_wsl_smoke.rs`) désignent un composant
+`MongoTab` qui n'existe pas.
+
+Conséquence utilisateur : le formulaire **propose** MongoDB et sait
+enregistrer la connexion, mais `App.tsx` route tout ce qui n'est pas Redis
+vers `SqlTab` — ouvrir une connexion MongoDB appelle donc `sql::connect`, qui
+répond « ne s'applique pas à MongoDB — utiliser `mongo_client::connect` » et
+affiche un échec de connexion. Pas de panique, mais la fonctionnalité est
+inatteignable, **alors que le CHANGELOG 2.4.0 l'annonce comme livrée**.
+
+Leçon de méthode, à retenir au-delà de MongoDB : rien dans l'outillage ne
+pouvait attraper ça. `cargo check`, clippy `-D warnings`, 218 tests Rust,
+`tsc`, les tests frontend et l'E2E passaient tous au vert — la branche
+manquante d'un `if` sur `connection.engine` n'est un trou pour aucun d'entre
+eux. Il n'existe aucun test qui affirme que **chaque moteur proposé dans le
+formulaire a un composant de rendu**. C'est le type de test qui manquait, pas
+l'effort de vérification.
+
+## Frappes du terminal en binaire, au lieu de base64 (2026-07-27)
+
+Symétrique de la section « Canal binaire `tauri::ipc::Channel` pour
+`terminal-data` » plus haut, mais dans l'autre sens : la *sortie* du terminal
+évitait déjà toute conversion, l'entrée non.
+
+L'écriture terminal est l'appel le plus fréquent de l'application — un par
+frappe, plus un par morceau lors d'un collage. Chaque octet faisait trois
+conversions : encodage base64 caractère par caractère en JS, sérialisation
+JSON, puis décodage retour côté Rust — le tout avec ~33 % de volume en plus
+sur le fil, pour une donnée qui était déjà un `Uint8Array`.
+
+Passé à la forme « corps brut » d'`invoke` (`InvokeBody::Raw`), vérifiée dans
+l'API des deux côtés avant d'être adoptée : `InvokeArgs` accepte bien un
+`Uint8Array`, et `Request::body()` le rend tel quel. **Le corps étant la
+charge utile, il ne reste plus d'objet JSON où loger l'identifiant de
+session** : il passe par un en-tête, dont le nom est défini des deux côtés
+avec un commentaire croisé pour qu'un renommage unilatéral saute aux yeux.
+
+`bytesToBase64` disparaît, et avec elle le module `src-tauri/src/util.rs` dont
+c'était l'unique raison d'être (`base64` reste dans les dépendances : le
+coffre chiffré s'en sert).
+
+**Vérifié** par l'E2E, qui est le test qui compte ici puisque le changement
+porte sur le canal IPC lui-même : le scénario tape réellement des caractères
+dans un terminal local et attend leur sortie. L'E2E local tourne sous
+WebKitGTK — confirmation sous WebView2 faite ensuite en lançant le binaire
+Windows release.
+
+## Auth keyboard-interactive : MFA / code à usage unique (2026-07-27)
+
+Dernière lacune protocole du client : les serveurs qui exigent un second
+facteur utilisent keyboard-interactive (RFC 4256), que l'app ne savait pas
+parler — ces hôtes étaient tout simplement inaccessibles.
+
+**Pourquoi ça ne ressemble à aucune des trois autres méthodes.** Le serveur
+n'accepte pas un identifiant fourni d'avance : il envoie une *série* de
+questions (« Password: », puis « Verification code: »), chacune devant être
+répondue avant qu'il dise si l'authentification réussit, et c'est lui qui
+décide quand il en a assez. C'est donc la seule méthode qui ne peut pas se
+résoudre depuis la configuration enregistrée — il faut un aller-retour avec
+l'utilisateur **au milieu de la poignée de main**.
+
+**Découpage.** `core` n'a ni interface ni dépendance Tauri : il décrit la
+forme de la conversation (trait `Prompter` dans
+`core/src/interactive_auth.rs`) et garde une instance de processus, même forme
+de global ambiant que `vault` et `ssh_pool`, et pour la même raison —
+`ssh::connect` est atteint depuis une dizaine d'appelants qui n'ont pas à
+connaître le prompting. `src-tauri` installe une implémentation qui émet
+l'événement `ssh-auth-prompt` et attend la réponse sur un oneshot. Sans
+prompteur installé (tests, exemples), l'authentification échoue avec un
+message clair plutôt que d'attendre indéfiniment une réponse qui ne viendra
+jamais.
+
+**La partie qui méritait des tests unitaires** : le mot de passe enregistré
+répond automatiquement à la **première invite masquée du premier tour
+seulement** (`autofilled_answers`). Les serveurs demandent le mot de passe
+puis le second facteur — auto-répondre au second tour enverrait un mot de
+passe périmé à la place du code, en consommant une des rares tentatives
+autorisées, sans que l'utilisateur puisse comprendre pourquoi. Cinq tests
+couvrent le cas normal, le tour OTP, un tour uniquement échoué, deux invites
+masquées dans un même tour, et l'absence de mot de passe enregistré.
+
+**Frontend** : les demandes sont mises en **file** plutôt que gardées une par
+une — une opération de flotte ou une restauration d'onglets peut faire
+authentifier plusieurs hôtes à la fois, chacun étant une poignée de main
+bloquée. La modale rend les intitulés du serveur **tels quels** : c'est la
+seule chose qui indique quel facteur est attendu, et la formulation varie d'un
+déploiement à l'autre. Le champ est masqué ou non selon ce que dit le serveur
+(`echo`) — un OTP est souvent envoyé avec `echo: true` puisqu'il est à usage
+unique.
+
+**Deux garde-fous** contre une connexion suspendue indéfiniment : un délai de
+3 minutes côté Rust, et un bouton Annuler qui fait échouer cette
+authentification tout de suite. Les réponses ne sont ni journalisées ni
+persistées.
+
+**Non vérifié** : jamais testé contre un vrai serveur MFA — le sshd des tests
+d'intégration demanderait une configuration PAM dédiée. La logique de décision
+est couverte par les tests unitaires ci-dessus, le reste est du câblage
+vérifié par compilation, clippy et E2E.
