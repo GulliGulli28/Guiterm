@@ -91,13 +91,19 @@ wsl.exe -e bash -lc "cd ~/gui-termius && npm run verify -- --e2e"  # + vraie fen
 `verify` prouve que le code est correct, pas qu'une fonctionnalité est agréable
 à utiliser.
 
-**Node 18 est en fin de vie sur cette machine** (`/usr/bin/node`, installé par
-apt). Conséquences déjà rencontrées : vitest ≥ 4 exige Node ≥ 20 (d'où le pin
-`vitest@^2`), et le formateur `stylish` d'ESLint 10 plante sur
-`util.styleText` — d'où `--format compact` dans le script `lint`. Passer à
-Node 20+ (via nvm, sans sudo) lèverait les deux ; prévoir un `npm rebuild`
-derrière, les binaires natifs (esbuild/rollup) étant liés à la version
-d'install.
+**Node vient de nvm, pas d'apt** (depuis le 2026-07-27). `/usr/bin/node` est
+toujours le 18.19 installé par apt, mais `~/.nvm` fournit un Node 20 (alias
+`default`), activé par un snippet ajouté à **`~/.profile` *et* `~/.bashrc`** —
+les deux sont nécessaires : `~/.bashrc` sort immédiatement pour un shell non
+interactif (« If not running interactively, don't do anything »), or c'est
+exactement ce qu'utilise l'outillage (`wsl.exe -e bash -lc ...`). Si `node -v`
+répond 18 dans un contexte donné, c'est que ce snippet n'a pas été chargé.
+
+Ça a levé les deux contournements que Node 18 imposait : le script `lint` est
+revenu au formateur par défaut d'ESLint (`stylish` appelle `util.styleText`,
+absent avant Node 20.12), et vitest est passé du pin `^2` à `^3`. **Pas à
+`^4`** : vitest 4 exige vite ≥ 6 et ce dépôt est en vite 5 — un chantier de
+mise à jour à part entière, pas un simple bump.
 
 ## Vérification Rust : `clippy -D warnings` est un gate CI bloquant
 
