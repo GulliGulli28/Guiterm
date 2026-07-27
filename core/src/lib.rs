@@ -23,6 +23,7 @@ pub mod redis_client;
 pub mod remote_edit;
 pub mod remote_shell_pane;
 pub mod secure_file;
+pub mod session_record;
 pub mod sftp;
 pub mod sql;
 pub mod ssh;

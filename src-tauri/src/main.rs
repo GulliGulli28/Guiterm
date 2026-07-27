@@ -181,6 +181,9 @@ fn main() {
             commands::remote_edit::sync_remote_edits,
             commands::remote_edit::end_remote_edit,
             commands::remote_edit::discard_remote_edit,
+            commands::terminal::start_session_recording,
+            commands::terminal::stop_session_recording,
+            commands::terminal::recording_session_ids,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

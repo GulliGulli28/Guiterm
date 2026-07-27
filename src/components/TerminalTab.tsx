@@ -17,6 +17,11 @@ export interface TerminalTabHandle {
   runCommand: (command: string) => void;
   writeRaw: (data: string) => void;
   getScrollbackText: () => string;
+  /** Backend session id and current geometry, for session recording — the
+   * recorder lives in Rust but only xterm knows the real size. `null` before
+   * the session is open (or after it closed), which is also the answer to
+   * "can this tab be recorded right now". */
+  getRecordingTarget: () => { sessionId: string; cols: number; rows: number } | null;
   dispose: () => void;
 }
 
@@ -79,6 +84,11 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
         if (id) api.writeTerminal(id, new TextEncoder().encode(data));
       },
       getScrollbackText: () => (termRef.current ? scrollbackText(termRef.current) : ""),
+      getRecordingTarget: () => {
+        const id = sessionIdRef.current;
+        const term = termRef.current;
+        return id && term ? { sessionId: id, cols: term.cols, rows: term.rows } : null;
+      },
       dispose: () => {
         const id = sessionIdRef.current;
         if (id) api.closeTerminal(id).catch(() => {});

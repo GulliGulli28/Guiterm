@@ -115,4 +115,15 @@ pub struct AppState {
     /// the push-back actually happens (on the app regaining focus, not from a
     /// background watcher).
     pub remote_edits: Mutex<HashMap<String, termius_core::remote_edit::RemoteEdit>>,
+    /// One recording slot per live terminal session, keyed by session id.
+    ///
+    /// The slot is created empty when the session opens and handed to the
+    /// task that pumps its output, so starting a recording later only has to
+    /// fill it — the output path never looks the map up per chunk. `None`
+    /// means "this session is not being recorded", which is the normal case.
+    pub recorders: Mutex<HashMap<String, RecorderSlot>>,
 }
+
+/// See [`AppState::recorders`]. Shared between the command that starts/stops a
+/// recording and the task writing into it.
+pub type RecorderSlot = Arc<Mutex<Option<termius_core::session_record::SessionRecorder>>>;

@@ -261,11 +261,57 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
     api.exportText(path, handle.getScrollbackText()).catch((e) => reportError(String(e)));
   }, [activeTabId, tabs, reportError, terminalRefs]);
 
+  // Session ids being recorded, mirrored from the backend (which owns the
+  // truth) so the palette can offer start or stop for the active tab.
+  const [recordingSessionIds, setRecordingSessionIds] = useState<string[]>([]);
+  const refreshRecordings = useCallback(() => {
+    api.recordingSessionIds().then(setRecordingSessionIds).catch(() => {});
+  }, []);
+  useEffect(() => { refreshRecordings(); }, [refreshRecordings]);
+
+  /** Whether the active tab is a terminal currently being recorded — drives
+   * which of the two palette entries is offered. */
+  const activeTabRecording = useCallback(() => {
+    if (!activeTabId) return false;
+    const target = terminalRefs.current.get(activeTabId)?.getRecordingTarget?.() ?? null;
+    return target !== null && recordingSessionIds.includes(target.sessionId);
+  }, [activeTabId, recordingSessionIds, terminalRefs]);
+
+  const startActiveRecording = useCallback(async () => {
+    if (!activeTabId) { reportError("Aucun terminal actif à enregistrer"); return; }
+    const target = terminalRefs.current.get(activeTabId)?.getRecordingTarget?.() ?? null;
+    if (!target) { reportError("L'onglet actif n'est pas un terminal connecté"); return; }
+    const tabLabel = tabs.find((t) => t.id === activeTabId)?.label ?? "session";
+    const path = await save({
+      // `.cast` is what asciinema itself writes and what its player expects.
+      defaultPath: `${tabLabel.replace(/[^\w.-]+/g, "_")}.cast`,
+      filters: [{ name: "Enregistrement asciicast", extensions: ["cast"] }],
+    }).catch(() => null);
+    if (!path) return;
+    try {
+      await api.startSessionRecording(target.sessionId, path, target.cols, target.rows);
+      refreshRecordings();
+      pushNotification("success", `Enregistrement en cours vers ${path}`);
+    } catch (e) { reportError(String(e)); }
+  }, [activeTabId, tabs, terminalRefs, pushNotification, reportError, refreshRecordings]);
+
+  const stopActiveRecording = useCallback(async () => {
+    if (!activeTabId) return;
+    const target = terminalRefs.current.get(activeTabId)?.getRecordingTarget?.() ?? null;
+    if (!target) return;
+    try {
+      await api.stopSessionRecording(target.sessionId);
+      pushNotification("success", "Enregistrement arrêté — le fichier est complet.");
+    } catch (e) { reportError(String(e)); }
+    refreshRecordings();
+  }, [activeTabId, terminalRefs, pushNotification, reportError, refreshRecordings]);
+
   return {
     tabs, setTabs, activeTabId, setActiveTabId,
     pendingCloseTabId, setPendingCloseTabId,
     openTab, openLocalTerminal, openFleet, openSql, reconnectTab,
     closeTab, requestCloseTab,
+    activeTabRecording, startActiveRecording, stopActiveRecording,
     runSnippet, runAdaptiveSnippet, exportActiveScrollback,
   };
 }

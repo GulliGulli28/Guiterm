@@ -220,6 +220,7 @@ export default function App() {
     openTab, openLocalTerminal, openFleet, openSql, reconnectTab,
     closeTab, requestCloseTab,
     runSnippet, runAdaptiveSnippet, exportActiveScrollback,
+    activeTabRecording, startActiveRecording, stopActiveRecording,
   } = useTabs({ workspace, preferences, terminalRefs, pushNotification, reportError, refreshWorkspace });
 
   const {
@@ -269,6 +270,20 @@ export default function App() {
       label: "Exporter le scrollback du terminal actif…",
       run: () => { exportActiveScrollback(); },
     },
+    // Two entries rather than one toggle: the palette is a list of actions
+    // read at a glance, and "Enregistrer" when it would actually stop is the
+    // kind of ambiguity that costs someone a recording.
+    activeTabRecording()
+      ? {
+          id: "terminal.stopRecording",
+          label: "Arrêter l'enregistrement de la session",
+          run: () => { stopActiveRecording(); },
+        }
+      : {
+          id: "terminal.startRecording",
+          label: "Enregistrer la session du terminal actif…",
+          run: () => { startActiveRecording(); },
+        },
     {
       id: "fleet.open",
       label: "Opérations de flotte — exécuter sur plusieurs hôtes…",

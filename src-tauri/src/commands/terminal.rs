@@ -2,7 +2,7 @@ use termius_core::sync_ext::MutexExt;
 use crate::state::{AppState, TerminalBackend, TerminalSession};
 use serde::Serialize;
 use tauri::ipc::{Channel, InvokeResponseBody};
-use tauri::{AppHandle, Emitter, State};
+use tauri::{AppHandle, Emitter, Manager, State};
 use termius_core::model::{HostId, Workspace};
 use termius_core::ssh::{self, ShellInput};
 use termius_core::ssh_pool;
@@ -23,14 +23,106 @@ pub(crate) struct TerminalClosedEvent {
 /// plain `mpsc::Receiver<Vec<u8>>`, not know about Tauri events/channels
 /// itself.
 pub(crate) fn spawn_output_bridge(app: AppHandle, session_id: String, channel: Channel, mut output: mpsc::Receiver<Vec<u8>>) {
+    let recorder = register_recorder_slot(&app, &session_id);
     tokio::spawn(async move {
         while let Some(bytes) = output.recv().await {
+            record_chunk(&recorder, &bytes);
             if channel.send(InvokeResponseBody::Raw(bytes)).is_err() {
                 break;
             }
         }
+        finish_recording(&app, &session_id);
         let _ = app.emit("terminal-closed", TerminalClosedEvent { id: session_id });
     });
+}
+
+/// Creates this session's (empty) recording slot and registers it, returning
+/// the handle for the output task to write through. See
+/// [`crate::state::AppState::recorders`].
+pub(crate) fn register_recorder_slot(app: &AppHandle, session_id: &str) -> crate::state::RecorderSlot {
+    let slot: crate::state::RecorderSlot = Default::default();
+    app.state::<AppState>().recorders.lock_recover().insert(session_id.to_string(), slot.clone());
+    slot
+}
+
+/// Writes one output chunk to the recording, if this session has one.
+///
+/// A write failure (disk full, file removed underneath) drops the recording
+/// rather than killing the session: the terminal itself must keep working —
+/// losing a recording is bad, losing the shell someone is working in is worse.
+pub(crate) fn record_chunk(slot: &crate::state::RecorderSlot, bytes: &[u8]) {
+    let mut guard = slot.lock_recover();
+    if let Some(recorder) = guard.as_mut()
+        && recorder.write_output(bytes).is_err()
+    {
+        *guard = None;
+    }
+}
+
+/// Flushes and forgets this session's recording, when the session ends.
+pub(crate) fn finish_recording(app: &AppHandle, session_id: &str) {
+    let slot = app.state::<AppState>().recorders.lock_recover().remove(session_id);
+    if let Some(slot) = slot
+        && let Some(recorder) = slot.lock_recover().take()
+    {
+        let _ = recorder.finish();
+    }
+}
+
+/// Starts writing this session's output to `path` as an asciicast file.
+///
+/// `cols`/`rows` come from the frontend because xterm is what actually knows
+/// the current size — see `termius_core::session_record::SessionRecorder`.
+/// Recording is per session and opt-in: nothing is ever written to disk
+/// unless this is called.
+#[tauri::command]
+pub fn start_session_recording(
+    state: State<'_, AppState>,
+    session_id: String,
+    path: String,
+    cols: u16,
+    rows: u16,
+) -> Result<(), String> {
+    let slot = state
+        .recorders
+        .lock_recover()
+        .get(&session_id)
+        .cloned()
+        .ok_or_else(|| "session de terminal inconnue ou déjà fermée".to_string())?;
+    let mut guard = slot.lock_recover();
+    if guard.is_some() {
+        return Err("cette session est déjà en cours d'enregistrement".to_string());
+    }
+    let recorder = termius_core::session_record::SessionRecorder::create(std::path::Path::new(&path), cols, rows)
+        .map_err(|e| format!("impossible de créer « {path} » : {e}"))?;
+    *guard = Some(recorder);
+    Ok(())
+}
+
+/// Stops and flushes this session's recording. The session itself keeps
+/// running — recording is not a mode the terminal is in, just a tap on its
+/// output.
+#[tauri::command]
+pub fn stop_session_recording(state: State<'_, AppState>, session_id: String) -> Result<(), String> {
+    let slot = state.recorders.lock_recover().get(&session_id).cloned();
+    let recorder = slot.and_then(|s| s.lock_recover().take());
+    match recorder {
+        Some(recorder) => recorder.finish().map_err(|e| format!("échec de l'écriture finale : {e}")),
+        None => Err("cette session n'était pas en cours d'enregistrement".to_string()),
+    }
+}
+
+/// Session ids currently being recorded — lets the UI show the indicator on
+/// the right tabs after a reload without tracking it itself.
+#[tauri::command]
+pub fn recording_session_ids(state: State<'_, AppState>) -> Vec<String> {
+    state
+        .recorders
+        .lock_recover()
+        .iter()
+        .filter(|(_, slot)| slot.lock_recover().is_some())
+        .map(|(id, _)| id.clone())
+        .collect()
 }
 
 /// Wraps a value in single quotes, escaping any embedded single quotes.
@@ -246,18 +338,23 @@ pub async fn open_local_terminal(app: AppHandle, state: State<'_, AppState>, she
     let session_id = Uuid::new_v4().to_string();
     let emit_id = session_id.clone();
     let app_handle = app.clone();
+    // Local terminals read their PTY on a blocking thread rather than through
+    // `spawn_output_bridge`'s channel, so the recording hook is repeated here.
+    let recorder = register_recorder_slot(&app, &session_id);
     tokio::task::spawn_blocking(move || {
         let mut buf = [0u8; 4096];
         loop {
             match reader.read(&mut buf) {
                 Ok(0) | Err(_) => break,
                 Ok(n) => {
+                    record_chunk(&recorder, &buf[..n]);
                     if channel.send(InvokeResponseBody::Raw(buf[..n].to_vec())).is_err() {
                         break;
                     }
                 }
             }
         }
+        finish_recording(&app_handle, &emit_id);
         let _ = app_handle.emit("terminal-closed", TerminalClosedEvent { id: emit_id });
     });
 

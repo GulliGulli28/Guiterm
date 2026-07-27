@@ -259,6 +259,15 @@ export const api = {
   /** Sends keystrokes as the request body itself, not as a base64 string in a
    * JSON argument — see `writeBytes`. */
   writeTerminal: (sessionId: string, data: Uint8Array) => writeBytes("write_terminal", sessionId, data),
+  /** Starts writing this session's output to `path` as an asciicast file.
+   * Distinct from `exportText` of the scrollback: that snapshots what xterm
+   * still holds, this records every byte as it arrives, with timing, and
+   * survives both scrollback overflow and a crash. Only output is recorded,
+   * never keystrokes — see `termius_core::session_record`. */
+  startSessionRecording: (sessionId: string, path: string, cols: number, rows: number) =>
+    invoke<void>("start_session_recording", { sessionId, path, cols, rows }),
+  stopSessionRecording: (sessionId: string) => invoke<void>("stop_session_recording", { sessionId }),
+  recordingSessionIds: () => invoke<string[]>("recording_session_ids"),
   resizeTerminal: (sessionId: string, cols: number, rows: number) => invoke<void>("resize_terminal", { sessionId, cols, rows }),
   closeTerminal: (sessionId: string) => invoke<void>("close_terminal", { sessionId }),
 

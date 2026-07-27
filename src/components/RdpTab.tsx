@@ -82,6 +82,10 @@ export const RdpTab = forwardRef<TerminalTabHandle, RdpTabProps>(function RdpTab
       writeRaw: (data: string) => sendInputRef.current({ type: "typeText", text: data }),
       // No text scrollback here — this is a picture, not a terminal.
       getScrollbackText: () => "",
+      // Nor anything to record as an asciicast: an RDP session is a stream of
+      // framebuffer updates, not of terminal bytes. Recording one would be a
+      // screen recorder, a different feature entirely.
+      getRecordingTarget: () => null,
       dispose: () => {
         const id = sessionIdRef.current;
         if (id) api.closeRdpView(id).catch(() => {});
