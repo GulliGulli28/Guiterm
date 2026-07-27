@@ -62,3 +62,40 @@ passe) — jamais dans le dépôt. La clé publique correspondante est dans
 nouvelles releases que les installations existantes accepteront : il
 faudrait redistribuer l'app avec une nouvelle clé publique. Gardez une
 copie de la clé privée en lieu sûr (gestionnaire de mots de passe, coffre).
+
+## Signature par le système d'exploitation — pas encore en place
+
+À ne pas confondre avec la clé ci-dessus : celle-ci ne concerne que
+l'updater interne. Vis-à-vis de Windows et de macOS, les binaires publiés
+sont **non signés**, avec des conséquences visibles pour qui les installe :
+
+- **Windows** : SmartScreen affiche « Windows a protégé votre ordinateur »
+  au premier lancement de chaque nouvelle version. L'utilisateur doit passer
+  par « Informations complémentaires » → « Exécuter quand même ».
+- **macOS** : Gatekeeper refuse simplement d'ouvrir l'app (« impossible de
+  vérifier le développeur »). Contournement : clic droit → Ouvrir, ou
+  `xattr -d com.apple.quarantine`.
+
+Pour un client SSH — qui manipule des mots de passe et des clés privées —
+c'est le premier frein à l'adoption : l'avertissement dit littéralement à
+l'utilisateur de se méfier du logiciel auquel il s'apprête à confier ses
+accès. Les options, par coût croissant :
+
+| Piste | Coût | Remarque |
+|---|---|---|
+| [SignPath Foundation](https://signpath.org/) | gratuit | Réservé aux projets open source. Guiterm est MIT, donc a priori éligible. Windows uniquement. |
+| Azure Trusted Signing | ~10 $/mois | Nécessite une entité légale avec 3 ans d'ancienneté vérifiable. Windows uniquement. |
+| Certificat OV classique | ~200-400 €/an | Réduit l'avertissement sans le supprimer tant que la réputation SmartScreen n'est pas établie. |
+| Certificat EV | ~400-600 €/an | Confiance SmartScreen immédiate. Token matériel, donc peu commode en CI. |
+| Apple Developer Program | 99 $/an | Nécessaire pour signer **et** notariser côté macOS. |
+
+Côté outillage, rien à écrire : `tauri-action` signe automatiquement dès que
+les variables d'environnement correspondantes existent
+(`APPLE_CERTIFICATE`, `APPLE_SIGNING_IDENTITY`, `APPLE_ID`,
+`APPLE_PASSWORD`, `APPLE_TEAM_ID` pour macOS ; les équivalents Windows selon
+le fournisseur retenu). Il suffira de les ajouter en secrets GitHub — le
+workflow n'a pas besoin d'être modifié pour macOS, et un commentaire dans
+`release.yml` le rappelle à l'endroit concerné.
+
+En attendant, le plus utile est de **le dire dans les notes de release**
+plutôt que de laisser l'utilisateur découvrir l'avertissement seul.
