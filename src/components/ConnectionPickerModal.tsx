@@ -1,10 +1,20 @@
 import { useEffect } from "react";
 
+/** A per-row action that is *not* "pick this one" — showing a container's
+ * logs, stopping it. Kept out of `onPick` so a row can offer several verbs
+ * without the list stopping being a picker. */
+export interface PickerAction {
+  label: string;
+  title?: string;
+  run: () => void;
+}
+
 interface PickerItem {
   id: string;
   name: string;
   meta: string;
   up: boolean;
+  actions?: PickerAction[];
 }
 
 interface ConnectionPickerModalProps {
@@ -51,17 +61,25 @@ export function ConnectionPickerModal({ title, warning, loading, error, items, o
             <p className="px-3 py-4 text-[12.5px] text-[var(--c-text-muted)]">Aucun élément trouvé.</p>
           )}
           {!loading && !error && items.map((item) => (
-            <button
-              key={item.id}
-              onClick={() => onPick(item.id)}
-              className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left hover:bg-white/5"
-            >
+            // A row, not a button, now that it can hold several verbs — the
+            // name stays the "pick" affordance, the actions sit beside it.
+            <div key={item.id} className="group flex items-center gap-2.5 rounded-md px-2.5 py-2 hover:bg-white/5">
               <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${item.up ? "bg-emerald-400" : "bg-[var(--c-text-faint)]"}`} />
-              <span className="min-w-0 flex-1">
+              <button onClick={() => onPick(item.id)} className="min-w-0 flex-1 text-left">
                 <span className="block truncate text-[12.5px] text-[var(--c-text)]">{item.name}</span>
                 <span className="block truncate text-[10.5px] text-[var(--c-text-muted)]">{item.meta}</span>
-              </span>
-            </button>
+              </button>
+              {item.actions?.map((action) => (
+                <button
+                  key={action.label}
+                  onClick={action.run}
+                  title={action.title}
+                  className="shrink-0 rounded px-1.5 py-0.5 text-[10.5px] text-[var(--c-text-muted)] opacity-0 hover:bg-white/10 hover:text-[var(--c-text)] focus-visible:opacity-100 group-hover:opacity-100"
+                >
+                  {action.label}
+                </button>
+              ))}
+            </div>
           ))}
         </div>
         <div className="border-t border-[var(--c-border)] p-2">

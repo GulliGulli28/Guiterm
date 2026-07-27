@@ -1,6 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AuthMethod, CollectionInfo, ColumnInfo, CollectFactsResult, ComposeResult, DockerContainer, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostId, HostKind, ImportSelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, QueryResult, RdpClientMessage, RdpFrame, RedisKeyDetail, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, ScanPage, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SshAuthPrompt, SshConfigHost, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
+import type { AuthMethod, CollectionInfo, ColumnInfo, CollectFactsResult, ComposeResult, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostId, HostKind, ImportSelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, QueryResult, RdpClientMessage, RdpFrame, RedisKeyDetail, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, ScanPage, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SshAuthPrompt, SshConfigHost, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
 
 /** Mirrors the 12-byte little-endian header `commands::rdp_view::connect_rdp_view`
  * writes ahead of each frame's raw RGBA8 pixels (see its doc comment for why
@@ -224,12 +224,24 @@ export const api = {
     return invoke<string>("connect_terminal", { hostId, channel });
   },
   listDockerContainers: (hostId: HostId) => invoke<DockerContainer[]>("list_docker_containers", { hostId }),
+  /** Tail of a container's log, stdout and stderr interleaved. Bounded, not
+   * followed — see `termius_core::docker::container_logs`. */
+  dockerContainerLogs: (hostId: HostId, containerId: string, tail: number) =>
+    invoke<string>("docker_container_logs", { hostId, containerId, tail }),
+  /** Starts/stops/restarts a container and resolves to the refreshed list —
+   * the caller's next move is always to re-render it. */
+  dockerContainerAction: (hostId: HostId, containerId: string, action: DockerContainerAction) =>
+    invoke<DockerContainer[]>("docker_container_action", { hostId, containerId, action }),
   connectDockerExec: (hostId: HostId, containerId: string, onData: (chunk: Uint8Array) => void) => {
     const channel = new Channel<ArrayBuffer>();
     channel.onmessage = (buffer) => onData(new Uint8Array(buffer));
     return invoke<string>("connect_docker_exec", { hostId, containerId, channel });
   },
   listK8sPods: (hostId: HostId) => invoke<K8sPod[]>("list_k8s_pods", { hostId }),
+  /** `kubectl logs` equivalent — `containerName` picks one container in a
+   * multi-container pod, `null` lets the API server choose. */
+  k8sPodLogs: (hostId: HostId, podName: string, containerName: string | null, tail: number) =>
+    invoke<string>("k8s_pod_logs", { hostId, podName, containerName, tail }),
   connectK8sExec: (hostId: HostId, podName: string, containerName: string | null, onData: (chunk: Uint8Array) => void) => {
     const channel = new Channel<ArrayBuffer>();
     channel.onmessage = (buffer) => onData(new Uint8Array(buffer));

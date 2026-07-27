@@ -184,6 +184,9 @@ fn main() {
             commands::terminal::start_session_recording,
             commands::terminal::stop_session_recording,
             commands::terminal::recording_session_ids,
+            commands::docker::docker_container_logs,
+            commands::docker::docker_container_action,
+            commands::k8s::k8s_pod_logs,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

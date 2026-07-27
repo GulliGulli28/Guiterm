@@ -507,6 +507,12 @@ export interface PaneListed {
 /** A remote file currently open in the user's own editor, via a private local
  * copy — see `termius_core::remote_edit`. Distinct from the quick-edit modal,
  * which reads and writes the file in place with no copy involved. */
+/** Lifecycle action on a container. Mirrors
+ * `termius_core::docker::ContainerAction` — removal is deliberately absent,
+ * deleting a container isn't undoable and doesn't belong behind the same
+ * one-click affordance as stopping one. */
+export type DockerContainerAction = "start" | "stop" | "restart";
+
 export interface RemoteEditListed {
   id: string;
   remotePath: string;

@@ -25,6 +25,42 @@ pub async fn list_docker_containers(
     docker::list_containers(&client).await.map_err(|e| e.to_string())
 }
 
+/// The tail of a container's log, stdout and stderr interleaved.
+///
+/// Reuses the daemon connection cached per host, like every other Docker
+/// command here — reading a log costs no handshake.
+#[tauri::command]
+pub async fn docker_container_logs(
+    state: State<'_, AppState>,
+    host_id: HostId,
+    container_id: String,
+    tail: usize,
+) -> Result<String, String> {
+    let workspace = state.workspace.lock_recover().clone();
+    let host = find_host(&workspace, host_id)?;
+    let client = docker::connect_for_host(&workspace, &host).await.map_err(|e| e.to_string())?;
+    docker::container_logs(&client, &container_id, tail).await.map_err(|e| e.to_string())
+}
+
+/// Starts, stops or restarts a container. Removal is deliberately not offered
+/// — see [`docker::ContainerAction`].
+#[tauri::command]
+pub async fn docker_container_action(
+    state: State<'_, AppState>,
+    host_id: HostId,
+    container_id: String,
+    action: docker::ContainerAction,
+) -> Result<Vec<docker::ContainerSummary>, String> {
+    let workspace = state.workspace.lock_recover().clone();
+    let host = find_host(&workspace, host_id)?;
+    let client = docker::connect_for_host(&workspace, &host).await.map_err(|e| e.to_string())?;
+    docker::container_action(&client, &container_id, action).await.map_err(|e| e.to_string())?;
+    // Returns the refreshed list rather than `()`: the caller's next move is
+    // always to re-render the container list, and a stop/start changes state
+    // the list is showing.
+    docker::list_containers(&client).await.map_err(|e| e.to_string())
+}
+
 /// Opens an interactive `exec` session in `container_id` on `host_id`'s
 /// Docker daemon, emitting output as `terminal-data` events exactly like
 /// [`crate::commands::terminal::connect_terminal`] — the frontend drives it

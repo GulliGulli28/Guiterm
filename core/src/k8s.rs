@@ -34,6 +34,33 @@ pub struct PodSummary {
     pub ready: bool,
 }
 
+/// Lines of pod log fetched at once — same bound, and the same reasoning, as
+/// [`crate::docker::MAX_LOG_LINES`].
+pub const MAX_LOG_LINES: usize = 2000;
+
+/// The last `tail` lines of a pod's log (a specific container's, when the pod
+/// has several and one is named).
+///
+/// The `kubectl logs` equivalent, and like [`crate::docker::container_logs`]
+/// it is a snapshot rather than a follow: `LogParams::follow` exists, but
+/// streaming it to the frontend properly wants the binary `Channel` treatment
+/// `terminal-data` gets, which isn't worth it until asked for.
+pub async fn pod_logs(
+    client: &Client,
+    namespace: &str,
+    pod_name: &str,
+    container: Option<&str>,
+    tail: usize,
+) -> anyhow::Result<String> {
+    let pods: Api<Pod> = Api::namespaced(client.clone(), namespace);
+    let params = kube::api::LogParams {
+        container: container.map(str::to_string),
+        tail_lines: Some(tail.min(MAX_LOG_LINES) as i64),
+        ..Default::default()
+    };
+    Ok(pods.logs(pod_name, &params).await?)
+}
+
 /// Connects to the cluster named by `context` in the user's kubeconfig — an
 /// empty `context` uses the file's `current-context`, matching `kubectl`'s
 /// own default when `--context` is omitted.

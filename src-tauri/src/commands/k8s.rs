@@ -21,6 +21,26 @@ pub async fn list_k8s_pods(state: State<'_, AppState>, host_id: HostId) -> Resul
     k8s::list_pods(&client, &host.username).await.map_err(|e| e.to_string())
 }
 
+/// The tail of a pod's log — the `kubectl logs` equivalent, and the mirror of
+/// [`crate::commands::docker::docker_container_logs`]. `container_name` picks
+/// one container in a multi-container pod; `None` lets the API server choose
+/// when there is only one.
+#[tauri::command]
+pub async fn k8s_pod_logs(
+    state: State<'_, AppState>,
+    host_id: HostId,
+    pod_name: String,
+    container_name: Option<String>,
+    tail: usize,
+) -> Result<String, String> {
+    let workspace = state.workspace.lock_recover().clone();
+    let host = find_host(&workspace, host_id)?;
+    let client = k8s::connect(&host.address).await.map_err(|e| e.to_string())?;
+    k8s::pod_logs(&client, &host.username, &pod_name, container_name.as_deref(), tail)
+        .await
+        .map_err(|e| e.to_string())
+}
+
 /// Opens an interactive `exec` session in `pod_name`/`container_name` on
 /// `host_id`'s cluster, emitting output over `channel` exactly like
 /// [`crate::commands::terminal::connect_terminal`]/`connect_docker_exec` —

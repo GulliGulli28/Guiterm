@@ -294,6 +294,64 @@ pub async fn list_containers(docker: &Docker) -> anyhow::Result<Vec<ContainerSum
         .collect())
 }
 
+/// Lines of container log fetched at once.
+///
+/// Bounded rather than streamed, same discipline as `crate::sql`'s row cap and
+/// `crate::redis_client`'s key pages: a container that has been up for months
+/// can hold a log far larger than anything worth putting through the IPC
+/// bridge, and "the last N lines" is what an operator actually reads.
+pub const MAX_LOG_LINES: usize = 2000;
+
+/// The last [`MAX_LOG_LINES`] lines of a container's log, stdout and stderr
+/// interleaved as Docker itself returns them.
+///
+/// Not a follow/stream: this is the "what just happened" view. Following a log
+/// live would want the binary `Channel` treatment `terminal-data` gets, which
+/// is a bigger change than this is worth until someone asks for it.
+pub async fn container_logs(docker: &Docker, container_id: &str, tail: usize) -> anyhow::Result<String> {
+    use futures_util::StreamExt;
+    let options = bollard::query_parameters::LogsOptionsBuilder::default()
+        .stdout(true)
+        .stderr(true)
+        .tail(&tail.min(MAX_LOG_LINES).to_string())
+        .build();
+    let mut stream = docker.logs(container_id, Some(options));
+    let mut out = String::new();
+    while let Some(chunk) = stream.next().await {
+        // A log is not guaranteed to be UTF-8 (a process can write anything to
+        // stdout); losing the rest of the log over one bad byte would be worse
+        // than showing a replacement character.
+        out.push_str(&String::from_utf8_lossy(&chunk?.into_bytes()));
+    }
+    Ok(out)
+}
+
+/// Starts, stops or restarts a container.
+///
+/// One function rather than three: the three Docker calls differ only in which
+/// endpoint they hit, and the callers (a Tauri command, a context menu) would
+/// otherwise be three copies of the same plumbing. [`ContainerAction`] keeps
+/// the set closed — an unknown action can't reach here as a string.
+pub async fn container_action(docker: &Docker, container_id: &str, action: ContainerAction) -> anyhow::Result<()> {
+    match action {
+        ContainerAction::Start => docker.start_container(container_id, None::<bollard::query_parameters::StartContainerOptions>).await?,
+        ContainerAction::Stop => docker.stop_container(container_id, None).await?,
+        ContainerAction::Restart => docker.restart_container(container_id, None).await?,
+    }
+    Ok(())
+}
+
+/// Lifecycle actions offered on a container. Deliberately excludes removal:
+/// deleting a container is not undoable and doesn't belong behind the same
+/// one-click affordance as stopping one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ContainerAction {
+    Start,
+    Stop,
+    Restart,
+}
+
 /// Opens an interactive TTY `exec` session in `container_id`, bridged onto
 /// the same plain byte-stream channels as [`crate::ssh::open_shell`] so the
 /// terminal widget never needs to know which backend it's talking to.
