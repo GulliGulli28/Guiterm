@@ -9,6 +9,17 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+### Added
+- Servers that ask for a second factor (one-time code, MFA prompt) can now be
+  reached. The app answers the server's questions during the handshake, in a
+  dialog that shows the server's own wording — a saved password still answers
+  the first hidden prompt on its own, so only the extra factor is asked for.
+
+### Changed
+- Terminal keystrokes travel to the session as raw bytes instead of being
+  base64-encoded first, which was the app's most frequent call and carried
+  about a third more data than it had to.
+
 ## [2.4.0] - 2026-07-27
 
 ### Added
