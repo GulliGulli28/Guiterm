@@ -362,6 +362,30 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
 
             <div className="space-y-1 rounded-lg bg-[var(--c-bg2)] p-1.5">
               <ToggleRow
+                label="Accélération GPU du terminal"
+                checked={preferences.terminalWebglRenderer}
+                onChange={(v) => onPreferencesChange({ ...preferences, terminalWebglRenderer: v })}
+              />
+              <p className="px-2 pb-1 text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+                Dessine le terminal via la carte graphique plutôt que par le DOM. Généralement plus fluide
+                quand beaucoup de texte défile, mais plus lent sur une machine sans accélération matérielle —
+                d'où ce réglage. S'applique aux onglets ouverts ensuite ; en cas d'échec, le rendu classique
+                prend le relais automatiquement.
+              </p>
+              <ToggleRow
+                label="Afficher les performances de rendu"
+                checked={preferences.terminalRenderStats}
+                onChange={(v) => onPreferencesChange({ ...preferences, terminalRenderStats: v })}
+              />
+              <p className="px-2 pb-1 text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+                Affiche en haut à droite du terminal le mode utilisé (GPU ou DOM) et le temps moyen par image
+                pendant que la sortie défile. Au-delà de 16,7 ms, l'affichage ne suit plus les 60 images par
+                seconde et la valeur passe en orange. Utile pour comparer les deux modes sur votre machine.
+              </p>
+            </div>
+
+            <div className="space-y-1 rounded-lg bg-[var(--c-bg2)] p-1.5">
+              <ToggleRow
                 label="Suggestions de commandes en local (texte fantôme)"
                 checked={preferences.localTerminalSuggestions}
                 onChange={(v) => onPreferencesChange({ ...preferences, localTerminalSuggestions: v })}

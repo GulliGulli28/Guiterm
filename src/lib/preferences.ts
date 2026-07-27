@@ -95,6 +95,22 @@ export interface AppPreferences {
   sshTerminalSuggestions: boolean;
   /** Minutes of inactivity after which the master-password vault auto-locks. `0` = never. Only relevant when a master password is set. */
   masterVaultAutoLockMinutes: number;
+  /** Renders the terminal through xterm's WebGL renderer instead of its DOM
+   * one. On by default, but exposed as a setting rather than hardcoded
+   * because which one wins genuinely depends on the machine: the WebGL
+   * renderer draws from a glyph atlas on the GPU, so it should stay ahead
+   * under sustained output — but on a system with no usable hardware
+   * acceleration it is markedly *slower* than the DOM renderer, which xterm
+   * has optimised heavily (it only ever mounts the visible viewport).
+   * `scripts/bench-terminal-render.mjs` measures the two, and could not
+   * settle it for real hardware: no GPU is available in a headless or WSLg
+   * Chromium. Falls back to the DOM renderer on its own if WebGL is
+   * unavailable, so turning this on can't break a terminal. */
+  terminalWebglRenderer: boolean;
+  /** Overlays a live ms/frame readout on each terminal — the point of
+   * `terminalWebglRenderer` being a setting is being able to compare the two
+   * on your own hardware, which needs something to compare with. */
+  terminalRenderStats: boolean;
 }
 
 export interface TerminalThemeEntry {
@@ -256,6 +272,8 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   localTerminalSuggestions: true,
   sshTerminalSuggestions: false,
   masterVaultAutoLockMinutes: 0,
+  terminalWebglRenderer: true,
+  terminalRenderStats: false,
 };
 
 // Same two-stop aurora wash as `.app-aurora-bg` in index.css, but layered over

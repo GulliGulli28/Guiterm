@@ -11,7 +11,7 @@ import { TERMINAL_THEMES, auroraLayerBackground } from "../lib/preferences";
 import { shouldBubbleToShortcut } from "../lib/shortcuts";
 import { TerminalSearchBar, type SearchOptions } from "./TerminalSearchBar";
 import { createGhostTextController, type GhostSuggestion, type GhostTextController } from "../lib/ghostText";
-import { attachWebglRenderer } from "../lib/xtermRenderer";
+import { attachRenderStats, attachWebglRenderer, type RenderStats } from "../lib/xtermRenderer";
 
 export interface TerminalTabHandle {
   runCommand: (command: string) => void;
@@ -64,6 +64,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
   const outerRef = useRef<HTMLDivElement>(null);
   const ghostRef = useRef<GhostTextController | null>(null);
   const [suggestion, setSuggestion] = useState<GhostSuggestion | null>(null);
+  const [renderStats, setRenderStats] = useState<RenderStats | null>(null);
 
   useImperativeHandle(
     ref,
@@ -105,7 +106,10 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
     let disposeRenderer: (() => void) | null = null;
     if (containerRef.current) {
       term.open(containerRef.current);
-      disposeRenderer = attachWebglRenderer(term);
+      disposeRenderer = attachWebglRenderer(term, {
+        enabled: preferencesRef.current?.terminalWebglRenderer ?? true,
+        onRenderer: (renderer) => setRenderStats((prev) => ({ renderer, msPerFrame: prev?.msPerFrame ?? 0 })),
+      });
     }
     termRef.current = term;
     fitRef.current = fit;
@@ -233,6 +237,18 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
     };
   }, [host.id, dockerContainerId, k8sPodName, k8sContainerName]);
 
+  // Attached separately from the terminal's own lifecycle so toggling the
+  // setting takes effect on already-open tabs — the whole point of the readout
+  // is comparing the two renderers, which means seeing it appear on the
+  // terminal you're already looking at rather than only on the next one.
+  useEffect(() => {
+    const term = termRef.current;
+    if (!term || !preferences?.terminalRenderStats) return;
+    return attachRenderStats(term, (msPerFrame) =>
+      setRenderStats((prev) => ({ renderer: prev?.renderer ?? "dom", msPerFrame })),
+    );
+  }, [preferences?.terminalRenderStats]);
+
   // Re-fit whenever the container is resized (and is visible).
   useEffect(() => {
     const container = containerRef.current;
@@ -306,6 +322,21 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
       {status === "failed" && <div className="absolute inset-0 flex items-center justify-center px-8 text-center text-rose-300">Échec de connexion : {error}</div>}
       {searchOpen && <TerminalSearchBar onSearch={handleSearch} onClose={() => { setSearchOpen(false); termRef.current?.focus(); }} />}
       <div ref={containerRef} className={`min-h-0 flex-1 ${status === "open" ? "" : "invisible"}`} />
+      {preferences?.terminalRenderStats && renderStats && (
+        <div
+          className="pointer-events-none absolute right-3 top-3 select-none rounded bg-black/60 px-2 py-1 font-mono text-[11px] text-[var(--c-text-secondary)]"
+          // 60 Hz leaves ~16.7 ms per frame; past that the terminal is behind
+          // the output rather than keeping up with it.
+          title="Moyenne du temps entre deux images rendues, pendant que la sortie défile"
+        >
+          {renderStats.renderer === "webgl" ? "GPU" : "DOM"}
+          {renderStats.msPerFrame > 0 && (
+            <span className={renderStats.msPerFrame > 16.7 ? " text-amber-400" : ""}>
+              {" "}{renderStats.msPerFrame.toFixed(1)} ms/img
+            </span>
+          )}
+        </div>
+      )}
       {suggestion && (
         <span
           className="pointer-events-none absolute select-none whitespace-pre"
