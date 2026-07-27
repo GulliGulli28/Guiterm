@@ -190,33 +190,85 @@ pub fn connect_via_ssh(connection: Arc<Connection>) -> anyhow::Result<Docker> {
 /// `host.docker_via_host_id` when that's set. `workspace` is only consulted
 /// in the SSH case, to establish that other host's connection (auth,
 /// known_hosts, bastion chaining all handled by [`crate::ssh::connect`]).
-/// **Not leased from [`crate::ssh_pool`] yet**, unlike every other SSH entry
-/// point. The pool's unit of accounting is "one lease ≈ one channel", and this
-/// connection doesn't fit that shape: every HTTP request bollard makes opens
-/// its own `docker system dial-stdio` exec channel, and `DialStdioConnector`
-/// is `Clone` (hyper requires it) and duplicated freely inside the connection
-/// pool — so there is no one obvious place a lease could be held that would
-/// honestly track how many channels are in flight.
-///
-/// **This is a known cost, not a free pass.** `HostsPanel` polls
-/// `list_docker_containers` every 30 seconds per `dockerExec` host, and each
-/// poll lands here and builds a *fresh* `Docker` client — so a
-/// `docker_via_host_id` host pays a full SSH handshake (TCP + kex + auth +
-/// known_hosts) twice a minute for as long as the panel is open. Confirmed by
-/// reading the app's own log after `crate::logging` landed, not theorised.
-/// Fixing it properly means either caching the `Docker` client per host or
-/// giving the connector a lease whose accounting reflects hyper's pooling —
-/// both bigger than the pool change itself, hence left out for now.
-pub async fn connect_for_host(workspace: &crate::model::Workspace, host: &crate::model::Host) -> anyhow::Result<Docker> {
+/// Identifies the settings a cached [`Docker`] client was built from, so a
+/// host whose address (or relay host) was edited gets a fresh client instead
+/// of one still pointing at the old daemon.
+fn client_fingerprint(host: &crate::model::Host) -> String {
     match host.docker_via_host_id {
+        Some(via) => format!("ssh:{via}"),
+        None => format!("direct:{}", host.address),
+    }
+}
+
+struct CachedClient {
+    fingerprint: String,
+    docker: Docker,
+}
+
+/// Live `Docker` clients, one per host. Same two-level locking as
+/// [`crate::ssh_pool`]: the outer `std::sync::Mutex` is held only for the
+/// lookup, the inner `tokio::sync::Mutex` across the (async) connect, so two
+/// concurrent callers for one host build a single client while different
+/// hosts still connect in parallel.
+type ClientSlot = Arc<tokio::sync::Mutex<Option<CachedClient>>>;
+
+static CLIENTS: std::sync::LazyLock<std::sync::Mutex<std::collections::HashMap<crate::model::HostId, ClientSlot>>> =
+    std::sync::LazyLock::new(Default::default);
+
+/// Connects to `host`'s Docker daemon — directly via `host.address`
+/// ([`connect`]), or tunnelled over SSH ([`connect_via_ssh`]) through
+/// `host.docker_via_host_id` when that's set. `workspace` is only consulted
+/// in the SSH case, to establish that other host's connection (auth,
+/// known_hosts, bastion chaining all handled by [`crate::ssh::connect`]).
+///
+/// **The client is cached per host**, which matters far more than it looks:
+/// `HostsPanel` polls `list_docker_containers` every 30 seconds for every
+/// `dockerExec` host, and each poll lands here. Rebuilding the client each
+/// time meant a `docker_via_host_id` host paid a *full* SSH handshake (TCP +
+/// key exchange + auth + known_hosts) twice a minute, forever, just to render
+/// a container count — found by reading this app's own log once
+/// [`crate::logging`] started writing one, not theorised.
+///
+/// A cached client is validated with a `ping` before being handed back, since
+/// the daemon may have restarted or the SSH connection dropped since it was
+/// built. That costs one cheap request on an *existing* connection, versus a
+/// whole handshake (~180 ms against a LAN host, measured) to rebuild it.
+///
+/// **Still not leased from [`crate::ssh_pool`]**, unlike every other SSH
+/// entry point: the pool's unit of accounting is "one lease ≈ one channel",
+/// and this doesn't fit — every HTTP request bollard makes opens its own
+/// `docker system dial-stdio` exec channel, and `DialStdioConnector` is
+/// `Clone` (hyper requires it) and duplicated freely inside hyper's own
+/// connection pool, so no single lease could honestly track how many channels
+/// are in flight. With the cache above, that costs one dedicated connection
+/// per Docker host for the life of the app rather than one per poll, which is
+/// the part that actually mattered.
+pub async fn connect_for_host(workspace: &crate::model::Workspace, host: &crate::model::Host) -> anyhow::Result<Docker> {
+    let slot: ClientSlot = {
+        let mut clients = CLIENTS.lock().unwrap_or_else(|e| e.into_inner());
+        clients.entry(host.id).or_default().clone()
+    };
+    let mut cached = slot.lock().await;
+
+    let fingerprint = client_fingerprint(host);
+    if let Some(existing) = cached.as_ref()
+        && existing.fingerprint == fingerprint
+        && existing.docker.ping().await.is_ok()
+    {
+        return Ok(existing.docker.clone());
+    }
+
+    let docker = match host.docker_via_host_id {
         Some(via_host_id) => {
             let connection = crate::ssh::connect(workspace, via_host_id)
                 .await
                 .map_err(|e| anyhow::anyhow!("hôte SSH relais : {e}"))?;
-            connect_via_ssh(Arc::new(connection))
+            connect_via_ssh(Arc::new(connection))?
         }
-        None => connect(&host.address),
-    }
+        None => connect(&host.address)?,
+    };
+    *cached = Some(CachedClient { fingerprint, docker: docker.clone() });
+    Ok(docker)
 }
 
 pub async fn list_containers(docker: &Docker) -> anyhow::Result<Vec<ContainerSummary>> {
@@ -463,5 +515,30 @@ mod tests {
     fn classifies_tcp_and_http_as_http() {
         assert_eq!(classify_docker_host("tcp://10.0.4.12:2375"), DockerHostKind::Http);
         assert_eq!(classify_docker_host("http://10.0.4.12:2375"), DockerHostKind::Http);
+    }
+
+    /// `connect_for_host`'s cache is keyed by host id, so a host whose daemon
+    /// address (or SSH relay) was edited must not keep being served the client
+    /// built for the old one — the fingerprint is what forces the rebuild.
+    #[test]
+    fn fingerprint_changes_when_the_daemon_target_changes() {
+        let mut host = crate::model::Host::new("dock", "tcp://10.0.4.12:2375", "root");
+        let direct = client_fingerprint(&host);
+
+        host.address = "tcp://10.0.4.99:2375".to_string();
+        assert_ne!(direct, client_fingerprint(&host), "a new address must invalidate the cached client");
+
+        host.docker_via_host_id = Some(uuid::Uuid::new_v4());
+        let via_first = client_fingerprint(&host);
+        assert!(via_first.starts_with("ssh:"), "the SSH case must not be confusable with a direct address");
+
+        host.docker_via_host_id = Some(uuid::Uuid::new_v4());
+        assert_ne!(via_first, client_fingerprint(&host), "a different relay host must invalidate it too");
+    }
+
+    #[test]
+    fn fingerprint_is_stable_for_unchanged_settings() {
+        let host = crate::model::Host::new("dock", "tcp://10.0.4.12:2375", "root");
+        assert_eq!(client_fingerprint(&host), client_fingerprint(&host));
     }
 }
