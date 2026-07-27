@@ -4,7 +4,10 @@ import reactHooks from "eslint-plugin-react-hooks";
 import globals from "globals";
 
 export default tseslint.config(
-  { ignores: ["dist", "target", "src-tauri/target", "rdp-sidecar/target"] },
+  // `.claude` holds agent worktrees — full copies of the repo. Without this,
+  // every file gets linted twice (once here, once in the copy) and a stale
+  // copy can report errors for code that no longer exists.
+  { ignores: ["dist", "target", "src-tauri/target", "rdp-sidecar/target", ".claude"] },
   {
     files: ["src/**/*.{ts,tsx}"],
     extends: [js.configs.recommended, ...tseslint.configs.recommended],

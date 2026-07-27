@@ -13,5 +13,9 @@ export default defineConfig({
   },
   test: {
     environment: "node",
+    // `.claude` holds agent worktrees — full copies of the repo, test files
+    // included. Without this every suite runs twice (the counts silently
+    // double) and a stale copy can fail on code that no longer exists.
+    exclude: ["**/node_modules/**", "**/dist/**", "**/.claude/**"],
   },
 });

@@ -23,25 +23,27 @@ license = "MIT"
 # here rather than in `src-tauri/Cargo.toml` — `rdp-sidecar` is a separate
 # workspace and carries its own copy of this block.
 [profile.release]
-# This is tuned for runtime speed, NOT binary size — measured, not assumed:
-# on the shipped MSVC target it makes `guiterm.exe` *bigger* (36.9 MB -> 41.0
-# MB), because Windows keeps debug symbols in a separate `.pdb` (8.4 MB here)
-# rather than in the executable, so `strip` has almost nothing to remove,
-# while the extra cross-crate inlining below adds real code. Worth it for an
-# app whose hot paths are terminal I/O and SSH crypto; revisit if install size
-# ever matters more than throughput.
+# Tuned for runtime speed, NOT binary size. Measured on the shipped MSVC
+# target rather than assumed: this makes `guiterm.exe` slightly *bigger*, not
+# smaller, because Windows keeps debug symbols in a separate `.pdb` (~8 MB)
+# instead of in the executable, so there is little for `strip` to remove while
+# cross-crate inlining adds real code.
 #
 # Thin LTO rather than "fat": most of the cross-crate inlining win for a
 # fraction of the link time, which matters because this dependency graph is
 # large (russh + sqlx + kube + mongodb + bollard + reqwest) and the release
 # binary gets rebuilt by hand for every manual Windows test.
 lto = "thin"
-# One codegen unit per crate — better optimisation across each crate's own
-# code, at the cost of losing intra-crate codegen parallelism.
-codegen-units = 1
-# No effect worth measuring on MSVC (see above), but it does strip the Linux
-# build, where symbols are in the binary itself. Panic messages survive either
-# way; only backtrace frame names are lost.
+# `codegen-units = 1` was tried here and removed: it took the full release
+# build from a few minutes to ~25, because it serialises all of codegen, and
+# after thin LTO the extra whole-crate optimisation it buys is marginal. Not
+# worth that on a project whose workflow rebuilds the release binary by hand
+# after every change. Leave it at the default (16) unless someone measures a
+# runtime win that justifies the wait.
+#
+# No measurable effect on MSVC (see above), but it does strip the Linux build,
+# where symbols live in the binary itself. Panic messages survive either way;
+# only backtrace frame names are lost.
 strip = true
 # Deliberately NOT `panic = "abort"`: `ssh::AppHandler::check_server_key`
 # recovers from a panic inside `spawn_blocking` by turning the `JoinError`

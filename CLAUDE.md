@@ -74,16 +74,30 @@ surprises de cache dupliqué ou d'échecs de résolution de binaire natif.
 **Accès écran réel : oui, via WSLg.** Ce WSL a un vrai serveur X actif
 (`DISPLAY=:0`, `xdpyinfo`/`xrandr` répondent, résolution réelle détectée).
 
-## `npm run lint` ne tourne pas sur cette machine (Node trop ancien)
+## `npm run verify` — tout vérifier en une commande
 
-ESLint 10 utilise `util.styleText`, apparu dans Node 20.12 — ce WSL est en
-Node 18.19, donc `npm run lint` échoue systématiquement sur
-`TypeError: util.styleText is not a function`, **avant même d'analyser le
-code**. Ce n'est pas une erreur de lint : c'est le formateur qui plante. Ne
-pas en conclure que le code est fautif, et ne pas essayer de le « corriger »
-dans `eslint.config.js`. Le CI, lui, tourne sur Node 20 et lint normalement.
-En local, la vérification frontend utilisable reste `npx tsc -b` +
-`npm run test` + `npm run test:e2e`.
+Les contrôles vivent dans deux chaînes d'outils (Node et Cargo) et six
+commandes. `npm run verify` (`scripts/verify.mjs`) les enchaîne dans l'ordre
+du CI, continue même quand une étape échoue, et affiche un récapitulatif —
+une étape oubliée devient visible au lieu de passer inaperçue jusqu'au push.
+
+```bash
+wsl.exe -e bash -lc "cd ~/gui-termius && npm run verify"           # ~2-4 min
+wsl.exe -e bash -lc "cd ~/gui-termius && npm run verify -- --fast" # types + lint seuls
+wsl.exe -e bash -lc "cd ~/gui-termius && npm run verify -- --e2e"  # + vraie fenêtre WebDriver
+```
+
+Ça ne remplace pas le lancement manuel du binaire Windows (section plus bas) :
+`verify` prouve que le code est correct, pas qu'une fonctionnalité est agréable
+à utiliser.
+
+**Node 18 est en fin de vie sur cette machine** (`/usr/bin/node`, installé par
+apt). Conséquences déjà rencontrées : vitest ≥ 4 exige Node ≥ 20 (d'où le pin
+`vitest@^2`), et le formateur `stylish` d'ESLint 10 plante sur
+`util.styleText` — d'où `--format compact` dans le script `lint`. Passer à
+Node 20+ (via nvm, sans sudo) lèverait les deux ; prévoir un `npm rebuild`
+derrière, les binaires natifs (esbuild/rollup) étant liés à la version
+d'install.
 
 ## Vérification Rust : `clippy -D warnings` est un gate CI bloquant
 
