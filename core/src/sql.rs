@@ -158,25 +158,13 @@ struct SqliteRemote {
     snapshot_hash: u64,
 }
 
-/// Cheap non-cryptographic content hash (`SipHash` via `DefaultHasher`) —
-/// only ever used to detect incidental change vs. no change on our own
-/// fetched files, never anything security-sensitive, so collision-resistance
-/// against a deliberate adversary doesn't matter here.
-async fn hash_file(path: &std::path::Path) -> std::io::Result<u64> {
-    use std::hash::{Hash, Hasher};
-    let bytes = tokio::fs::read(path).await?;
-    let mut hasher = std::collections::hash_map::DefaultHasher::new();
-    bytes.hash(&mut hasher);
-    Ok(hasher.finish())
-}
-
 /// `true` when `remote`'s local temp copy has been touched since it was
 /// downloaded (or couldn't even be hashed — treated conservatively as "yes,
 /// assume changed": a spurious sync is much cheaper than a spurious
 /// overwrite). Shared by [`SqlSession::close`] and [`SqlSession::resync`] —
 /// both need to know this before deciding whether there's anything to push.
 async fn local_copy_changed(remote: &SqliteRemote) -> bool {
-    match hash_file(&remote.local_path).await {
+    match crate::local_fs::content_hash(&remote.local_path).await {
         Ok(hash) => hash != remote.snapshot_hash,
         Err(_) => true,
     }
@@ -194,7 +182,7 @@ async fn fetch_remote_hash(remote: &SqliteRemote, parent_dir: &str, file_name: &
     let entry = entries.into_iter().find(|e| e.name == file_name)?;
     let cancel = AtomicBool::new(false);
     remote.client.download(&remote.remote_path, dest, entry.size, &cancel, |_, _| {}).await.ok()?;
-    hash_file(dest).await.ok()
+    crate::local_fs::content_hash(dest).await.ok()
 }
 
 /// A live SQL connection: the pool, plus — when tunnelled (MySQL/PostgreSQL)
@@ -328,7 +316,7 @@ impl SqlSession {
             })?;
             // The just-uploaded local copy is now, by construction, exactly
             // what's on the host — no need to re-download it back.
-            let new_hash = hash_file(&remote.local_path).await?;
+            let new_hash = crate::local_fs::content_hash(&remote.local_path).await?;
             self.sqlite_remote.as_mut().expect("checked Some above").snapshot_hash = new_hash;
             return Ok(());
         }
@@ -576,7 +564,7 @@ async fn connect_sqlite(workspace: &Workspace, conn: &SqlConnection) -> anyhow::
             let cancel = AtomicBool::new(false);
             // `download` already removes its own partial output on failure.
             client.download(&remote_path, &local_path, source_entry.size, &cancel, |_, _| {}).await?;
-            let snapshot_hash = hash_file(&local_path).await?;
+            let snapshot_hash = crate::local_fs::content_hash(&local_path).await?;
             let remote = SqliteRemote {
                 _connection: connection,
                 client,

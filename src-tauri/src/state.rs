@@ -109,4 +109,10 @@ pub struct AppState {
     /// see `commands::interactive_auth`. Never holds the answers themselves,
     /// only the channel they'll arrive on.
     pub auth_prompts: Mutex<HashMap<String, tokio::sync::oneshot::Sender<Vec<String>>>>,
+    /// Remote files currently open in the user's own editor, keyed by edit id
+    /// — each holds a private temp copy plus what's needed to push it back.
+    /// See `termius_core::remote_edit`, and `commands::remote_edit` for when
+    /// the push-back actually happens (on the app regaining focus, not from a
+    /// background watcher).
+    pub remote_edits: Mutex<HashMap<String, termius_core::remote_edit::RemoteEdit>>,
 }

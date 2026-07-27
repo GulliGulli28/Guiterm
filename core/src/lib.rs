@@ -20,6 +20,7 @@ pub mod model;
 pub mod port_forward;
 pub mod mongo_client;
 pub mod redis_client;
+pub mod remote_edit;
 pub mod remote_shell_pane;
 pub mod secure_file;
 pub mod sftp;

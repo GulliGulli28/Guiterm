@@ -36,3 +36,4 @@ tracing-subscriber = "0.3"
 # that newer 0.3.x releases (>=0.3.48) made a breaking change to. 0.3.47 is
 # the oldest version `plist` (also pulled in by tauri) still accepts.
 time = "=0.3.47"
+tauri-plugin-opener = "2"

@@ -1,6 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AuthMethod, CollectionInfo, ColumnInfo, CollectFactsResult, ComposeResult, DockerContainer, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostId, HostKind, ImportSelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, QueryResult, RdpClientMessage, RdpFrame, RedisKeyDetail, RedisReply, ScanPage, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SshAuthPrompt, SshConfigHost, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
+import type { AuthMethod, CollectionInfo, ColumnInfo, CollectFactsResult, ComposeResult, DockerContainer, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostId, HostKind, ImportSelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, QueryResult, RdpClientMessage, RdpFrame, RedisKeyDetail, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, ScanPage, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SshAuthPrompt, SshConfigHost, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
 
 /** Mirrors the 12-byte little-endian header `commands::rdp_view::connect_rdp_view`
  * writes ahead of each frame's raw RGBA8 pixels (see its doc comment for why
@@ -288,6 +288,22 @@ export const api = {
   paneChmod: (paneId: string, cwd: string, name: string, mode: number) => invoke<PaneListed>("pane_chmod", { paneId, cwd, name, mode }),
   readPaneFile: (paneId: string, cwd: string, name: string) => invoke<string>("read_pane_file", { paneId, cwd, name }),
   writePaneFile: (paneId: string, cwd: string, name: string, content: string) => invoke<void>("write_pane_file", { paneId, cwd, name, content }),
+  /** Fetches a remote file into a private temp copy and hands that copy to
+   * whatever the OS opens it with. Resolves to `null` for a *local* pane,
+   * where the real file is opened directly and there is nothing to track.
+   * See `termius_core::remote_edit` for why the push-back is not automatic. */
+  openRemoteFileInEditor: (paneId: string, cwd: string, name: string) =>
+    invoke<RemoteEditListed | null>("open_remote_file_in_editor", { paneId, cwd, name }),
+  listRemoteEdits: () => invoke<RemoteEditListed[]>("list_remote_edits"),
+  /** Pushes back every edit whose local copy changed — called when the app
+   * regains focus, and from the explicit "Tout renvoyer" action. */
+  syncRemoteEdits: () => invoke<RemoteEditSync[]>("sync_remote_edits"),
+  /** Final sync, then forget the edit. Rejects — and keeps the edit — when
+   * the push-back fails, so nothing typed is lost to a conflict. */
+  endRemoteEdit: (id: string) => invoke<RemoteEditOutcome>("end_remote_edit", { id }),
+  /** Drops an edit and its temp copy without pushing back: the only way to
+   * abandon local changes. */
+  discardRemoteEdit: (id: string) => invoke<void>("discard_remote_edit", { id }),
   uploadPaths: (paneId: string, cwd: string, localPaths: string[]) => invoke<string[]>("upload_paths", { paneId, cwd, localPaths }),
   cancelTransfer: (transferId: string) => invoke<void>("cancel_transfer", { transferId }),
 

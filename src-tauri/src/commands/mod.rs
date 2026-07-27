@@ -14,6 +14,7 @@ pub mod known_hosts;
 pub mod mongo;
 pub mod rdp_view;
 pub mod redis;
+pub mod remote_edit;
 pub mod sftp;
 pub mod sql;
 pub mod terminal;

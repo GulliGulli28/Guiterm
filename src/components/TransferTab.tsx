@@ -3,8 +3,8 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, onTransferDone, onTransferError, onTransferProgress } from "../lib/api";
 import type { AppPreferences } from "../lib/preferences";
-import type { Entry, Host, PaneListed, PaneOpened, PaneSource, PaneState, Workspace } from "../lib/types";
-import { IconFolder, IconEdit, IconTrash, IconShield, IconClose } from "./ui-icons";
+import type { Entry, Host, PaneListed, PaneOpened, PaneSource, PaneState, RemoteEditListed, Workspace } from "../lib/types";
+import { IconFolder, IconEdit, IconExternal, IconTrash, IconShield, IconClose } from "./ui-icons";
 import { QuickEditModal } from "./QuickEditModal";
 import { RdpTab } from "./RdpTab";
 import { useResizablePane } from "../hooks/useResizablePane";
@@ -310,6 +310,51 @@ export function TransferTab({ host, workspace, preferences, onError, onPushed, d
     }
   };
 
+  // ── Edit in the user's own editor (any size, unlike quick-edit) ──────────
+  // The list is global to the app rather than to this tab (the sessions live
+  // in `AppState`), so it's re-read on focus: another transfer tab may have
+  // opened or ended one, and `App.tsx` pushes edits back on that same event.
+  const [remoteEdits, setRemoteEdits] = useState<RemoteEditListed[]>([]);
+  const refreshRemoteEdits = () => { api.listRemoteEdits().then(setRemoteEdits).catch(() => {}); };
+
+  useEffect(() => {
+    refreshRemoteEdits();
+    const onFocus = () => refreshRemoteEdits();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, []);
+
+  const openInEditor = async (side: Side, name: string) => {
+    const paneId = paneIds.current[side];
+    if (!paneId) return;
+    try {
+      // `null` means a local pane: the real file was opened directly, there
+      // is no copy to track.
+      const edit = await api.openRemoteFileInEditor(paneId, state[side].cwd, name);
+      if (edit) setRemoteEdits((prev) => [...prev.filter((e) => e.id !== edit.id), edit]);
+    } catch (e) { onError(String(e)); }
+  };
+
+  const endRemoteEdit = async (id: string) => {
+    try {
+      const outcome = await api.endRemoteEdit(id);
+      setRemoteEdits((prev) => prev.filter((e) => e.id !== id));
+      onPushed?.(outcome === "pushed" ? "Modifications renvoyées sur l'hôte." : "Édition terminée — rien n'avait changé.");
+    } catch (e) {
+      // The edit is deliberately kept on failure, so the local copy — and
+      // whatever was typed into it — survives a conflict.
+      onError(String(e));
+      refreshRemoteEdits();
+    }
+  };
+
+  const discardRemoteEdit = async (id: string) => {
+    try {
+      await api.discardRemoteEdit(id);
+      setRemoteEdits((prev) => prev.filter((e) => e.id !== id));
+    } catch (e) { onError(String(e)); }
+  };
+
   const saveEdit = async (content: string) => {
     if (!editing) return;
     const paneId = paneIds.current[editing.side];
@@ -413,7 +458,7 @@ export function TransferTab({ host, workspace, preferences, onError, onPushed, d
     <div className="flex min-h-0 flex-1 flex-col">
       <div ref={containerRef} className="flex min-h-0 flex-1">
         <div ref={leftPaneRef} style={{ width: `${divider.value}%` }} className="flex min-h-0 shrink-0 flex-col overflow-hidden">
-          <PaneView side="left" pane={state.left} workspace={workspace} fontSize={fontSize} onNavigate={navigate} onSourceChange={changeSource} onCopy={copyOrPushToRdp} onMkdir={mkdir} onCreateFile={createFile} onRename={rename} onRemove={remove} onChmod={chmod} onEdit={openEdit} isRdpPush={isRdpTarget} />
+          <PaneView side="left" pane={state.left} workspace={workspace} fontSize={fontSize} onNavigate={navigate} onSourceChange={changeSource} onCopy={copyOrPushToRdp} onMkdir={mkdir} onCreateFile={createFile} onRename={rename} onRemove={remove} onChmod={chmod} onEdit={openEdit} onOpenInEditor={openInEditor} isRdpPush={isRdpTarget} />
         </div>
         <div
           onMouseDown={divider.onMouseDown}
@@ -425,10 +470,40 @@ export function TransferTab({ host, workspace, preferences, onError, onPushed, d
           {isRdpTarget ? (
             <RdpTab host={host} isActive={true} preferences={preferences} onSessionId={(id) => { rdpSessionIdRef.current = id; }} />
           ) : (
-            <PaneView side="right" pane={state.right} workspace={workspace} fontSize={fontSize} onNavigate={navigate} onSourceChange={changeSource} onCopy={copy} onMkdir={mkdir} onCreateFile={createFile} onRename={rename} onRemove={remove} onChmod={chmod} onEdit={openEdit} />
+            <PaneView side="right" pane={state.right} workspace={workspace} fontSize={fontSize} onNavigate={navigate} onSourceChange={changeSource} onCopy={copy} onMkdir={mkdir} onCreateFile={createFile} onRename={rename} onRemove={remove} onChmod={chmod} onEdit={openEdit} onOpenInEditor={openInEditor} />
           )}
         </div>
       </div>
+
+      {remoteEdits.length > 0 && (
+        <div className="max-h-32 shrink-0 space-y-1 overflow-y-auto border-t border-[var(--c-border)] bg-[var(--c-bg2)] p-2">
+          <p className="px-1 text-[10px] uppercase tracking-wide text-[var(--c-text-faint)]">
+            Ouverts dans votre éditeur — renvoyés à chaque retour dans l'app
+          </p>
+          {remoteEdits.map((edit) => (
+            <div key={edit.id} className="flex items-center gap-2 rounded-md px-1 py-0.5 text-xs">
+              <IconExternal size={11} className="shrink-0 text-[var(--c-text-faint)]" />
+              <span className="min-w-0 flex-1 truncate font-mono text-[var(--c-text-secondary)]" title={edit.remotePath}>
+                {edit.remotePath}
+              </span>
+              <button
+                onClick={() => endRemoteEdit(edit.id)}
+                title="Renvoyer les modifications puis fermer l'édition"
+                className="shrink-0 rounded px-2 py-0.5 text-[11px] text-[var(--c-accent-text)] hover:bg-white/10"
+              >
+                Terminer
+              </button>
+              <button
+                onClick={() => discardRemoteEdit(edit.id)}
+                title="Fermer sans renvoyer — les modifications locales sont perdues"
+                className="shrink-0 rounded px-2 py-0.5 text-[11px] text-[var(--c-text-muted)] hover:bg-white/10 hover:text-rose-400"
+              >
+                Abandonner
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
 
       {activeTransfers.length > 0 && (
         <div className="max-h-32 shrink-0 space-y-1 overflow-y-auto border-t border-[var(--c-border)] bg-[var(--c-bg2)] p-2">
@@ -497,6 +572,7 @@ interface PaneViewProps {
   onRemove: (side: Side, entries: Entry[]) => void;
   onChmod: (side: Side, name: string, mode: number) => void;
   onEdit: (side: Side, name: string) => void;
+  onOpenInEditor: (side: Side, name: string) => void;
   /** True for the left pane when the other side is a live RDP view — the
    * "copy" action pushes to the remote clipboard instead of a file pane, so
    * the button labels say so instead of implying a normal file copy. */
@@ -521,7 +597,7 @@ function ColHeader({
   );
 }
 
-function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange, onCopy, onMkdir, onCreateFile, onRename, onRemove, onChmod, onEdit, isRdpPush }: PaneViewProps) {
+function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange, onCopy, onMkdir, onCreateFile, onRename, onRemove, onChmod, onEdit, onOpenInEditor, isRdpPush }: PaneViewProps) {
   const [gotoPath, setGotoPath] = useState("");
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
@@ -868,10 +944,23 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
                 {!entry.isDir && entry.size <= QUICK_EDIT_MAX_SIZE && (
                   <button
                     onClick={() => onEdit(side, entry.name)}
-                    title="Éditer le contenu"
+                    title="Éditer le contenu ici"
                     className="w-6 shrink-0 rounded px-0.5 text-center text-[var(--c-text-faint)] opacity-0 hover:bg-[var(--c-accent)] hover:text-white focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
                   >
                     <IconEdit size={12} className="mx-auto" />
+                  </button>
+                )}
+
+                {/* Open in the user's own editor — no size limit, unlike
+                    quick-edit above: the whole point is the files that are too
+                    big, or too worth having a real editor for. */}
+                {!entry.isDir && (
+                  <button
+                    onClick={() => onOpenInEditor(side, entry.name)}
+                    title="Ouvrir dans mon éditeur (renvoyé au retour dans l'app)"
+                    className="w-6 shrink-0 rounded px-0.5 text-center text-[var(--c-text-faint)] opacity-0 hover:bg-[var(--c-accent)] hover:text-white focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+                  >
+                    <IconExternal size={12} className="mx-auto" />
                   </button>
                 )}
 

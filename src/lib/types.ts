@@ -504,6 +504,31 @@ export interface PaneListed {
   entries: Entry[];
 }
 
+/** A remote file currently open in the user's own editor, via a private local
+ * copy — see `termius_core::remote_edit`. Distinct from the quick-edit modal,
+ * which reads and writes the file in place with no copy involved. */
+export interface RemoteEditListed {
+  id: string;
+  remotePath: string;
+  name: string;
+  /** Where the copy the editor has open lives, so a user whose push-back
+   * failed can still recover their work by hand. */
+  localPath: string;
+}
+
+/** `"unchanged"`: the editor hasn't saved since the last sync.
+ * `"pushed"`: local changes reached the host. */
+export type RemoteEditOutcome = "unchanged" | "pushed";
+
+/** One edit's sync result. Reported per edit rather than aggregated: with
+ * several files open, "one conflicted" has to say which one. */
+export interface RemoteEditSync {
+  id: string;
+  name: string;
+  outcome: RemoteEditOutcome | null;
+  error: string | null;
+}
+
 export interface PaneState {
   source: PaneSource;
   status: "connecting" | "open" | "failed";

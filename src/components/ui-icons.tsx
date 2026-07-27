@@ -189,6 +189,17 @@ export function IconDownload({ size = 16, className }: P) {
   );
 }
 
+/** Arrow leaving a frame — "opens outside this window", for handing a file to
+ * the user's own editor rather than editing it in the app. */
+export function IconExternal({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path d="M12.5 3.5h-4M12.5 3.5v4M12.5 3.5L7 9" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M11 10v2.5h-8v-8H5.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export function IconCopy({ size = 16, className }: P) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>

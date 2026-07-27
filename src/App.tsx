@@ -276,6 +276,27 @@ export default function App() {
     },
   ] : [];
 
+  // Pushes back any remote file the user edited in their own editor. Focus is
+  // the trigger rather than a watcher or a poll loop: coming back to this
+  // window is exactly when a save made elsewhere becomes interesting, and it
+  // costs nothing while the user is away. See `termius_core::remote_edit`.
+  useEffect(() => {
+    const onFocus = () => {
+      api.syncRemoteEdits()
+        .then((results) => {
+          for (const r of results) {
+            if (r.error) reportError(`« ${r.name} » : ${r.error}`);
+            else if (r.outcome === "pushed") pushNotification("success", `« ${r.name} » renvoyé sur l'hôte.`);
+          }
+        })
+        // A sync failure is reported per edit above; a failure of the call
+        // itself (no session at all) is not worth interrupting anyone for.
+        .catch(() => {});
+    };
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [pushNotification, reportError]);
+
   // Rendered in both branches below (workspace loaded or not): a restored tab
   // can start authenticating before the workspace has finished loading, and
   // that handshake is already waiting.

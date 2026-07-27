@@ -46,6 +46,10 @@ fn main() {
         .plugin(tauri_plugin_process::init())
         .plugin(tauri_plugin_clipboard_manager::init())
         .plugin(tauri_plugin_shell::init())
+        // Opens a fetched remote file with whatever the OS associates with it
+        // — see `commands::remote_edit`. Separate from the shell plugin,
+        // whose own `open` is deprecated in favour of this one.
+        .plugin(tauri_plugin_opener::init())
         .manage(app_state)
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main")
@@ -172,6 +176,11 @@ fn main() {
             commands::mongo::list_mongo_databases,
             commands::mongo::list_mongo_collections,
             commands::mongo::find_mongo_documents,
+            commands::remote_edit::open_remote_file_in_editor,
+            commands::remote_edit::list_remote_edits,
+            commands::remote_edit::sync_remote_edits,
+            commands::remote_edit::end_remote_edit,
+            commands::remote_edit::discard_remote_edit,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
