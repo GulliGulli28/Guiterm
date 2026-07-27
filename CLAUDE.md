@@ -386,6 +386,17 @@ limité (pas de curseur rendu, molette approximative), voir
   la commande interne. Fix : guillemets **simples**
   (`wsl.exe -e bash -lc '... ; echo EXIT=$?'`).
 
+- **Corollaire, sur les messages de commit : ne jamais les passer en ligne.**
+  Un message contenant des backticks (`` `npm run lint` ``) part en
+  substitution de commande dans le shell externe avant d'atteindre WSL — la
+  commande s'exécute réellement et **sa sortie remplace le texte dans le
+  message**. Déjà arrivé : un message s'est retrouvé avec
+  « `> guiterm@2.3.0 lint` » incrusté au milieu d'une phrase, et le commit
+  passe sans rien signaler. Un heredoc `<<'EOF'` ne protège pas, parce que
+  l'interprétation a lieu un niveau au-dessus. Fix : écrire le message dans
+  un fichier (via l'outil Write, jamais via `echo`/`cat`) puis
+  `git commit -F <fichier>`.
+
 - **GTK sous WSLg rend en Wayland natif par défaut, invisible pour les outils
   X11** (`scrot`, `xwininfo`, `WebKitWebDriver`). Forcer `GDK_BACKEND=x11`
   (en plus de `DISPLAY=:0`) pour que la fenêtre soit pilotable —
