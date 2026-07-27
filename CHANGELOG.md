@@ -9,6 +9,41 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-07-27
+
+### Added
+- Redis and MongoDB in the database client, alongside MySQL/PostgreSQL/SQLite.
+- SQL client: an Export tab, dumping a database or selected tables to a local
+  file or straight onto a saved SSH host.
+- A diagnostic log file (one per day, last 7 kept). Its location is shown in
+  Settings → General — until now the app wrote its diagnostics to a console
+  that doesn't exist in the shipped Windows build, so nothing was recoverable
+  when something went wrong.
+- Settings → Appearance: "Terminal GPU acceleration" (on by default) and a
+  render-performance readout, to compare both renderers on your own machine.
+- macOS builds are now produced on release, for Apple Silicon and Intel.
+
+### Changed
+- SSH connections are shared between everything that talks to the same host.
+  A terminal tab, a transfer pane, a tunnel and a tunnelled database session
+  used to open one full connection each — three handshakes for three tabs, and
+  three times that again through two bastions.
+- A host's Docker daemon connection is kept instead of being rebuilt on every
+  poll: a Docker-over-SSH host was paying a complete SSH handshake twice a
+  minute, indefinitely, just to display a container count.
+- Query results only render the visible rows, so a large result set no longer
+  builds tens of thousands of table cells at once.
+
+### Fixed
+- An unexpected error in the interface now shows a recoverable screen with
+  copyable details, instead of a blank window.
+
+### Note
+- Windows and macOS builds are still unsigned: SmartScreen warns on first
+  run, and macOS requires right-click → Open. See `RELEASING.md`.
+
+## [2.3.0] - 2026-07-22
+
 ### Added
 - Kubernetes exec: real backend (terminal, file browsing, fleet target,
   adaptive snippets) — previously UI-only scaffolding with example data.
