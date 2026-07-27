@@ -37,6 +37,13 @@ export interface GhostTextDeps {
   getHistory: () => Promise<string[]>;
   appendHistory: (command: string) => Promise<void>;
   setSuggestion: (s: GhostSuggestion | null) => void;
+  /** Called for each command the user submits, in submission order.
+   *
+   * Reuses the line shadowing this controller already does rather than having
+   * callers run a second `applyInput` of their own — the parsing is subtle
+   * enough (bracketed paste, multiple lines in one chunk, desync on Tab) that
+   * two copies would drift. Used by the long-command watcher. */
+  onCommandSubmitted?: (command: string) => void;
 }
 
 /**
@@ -49,7 +56,7 @@ export interface GhostTextDeps {
  * highlighting, powerlevel10k, etc.) would otherwise corrupt the screen.
  */
 export function createGhostTextController(deps: GhostTextDeps): GhostTextController {
-  const { term, containerRef, outerRef, isEnabled, isDisposed, sendInput, getHistory, appendHistory, setSuggestion } = deps;
+  const { term, containerRef, outerRef, isEnabled, isDisposed, sendInput, getHistory, appendHistory, setSuggestion, onCommandSubmitted } = deps;
 
   let history: string[] = [];
   let buffer: LineBufferState = INITIAL_LINE_BUFFER;
@@ -109,9 +116,14 @@ export function createGhostTextController(deps: GhostTextDeps): GhostTextControl
 
   return {
     handleOnData(data) {
-      if (!isEnabled()) return;
+      // Shadowing the line happens even when suggestions are switched off:
+      // `onCommandSubmitted` feeds the long-command watcher, which has nothing
+      // to do with ghost text and must not silently stop working because of a
+      // cosmetic preference. Only the suggestion side below is gated.
       const { next, submitted } = applyInput(buffer, data);
       buffer = next;
+      for (const cmd of submitted) onCommandSubmitted?.(cmd);
+      if (!isEnabled()) return;
       for (const cmd of submitted) {
         history = [...history.filter((entry) => entry !== cmd), cmd];
         appendHistory(cmd).catch(() => {});

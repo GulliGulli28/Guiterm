@@ -87,6 +87,11 @@ export interface AppPreferences {
   terminalRightClickMenu: boolean;
   autoReconnect: boolean;
   autoReconnectMaxAttempts: number;
+  /** Notify when a command that ran at least this many seconds finishes while
+   * this window doesn't have focus. `0` turns it off. Detection is a
+   * heuristic — see `lib/longCommand.ts` for exactly what it can and can't
+   * tell apart. */
+  longCommandNotifySecs: number;
   /** Shell id (from `api.listLocalShells`) used for new local terminals; `null` = system default. */
   defaultLocalShell: string | null;
   /** Ghost-text command suggestions (based on local history) in local terminals only. */
@@ -268,6 +273,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   terminalRightClickMenu: true,
   autoReconnect: false,
   autoReconnectMaxAttempts: 5,
+  longCommandNotifySecs: 20,
   defaultLocalShell: null,
   localTerminalSuggestions: true,
   sshTerminalSuggestions: false,

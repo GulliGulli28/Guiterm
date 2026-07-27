@@ -11,6 +11,7 @@ import { TERMINAL_THEMES, auroraLayerBackground } from "../lib/preferences";
 import { shouldBubbleToShortcut } from "../lib/shortcuts";
 import { TerminalSearchBar, type SearchOptions } from "./TerminalSearchBar";
 import { createGhostTextController, type GhostSuggestion, type GhostTextController } from "../lib/ghostText";
+import { createLongCommandWatcher } from "../lib/longCommand";
 import { attachRenderStats, attachWebglRenderer, type RenderStats } from "../lib/xtermRenderer";
 
 export { type TerminalTabHandle };
@@ -22,9 +23,10 @@ interface LocalTerminalTabProps {
   shell?: string | null;
   onDisconnect?: () => void;
   onInputData?: (data: string) => void;
+  onLongCommand?: (command: string, durationMs: number, where: string) => void;
 }
 
-export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabProps>(function LocalTerminalTab({ isActive, preferences, initialCommand, shell, onDisconnect, onInputData }, ref) {
+export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabProps>(function LocalTerminalTab({ isActive, preferences, initialCommand, shell, onDisconnect, onInputData, onLongCommand }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -37,6 +39,10 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
   useEffect(() => { searchOpenRef.current = searchOpen; }, [searchOpen]);
   const preferencesRef = useRef(preferences);
   useEffect(() => { preferencesRef.current = preferences; }, [preferences]);
+  const onLongCommandRef = useRef(onLongCommand);
+  useEffect(() => { onLongCommandRef.current = onLongCommand; }, [onLongCommand]);
+  const isActiveRef = useRef(isActive);
+  useEffect(() => { isActiveRef.current = isActive; }, [isActive]);
   const onInputDataRef = useRef(onInputData);
   useEffect(() => { onInputDataRef.current = onInputData; }, [onInputData]);
   const outerRef = useRef<HTMLDivElement>(null);
@@ -98,6 +104,20 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
     fitRef.current = fit;
     searchRef.current = search;
 
+    // See `TerminalTab` for why this is fed from the ghost-text controller's
+    // line shadowing rather than parsing keystrokes a second time here.
+    const longCommand = createLongCommandWatcher({
+      thresholdMs: (preferencesRef.current?.longCommandNotifySecs ?? 0) * 1000,
+      quietMs: 1_500,
+    });
+    const longCommandTimer = setInterval(() => {
+      if ((preferencesRef.current?.longCommandNotifySecs ?? 0) === 0) return;
+      const done = longCommand.poll(Date.now());
+      if (done && (!document.hasFocus() || !isActiveRef.current)) {
+        onLongCommandRef.current?.(done.command, done.durationMs, "terminal local");
+      }
+    }, 500);
+
     const ghost = createGhostTextController({
       term,
       containerRef,
@@ -108,6 +128,7 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
         const id = sessionIdRef.current;
         if (id) api.writeLocalTerminal(id, new TextEncoder().encode(data));
       },
+      onCommandSubmitted: (command) => longCommand.submit(command, Date.now()),
       getHistory: api.getLocalHistory,
       appendHistory: api.appendLocalHistory,
       setSuggestion,
@@ -148,7 +169,10 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
 
     (async () => {
       try {
-        const onData = (chunk: Uint8Array) => term.write(chunk, () => ghost.handleOutputWritten());
+        const onData = (chunk: Uint8Array) => {
+          longCommand.output(Date.now());
+          term.write(chunk, () => ghost.handleOutputWritten());
+        };
         const id = await api.openLocalTerminal(shell ?? null, onData);
         if (disposed) {
           api.closeLocalTerminal(id).catch(() => {});
@@ -184,6 +208,8 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
 
     return () => {
       disposed = true;
+      clearInterval(longCommandTimer);
+      longCommand.reset();
       unlistenClosed?.();
       if (sessionIdRef.current) api.closeLocalTerminal(sessionIdRef.current).catch(() => {});
       disposeRenderer?.();

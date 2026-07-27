@@ -33,6 +33,7 @@ import { SshAuthPromptModal } from "./components/SshAuthPromptModal";
 import { SqlConnectionTab } from "./components/SqlConnectionTab";
 import { assertNever } from "./lib/exhaustive";
 import { SHORTCUT_ACTIONS, useGlobalShortcuts } from "./lib/shortcuts";
+import { formatDuration } from "./lib/longCommand";
 import { useNotifications } from "./hooks/useNotifications";
 import { useResizablePane } from "./hooks/useResizablePane";
 import { useTabs } from "./hooks/useTabs";
@@ -291,6 +292,13 @@ export default function App() {
     },
   ] : [];
 
+  const notifyLongCommand = useCallback((command: string, durationMs: number, where: string) => {
+    // Truncated: a pasted one-liner can be hundreds of characters, and the
+    // point is recognising which command it was, not reading it again.
+    const shown = command.length > 60 ? `${command.slice(0, 57)}…` : command;
+    pushNotification("success", `« ${shown} » terminée après ${formatDuration(durationMs)} — ${where}`);
+  }, [pushNotification]);
+
   // Pushes back any remote file the user edited in their own editor. Focus is
   // the trigger rather than a watcher or a poll loop: coming back to this
   // window is exactly when a save made elsewhere becomes interesting, and it
@@ -544,6 +552,7 @@ export default function App() {
                           preferences={preferences}
                           initialCommand={tab.initialCommand}
                           shell={tab.shell}
+                          onLongCommand={notifyLongCommand}
                           onDisconnect={() => closeTab(tab.id, "disconnected")}
                           onInputData={(data) => mirrorInput(tab.id, data)}
                           ref={(handle) => {
@@ -583,6 +592,7 @@ export default function App() {
                           host={host}
                           isActive={isActive}
                           preferences={preferences}
+                          onLongCommand={notifyLongCommand}
                           onDisconnect={() => closeTab(tab.id, "disconnected")}
                           onInputData={(data) => mirrorInput(tab.id, data)}
                           dockerContainerId={tab.kind === "terminal" ? tab.dockerContainerId : undefined}

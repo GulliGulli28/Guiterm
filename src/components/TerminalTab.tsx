@@ -11,6 +11,7 @@ import { TERMINAL_THEMES, auroraLayerBackground } from "../lib/preferences";
 import { shouldBubbleToShortcut } from "../lib/shortcuts";
 import { TerminalSearchBar, type SearchOptions } from "./TerminalSearchBar";
 import { createGhostTextController, type GhostSuggestion, type GhostTextController } from "../lib/ghostText";
+import { createLongCommandWatcher } from "../lib/longCommand";
 import { attachRenderStats, attachWebglRenderer, type RenderStats } from "../lib/xtermRenderer";
 
 export interface TerminalTabHandle {
@@ -42,6 +43,9 @@ interface TerminalTabProps {
   // Called with each raw keystroke this terminal sends to its own session — used by
   // the live broadcast "synced typing" mode to mirror input to other terminals.
   onInputData?: (data: string) => void;
+  /** Called when a command that ran a while finishes and this terminal isn't
+   * what the user is looking at — see `lib/longCommand.ts`. */
+  onLongCommand?: (command: string, durationMs: number, where: string) => void;
   /** When set, execs into this Docker container on `host` instead of opening an SSH shell. */
   dockerContainerId?: string;
   /** When set, execs into this pod (and, if given, container) on `host`
@@ -51,7 +55,7 @@ interface TerminalTabProps {
   k8sContainerName?: string | null;
 }
 
-export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(function TerminalTab({ host, isActive, preferences, onDisconnect, onInputData, dockerContainerId, k8sPodName, k8sContainerName }, ref) {
+export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(function TerminalTab({ host, isActive, preferences, onDisconnect, onInputData, onLongCommand, dockerContainerId, k8sPodName, k8sContainerName }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -66,6 +70,10 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
   useEffect(() => { preferencesRef.current = preferences; }, [preferences]);
   const onInputDataRef = useRef(onInputData);
   useEffect(() => { onInputDataRef.current = onInputData; }, [onInputData]);
+  const onLongCommandRef = useRef(onLongCommand);
+  useEffect(() => { onLongCommandRef.current = onLongCommand; }, [onLongCommand]);
+  const isActiveRef = useRef(isActive);
+  useEffect(() => { isActiveRef.current = isActive; }, [isActive]);
   const outerRef = useRef<HTMLDivElement>(null);
   const ghostRef = useRef<GhostTextController | null>(null);
   const [suggestion, setSuggestion] = useState<GhostSuggestion | null>(null);
@@ -125,6 +133,26 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
     fitRef.current = fit;
     searchRef.current = search;
 
+    // Watches for a long command finishing so the user can go and do
+    // something else. Deliberately fed from the ghost-text controller's line
+    // shadowing rather than a second parser of its own — see
+    // `GhostTextDeps.onCommandSubmitted`.
+    const longCommand = createLongCommandWatcher({
+      // Read once per session: changing the preference applies to terminals
+      // opened afterwards, like the other terminal settings here.
+      thresholdMs: (preferencesRef.current?.longCommandNotifySecs ?? 0) * 1000,
+      quietMs: 1_500,
+    });
+    const longCommandTimer = setInterval(() => {
+      if ((preferencesRef.current?.longCommandNotifySecs ?? 0) === 0) return;
+      const done = longCommand.poll(Date.now());
+      // Only worth saying when the user isn't already looking at it — the
+      // whole point is to be told while attention is elsewhere.
+      if (done && (!document.hasFocus() || !isActiveRef.current)) {
+        onLongCommandRef.current?.(done.command, done.durationMs, host.label);
+      }
+    }, 500);
+
     const ghost = createGhostTextController({
       term,
       containerRef,
@@ -138,6 +166,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
       getHistory: api.getSshHistory,
       appendHistory: api.appendSshHistory,
       setSuggestion,
+      onCommandSubmitted: (command) => longCommand.submit(command, Date.now()),
     });
     ghostRef.current = ghost;
 
@@ -199,7 +228,10 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
       if (disposed) return;
       setStatus("connecting");
       try {
-        const onData = (chunk: Uint8Array) => term.write(chunk, () => ghost.handleOutputWritten());
+        const onData = (chunk: Uint8Array) => {
+          longCommand.output(Date.now());
+          term.write(chunk, () => ghost.handleOutputWritten());
+        };
         const id = k8sPodName
           ? await api.connectK8sExec(host.id, k8sPodName, k8sContainerName ?? null, onData)
           : dockerContainerId
@@ -240,6 +272,8 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
     return () => {
       disposed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
+      clearInterval(longCommandTimer);
+      longCommand.reset();
       unlistenClosed?.();
       if (sessionIdRef.current) api.closeTerminal(sessionIdRef.current).catch(() => {});
       disposeRenderer?.();

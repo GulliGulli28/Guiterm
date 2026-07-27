@@ -431,6 +431,27 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
             </div>
 
             <div className="space-y-1">
+              <div className="flex items-center justify-between gap-2">
+                <label className="block text-[12px] text-[var(--c-text-secondary)]">Prévenir quand une commande longue se termine</label>
+                <input
+                  type="number"
+                  min={0}
+                  max={3600}
+                  value={preferences.longCommandNotifySecs}
+                  onChange={(e) => onPreferencesChange({ ...preferences, longCommandNotifySecs: Math.max(0, Math.min(3600, Number(e.target.value) || 0)) })}
+                  className="w-16 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-right text-[12px] text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                />
+              </div>
+              <p className="text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+                Durée minimale en secondes, <code>0</code> pour désactiver. La notification n'apparaît
+                que si la fenêtre ou l'onglet n'a pas le focus. La fin d'une commande est déduite de
+                l'arrêt de sa sortie : un éditeur laissé ouvert ne déclenche donc rien, mais un shell
+                très bavard peut être détecté un peu tard. Prise en compte par les terminaux ouverts
+                après le changement.
+              </p>
+            </div>
+
+            <div className="space-y-1">
               <label className="block text-[12px] text-[var(--c-text-secondary)]">Shell local par défaut</label>
               <select
                 value={preferences.defaultLocalShell ?? ""}
