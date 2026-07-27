@@ -18,6 +18,25 @@ function parseRdpFrame(buffer: ArrayBuffer): RdpFrame {
   };
 }
 
+/** Header name the Rust side reads the session id from — must match
+ * `commands::terminal::SESSION_ID_HEADER`. */
+const SESSION_ID_HEADER = "x-session-id";
+
+/** Sends `bytes` as the raw request body rather than a JSON argument.
+ *
+ * Terminal writes are the most frequent call in the app — one per keystroke,
+ * and one per chunk when pasting. Passing them as a base64 string meant
+ * building that string a character at a time in JS, serialising it as JSON,
+ * and decoding it back to bytes in Rust: three conversions and ~33% more
+ * bytes, for data that is already a `Uint8Array`. Terminal *output* has
+ * always avoided this by using a `Channel`; this is the same idea for input.
+ *
+ * The body being the payload, there is no JSON object left to carry the
+ * session id — hence the header. */
+function writeBytes(command: string, sessionId: string, bytes: Uint8Array): Promise<void> {
+  return invoke<void>(command, bytes, { headers: { [SESSION_ID_HEADER]: sessionId } });
+}
+
 export const api = {
   getWorkspace: () => invoke<Workspace>("get_workspace"),
 
@@ -229,7 +248,9 @@ export const api = {
    * `TransferTab.tsx`'s `onDragDropEvent` handler. */
   pushRdpViewClipboardPaths: (sessionId: string, paths: string[]) =>
     invoke<void>("push_rdp_view_clipboard_paths", { sessionId, paths }),
-  writeTerminal: (sessionId: string, data: string) => invoke<void>("write_terminal", { sessionId, data }),
+  /** Sends keystrokes as the request body itself, not as a base64 string in a
+   * JSON argument — see `writeBytes`. */
+  writeTerminal: (sessionId: string, data: Uint8Array) => writeBytes("write_terminal", sessionId, data),
   resizeTerminal: (sessionId: string, cols: number, rows: number) => invoke<void>("resize_terminal", { sessionId, cols, rows }),
   closeTerminal: (sessionId: string) => invoke<void>("close_terminal", { sessionId }),
 
@@ -239,7 +260,7 @@ export const api = {
     return invoke<string>("open_local_terminal", { shell, channel });
   },
   listLocalShells: () => invoke<{ id: string; label: string }[]>("list_local_shells"),
-  writeLocalTerminal: (sessionId: string, data: string) => invoke<void>("write_local_terminal", { sessionId, data }),
+  writeLocalTerminal: (sessionId: string, data: Uint8Array) => writeBytes("write_local_terminal", sessionId, data),
   resizeLocalTerminal: (sessionId: string, cols: number, rows: number) => invoke<void>("resize_local_terminal", { sessionId, cols, rows }),
   closeLocalTerminal: (sessionId: string) => invoke<void>("close_local_terminal", { sessionId }),
 
@@ -365,8 +386,3 @@ export function onFleetDone(handler: (runId: string) => void): Promise<UnlistenF
   return listen<{ runId: string }>("fleet-run-done", (event) => handler(event.payload.runId));
 }
 
-export function bytesToBase64(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary);
-}

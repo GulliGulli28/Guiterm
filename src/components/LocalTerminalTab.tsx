@@ -4,7 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { api, bytesToBase64, onTerminalClosed } from "../lib/api";
+import { api, onTerminalClosed } from "../lib/api";
 import { scrollbackText, type TerminalTabHandle } from "./TerminalTab";
 import type { AppPreferences } from "../lib/preferences";
 import { TERMINAL_THEMES, auroraLayerBackground } from "../lib/preferences";
@@ -50,11 +50,11 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
       runCommand: (command: string) => {
         const id = sessionIdRef.current;
         if (!id) return;
-        api.writeLocalTerminal(id, bytesToBase64(new TextEncoder().encode(command + "\r")));
+        api.writeLocalTerminal(id, new TextEncoder().encode(command + "\r"));
       },
       writeRaw: (data: string) => {
         const id = sessionIdRef.current;
-        if (id) api.writeLocalTerminal(id, bytesToBase64(new TextEncoder().encode(data)));
+        if (id) api.writeLocalTerminal(id, new TextEncoder().encode(data));
       },
       getScrollbackText: () => (termRef.current ? scrollbackText(termRef.current) : ""),
       dispose: () => {
@@ -101,7 +101,7 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
       isDisposed: () => disposed,
       sendInput: (data) => {
         const id = sessionIdRef.current;
-        if (id) api.writeLocalTerminal(id, bytesToBase64(new TextEncoder().encode(data)));
+        if (id) api.writeLocalTerminal(id, new TextEncoder().encode(data));
       },
       getHistory: api.getLocalHistory,
       appendHistory: api.appendLocalHistory,
@@ -135,7 +135,7 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
 
     term.onData((data) => {
       if (sessionIdRef.current) {
-        api.writeLocalTerminal(sessionIdRef.current, bytesToBase64(new TextEncoder().encode(data)));
+        api.writeLocalTerminal(sessionIdRef.current, new TextEncoder().encode(data));
       }
       onInputDataRef.current?.(data);
       ghost.handleOnData(data);
@@ -165,7 +165,7 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
         if (initialCommand) {
           setTimeout(() => {
             if (!disposed) {
-              api.writeLocalTerminal(id, bytesToBase64(new TextEncoder().encode(initialCommand + "\r"))).catch(() => {});
+              api.writeLocalTerminal(id, new TextEncoder().encode(initialCommand + "\r")).catch(() => {});
             }
           }, 400);
         }
@@ -256,7 +256,7 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
       term.focus();
     } else if (id) {
       readText().then((text) => {
-        if (text) api.writeLocalTerminal(id, bytesToBase64(new TextEncoder().encode(text)));
+        if (text) api.writeLocalTerminal(id, new TextEncoder().encode(text));
       }).catch(() => {});
       term?.focus();
     }

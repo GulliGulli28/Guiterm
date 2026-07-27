@@ -1,6 +1,5 @@
 use termius_core::sync_ext::MutexExt;
 use crate::state::{AppState, TerminalBackend, TerminalSession};
-use crate::util;
 use serde::Serialize;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Emitter, State};
@@ -119,9 +118,36 @@ fn terminal_input(state: &AppState, session_id: &str) -> Result<tokio::sync::mps
     state.terminals.lock_recover().get(session_id).map(|t| t.input.clone()).ok_or_else(|| "session inconnue".to_string())
 }
 
+/// Header carrying the session id on the byte-payload write commands. The
+/// payload itself *is* the keystroke bytes (see [`raw_write_payload`]), so
+/// there is no JSON object left to put a normal argument in.
+pub(crate) const SESSION_ID_HEADER: &str = "x-session-id";
+
+/// Extracts `(session_id, bytes)` from a request whose body is the raw
+/// keystrokes rather than JSON.
+///
+/// Keystrokes used to travel as base64 inside a JSON argument: encoded
+/// character by character in JS, parsed as JSON, then decoded back to bytes
+/// here — three conversions on the single most frequent call in the app, and
+/// ~33% more bytes on the wire. Terminal *output* already avoided all that by
+/// riding a `tauri::ipc::Channel`; this gives the input side the same
+/// treatment, using the raw-body form of `invoke` (`InvokeBody::Raw`).
+fn raw_write_payload(request: &tauri::ipc::Request<'_>) -> Result<(String, Vec<u8>), String> {
+    let session_id = request
+        .headers()
+        .get(SESSION_ID_HEADER)
+        .and_then(|v| v.to_str().ok())
+        .ok_or_else(|| format!("en-tête {SESSION_ID_HEADER} manquant"))?
+        .to_string();
+    let tauri::ipc::InvokeBody::Raw(bytes) = request.body() else {
+        return Err("charge utile binaire attendue".to_string());
+    };
+    Ok((session_id, bytes.clone()))
+}
+
 #[tauri::command]
-pub async fn write_terminal(state: State<'_, AppState>, session_id: String, data: String) -> Result<(), String> {
-    let bytes = util::decode(&data).map_err(|e| e.to_string())?;
+pub async fn write_terminal(state: State<'_, AppState>, request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let (session_id, bytes) = raw_write_payload(&request)?;
     let input = terminal_input(&state, &session_id)?;
     input.send(ShellInput::Data(bytes)).await.map_err(|_| "session fermée".to_string())
 }
@@ -244,8 +270,8 @@ pub async fn open_local_terminal(app: AppHandle, state: State<'_, AppState>, she
 }
 
 #[tauri::command]
-pub async fn write_local_terminal(app: AppHandle, session_id: String, data: String) -> Result<(), String> {
-    let bytes = util::decode(&data).map_err(|e| e.to_string())?;
+pub async fn write_local_terminal(app: AppHandle, request: tauri::ipc::Request<'_>) -> Result<(), String> {
+    let (session_id, bytes) = raw_write_payload(&request)?;
     // The write is a blocking std::io::Write call (kernel PTY buffer) — every
     // keystroke to a local terminal goes through this command, so keep it off
     // the tokio worker thread the same way the read side already does.

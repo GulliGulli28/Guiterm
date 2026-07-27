@@ -2,7 +2,6 @@
 
 mod commands;
 mod state;
-mod util;
 
 use state::AppState;
 use tauri::Manager;

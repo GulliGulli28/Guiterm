@@ -1,5 +1,4 @@
 import type { TerminalTabHandle } from "../components/TerminalTab";
-import { bytesToBase64 } from "./api";
 
 // `shellCapable`: false for an RDP target (see `RdpTab.tsx`'s handle) — it
 // has no shell/PTY to pipe a base64-decoded script into, so a multi-line
@@ -9,7 +8,7 @@ export function runOnTerminalHandle(handle: TerminalTabHandle, command: string, 
   if (shellCapable && command.includes("\n")) {
     // Encode script as base64 and decode+execute in one line so the terminal
     // only shows a compact command, not the full script content.
-    const b64 = bytesToBase64(new TextEncoder().encode(command));
+    const b64 = new TextEncoder().encode(command);
     handle.runCommand(`echo '${b64}' | base64 -d | bash`);
   } else {
     handle.runCommand(command);

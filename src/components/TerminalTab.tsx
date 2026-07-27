@@ -4,7 +4,7 @@ import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
-import { api, bytesToBase64, onTerminalClosed } from "../lib/api";
+import { api, onTerminalClosed } from "../lib/api";
 import type { Host } from "../lib/types";
 import type { AppPreferences } from "../lib/preferences";
 import { TERMINAL_THEMES, auroraLayerBackground } from "../lib/preferences";
@@ -72,11 +72,11 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
       runCommand: (command: string) => {
         const id = sessionIdRef.current;
         if (!id) return;
-        api.writeTerminal(id, bytesToBase64(new TextEncoder().encode(command + "\r")));
+        api.writeTerminal(id, new TextEncoder().encode(command + "\r"));
       },
       writeRaw: (data: string) => {
         const id = sessionIdRef.current;
-        if (id) api.writeTerminal(id, bytesToBase64(new TextEncoder().encode(data)));
+        if (id) api.writeTerminal(id, new TextEncoder().encode(data));
       },
       getScrollbackText: () => (termRef.current ? scrollbackText(termRef.current) : ""),
       dispose: () => {
@@ -123,7 +123,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
       isDisposed: () => disposed,
       sendInput: (data) => {
         const id = sessionIdRef.current;
-        if (id) api.writeTerminal(id, bytesToBase64(new TextEncoder().encode(data)));
+        if (id) api.writeTerminal(id, new TextEncoder().encode(data));
       },
       getHistory: api.getSshHistory,
       appendHistory: api.appendSshHistory,
@@ -157,7 +157,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
 
     term.onData((data) => {
       if (sessionIdRef.current) {
-        api.writeTerminal(sessionIdRef.current, bytesToBase64(new TextEncoder().encode(data)));
+        api.writeTerminal(sessionIdRef.current, new TextEncoder().encode(data));
       }
       onInputDataRef.current?.(data);
       ghost.handleOnData(data);
@@ -310,7 +310,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
       term.focus();
     } else if (id) {
       readText().then((text) => {
-        if (text) api.writeTerminal(id, bytesToBase64(new TextEncoder().encode(text)));
+        if (text) api.writeTerminal(id, new TextEncoder().encode(text));
       }).catch(() => {});
       term?.focus();
     }
