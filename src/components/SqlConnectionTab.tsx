@@ -1,0 +1,51 @@
+import { lazy } from "react";
+import { UnavailableEngineTab } from "./UnavailableEngineTab";
+import { assertNever } from "../lib/exhaustive";
+import type { Host, SqlConnection } from "../lib/types";
+
+// Lazy for the same reason the other large panels are (see `App.tsx`): these
+// two are among the biggest components in the app and most sessions never open
+// a database connection at all. Exported so `SqlConnectionTab.test.ts` can
+// assert *which* one a given engine dispatches to by identity, without
+// mounting either (mounting would immediately `invoke(...)` against a Tauri
+// bridge that doesn't exist under vitest).
+export const SqlTabLazy = lazy(() => import("./SqlTab").then((m) => ({ default: m.SqlTab })));
+export const RedisTabLazy = lazy(() => import("./RedisTab").then((m) => ({ default: m.RedisTab })));
+
+/** Which component renders a saved database connection, decided exhaustively
+ * by engine.
+ *
+ * A `switch` closed by `assertNever` rather than the ternary this replaces:
+ * that ternary was `engine === "redis" ? <RedisTab/> : <SqlTab/>`, so adding
+ * the `mongodb` engine silently routed MongoDB connections into the SQL tab,
+ * which then failed at connect time with a message blaming the server. Adding
+ * a variant to `SqlEngineConfig` without deciding how it renders is now a
+ * `tsc` failure instead — see `lib/exhaustive.ts`.
+ *
+ * Lives in its own module rather than inside `App.tsx` so the dispatch can be
+ * unit-tested without importing the whole application graph. */
+export function SqlConnectionTab({
+  connection,
+  hosts,
+  onError,
+}: {
+  connection: SqlConnection;
+  hosts: Host[];
+  onError: (message: string) => void;
+}) {
+  switch (connection.engine) {
+    case "mysql":
+    case "postgres":
+    case "sqlite":
+      return <SqlTabLazy connection={connection} hosts={hosts} onError={onError} />;
+    case "redis":
+      return <RedisTabLazy connection={connection} onError={onError} />;
+    case "mongodb":
+      // Backend is complete (`core/src/mongo_client.rs`, `commands/mongo.rs`,
+      // exercised by `core/examples/mongo_wsl_smoke.rs`); only the browsing UI
+      // is missing. Swap in `MongoTab` here when it lands.
+      return <UnavailableEngineTab engine={connection.engine} />;
+    default:
+      return assertNever(connection, "moteur de connexion base de données");
+  }
+}

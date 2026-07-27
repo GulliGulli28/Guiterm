@@ -20,8 +20,6 @@ import { TabLoadingFallback } from "./components/TabLoadingFallback";
 const TransferTab = lazy(() => import("./components/TransferTab").then((m) => ({ default: m.TransferTab })));
 const RdpTab = lazy(() => import("./components/RdpTab").then((m) => ({ default: m.RdpTab })));
 const FleetTab = lazy(() => import("./components/FleetTab").then((m) => ({ default: m.FleetTab })));
-const SqlTab = lazy(() => import("./components/SqlTab").then((m) => ({ default: m.SqlTab })));
-const RedisTab = lazy(() => import("./components/RedisTab").then((m) => ({ default: m.RedisTab })));
 import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, loadPreferences, savePreferences } from "./lib/preferences";
 import { SplitPane } from "./components/SplitPane";
 import { GroupForm, type GroupFormData } from "./components/GroupForm";
@@ -32,6 +30,8 @@ import { SnippetPicker } from "./components/SnippetPicker";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { VaultUnlockModal } from "./components/VaultUnlockModal";
 import { SshAuthPromptModal } from "./components/SshAuthPromptModal";
+import { SqlConnectionTab } from "./components/SqlConnectionTab";
+import { assertNever } from "./lib/exhaustive";
 import { SHORTCUT_ACTIONS, useGlobalShortcuts } from "./lib/shortcuts";
 import { useNotifications } from "./hooks/useNotifications";
 import { useResizablePane } from "./hooks/useResizablePane";
@@ -533,11 +533,7 @@ export default function App() {
                     return (
                       <div key={tab.id} className={isActive ? "absolute inset-0 flex flex-col" : "hidden"}>
                         <Suspense fallback={<TabLoadingFallback />}>
-                          {connection.engine === "redis" ? (
-                            <RedisTab connection={connection} onError={reportError} />
-                          ) : (
-                            <SqlTab connection={connection} hosts={workspace.hosts} onError={reportError} />
-                          )}
+                          <SqlConnectionTab connection={connection} hosts={workspace.hosts} onError={reportError} />
                         </Suspense>
                       </div>
                     );
@@ -574,7 +570,7 @@ export default function App() {
                             }}
                           />
                         </Suspense>
-                      ) : (
+                      ) : tab.kind === "transfer" ? (
                         <Suspense fallback={<TabLoadingFallback />}>
                           <TransferTab
                             host={host}
@@ -582,11 +578,22 @@ export default function App() {
                             preferences={preferences}
                             onError={reportError}
                             onPushed={(message) => pushNotification("success", message)}
-                            dockerContainerId={tab.kind === "transfer" ? tab.dockerContainerId : undefined}
-                            k8sPodName={tab.kind === "transfer" ? tab.k8sPodName : undefined}
-                            k8sContainerName={tab.kind === "transfer" ? tab.k8sContainerName : undefined}
+                            dockerContainerId={tab.dockerContainerId}
+                            k8sPodName={tab.k8sPodName}
+                            k8sContainerName={tab.k8sContainerName}
                           />
                         </Suspense>
+                      ) : (
+                        // Was a bare `else` rendering TransferTab: a new
+                        // host-bound tab kind would have silently rendered a
+                        // file browser. Now it fails to compile instead.
+                        //
+                        // Narrows `tab.kind`, not `tab`: these three kinds
+                        // share one `TabMeta` member (`kind: "terminal" |
+                        // "transfer" | "rdp-view"`) rather than being three
+                        // members, so the object type never reduces to
+                        // `never` — the discriminant field does.
+                        assertNever(tab.kind, "type d'onglet lié à un hôte")
                       )}
                     </div>
                   );
