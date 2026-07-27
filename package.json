@@ -12,6 +12,7 @@
     "lint": "eslint .",
     "test:e2e": "node scripts/e2e-run.mjs",
     "verify": "node scripts/verify.mjs",
+    "bench:terminal": "node scripts/bench-terminal-render.mjs",
     "tauri": "tauri",
     "bump-version": "node scripts/bump-version.mjs"
   },

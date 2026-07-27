@@ -24,6 +24,13 @@ jobs:
           # link against the runner's glibc, and 24.04's is too new for
           # older user systems to run the resulting binary.
           - platform: ubuntu-22.04
+          # Two macOS runners rather than one universal binary: `macos-latest`
+          # is Apple Silicon, `macos-13` is the last Intel image. Each produces
+          # a native bundle for its own architecture, which avoids having to
+          # `lipo` the rdp-sidecar into a universal binary of its own just to
+          # satisfy `bundle.externalBin`.
+          - platform: macos-latest
+          - platform: macos-13
     runs-on: ${{ matrix.platform }}
     timeout-minutes: 60
     permissions:
@@ -77,6 +84,30 @@ jobs:
           mkdir -p ../src-tauri/binaries
           cp target/release/rdp-sidecar ../src-tauri/binaries/rdp-sidecar-x86_64-unknown-linux-gnu
 
+      # Same staging step as the two above, but the triple is read from rustc
+      # instead of hardcoded: this job runs on both an Apple Silicon and an
+      # Intel runner, so it has to resolve to `aarch64-apple-darwin` or
+      # `x86_64-apple-darwin` depending on which one it landed on.
+      - name: Build rdp-sidecar and stage it for bundling (macOS)
+        if: startsWith(matrix.platform, 'macos')
+        run: |
+          TRIPLE=$(rustc -vV | sed -n 's/^host: //p')
+          cd rdp-sidecar && cargo build --release
+          mkdir -p ../src-tauri/binaries
+          cp target/release/rdp-sidecar "../src-tauri/binaries/rdp-sidecar-$TRIPLE"
+
+      # `TAURI_SIGNING_*` below signs the *updater* artifacts (minisign) — it
+      # is what makes the in-app updater trust a release, and is unrelated to
+      # OS code signing. Neither platform is OS-signed today:
+      #   - Windows: no Authenticode certificate, so SmartScreen warns on
+      #     first run of every new release.
+      #   - macOS: no Apple Developer ID, so Gatekeeper refuses to open the
+      #     .dmg outright ("cannot be opened because the developer cannot be
+      #     verified") — users have to right-click → Open, or clear the
+      #     quarantine attribute by hand. Worth stating in the release notes
+      #     until a certificate exists; tauri-action reads APPLE_CERTIFICATE /
+      #     APPLE_SIGNING_IDENTITY / APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID
+      #     from the environment once there is one to add.
       - name: Build and publish
         uses: tauri-apps/tauri-action@v0
         env:
