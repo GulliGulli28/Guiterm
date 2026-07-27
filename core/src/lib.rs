@@ -7,6 +7,7 @@ pub mod export;
 pub mod facts;
 pub mod fleet;
 pub mod fleet_history;
+pub mod interactive_auth;
 pub mod k8s;
 pub mod k8s_pane;
 pub mod keygen;

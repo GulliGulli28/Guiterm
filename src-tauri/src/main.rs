@@ -52,6 +52,13 @@ fn main() {
                 && let Some(icon) = app.default_window_icon() {
                 let _ = window.set_icon(icon.clone() as _);
             }
+            // Lets `core`'s SSH authentication ask the user for an MFA/OTP
+            // code mid-handshake — see `commands::interactive_auth`. Installed
+            // here because it needs an `AppHandle` to reach the frontend, which
+            // `core` has no way to obtain.
+            termius_core::interactive_auth::set_prompter(std::sync::Arc::new(
+                commands::interactive_auth::FrontendPrompter::new(app.handle().clone()),
+            ));
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -103,6 +110,8 @@ fn main() {
             commands::export::import_host_from_file,
             commands::export::export_text,
             commands::export::diagnostics_directory,
+            commands::interactive_auth::submit_ssh_auth_prompt,
+            commands::interactive_auth::cancel_ssh_auth_prompt,
             commands::terminal::connect_terminal,
             commands::terminal::write_terminal,
             commands::terminal::resize_terminal,

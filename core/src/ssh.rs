@@ -261,8 +261,125 @@ async fn authenticate(
                 .await?
         }
         AuthMethod::Agent => return authenticate_with_agent(handle, host).await,
+        AuthMethod::KeyboardInteractive => {
+            return authenticate_keyboard_interactive(handle, host).await;
+        }
     };
     ensure_success(result, &host.label)
+}
+
+/// Decides which prompts of one round can be answered from the stored
+/// password, returning one slot per prompt (`None` = ask the user).
+///
+/// Takes the password out of `stored_password` when it uses it, so this can
+/// only ever fire on the *first* round that has a hidden prompt. That
+/// restriction is the whole point: servers ask password-then-second-factor,
+/// so round two is where the OTP lives. Auto-answering there would send a
+/// stale password as if it were the code — burning one of the few attempts
+/// the server allows, with no way for the user to see why.
+///
+/// `echoes` is the prompts' `echo` flags in order; a hidden prompt
+/// (`echo == false`) is the server saying "this is secret-like", which is how
+/// it asks for a password. An OTP is usually echoed, since it is single-use.
+fn autofilled_answers(echoes: &[bool], stored_password: &mut Option<String>) -> Vec<Option<String>> {
+    let mut answers: Vec<Option<String>> = vec![None; echoes.len()];
+    if let Some(index) = echoes.iter().position(|echo| !echo)
+        && let Some(password) = stored_password.take()
+    {
+        answers[index] = Some(password);
+    }
+    answers
+}
+
+/// Drives an RFC 4256 keyboard-interactive exchange — the method servers use
+/// for MFA/OTP.
+///
+/// Unlike every other method, this is a *conversation*: the server sends
+/// rounds of prompts and decides when it has enough. Each round is forwarded
+/// to whoever installed a [`crate::interactive_auth::Prompter`] (the UI, in
+/// the app's case) and the answers are sent back, until the server reports
+/// success or failure.
+///
+/// A stored password is auto-filled for the first non-echoed prompt of the
+/// first round only. Servers ask password-then-second-factor in practice, so
+/// this spares retyping the password on every connection while never
+/// auto-answering anything on a later round — where the OTP lives, and where
+/// a wrong silent answer would just burn an attempt.
+///
+/// The loop is bounded: a server that keeps asking (misconfigured, or
+/// deliberately) would otherwise keep the user in a prompt cycle forever.
+async fn authenticate_keyboard_interactive(
+    handle: &mut client::Handle<AppHandler>,
+    host: &Host,
+) -> anyhow::Result<()> {
+    use crate::interactive_auth::{InfoRequest, PromptField};
+    use russh::client::KeyboardInteractiveAuthResponse;
+
+    /// Rounds accepted before giving up. Real deployments use one or two.
+    const MAX_ROUNDS: usize = 10;
+
+    let prompter = crate::interactive_auth::prompter().ok_or_else(|| {
+        anyhow::anyhow!(
+            "l'authentification interactive (MFA) nécessite l'interface graphique — \
+             aucun moyen de poser la question ici"
+        )
+    })?;
+
+    let mut stored_password = vault::load(host.id, SecretKind::Password)?;
+    let mut response = handle
+        .authenticate_keyboard_interactive_start(host.username.clone(), None)
+        .await?;
+
+    for _ in 0..MAX_ROUNDS {
+        let (name, instructions, prompts) = match response {
+            KeyboardInteractiveAuthResponse::Success => return Ok(()),
+            KeyboardInteractiveAuthResponse::Failure { partial_success, .. } => {
+                return ensure_success(
+                    AuthResult::Failure {
+                        remaining_methods: russh::MethodSet::empty(),
+                        partial_success,
+                    },
+                    &host.label,
+                );
+            }
+            KeyboardInteractiveAuthResponse::InfoRequest { name, instructions, prompts } => {
+                (name, instructions, prompts)
+            }
+        };
+
+        let echoes: Vec<bool> = prompts.iter().map(|p| p.echo).collect();
+        let mut answers = autofilled_answers(&echoes, &mut stored_password);
+
+        let remaining: Vec<PromptField> = prompts
+            .iter()
+            .zip(&answers)
+            .filter(|(_, answered)| answered.is_none())
+            .map(|(p, _)| PromptField { prompt: p.prompt.clone(), echo: p.echo })
+            .collect();
+
+        if !remaining.is_empty() {
+            let request = InfoRequest { name, instructions, prompts: remaining };
+            let mut supplied = prompter.prompt(&host.label, request).await?.into_iter();
+            for answer in answers.iter_mut() {
+                if answer.is_none() {
+                    *answer = Some(supplied.next().ok_or_else(|| {
+                        anyhow::anyhow!("réponse manquante pour l'authentification interactive")
+                    })?);
+                }
+            }
+        }
+
+        response = handle
+            .authenticate_keyboard_interactive_respond(
+                answers.into_iter().map(|a| a.unwrap_or_default()).collect(),
+            )
+            .await?;
+    }
+
+    anyhow::bail!(
+        "authentification interactive abandonnée pour « {} » : le serveur a dépassé {MAX_ROUNDS} séries de questions",
+        host.label
+    )
 }
 
 #[cfg(unix)]
@@ -638,6 +755,51 @@ mod tests {
         };
         let err = ensure_success(result, "web1").unwrap_err();
         assert_eq!(err.to_string(), "authentication failed for 'web1'");
+    }
+
+    #[test]
+    fn stored_password_answers_the_first_hidden_prompt() {
+        let mut stored = Some("hunter2".to_string());
+        // Typical first round: one hidden "Password:" prompt.
+        assert_eq!(autofilled_answers(&[false], &mut stored), vec![Some("hunter2".to_string())]);
+        assert!(stored.is_none(), "the password must be consumed, not reusable on a later round");
+    }
+
+    #[test]
+    fn the_otp_round_is_never_auto_answered() {
+        // This is the case that matters: the password was already spent on
+        // round one, so round two's prompt has to reach the user. Answering it
+        // with anything would burn a server-side attempt.
+        let mut spent: Option<String> = None;
+        assert_eq!(autofilled_answers(&[false], &mut spent), vec![None]);
+        assert_eq!(autofilled_answers(&[true], &mut spent), vec![None]);
+    }
+
+    #[test]
+    fn an_echoed_only_round_leaves_the_password_untouched() {
+        // Nothing hidden to fill, e.g. a server asking only "Verification
+        // code:" (echoed). The password must stay available for a later hidden
+        // prompt rather than being silently dropped.
+        let mut stored = Some("hunter2".to_string());
+        assert_eq!(autofilled_answers(&[true, true], &mut stored), vec![None, None]);
+        assert_eq!(stored.as_deref(), Some("hunter2"));
+    }
+
+    #[test]
+    fn only_the_first_hidden_prompt_of_a_round_is_filled() {
+        // A round with two hidden prompts (password + hidden second factor):
+        // only the first is ours to answer.
+        let mut stored = Some("hunter2".to_string());
+        assert_eq!(
+            autofilled_answers(&[true, false, false], &mut stored),
+            vec![None, Some("hunter2".to_string()), None],
+        );
+    }
+
+    #[test]
+    fn no_stored_password_asks_for_everything() {
+        let mut none: Option<String> = None;
+        assert_eq!(autofilled_answers(&[false, true], &mut none), vec![None, None]);
     }
 
     #[test]

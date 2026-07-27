@@ -36,11 +36,12 @@ interface HostFormProps {
   onWorkspaceUpdate?: (ws: Workspace) => void;
 }
 
-type AuthKind = "agent" | "password" | "privateKey";
+type AuthKind = "agent" | "password" | "privateKey" | "keyboardInteractive";
 
 function authKindOf(auth: AuthMethod): AuthKind {
   if (auth === "password") return "password";
   if (auth === "agent") return "agent";
+  if (auth === "keyboardInteractive") return "keyboardInteractive";
   return "privateKey";
 }
 
@@ -204,7 +205,10 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
 
     const auth: AuthMethod = kind === "rdp"
       ? "password"
-      : authKind === "agent" ? "agent" : authKind === "password" ? "password" : { privateKey: { path: keyPath.trim(), keyId } };
+      : authKind === "privateKey"
+        ? { privateKey: { path: keyPath.trim(), keyId } }
+        // "agent" | "password" | "keyboardInteractive" map to themselves.
+        : authKind;
     const keepaliveNum = Number(keepalive);
 
     onSave({
@@ -362,7 +366,16 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
               {kind !== "rdp" && <option value="agent">Agent SSH</option>}
               <option value="password">Mot de passe</option>
               {kind !== "rdp" && <option value="privateKey">Clé privée</option>}
+              {kind !== "rdp" && <option value="keyboardInteractive">Interactive (MFA / code à usage unique)</option>}
             </select>
+            {authKind === "keyboardInteractive" && (
+              <p className="mt-1.5 text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+                Le serveur pose ses questions au moment de la connexion (code d'authentification,
+                notification à valider…). Le mot de passe saisi ci-dessous, s'il y en a un, répond
+                automatiquement à la première question masquée : vous n'aurez que le second facteur
+                à taper.
+              </p>
+            )}
           </Field>
         )}
         {kind === "rdp" && (

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { check as checkForUpdate } from "@tauri-apps/plugin-updater";
-import { api } from "./lib/api";
-import type { GroupId, Host, HostId, SqlConnection, TabMeta, VaultStatus, Workspace } from "./lib/types";
+import { api, onSshAuthPrompt } from "./lib/api";
+import type { GroupId, Host, HostId, SqlConnection, SshAuthPrompt, TabMeta, VaultStatus, Workspace } from "./lib/types";
 import { Sidebar, type SidebarPanelKind } from "./components/Sidebar";
 import { HostForm } from "./components/HostForm";
 import { TabBar } from "./components/TabBar";
@@ -31,6 +31,7 @@ import { CommandPalette, type PaletteCommand } from "./components/CommandPalette
 import { SnippetPicker } from "./components/SnippetPicker";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { VaultUnlockModal } from "./components/VaultUnlockModal";
+import { SshAuthPromptModal } from "./components/SshAuthPromptModal";
 import { SHORTCUT_ACTIONS, useGlobalShortcuts } from "./lib/shortcuts";
 import { useNotifications } from "./hooks/useNotifications";
 import { useResizablePane } from "./hooks/useResizablePane";
@@ -62,6 +63,23 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [snippetPickerOpen, setSnippetPickerOpen] = useState(false);
   const terminalRefs = useRef<Map<string, TerminalTabHandle>>(new Map());
+
+  // ── Keyboard-interactive authentication (MFA/OTP) ────────────────────────
+  // A queue, not a single value: a fleet run or a batch of restored tabs can
+  // have several hosts authenticating at once, and each one is a blocked SSH
+  // handshake. Dropping any of them would leave that connection hanging until
+  // it times out, so they're answered one after another.
+  const [authPrompts, setAuthPrompts] = useState<SshAuthPrompt[]>([]);
+
+  useEffect(() => {
+    const pending = onSshAuthPrompt((prompt) => setAuthPrompts((prev) => [...prev, prompt]));
+    return () => { pending.then((unlisten) => unlisten()); };
+  }, []);
+
+  const resolveAuthPrompt = useCallback((id: string, answers: string[] | null) => {
+    (answers ? api.submitSshAuthPrompt(id, answers) : api.cancelSshAuthPrompt(id)).catch(() => {});
+    setAuthPrompts((prev) => prev.filter((p) => p.id !== id));
+  }, []);
 
   // ── Master-password vault ─────────────────────────────────────────────────
   const [vaultStatus, setVaultStatus] = useState<VaultStatus | null>(null);
@@ -258,6 +276,18 @@ export default function App() {
     },
   ] : [];
 
+  // Rendered in both branches below (workspace loaded or not): a restored tab
+  // can start authenticating before the workspace has finished loading, and
+  // that handshake is already waiting.
+  const authPromptModal = authPrompts[0] ? (
+    <SshAuthPromptModal
+      key={authPrompts[0].id}
+      prompt={authPrompts[0]}
+      onSubmit={(answers) => resolveAuthPrompt(authPrompts[0].id, answers)}
+      onCancel={() => resolveAuthPrompt(authPrompts[0].id, null)}
+    />
+  ) : null;
+
   const vaultUnlockModal = unlockModalOpen && vaultStatus?.enabled ? (
     <VaultUnlockModal
       error={unlockError}
@@ -271,6 +301,7 @@ export default function App() {
     return (
       <div className="app-aurora-bg flex h-screen w-screen flex-col overflow-hidden text-[var(--c-text)]">
         {vaultUnlockModal}
+        {authPromptModal}
         <TitleBar
           sidebarVisible={sidebarVisible}
           onToggleSidebar={() => setSidebarVisible((v) => !v)}
@@ -303,6 +334,7 @@ export default function App() {
       {/* Transparent overlay during any drag — prevents xterm canvas from stealing mouse events */}
       {isDragging && <div className="fixed inset-0 z-[9999] cursor-col-resize" />}
       {vaultUnlockModal}
+      {authPromptModal}
       {paletteOpen && <CommandPalette commands={paletteCommands} onClose={() => setPaletteOpen(false)} />}
       {snippetPickerOpen && workspace && (
         <SnippetPicker

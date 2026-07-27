@@ -28,6 +28,16 @@ pub enum AuthMethod {
         key_id: Option<KeyId>,
     },
     Agent,
+    /// Keyboard-interactive (RFC 4256) — how servers drive MFA/OTP. The server
+    /// asks a series of questions during the handshake rather than taking one
+    /// credential up front, so this is the only method that needs a live
+    /// exchange with the user (see [`crate::interactive_auth`]).
+    ///
+    /// A stored password, if there is one, is offered automatically for the
+    /// first non-echoed prompt — servers overwhelmingly ask for the password
+    /// first and the second factor after, so this keeps the usual case to a
+    /// single OTP entry instead of retyping the password every connection.
+    KeyboardInteractive,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

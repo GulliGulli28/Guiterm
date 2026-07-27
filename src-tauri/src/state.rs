@@ -103,4 +103,10 @@ pub struct AppState {
     pub ssh_history: Mutex<Vec<String>>,
     /// Past fleet runs (audit trail), newest first — persisted to `fleet_history.json`.
     pub fleet_history: Mutex<Vec<termius_core::fleet_history::FleetRun>>,
+    /// In-flight keyboard-interactive (MFA) prompts, keyed by the id sent to
+    /// the frontend with the `ssh-auth-prompt` event. Each entry is an SSH
+    /// handshake parked mid-authentication, waiting for the user's answers —
+    /// see `commands::interactive_auth`. Never holds the answers themselves,
+    /// only the channel they'll arrive on.
+    pub auth_prompts: Mutex<HashMap<String, tokio::sync::oneshot::Sender<Vec<String>>>>,
 }

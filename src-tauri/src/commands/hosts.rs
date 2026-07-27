@@ -94,7 +94,11 @@ pub fn save_host(state: State<'_, AppState>, input: SaveHostInput) -> Result<Wor
     // just-changed) auth method, so e.g. switching Password -> Agent doesn't leave
     // a stale password behind in the OS keychain indefinitely.
     match &input.auth {
-        AuthMethod::Password => {
+        // Keyboard-interactive keeps its password slot for the same reason
+        // `Password` does: it's offered automatically for the first hidden
+        // prompt, so the user only types the second factor (see
+        // `AuthMethod::KeyboardInteractive`'s doc comment).
+        AuthMethod::Password | AuthMethod::KeyboardInteractive => {
             let _ = vault::delete(host_id, SecretKind::KeyPassphrase);
         }
         AuthMethod::PrivateKey { key_id: None, .. } => {
@@ -111,7 +115,7 @@ pub fn save_host(state: State<'_, AppState>, input: SaveHostInput) -> Result<Wor
 
     if let Some(secret) = input.secret.filter(|s| !s.is_empty()) {
         match &input.auth {
-            AuthMethod::Password => {
+            AuthMethod::Password | AuthMethod::KeyboardInteractive => {
                 let _ = vault::store(host_id, SecretKind::Password, &secret);
             }
             // Only store the passphrase per-host when no keychain key is involved;

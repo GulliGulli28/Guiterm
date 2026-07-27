@@ -1,6 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AuthMethod, CollectionInfo, ColumnInfo, CollectFactsResult, ComposeResult, DockerContainer, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostId, HostKind, ImportSelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, QueryResult, RdpClientMessage, RdpFrame, RedisKeyDetail, RedisReply, ScanPage, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SshConfigHost, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
+import type { AuthMethod, CollectionInfo, ColumnInfo, CollectFactsResult, ComposeResult, DockerContainer, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostId, HostKind, ImportSelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, QueryResult, RdpClientMessage, RdpFrame, RedisKeyDetail, RedisReply, ScanPage, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SshAuthPrompt, SshConfigHost, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
 
 /** Mirrors the 12-byte little-endian header `commands::rdp_view::connect_rdp_view`
  * writes ahead of each frame's raw RGBA8 pixels (see its doc comment for why
@@ -187,6 +187,14 @@ export const api = {
   /** Absolute path of the app's diagnostic log directory — shown in
    * Paramètres so a user reporting a problem can retrieve the logs. */
   diagnosticsDirectory: () => invoke<string>("diagnostics_directory"),
+
+  /** Answers a pending `ssh-auth-prompt` (MFA/OTP). `answers` must line up
+   * with the round's `prompts`, in order. The values are one-time
+   * credentials: they go straight into the handshake, never to disk. */
+  submitSshAuthPrompt: (id: string, answers: string[]) => invoke<void>("submit_ssh_auth_prompt", { id, answers }),
+  /** Abandons a pending prompt — fails that authentication now rather than
+   * leaving the handshake waiting out its timeout. */
+  cancelSshAuthPrompt: (id: string) => invoke<void>("cancel_ssh_auth_prompt", { id }),
   startForward: (forwardId: PortForwardId) => invoke<void>("start_forward", { forwardId }),
   stopForward: (forwardId: PortForwardId) => invoke<void>("stop_forward", { forwardId }),
   runningForwards: () => invoke<PortForwardId[]>("running_forwards"),
@@ -364,6 +372,14 @@ export function onTransferDone(handler: (transferId: string) => void): Promise<U
 
 export function onTransferError(handler: (transferId: string, message: string) => void): Promise<UnlistenFn> {
   return listen<{ transferId: string; message: string }>("transfer-error", (event) => handler(event.payload.transferId, event.payload.message));
+}
+
+/** Fires when a server asks for MFA/OTP input mid-handshake. The SSH
+ * connection is parked waiting for `submitSshAuthPrompt` (or
+ * `cancelSshAuthPrompt`) with the same `id` — see
+ * `commands::interactive_auth`. */
+export function onSshAuthPrompt(handler: (prompt: SshAuthPrompt) => void): Promise<UnlistenFn> {
+  return listen<SshAuthPrompt>("ssh-auth-prompt", (event) => handler(event.payload));
 }
 
 export function onTerminalClosed(handler: (id: string) => void): Promise<UnlistenFn> {

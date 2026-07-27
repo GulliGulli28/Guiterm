@@ -21,7 +21,38 @@ export interface CustomIcon {
   dataUrl: string;
 }
 
-export type AuthMethod = "password" | "agent" | { privateKey: { path: string; keyId: KeyId | null } };
+/** `keyboardInteractive` is RFC 4256 — how servers drive MFA/OTP. Unlike the
+ * others it can't be resolved from stored settings: the server asks questions
+ * during the handshake, relayed by the `ssh-auth-prompt` event (see
+ * `onSshAuthPrompt`). A stored password, if any, answers the first hidden
+ * prompt automatically so only the second factor has to be typed. */
+export type AuthMethod = "password" | "agent" | "keyboardInteractive" | { privateKey: { path: string; keyId: KeyId | null } };
+
+/** One question from the server during a keyboard-interactive exchange.
+ * Mirrors `core::interactive_auth::PromptField`. */
+export interface AuthPromptField {
+  /** The server's own wording, shown verbatim — it's what tells the user
+   * which factor is being asked for, and it varies by deployment. */
+  prompt: string;
+  /** Whether typed characters may be displayed. `false` for password-like
+   * input; an OTP often comes with `true` since it's single-use. */
+  echo: boolean;
+}
+
+/** A round of questions. One authentication may go through several. */
+export interface SshAuthPrompt {
+  /** Correlates the answer with the waiting handshake — several hosts can be
+   * authenticating at once. */
+  id: string;
+  hostLabel: string;
+  request: {
+    /** Server-supplied title; often empty. */
+    name: string;
+    /** Server-supplied explanation; often empty. */
+    instructions: string;
+    prompts: AuthPromptField[];
+  };
+}
 
 export interface EnvVar {
   key: string;
