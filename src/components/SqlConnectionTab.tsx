@@ -1,16 +1,16 @@
 import { lazy } from "react";
-import { UnavailableEngineTab } from "./UnavailableEngineTab";
 import { assertNever } from "../lib/exhaustive";
 import type { Host, SqlConnection } from "../lib/types";
 
 // Lazy for the same reason the other large panels are (see `App.tsx`): these
-// two are among the biggest components in the app and most sessions never open
-// a database connection at all. Exported so `SqlConnectionTab.test.ts` can
+// are among the biggest components in the app and most sessions never open a
+// database connection at all. Exported so `SqlConnectionTab.test.ts` can
 // assert *which* one a given engine dispatches to by identity, without
-// mounting either (mounting would immediately `invoke(...)` against a Tauri
-// bridge that doesn't exist under vitest).
+// mounting any of them (mounting would immediately `invoke(...)` against a
+// Tauri bridge that doesn't exist under vitest).
 export const SqlTabLazy = lazy(() => import("./SqlTab").then((m) => ({ default: m.SqlTab })));
 export const RedisTabLazy = lazy(() => import("./RedisTab").then((m) => ({ default: m.RedisTab })));
+export const MongoTabLazy = lazy(() => import("./MongoTab").then((m) => ({ default: m.MongoTab })));
 
 /** Which component renders a saved database connection, decided exhaustively
  * by engine.
@@ -41,10 +41,7 @@ export function SqlConnectionTab({
     case "redis":
       return <RedisTabLazy connection={connection} onError={onError} />;
     case "mongodb":
-      // Backend is complete (`core/src/mongo_client.rs`, `commands/mongo.rs`,
-      // exercised by `core/examples/mongo_wsl_smoke.rs`); only the browsing UI
-      // is missing. Swap in `MongoTab` here when it lands.
-      return <UnavailableEngineTab engine={connection.engine} />;
+      return <MongoTabLazy connection={connection} onError={onError} />;
     default:
       return assertNever(connection, "moteur de connexion base de données");
   }

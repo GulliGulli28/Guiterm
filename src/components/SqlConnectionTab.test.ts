@@ -1,6 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { RedisTabLazy, SqlConnectionTab, SqlTabLazy } from "./SqlConnectionTab";
-import { UnavailableEngineTab } from "./UnavailableEngineTab";
+import { MongoTabLazy, RedisTabLazy, SqlConnectionTab, SqlTabLazy } from "./SqlConnectionTab";
 import type { SqlConnection, SqlEngine } from "../lib/types";
 
 // This is the test that was missing when MongoDB shipped unreachable: the
@@ -56,12 +55,13 @@ describe("SqlConnectionTab", () => {
     expect(componentFor("redis")).toBe(RedisTabLazy);
   });
 
-  // Regression guard for the shipped bug. Update this to expect `MongoTab`
-  // when it is written — do not delete it: falling back to `SqlTab` is what
-  // made MongoDB look like a broken server rather than a missing screen.
-  it("does not route MongoDB to the SQL tab while its own tab is unwritten", () => {
+  // Regression guard for the shipped bug: MongoDB reached `SqlTab`, which
+  // called `sql::connect` and reported a connection failure, making a missing
+  // screen look like a broken server. Kept asserting *both* halves — that it
+  // is its own tab, and that it is specifically not the SQL one.
+  it("routes MongoDB to its own tab, not the SQL tab", () => {
     expect(componentFor("mongodb")).not.toBe(SqlTabLazy);
-    expect(componentFor("mongodb")).toBe(UnavailableEngineTab);
+    expect(componentFor("mongodb")).toBe(MongoTabLazy);
   });
 
   it("gives every engine a component, so none can reach a connection it cannot render", () => {

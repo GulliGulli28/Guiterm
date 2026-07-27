@@ -1506,27 +1506,57 @@ dans les commentaires de `core/Cargo.toml` (`bson-3`/`compat-3-3-0`
 obligatoires, et une ligne `bson` **directe** uniquement pour unifier dans
 `serde_json-1`).
 
-**Ce qui manque, découvert le 2026-07-27** : `MongoTab.tsx` n'a jamais été
-écrit. Tout le reste est en place et complet — `mongo_client.rs`,
+**Ce qui manquait, découvert le 2026-07-27** : `MongoTab.tsx` n'avait jamais
+été écrit. Tout le reste était en place et complet — `mongo_client.rs`,
 `commands/mongo.rs`, les bindings `api.ts`, les types TS, et même
 `core/examples/mongo_wsl_smoke.rs`. Quatre commentaires (`types.ts`,
-`model.rs`, `mongo_client.rs`, `mongo_wsl_smoke.rs`) désignent un composant
-`MongoTab` qui n'existe pas.
+`model.rs`, `mongo_client.rs`, `mongo_wsl_smoke.rs`) désignaient un composant
+`MongoTab` qui n'existait pas.
 
-Conséquence utilisateur : le formulaire **propose** MongoDB et sait
-enregistrer la connexion, mais `App.tsx` route tout ce qui n'est pas Redis
-vers `SqlTab` — ouvrir une connexion MongoDB appelle donc `sql::connect`, qui
+Conséquence utilisateur : le formulaire **proposait** MongoDB et savait
+enregistrer la connexion, mais `App.tsx` routait tout ce qui n'est pas Redis
+vers `SqlTab` — ouvrir une connexion MongoDB appelait donc `sql::connect`, qui
 répond « ne s'applique pas à MongoDB — utiliser `mongo_client::connect` » et
-affiche un échec de connexion. Pas de panique, mais la fonctionnalité est
-inatteignable, **alors que le CHANGELOG 2.4.0 l'annonce comme livrée**.
+affichait un échec de connexion. Pas de panique, mais la fonctionnalité était
+inatteignable, **alors que le CHANGELOG 2.4.0 l'annonçait comme livrée**.
 
 Leçon de méthode, à retenir au-delà de MongoDB : rien dans l'outillage ne
 pouvait attraper ça. `cargo check`, clippy `-D warnings`, 218 tests Rust,
 `tsc`, les tests frontend et l'E2E passaient tous au vert — la branche
 manquante d'un `if` sur `connection.engine` n'est un trou pour aucun d'entre
-eux. Il n'existe aucun test qui affirme que **chaque moteur proposé dans le
+eux. Il n'existait aucun test qui affirme que **chaque moteur proposé dans le
 formulaire a un composant de rendu**. C'est le type de test qui manquait, pas
-l'effort de vérification.
+l'effort de vérification. D'où les trois filets posés le même jour (voir la
+section « Définition de « fini » » de `CLAUDE.md`).
+
+### `MongoTab.tsx` écrit — la lacune est refermée (2026-07-27)
+
+Arborescence bases → collections à gauche, deux onglets à droite, sur le même
+cycle de vie connect-au-montage/close-au-démontage que `SqlTab`/`RedisTab` :
+
+- **« Données »** — `find` sans filtre sur la collection cliquée.
+- **« Requête »** — même appel avec un filtre JSON saisi dans une zone de
+  texte multi-ligne (Ctrl+Entrée exécute ; Entrée seule insère un saut de
+  ligne, contrairement à la console Redis mono-ligne, un filtre JSON
+  s'écrivant couramment sur plusieurs lignes). Un filtre vide est envoyé en
+  `null`, que le backend traite exactement comme l'onglet Données.
+
+Les deux panneaux gardent leur résultat séparément : basculer de l'un à
+l'autre ne jette pas celui qu'on quitte. Les documents sont affichés en JSON
+étendu relaxé tel que le backend le renvoie (`$oid`/`$date` uniquement là où
+JSON ne peut pas représenter le type BSON), sans réinterprétation côté
+frontend — c'est ce que montrent aussi `mongosh` et Compass. Les collections
+d'une base sont chargées une fois puis conservées : replier/déplier ne
+requête pas un serveur potentiellement distant et tunnelé.
+
+Toujours **pas de « Structure » ni de « Console »**, choix de périmètre
+d'origine (voir plus haut), pas un oubli.
+
+**Non vérifié** : jamais exécuté contre un vrai serveur MongoDB — aucun n'est
+accessible dans cet environnement de dev, même limitation que le client SQL à
+ses débuts. `core/examples/mongo_wsl_smoke.rs` existe pour ça, sur le modèle
+de `sql_wsl_smoke.rs`/`redis_wsl_smoke.rs`. Le câblage moteur → composant est
+lui couvert par `src/components/SqlConnectionTab.test.ts`.
 
 ## Frappes du terminal en binaire, au lieu de base64 (2026-07-27)
 
