@@ -224,6 +224,37 @@ ci-dessus. Inutile de reconstruire pour un changement qui ne touche que des
 fichiers de test, de documentation, ou des scripts (`scripts/*.mjs`) sans
 effet sur `src/`/`src-tauri/`/`core/`.
 
+## Définition de « fini » : atteignable, pas seulement compilable
+
+Tous les gates ci-dessus répondent à « est-ce que le code marche ». Aucun ne
+répond à « est-ce que l'utilisateur peut y accéder ». C'est par là que MongoDB
+est parti en release annoncé comme livré alors qu'il était **inatteignable** :
+backend complet, commandes Tauri enregistrées, bindings `api.ts`, types, smoke
+test — mais l'onglet React jamais écrit, et un ternaire dans `App.tsx` qui
+envoyait silencieusement les connexions MongoDB dans le `SqlTab`. `cargo
+check`, clippy `-D warnings`, 218 tests Rust, `tsc`, les tests frontend et
+l'E2E étaient tous verts (détail dans `docs/dev-history.md`).
+
+Trois règles qui en découlent :
+
+- **Une fonctionnalité n'est finie que si le chemin complet a été parcouru** :
+  formulaire → onglet → donnée réelle affichée. Qu'une commande Tauri réponde
+  ne prouve rien sur son accessibilité. Si un morceau du chemin manque, le
+  dire explicitement plutôt que de conclure sur la compilation.
+- **Écrire l'entrée CHANGELOG en dernier**, après le test manuel — jamais en
+  même temps que le code. Écrite d'avance, elle transforme une fonctionnalité
+  à moitié faite en fonctionnalité officiellement livrée.
+- **Un `if`/ternaire sur une union discriminée est un trou pour tous les
+  outils.** Fermer ces dispatches avec `assertNever` (`src/lib/exhaustive.ts`) :
+  ajouter une variante sans décider de son rendu devient une erreur `tsc`.
+
+Trois filets existent maintenant, à étendre plutôt qu'à contourner :
+`src/lib/exhaustive.ts` (exhaustivité à la compilation),
+`src/components/SqlConnectionTab.test.ts` (quel composant rend quel moteur),
+et `src/lib/tauriCommands.test.ts` (les noms de commandes invoqués existent
+côté Rust, aucune commande Rust n'est inatteignable, et `api.ts` reste le
+point de passage unique).
+
 ## Stockage des secrets : trousseau OS ou coffre chiffré (opt-in)
 
 `core/src/vault.rs` est le point de passage unique pour les mots de passe et
@@ -522,6 +553,25 @@ pourquoi Docker/K8s exec partagent `RemoteFileClient`, etc.).
   sur des commits ciblés et cohérents plutôt qu'un unique gros commit
   fourre-tout ; continuer à ne jamais force-push/amend un commit déjà poussé
   sans demande explicite.
+- **Découper par tranche verticale, pas par couche.** Un commit devrait porter
+  quelque chose que l'utilisateur peut atteindre : backend + UI + test. Le
+  commit `6bc0b49` regroupait pool SSH + `EngineConfig` + journalisation +
+  backend MongoDB — regroupement honnêtement justifié (ils se recouvraient
+  dans `state.rs`), mais c'est ce qui a permis au frontend MongoDB manquant de
+  passer inaperçu : le commit s'est relu comme « refacto structurelle », pas
+  comme « est-ce que MongoDB marche de bout en bout ». Quand des changements
+  se recouvrent vraiment au point de ne pas compiler séparément, le dire dans
+  le message *et* vérifier chaque tranche indépendamment.
+- **En fin de tâche, se poser explicitement : « quel test échouerait si je
+  m'étais trompé ? »** Si la réponse est « aucun », la tâche n'est pas finie —
+  c'est exactement la question qui manquait sur MongoDB. Et quand un garde-fou
+  est ajouté, vérifier qu'il échoue pour de vrai en réintroduisant
+  temporairement le bug qu'il est censé attraper : un test qui ne casse jamais
+  ne prouve rien (cf. le contrôle anti-vacuité dans `tauriCommands.test.ts`).
+- Sur une fonctionnalité un peu grosse, demander le plan avant le code, avec la
+  liste explicite des fichiers frontend **et** backend touchés. Un plan qui ne
+  mentionne aucun composant React pour une fonctionnalité visible est un
+  signal.
 - L'utilisateur écrit et pense en français ; les réponses, les libellés UI, les
   messages de commit et la documentation du projet suivent cette convention.
 - Avant une fonctionnalité un peu ambiguë (ex. « menu contextuel » vs « action
