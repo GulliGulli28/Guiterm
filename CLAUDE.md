@@ -495,9 +495,18 @@ dans la mémoire long-terme `infra-control-plane-pivot.md` et dans
   tomber en gardant seulement l'`Arc<Connection>`. Deux exceptions
   documentées : `docker::connect_for_host` (le modèle « un bail ≈ un canal »
   ne s'applique pas, voir son doc comment) et les tests d'intégration.
-- **Auth keyboard-interactive (MFA/OTP)** — pas encore fait, seule vraie
-  lacune protocole restante identifiée à ce jour. Le pool ci-dessus en est le
-  prérequis : sans lui, chaque onglet redemanderait un code OTP.
+- **Auth keyboard-interactive (MFA/OTP)** — fait
+  (`core/src/interactive_auth.rs`, `commands/interactive_auth.rs`,
+  `SshAuthPromptModal.tsx`). Le serveur pose ses questions pendant la poignée
+  de main : `core` décrit la conversation (trait `Prompter`), `src-tauri`
+  installe une implémentation qui émet `ssh-auth-prompt` et attend la réponse
+  sur un oneshot. Le pool SSH en était le prérequis — sinon un code serait
+  redemandé à chaque onglet. Le mot de passe enregistré répond
+  automatiquement à la **première invite masquée du premier tour uniquement**
+  (`autofilled_answers`, testé) : auto-répondre plus tard enverrait un mot de
+  passe périmé à la place de l'OTP et brûlerait une tentative serveur.
+  Jamais testé contre un vrai serveur MFA (le sshd des tests d'intégration
+  demanderait une configuration PAM dédiée).
 
 Chaque fonctionnalité ci-dessus a son lot de décisions de conception et de
 bugs déjà corrigés en conditions réelles — voir `docs/dev-history.md` avant
