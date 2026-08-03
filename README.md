@@ -181,16 +181,38 @@ Download the latest installer for your platform from the
 updates itself afterward (silent check on launch, or Settings → General →
 "Check for updates").
 
-### macOS: "Guiterm is damaged and can't be opened"
+### macOS
 
-That message is Gatekeeper, not a corrupted download. The app is not signed
-with an Apple Developer ID yet, and macOS words its refusal that way for
-unsigned apps under quarantine — instead of the milder "unidentified
-developer" prompt it shows for apps that are signed but not notarized. The
-file itself is fine.
+Install with one line and the app just opens:
 
-To run it, clear the quarantine attribute after copying the app into
-`/Applications`:
+```bash
+curl -fsSL https://raw.githubusercontent.com/GulliGulli28/Guiterm/master/scripts/install-macos.sh | sh
+```
+
+Or fetch it, read it, then run it — a good instinct for any `curl | sh`,
+this one included:
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/GulliGulli28/Guiterm/master/scripts/install-macos.sh
+less install-macos.sh
+sh install-macos.sh
+```
+
+#### Why the .dmg says "Guiterm is damaged and can't be opened"
+
+Because Guiterm is not signed with an Apple Developer ID yet — not because
+the download is corrupt. macOS attaches a quarantine attribute to everything
+a *browser* downloads, then refuses to open a quarantined app it can't
+verify, and for an unsigned app it words that refusal as "damaged … move it
+to the Trash" rather than the milder "unidentified developer" prompt.
+
+`curl` doesn't set that attribute, which is the whole trick behind the
+installer above: same file, same server, no quarantine, no warning. Be
+clear-eyed that this sidesteps a security check rather than satisfying it —
+you're trusting GitHub's TLS and this repository.
+
+If you'd rather install the `.dmg` by hand, clear the attribute yourself
+after copying the app into `/Applications`:
 
 ```bash
 xattr -dr com.apple.quarantine /Applications/Guiterm.app
@@ -198,13 +220,15 @@ xattr -dr com.apple.quarantine /Applications/Guiterm.app
 
 Or open **System Settings → Privacy & Security**, scroll to the message
 saying Guiterm was blocked, and click **Open Anyway**. Right-click → Open,
-the workaround you'll find in older write-ups, no longer bypasses this on
-macOS 15 and later.
+the workaround you'll find in older write-ups, stopped working in macOS 15.
 
-Only Apple Silicon is published so far: the Intel job of the 2.4.0 release
-targeted a runner image GitHub had retired, so it never ran. That's fixed
-for the next release. Signing and notarization are wired into the release
-workflow already, waiting on an Apple Developer ID; see
+Either way, updates from inside the app are unaffected: the app downloads
+them itself, so they're never quarantined.
+
+Only Apple Silicon has shipped so far — the Intel job of the 2.4.0 and 2.4.1
+releases targeted a runner image GitHub had retired, so it never ran. Fixed
+for the next release. Signing and notarization are already wired into the
+release workflow, waiting on an Apple Developer ID; see
 [`RELEASING.md`](RELEASING.md) for what that involves.
 
 ## Development
@@ -306,11 +330,11 @@ the hard way:
   fixed that way (see `CLAUDE.md` in this repo for the blow-by-blow if
   you're curious). Upload/download also buffer the whole file in memory via
   a tar stream — fine for configs and code, not for multi-gigabyte files.
-- **macOS** builds are unsigned and un-notarized, so Gatekeeper refuses them
-  on first launch with a "damaged" message — see
-  [Installation](#macos-guiterm-is-damaged-and-cant-be-opened) for the
-  workaround. Only Apple Silicon is published (the Intel job didn't complete
-  for 2.4.0), and the macOS build gets far less real-world use than the
+- **macOS** builds are unsigned and un-notarized, so Gatekeeper refuses a
+  browser-downloaded `.dmg` with a "damaged" message — the
+  [installer script](#macos) sidesteps it, but that's a workaround, not a
+  fix. Only Apple Silicon is published (the Intel job didn't complete for
+  2.4.0 or 2.4.1), and the macOS build gets far less real-world use than the
   Windows and Linux ones.
 
 ## Roadmap
