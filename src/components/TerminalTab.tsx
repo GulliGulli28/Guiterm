@@ -7,12 +7,14 @@ import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { api, onTerminalClosed } from "../lib/api";
 import type { Host } from "../lib/types";
 import type { AppPreferences } from "../lib/preferences";
-import { TERMINAL_THEMES, auroraLayerBackground } from "../lib/preferences";
+import { DEFAULT_PREFERENCES, TERMINAL_THEMES, auroraLayerBackground } from "../lib/preferences";
 import { shouldBubbleToShortcut } from "../lib/shortcuts";
 import { TerminalSearchBar, type SearchOptions } from "./TerminalSearchBar";
 import { createGhostTextController, type GhostSuggestion, type GhostTextController } from "../lib/ghostText";
 import { createLongCommandWatcher } from "../lib/longCommand";
 import { attachRenderStats, attachWebglRenderer, type RenderStats } from "../lib/xtermRenderer";
+import { useTerminalZoom, zoomActionFromKey, zoomActionFromWheel, type ZoomAction } from "../lib/terminalZoom";
+import { TerminalZoomBadge } from "./TerminalZoomBadge";
 
 export interface TerminalTabHandle {
   runCommand: (command: string) => void;
@@ -23,6 +25,11 @@ export interface TerminalTabHandle {
    * the session is open (or after it closed), which is also the answer to
    * "can this tab be recorded right now". */
   getRecordingTarget: () => { sessionId: string; cols: number; rows: number } | null;
+  /** Changes this terminal's own font size, leaving every other terminal and
+   * the configured default alone. Normally driven by Ctrl+±/Ctrl+0 inside the
+   * terminal itself; exposed so the command palette can reach the active tab
+   * too. No-op for tabs that don't render text (RDP). */
+  zoom: (action: ZoomAction) => void;
   dispose: () => void;
 }
 
@@ -78,6 +85,12 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
   const ghostRef = useRef<GhostTextController | null>(null);
   const [suggestion, setSuggestion] = useState<GhostSuggestion | null>(null);
   const [renderStats, setRenderStats] = useState<RenderStats | null>(null);
+  const zoom = useTerminalZoom(preferences?.terminalFontSize ?? DEFAULT_PREFERENCES.terminalFontSize);
+  // Read from the key/wheel handlers, which are installed once for the
+  // session's whole lifetime — re-running that effect would tear down the SSH
+  // connection.
+  const applyZoomRef = useRef(zoom.apply);
+  useEffect(() => { applyZoomRef.current = zoom.apply; }, [zoom.apply]);
 
   useImperativeHandle(
     ref,
@@ -97,6 +110,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
         const term = termRef.current;
         return id && term ? { sessionId: id, cols: term.cols, rows: term.rows } : null;
       },
+      zoom: (action) => applyZoomRef.current(action),
       dispose: () => {
         const id = sessionIdRef.current;
         if (id) api.closeTerminal(id).catch(() => {});
@@ -129,6 +143,18 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
         onRenderer: (renderer) => setRenderStats((prev) => ({ renderer, msPerFrame: prev?.msPerFrame ?? 0 })),
       });
     }
+    // Ctrl+wheel resizes this terminal. Registered in the capture phase, and
+    // non-passive so it can be cancelled: xterm listens on its own inner
+    // elements, and would otherwise scroll the scrollback at the same time.
+    const wheelTarget = containerRef.current;
+    const onWheel = (e: WheelEvent) => {
+      const action = zoomActionFromWheel(e);
+      if (!action) return;
+      e.preventDefault();
+      e.stopPropagation();
+      applyZoomRef.current(action);
+    };
+    wheelTarget?.addEventListener("wheel", onWheel, { capture: true, passive: false });
     termRef.current = term;
     fitRef.current = fit;
     searchRef.current = search;
@@ -172,6 +198,17 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
 
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown") return true;
+      const zoomAction = zoomActionFromKey(e);
+      if (zoomAction) {
+        // Handled right here rather than as a global shortcut so the terminal
+        // that has focus is the one that resizes — and swallowed outright
+        // (`stopPropagation`) so the combo neither reaches the shell nor
+        // bubbles up to a second handler that would apply it twice.
+        e.preventDefault();
+        e.stopPropagation();
+        applyZoomRef.current(zoomAction);
+        return false;
+      }
       if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "f") {
         setSearchOpen(true);
         return false;
@@ -276,6 +313,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
       longCommand.reset();
       unlistenClosed?.();
       if (sessionIdRef.current) api.closeTerminal(sessionIdRef.current).catch(() => {});
+      wheelTarget?.removeEventListener("wheel", onWheel, { capture: true });
       disposeRenderer?.();
       term.dispose();
     };
@@ -320,19 +358,22 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
     }
   }, [isActive]);
 
-  // Apply preferences dynamically whenever they change.
+  // Apply preferences dynamically whenever they change — and this terminal's
+  // own zoom, which lands in the same place: changing the size means refitting
+  // and telling the remote pty about the new geometry, whichever of the two
+  // moved.
   useEffect(() => {
     const term = termRef.current;
     if (!term || !preferences) return;
     const themeEntry = TERMINAL_THEMES[preferences.terminalThemeName];
     if (themeEntry) term.options.theme = themeEntry.theme;
     term.options.fontFamily = preferences.terminalFontFamily;
-    term.options.fontSize = preferences.terminalFontSize;
+    term.options.fontSize = zoom.fontSize;
     fitRef.current?.fit();
     const id = sessionIdRef.current;
     if (id) api.resizeTerminal(id, term.cols, term.rows).catch(() => {});
     ghostRef.current?.remeasure();
-  }, [preferences]);
+  }, [preferences, zoom.fontSize]);
 
   const bgColor = preferences ? (TERMINAL_THEMES[preferences.terminalThemeName]?.theme.background ?? "#020617") : "#020617";
 
@@ -366,6 +407,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
       {status === "failed" && <div className="absolute inset-0 flex items-center justify-center px-8 text-center text-rose-300">Échec de connexion : {error}</div>}
       {searchOpen && <TerminalSearchBar onSearch={handleSearch} onClose={() => { setSearchOpen(false); termRef.current?.focus(); }} />}
       <div ref={containerRef} className={`min-h-0 flex-1 ${status === "open" ? "" : "invisible"}`} />
+      {zoom.badgeVisible && <TerminalZoomBadge fontSize={zoom.fontSize} offset={zoom.offset} />}
       {preferences?.terminalRenderStats && renderStats && (
         <div
           className="pointer-events-none absolute right-3 top-3 select-none rounded bg-black/60 px-2 py-1 font-mono text-[11px] text-[var(--c-text-secondary)]"
@@ -389,7 +431,9 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
             top: suggestion.top,
             lineHeight: `${suggestion.cellHeight}px`,
             fontFamily: preferences?.terminalFontFamily,
-            fontSize: preferences?.terminalFontSize,
+            // The terminal's own size, not the configured one — the ghost text
+            // has to line up with the characters actually on screen.
+            fontSize: zoom.fontSize,
             color: "rgba(148, 163, 184, 0.55)",
           }}
         >

@@ -184,11 +184,125 @@ async function runScenarios(browser) {
     throw e;
   }
 
+  await runZoomScenario(browser);
+
   await mkdir(outDir, { recursive: true });
   const screenshotPath = path.join(outDir, "e2e-smoke.png");
   await browser.saveScreenshot(screenshotPath);
   console.log("Capture d'écran réelle (via WebDriver) :", screenshotPath);
 }
+
+/** Rendered font size of every open terminal, in DOM order (so index 0 is the
+ * first tab). Read from the computed style rather than from React state:
+ * what's asserted is what xterm actually painted. */
+function terminalFontSizes(browser) {
+  return browser.execute(() =>
+    Array.from(document.querySelectorAll(".xterm-rows"), (el) => parseFloat(getComputedStyle(el).fontSize)),
+  );
+}
+
+/** The `terminalFontSize` preference as persisted — the thing zooming must never touch. */
+function storedDefaultFontSize(browser) {
+  return browser.execute(() => {
+    try {
+      return JSON.parse(localStorage.getItem("gui-termius-prefs") ?? "{}").terminalFontSize ?? null;
+    } catch {
+      return null;
+    }
+  });
+}
+
+/**
+ * Ctrl+±/Ctrl+0 resize *one* terminal.
+ *
+ * The isolation is the whole point of the feature, and it's what no unit test
+ * can show: `lib/terminalZoom.test.ts` proves the key mapping and the
+ * arithmetic, but only a real window with two live terminals proves that
+ * zooming one leaves the other — and the saved default — alone.
+ */
+async function runZoomScenario(browser) {
+  const [baseSize] = await terminalFontSizes(browser);
+  if (!baseSize) throw new Error("impossible de lire la taille de police du terminal (.xterm-rows)");
+  const storedBefore = await storedDefaultFontSize(browser);
+
+  for (let i = 0; i < 3; i++) await browser.keys(["Control", "="]);
+  await browser.waitUntil(
+    async () => (await terminalFontSizes(browser))[0] === baseSize + 3,
+    {
+      timeout: 5_000,
+      timeoutMsg: `Ctrl+= n'a pas agrandi la police du terminal (attendu ${baseSize + 3}px, toujours ${baseSize}px)`,
+    },
+  );
+
+  // A second terminal must open at the configured size, not at the first
+  // one's — this is the regression that "modifie tous les terminaux" would be.
+  //
+  // Focus has to leave xterm first: Ctrl+T is deliberately *not* in
+  // `BUBBLE_THROUGH_TERMINAL_ACTIONS` (it's readline's transpose-chars), so
+  // pressing it inside a terminal correctly goes to the shell instead of
+  // opening a tab.
+  await browser.execute(() => { if (document.activeElement instanceof HTMLElement) document.activeElement.blur(); });
+  await browser.keys(["Control", "t"]);
+  await browser.waitUntil(
+    async () => await browser.execute(() => document.querySelectorAll(".xterm").length === 2),
+    { timeout: 10_000, timeoutMsg: "le deuxième terminal local ne s'est pas ouvert" },
+  );
+  // Clicked for the same reason as the first terminal above: under
+  // WebKitWebDriver a freshly mounted terminal doesn't reliably end up
+  // holding DOM focus, so the keystrokes below would land on <body>.
+  const terminals = await browser.$$(".xterm");
+  await terminals[1].click();
+  try {
+    await browser.waitUntil(
+      async () => await browser.execute(() => {
+        const all = document.querySelectorAll(".xterm");
+        return all.length === 2 && !!document.activeElement && all[1].contains(document.activeElement);
+      }),
+      { timeout: 5_000, timeoutMsg: "le deuxième terminal n'a pas pris le focus après un clic" },
+    );
+  } catch (e) {
+    const state = await browser.execute(() => ({
+      terminals: document.querySelectorAll(".xterm").length,
+      active: `${document.activeElement?.tagName}.${document.activeElement?.className}`,
+    }));
+    console.log("État au moment de l'échec :", JSON.stringify(state));
+    throw e;
+  }
+  let sizes = await terminalFontSizes(browser);
+  if (sizes[0] !== baseSize + 3 || sizes[1] !== baseSize) {
+    throw new Error(`le zoom a fui d'un terminal à l'autre : attendu [${baseSize + 3}, ${baseSize}], obtenu [${sizes}]`);
+  }
+
+  // ...and in the other direction, on the terminal that now has focus.
+  await browser.keys(["Control", "-"]);
+  await browser.keys(["Control", "-"]);
+  await browser.waitUntil(
+    async () => (await terminalFontSizes(browser))[1] === baseSize - 2,
+    { timeout: 5_000, timeoutMsg: "Ctrl+- n'a pas réduit la police du deuxième terminal" },
+  );
+  sizes = await terminalFontSizes(browser);
+  if (sizes[0] !== baseSize + 3) {
+    throw new Error(`réduire le deuxième terminal a changé le premier : ${sizes[0]}px au lieu de ${baseSize + 3}px`);
+  }
+
+  await browser.keys(["Control", "0"]);
+  await browser.waitUntil(
+    async () => (await terminalFontSizes(browser))[1] === baseSize,
+    { timeout: 5_000, timeoutMsg: "Ctrl+0 n'a pas ramené le terminal à la taille par défaut" },
+  );
+
+  const storedAfter = await storedDefaultFontSize(browser);
+  if (storedAfter !== storedBefore) {
+    throw new Error(`le zoom a écrit dans les préférences : terminalFontSize ${storedBefore} → ${storedAfter}`);
+  }
+
+  // Leave the first terminal at the configured size too, so the screenshot at
+  // the end of the run stays comparable between runs.
+  await browser.keys(["Control", "Shift", "Tab"]);
+  await browser.keys(["Control", "0"]);
+  console.log("Zoom par terminal : OK (isolé entre onglets, préférence intacte).");
+}
+
 
 async function main() {
   if (!existsSync(appBinary)) {

@@ -38,6 +38,7 @@ import { useNotifications } from "./hooks/useNotifications";
 import { useResizablePane } from "./hooks/useResizablePane";
 import { useTabs } from "./hooks/useTabs";
 import { useBroadcast, SPLIT_PANE_ID } from "./hooks/useBroadcast";
+import type { ZoomAction } from "./lib/terminalZoom";
 
 export default function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
@@ -253,6 +254,13 @@ export default function App() {
   };
   useGlobalShortcuts(preferences.keyboardShortcuts, shortcutHandlers);
 
+  // Ctrl+±/Ctrl+0 are handled by the focused terminal itself (see
+  // `lib/terminalZoom.ts` for why they aren't rebindable combos) — these are
+  // the palette's way in, so the feature is discoverable at all.
+  const zoomActiveTerminal = (action: ZoomAction) => {
+    if (activeTabId) terminalRefs.current.get(activeTabId)?.zoom(action);
+  };
+
   const paletteCommands: PaletteCommand[] = workspace ? [
     ...SHORTCUT_ACTIONS.map((action) => ({
       id: action.id,
@@ -270,6 +278,24 @@ export default function App() {
       id: "terminal.exportScrollback",
       label: "Exporter le scrollback du terminal actif…",
       run: () => { exportActiveScrollback(); },
+    },
+    {
+      id: "terminal.zoomIn",
+      label: "Terminal actif — agrandir la police",
+      hint: "Ctrl + +",
+      run: () => zoomActiveTerminal("in"),
+    },
+    {
+      id: "terminal.zoomOut",
+      label: "Terminal actif — réduire la police",
+      hint: "Ctrl + -",
+      run: () => zoomActiveTerminal("out"),
+    },
+    {
+      id: "terminal.zoomReset",
+      label: "Terminal actif — police par défaut",
+      hint: "Ctrl + 0",
+      run: () => zoomActiveTerminal("reset"),
     },
     // Two entries rather than one toggle: the palette is a list of actions
     // read at a glance, and "Enregistrer" when it would actually stop is the
@@ -332,6 +358,17 @@ export default function App() {
     />
   ) : null;
 
+  const titleBarArea = (
+    <TitleBar
+      sidebarVisible={sidebarVisible}
+      onToggleSidebar={() => setSidebarVisible((v) => !v)}
+      notifications={notifications}
+      onDismissNotification={dismissNotification}
+      onClearAllNotifications={clearAllNotifications}
+      onMarkAllNotificationsRead={markAllNotificationsRead}
+    />
+  );
+
   const vaultUnlockModal = unlockModalOpen && vaultStatus?.enabled ? (
     <VaultUnlockModal
       error={unlockError}
@@ -346,14 +383,7 @@ export default function App() {
       <div className="app-aurora-bg flex h-screen w-screen flex-col overflow-hidden text-[var(--c-text)]">
         {vaultUnlockModal}
         {authPromptModal}
-        <TitleBar
-          sidebarVisible={sidebarVisible}
-          onToggleSidebar={() => setSidebarVisible((v) => !v)}
-          notifications={notifications}
-          onDismissNotification={dismissNotification}
-          onClearAllNotifications={clearAllNotifications}
-          onMarkAllNotificationsRead={markAllNotificationsRead}
-        />
+        {titleBarArea}
         <div className="flex flex-1 items-center justify-center text-[var(--c-text-secondary)]">Chargement…</div>
       </div>
     );
@@ -398,14 +428,7 @@ export default function App() {
           onCancel={() => setPendingCloseTabId(null)}
         />
       )}
-      <TitleBar
-        sidebarVisible={sidebarVisible}
-        onToggleSidebar={() => setSidebarVisible((v) => !v)}
-        notifications={notifications}
-        onDismissNotification={dismissNotification}
-        onClearAllNotifications={clearAllNotifications}
-        onMarkAllNotificationsRead={markAllNotificationsRead}
-      />
+      {titleBarArea}
 
       {status && (
         <div className="flex shrink-0 items-center justify-between bg-amber-900/60 px-4 py-2 text-sm text-amber-100">

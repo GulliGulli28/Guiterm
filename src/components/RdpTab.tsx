@@ -86,6 +86,9 @@ export const RdpTab = forwardRef<TerminalTabHandle, RdpTabProps>(function RdpTab
       // framebuffer updates, not of terminal bytes. Recording one would be a
       // screen recorder, a different feature entirely.
       getRecordingTarget: () => null,
+      // No font to resize either: the remote desktop decides its own
+      // resolution, and the canvas is scaled to fit whatever it sends.
+      zoom: () => {},
       dispose: () => {
         const id = sessionIdRef.current;
         if (id) api.closeRdpView(id).catch(() => {});
