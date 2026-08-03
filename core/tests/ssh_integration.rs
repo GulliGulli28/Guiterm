@@ -4,6 +4,7 @@
 mod common;
 
 use common::{ClientKey, TestSshd, test_host};
+use std::net::TcpListener;
 use termius_core::model::{AuthMethod, Workspace};
 use termius_core::ssh;
 
@@ -318,5 +319,69 @@ async fn probing_a_mute_command_is_reported_as_silence() {
         probe,
         termius_core::proxy_command::ProxyProbe::Silent,
         "un helper muet ne doit être ni un succès ni une erreur"
+    );
+}
+
+/// Losing the port to someone else must be detected, not mistaken for success.
+///
+/// `free_port` can only report a port that *was* free — holding it and handing
+/// it over at the same time is not a thing any API offers — so `sshd` may find
+/// it taken by the time it binds. When that happens a plain `connect` still
+/// succeeds, against whoever holds the port; the suite would then run against
+/// a server whose `authorized_keys` is not ours and fail later as an
+/// unexplained authentication error.
+///
+/// The squatter here is a listener held open for the whole test, so `sshd`
+/// cannot possibly bind. An earlier version of `wait_until_listening` reported
+/// this as a healthy server — it asked whether the child was alive before the
+/// child had had time to fail.
+#[test]
+fn losing_the_port_to_a_squatter_is_detected() {
+    let key = ClientKey::generate();
+    let squatter = TcpListener::bind("127.0.0.1:0").expect("bind du squatteur");
+    let port = squatter.local_addr().unwrap().port();
+
+    let dir = std::env::temp_dir().join(format!("guiterm-squat-{}", uuid::Uuid::new_v4()));
+    std::fs::create_dir_all(&dir).unwrap();
+    let host_key = dir.join("host_key");
+    common::run_ok(
+        std::process::Command::new("ssh-keygen")
+            .args(["-t", "ed25519", "-f"])
+            .arg(&host_key)
+            .args(["-N", ""]),
+    );
+    let authorized_keys = dir.join("authorized_keys");
+    std::fs::copy(&key.public, &authorized_keys).unwrap();
+
+    let config_path = dir.join("sshd_config");
+    std::io::Write::write_all(
+        &mut std::fs::File::create(&config_path).unwrap(),
+        format!(
+            "Port {port}\nListenAddress 127.0.0.1\nHostKey {}\nAuthorizedKeysFile {}\n\
+             PasswordAuthentication no\nPubkeyAuthentication yes\nUsePAM no\nStrictModes no\n",
+            host_key.display(),
+            authorized_keys.display(),
+        )
+        .as_bytes(),
+    )
+    .unwrap();
+
+    let mut child = std::process::Command::new("/usr/sbin/sshd")
+        .args(["-f"])
+        .arg(&config_path)
+        .args(["-D", "-e"])
+        .stdout(std::process::Stdio::null())
+        .stderr(std::process::Stdio::null())
+        .spawn()
+        .expect("failed to spawn sshd - is openssh-server installed?");
+
+    let listening = common::wait_until_listening(&mut child, port);
+    let _ = child.kill();
+    let _ = child.wait();
+    let _ = std::fs::remove_dir_all(&dir);
+
+    assert!(
+        !listening,
+        "un connect() réussit contre le squatteur, mais ce n'est pas notre sshd —          le confondre avec un succès fait courir la suite contre le mauvais serveur"
     );
 }
