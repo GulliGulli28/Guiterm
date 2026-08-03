@@ -16,6 +16,7 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
   { id: "tab.prev", label: "Onglet précédent", defaultKey: "Ctrl+Shift+Tab" },
   { id: "settings.open", label: "Ouvrir les paramètres", defaultKey: "Ctrl+," },
   { id: "snippets.quickRun", label: "Exécuter un snippet…", defaultKey: "Ctrl+Shift+R" },
+  { id: "window.fullscreen", label: "Mode plein écran", defaultKey: "F11" },
 ];
 
 export function defaultShortcuts(): Record<string, string> {
@@ -72,7 +73,7 @@ export function matchesCombo(e: KeyboardEvent, combo: string): boolean {
 // safe to always let them bubble past xterm's own key handling up to the window-level
 // listener — otherwise xterm consumes and stops propagation of every key it processes,
 // so these would only ever fire when focus happens to be outside a terminal.
-const BUBBLE_THROUGH_TERMINAL_ACTIONS = ["tab.next", "tab.prev", "tab.close", "snippets.quickRun"];
+const BUBBLE_THROUGH_TERMINAL_ACTIONS = ["tab.next", "tab.prev", "tab.close", "snippets.quickRun", "window.fullscreen"];
 
 /** Whether `e` matches one of the app shortcuts that should bypass xterm's own key handling. */
 export function shouldBubbleToShortcut(e: KeyboardEvent, shortcuts: Record<string, string>): boolean {

@@ -38,6 +38,7 @@ import { useNotifications } from "./hooks/useNotifications";
 import { useResizablePane } from "./hooks/useResizablePane";
 import { useTabs } from "./hooks/useTabs";
 import { useBroadcast, SPLIT_PANE_ID } from "./hooks/useBroadcast";
+import { useFullscreen } from "./hooks/useFullscreen";
 import type { ZoomAction } from "./lib/terminalZoom";
 
 export default function App() {
@@ -65,6 +66,30 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [snippetPickerOpen, setSnippetPickerOpen] = useState(false);
   const terminalRefs = useRef<Map<string, TerminalTabHandle>>(new Map());
+  const { fullscreen, toggleFullscreen } = useFullscreen(reportError);
+  // In fullscreen the title bar is hidden — this is it being brought back by
+  // pushing the pointer against the top edge of the screen.
+  //
+  // Driven by pointer position rather than an invisible hover strip on top of
+  // the tab bar: such a strip would also swallow clicks landing in its few
+  // pixels, and the tab bar is exactly what sits there in fullscreen. The two
+  // thresholds are deliberately different — the bar appears only at the very
+  // edge (which the OS makes easy to hit, the cursor stops there) but doesn't
+  // vanish again the moment the pointer moves down onto the bar it just
+  // revealed. No listener at all outside fullscreen.
+  const [titleBarPeek, setTitleBarPeek] = useState(false);
+  useEffect(() => {
+    if (!fullscreen) {
+      setTitleBarPeek(false);
+      return;
+    }
+    const onMove = (e: MouseEvent) => {
+      if (e.clientY <= 2) setTitleBarPeek(true);
+      else if (e.clientY > 40) setTitleBarPeek(false);
+    };
+    window.addEventListener("mousemove", onMove);
+    return () => window.removeEventListener("mousemove", onMove);
+  }, [fullscreen]);
 
   // ── Keyboard-interactive authentication (MFA/OTP) ────────────────────────
   // A queue, not a single value: a fleet run or a batch of restored tabs can
@@ -251,6 +276,7 @@ export default function App() {
     },
     "settings.open": () => { setSidebarVisible(true); setSidebarPanel("settings"); },
     "snippets.quickRun": () => setSnippetPickerOpen(true),
+    "window.fullscreen": () => toggleFullscreen(),
   };
   useGlobalShortcuts(preferences.keyboardShortcuts, shortcutHandlers);
 
@@ -358,15 +384,26 @@ export default function App() {
     />
   ) : null;
 
-  const titleBarArea = (
+  const titleBar = (
     <TitleBar
       sidebarVisible={sidebarVisible}
       onToggleSidebar={() => setSidebarVisible((v) => !v)}
+      fullscreen={fullscreen}
+      onToggleFullscreen={toggleFullscreen}
       notifications={notifications}
       onDismissNotification={dismissNotification}
       onClearAllNotifications={clearAllNotifications}
       onMarkAllNotificationsRead={markAllNotificationsRead}
     />
+  );
+
+  // Fullscreen gives the whole screen to the terminal, so the app's own title
+  // bar goes away with the OS decorations. It stays reachable rather than
+  // being gone until someone remembers F11 (see `titleBarPeek` above), and it
+  // comes back *overlaid* on the content so nothing reflows — a peek must not
+  // resize every terminal twice.
+  const titleBarArea = !fullscreen ? titleBar : (
+    titleBarPeek && <div className="fixed inset-x-0 top-0 z-50 shadow-xl">{titleBar}</div>
   );
 
   const vaultUnlockModal = unlockModalOpen && vaultStatus?.enabled ? (

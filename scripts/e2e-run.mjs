@@ -185,6 +185,7 @@ async function runScenarios(browser) {
   }
 
   await runZoomScenario(browser);
+  await runFullscreenScenario(browser);
 
   await mkdir(outDir, { recursive: true });
   const screenshotPath = path.join(outDir, "e2e-smoke.png");
@@ -303,6 +304,33 @@ async function runZoomScenario(browser) {
   console.log("Zoom par terminal : OK (isolé entre onglets, préférence intacte).");
 }
 
+/**
+ * F11 toggles real fullscreen and hides the app's own title bar.
+ *
+ * Sent while a terminal has focus on purpose: xterm swallows every key it
+ * handles, so this also covers `shouldBubbleToShortcut` letting F11 through —
+ * without which the shortcut would work everywhere *except* where the user
+ * actually is.
+ */
+async function runFullscreenScenario(browser) {
+  const titleBarVisible = () =>
+    browser.execute(() => document.querySelector('[aria-label="Réduire"]') !== null);
+
+  if (!(await titleBarVisible())) throw new Error("la barre de titre est absente avant même de passer en plein écran");
+
+  await browser.keys("F11");
+  await browser.waitUntil(async () => !(await titleBarVisible()), {
+    timeout: 5_000,
+    timeoutMsg: "F11 n'a pas masqué la barre de titre — plein écran refusé (capability manquante ?) ou raccourci avalé par xterm",
+  });
+
+  await browser.keys("F11");
+  await browser.waitUntil(async () => await titleBarVisible(), {
+    timeout: 5_000,
+    timeoutMsg: "F11 n'a pas fait revenir la barre de titre — on ne peut plus sortir du plein écran",
+  });
+  console.log("Plein écran : OK (F11 depuis un terminal, aller-retour).");
+}
 
 async function main() {
   if (!existsSync(appBinary)) {
