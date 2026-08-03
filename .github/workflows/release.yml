@@ -25,12 +25,20 @@ jobs:
           # older user systems to run the resulting binary.
           - platform: ubuntu-22.04
           # Two macOS runners rather than one universal binary: `macos-latest`
-          # is Apple Silicon, `macos-13` is the last Intel image. Each produces
-          # a native bundle for its own architecture, which avoids having to
-          # `lipo` the rdp-sidecar into a universal binary of its own just to
-          # satisfy `bundle.externalBin`.
+          # is Apple Silicon, `macos-15-intel` is the x86_64 image. Each
+          # produces a native bundle for its own architecture, which avoids
+          # having to `lipo` the rdp-sidecar into a universal binary of its own
+          # just to satisfy `bundle.externalBin`.
+          #
+          # This said `macos-13` up to 2.4.0, by which point that image no
+          # longer existed: the job sat unassigned for 40 minutes and was
+          # cancelled, so the release shipped with no Intel .dmg and no
+          # `darwin-x86_64` entry in latest.json, while the other three jobs
+          # stayed green. Both `-intel` labels are *standard* runners — free
+          # and unlimited on a public repo, unlike the `-large`/`-xlarge` ones,
+          # which are billed even there.
           - platform: macos-latest
-          - platform: macos-13
+          - platform: macos-15-intel
     runs-on: ${{ matrix.platform }}
     timeout-minutes: 60
     permissions:

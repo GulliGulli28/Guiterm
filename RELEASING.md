@@ -37,8 +37,10 @@ git push origin v1.4.1
    de publier** : ils s'ajoutent à la même release brouillon au fur et à
    mesure, donc un job annulé ou en échec ne se voit pas dans la release —
    il se voit à un installeur manquant. C'est ce qui est arrivé à la 2.4.0 :
-   le job `macos-13` (Intel) n'a jamais obtenu de runner et a été annulé, la
-   release est partie avec le seul `.dmg` Apple Silicon.
+   le job Intel visait `macos-13`, image de runner qui n'existe plus, n'a
+   donc jamais obtenu de machine et a fini annulé — la release est partie
+   avec le seul `.dmg` Apple Silicon, les trois autres jobs étant verts. Le
+   label est corrigé en `macos-15-intel` depuis.
 5. Une fois le run vert, ouvrir **Releases**, ouvrir le brouillon `v1.4.1`,
    vérifier les notes puis cliquer **Publish release**.
 6. Les installations existantes verront la mise à jour au prochain

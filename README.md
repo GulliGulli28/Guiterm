@@ -201,9 +201,10 @@ saying Guiterm was blocked, and click **Open Anyway**. Right-click → Open,
 the workaround you'll find in older write-ups, no longer bypasses this on
 macOS 15 and later.
 
-Only Apple Silicon is published so far — the Intel job of the release
-workflow didn't complete for 2.4.0. Signing and notarization are wired into
-the release workflow already, waiting on an Apple Developer ID; see
+Only Apple Silicon is published so far: the Intel job of the 2.4.0 release
+targeted a runner image GitHub had retired, so it never ran. That's fixed
+for the next release. Signing and notarization are wired into the release
+workflow already, waiting on an Apple Developer ID; see
 [`RELEASING.md`](RELEASING.md) for what that involves.
 
 ## Development
