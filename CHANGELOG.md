@@ -14,6 +14,13 @@ This changelog starts 2026-07-21 — for earlier versions, see
   reached. The app answers the server's questions during the handshake, in a
   dialog that shows the server's own wording — a saved password still answers
   the first hidden prompt on its own, so only the extra factor is asked for.
+- Each terminal's font size can be adjusted on its own with `Ctrl` `+` /
+  `Ctrl` `-` / `Ctrl` `0`, or `Ctrl` and the mouse wheel. It affects only the
+  terminal you're in — not the other tabs, and not the size saved in Settings.
+- A fullscreen mode (`F11`, or the button next to broadcast and split). The
+  title bar goes away with the window decorations, leaving the tabs and the
+  terminal; push the pointer against the top edge of the screen to bring it
+  back.
 
 ### Changed
 - Terminal keystrokes travel to the session as raw bytes instead of being
