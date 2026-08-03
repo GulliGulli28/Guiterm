@@ -454,6 +454,7 @@ export default function App() {
           onWorkspaceUpdate={refreshWorkspace}
           onClose={() => setAwsImportOpen(false)}
           onError={reportError}
+          onRunInTerminal={(command) => openLocalTerminal(command)}
         />
       )}
       {snippetPickerOpen && workspace && (

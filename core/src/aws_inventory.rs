@@ -178,14 +178,118 @@ async fn run_aws(args: &[&str]) -> Result<String, AwsCliError> {
     Ok(String::from_utf8_lossy(&output.stdout).into_owned())
 }
 
-/// Profiles configured in the user's `~/.aws/config`, for the panel's picker.
-pub async fn list_profiles() -> Result<Vec<String>, AwsCliError> {
+/// A profile, with whatever `~/.aws/config` says about it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AwsProfile {
+    pub name: String,
+    /// The `sso_session` this profile logs in through, when it has one.
+    ///
+    /// Worth surfacing because it is the unit of *login*: `aws sso login`
+    /// authenticates a session, not a profile, so every profile sharing one
+    /// becomes usable at once — and one expired session explains why a whole
+    /// group of profiles stopped working.
+    pub sso_session: Option<String>,
+    pub account_id: Option<String>,
+    pub role_name: Option<String>,
+    /// The profile's own default region, used to prefill the region field.
+    pub region: Option<String>,
+}
+
+/// Parses `~/.aws/config`.
+///
+/// Enough of the INI-ish grammar for the picker and no more: section headers
+/// (`[default]`, `[profile x]`, `[sso-session y]`) and the handful of keys
+/// that identify a profile. Nested sub-sections and every other setting are
+/// skipped — this only ever *describes* profiles, the CLI remains the one
+/// that uses them.
+pub fn parse_config(content: &str) -> Vec<AwsProfile> {
+    let mut profiles: Vec<AwsProfile> = Vec::new();
+    let mut current: Option<AwsProfile> = None;
+
+    for raw in content.lines() {
+        let line = raw.split('#').next().unwrap_or("").split(';').next().unwrap_or("").trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Some(header) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            if let Some(done) = current.take() {
+                profiles.push(done);
+            }
+            let header = header.trim();
+            // `[sso-session x]` describes a login, not a profile: skipping it
+            // keeps it from showing up in the picker as something selectable.
+            let name = if let Some(rest) = header.strip_prefix("profile ") {
+                rest.trim()
+            } else if header == "default" {
+                "default"
+            } else {
+                continue;
+            };
+            current = Some(AwsProfile {
+                name: name.to_string(),
+                sso_session: None,
+                account_id: None,
+                role_name: None,
+                region: None,
+            });
+            continue;
+        }
+        let Some(profile) = current.as_mut() else {
+            continue;
+        };
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        let value = value.trim().to_string();
+        if value.is_empty() {
+            continue;
+        }
+        match key.trim().to_ascii_lowercase().as_str() {
+            "sso_session" => profile.sso_session = Some(value),
+            "sso_account_id" => profile.account_id = Some(value),
+            "sso_role_name" => profile.role_name = Some(value),
+            "region" => profile.region = Some(value),
+            _ => {}
+        }
+    }
+    if let Some(done) = current.take() {
+        profiles.push(done);
+    }
+    profiles
+}
+
+/// Profiles available to the CLI, described from `~/.aws/config`.
+///
+/// The CLI decides which profiles *exist* — it also reads `~/.aws/credentials`,
+/// which this parser deliberately ignores — and the config file only fills in
+/// the details. A profile the CLI knows and the file doesn't still shows up,
+/// just without an SSO session.
+pub async fn list_profiles() -> Result<Vec<AwsProfile>, AwsCliError> {
     let out = run_aws(&["configure", "list-profiles"]).await?;
+    let described = directories::BaseDirs::new()
+        .map(|dirs| dirs.home_dir().join(".aws").join("config"))
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .map(|content| parse_config(&content))
+        .unwrap_or_default();
+
     Ok(out
         .lines()
         .map(str::trim)
         .filter(|line| !line.is_empty())
-        .map(str::to_string)
+        .map(|name| {
+            described
+                .iter()
+                .find(|profile| profile.name == name)
+                .cloned()
+                .unwrap_or_else(|| AwsProfile {
+                    name: name.to_string(),
+                    sso_session: None,
+                    account_id: None,
+                    role_name: None,
+                    region: None,
+                })
+        })
         .collect())
 }
 
@@ -423,6 +527,61 @@ mod tests {
         assert_eq!(json["instanceId"], "i-0978d0081ce557b57");
         assert_eq!(json["ssmOnline"], true);
         assert_eq!(json["privateIp"], "172.16.20.7");
+    }
+
+    const CONFIG: &str = "\
+[default]\n\
+region = us-east-1\n\
+\n\
+[sso-session ma-boite]\n\
+sso_start_url = https://ma-boite.awsapps.com/start\n\
+sso_region = eu-west-3\n\
+\n\
+[profile AdministratorAccess-167004607868]\n\
+sso_session = ma-boite\n\
+sso_account_id = 167004607868\n\
+sso_role_name = AdministratorAccess\n\
+region = eu-west-3\n\
+output = json\n\
+\n\
+[profile ReadOnly-999999999999]\n\
+sso_session = ma-boite\n\
+sso_account_id = 999999999999\n\
+sso_role_name = ReadOnly\n\
+";
+
+    #[test]
+    fn reads_profiles_and_their_sso_session() {
+        let profiles = parse_config(CONFIG);
+        let admin = profiles.iter().find(|p| p.name == "AdministratorAccess-167004607868").unwrap();
+        assert_eq!(admin.sso_session.as_deref(), Some("ma-boite"));
+        assert_eq!(admin.account_id.as_deref(), Some("167004607868"));
+        assert_eq!(admin.role_name.as_deref(), Some("AdministratorAccess"));
+        assert_eq!(admin.region.as_deref(), Some("eu-west-3"));
+    }
+
+    // `[sso-session x]` is a login, not something connectable. Listing it as a
+    // profile would offer the user a choice that cannot work.
+    #[test]
+    fn an_sso_session_block_is_not_a_profile() {
+        let names: Vec<_> = parse_config(CONFIG).into_iter().map(|p| p.name).collect();
+        assert!(!names.iter().any(|n| n == "ma-boite"), "obtenu : {names:?}");
+        assert_eq!(names, vec!["default", "AdministratorAccess-167004607868", "ReadOnly-999999999999"]);
+    }
+
+    #[test]
+    fn the_default_profile_is_named_default_not_profile_default() {
+        let profiles = parse_config(CONFIG);
+        let first = &profiles[0];
+        assert_eq!(first.name, "default");
+        assert_eq!(first.region.as_deref(), Some("us-east-1"));
+        assert_eq!(first.sso_session, None);
+    }
+
+    #[test]
+    fn a_profile_without_a_region_reports_none_rather_than_an_empty_string() {
+        let profiles = parse_config("[profile bare]\nregion =\n");
+        assert_eq!(profiles[0].region, None);
     }
 
     // The profile and region are baked in on purpose: the app inherits no

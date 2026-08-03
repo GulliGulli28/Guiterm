@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "../lib/api";
-import type { AwsInstance, GroupId, Workspace } from "../lib/types";
+import type { AuthMethod, AwsInstance, AwsProfile, GroupId, KeyId, Workspace } from "../lib/types";
+import { filterAwsInstances, groupProfilesBySession } from "../lib/awsInstances";
 import { IconClose } from "./ui-icons";
 
 interface AwsImportPanelProps {
@@ -8,6 +10,9 @@ interface AwsImportPanelProps {
   onWorkspaceUpdate: (ws: Workspace) => void;
   onClose: () => void;
   onError: (message: string) => void;
+  /** Opens a local terminal running `command` — how `aws configure sso` gets
+   * the interactive session it needs. */
+  onRunInTerminal: (command: string) => void;
 }
 
 /** Regions offered without asking AWS for the list — `describe-regions` needs
@@ -21,6 +26,8 @@ const COMMON_REGIONS = [
   "ap-northeast-1", "ap-southeast-1", "ap-southeast-2", "ap-south-1",
 ];
 
+type AuthKind = "agent" | "password" | "privateKey";
+
 const inputClass =
   "w-full rounded-md bg-[var(--c-bg3)] px-2 py-1.5 text-sm text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]";
 
@@ -32,28 +39,46 @@ const inputClass =
  * unreachable" points straight at the SSM agent or the VPC endpoints. They
  * simply can't be selected.
  */
-export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError }: AwsImportPanelProps) {
-  const [profiles, setProfiles] = useState<string[] | null>(null);
+export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError, onRunInTerminal }: AwsImportPanelProps) {
+  const [profiles, setProfiles] = useState<AwsProfile[] | null>(null);
   const [profile, setProfile] = useState("");
   const [region, setRegion] = useState("eu-west-3");
   const [instances, setInstances] = useState<AwsInstance[] | null>(null);
+  const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
   const [failure, setFailure] = useState<{ message: string; hint: string | null } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [groupTagKey, setGroupTagKey] = useState("");
   const [importing, setImporting] = useState(false);
 
-  useEffect(() => {
+  // SSH credentials for the batch — the machines arrive from AWS, but getting
+  // into them is still ordinary SSH.
+  const [authKind, setAuthKind] = useState<AuthKind>("privateKey");
+  const [keyId, setKeyId] = useState<KeyId | "">("");
+  const [keyPath, setKeyPath] = useState("");
+  const [secret, setSecret] = useState("");
+
+  const loadProfiles = () => {
     api.listAwsProfiles()
       .then((found) => {
         setProfiles(found);
-        if (found.length > 0) setProfile((current) => current || found[0]);
+        setProfile((current) => current || found[0]?.name || "");
       })
       .catch((e) => {
         setProfiles([]);
         setFailure({ message: e.message ?? String(e), hint: e.reason?.hint ?? null });
       });
-  }, []);
+  };
+  useEffect(loadProfiles, []);
+
+  // A profile usually carries its own default region; using it saves the one
+  // field that is easiest to get wrong and hardest to notice.
+  useEffect(() => {
+    const found = profiles?.find((p) => p.name === profile);
+    if (found?.region) setRegion(found.region);
+  }, [profile, profiles]);
+
+  const profileGroups = useMemo(() => groupProfilesBySession(profiles ?? []), [profiles]);
 
   const discover = () => {
     setLoading(true);
@@ -70,6 +95,8 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError 
       .catch((e) => setFailure({ message: e.message ?? String(e), hint: e.reason?.hint ?? null }))
       .finally(() => setLoading(false));
   };
+
+  const visible = useMemo(() => filterAwsInstances(instances ?? [], search), [instances, search]);
 
   /** Tag keys present on the discovered instances, offered as a grouping key. */
   const tagKeys = useMemo(() => {
@@ -89,9 +116,34 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError 
     });
   };
 
+  /** Ticks or unticks everything the search currently shows — not the whole
+   * account, which would quietly undo the filtering the user just did. */
+  const toggleVisible = (checked: boolean) => {
+    setSelected((previous) => {
+      const next = new Set(previous);
+      for (const instance of visible) {
+        if (!instance.ssmOnline) continue;
+        if (checked) next.add(instance.instanceId);
+        else next.delete(instance.instanceId);
+      }
+      return next;
+    });
+  };
+
+  const authMethod = (): AuthMethod => {
+    if (authKind === "privateKey") {
+      return { privateKey: { path: keyId ? "" : keyPath.trim(), keyId: keyId || null } };
+    }
+    return authKind;
+  };
+
   const runImport = () => {
     const chosen = (instances ?? []).filter((i) => selected.has(i.instanceId));
     if (chosen.length === 0) return;
+    if (authKind === "privateKey" && !keyId && !keyPath.trim()) {
+      onError("Choisir une clé du trousseau ou indiquer le chemin d'une clé privée");
+      return;
+    }
     setImporting(true);
     // Groups are matched by name against what already exists rather than
     // created here: creating them would need a second round trip per tag
@@ -113,25 +165,33 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError 
       })),
       profile,
       region,
+      { auth: authMethod(), secret: secret || null },
     )
       .then((ws) => { onWorkspaceUpdate(ws); onClose(); })
       .catch((e) => onError(String(e)))
       .finally(() => setImporting(false));
   };
 
-  const selectable = (instances ?? []).filter((i) => i.ssmOnline).length;
+  const pickKeyFile = () => {
+    open({ multiple: false, directory: false })
+      .then((picked) => { if (typeof picked === "string") { setKeyPath(picked); setKeyId(""); } })
+      .catch(() => {});
+  };
+
+  const selectableVisible = visible.filter((i) => i.ssmOnline).length;
+  const allVisibleSelected = selectableVisible > 0 && visible.every((i) => !i.ssmOnline || selected.has(i.instanceId));
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6" onClick={onClose}>
       <div
-        className="flex max-h-full w-[min(46rem,100%)] flex-col overflow-hidden rounded-xl border border-[var(--c-border)] bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]"
+        className="flex max-h-full w-[min(48rem,100%)] flex-col overflow-hidden rounded-xl border border-[var(--c-border)] bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-[var(--c-border)] px-4 py-2.5">
           <div>
             <p className="text-[13px] font-medium text-[var(--c-text)]">Importer des instances EC2</p>
             <p className="text-[11px] text-[var(--c-text-muted)]">
-              Via ta CLI `aws` déjà connectée — aucun identifiant n'est demandé ni conservé par Guiterm.
+              Via ta CLI `aws` déjà connectée — aucun identifiant AWS n'est demandé ni conservé par Guiterm.
             </p>
           </div>
           <button onClick={onClose} aria-label="Fermer" className="rounded p-1 text-[var(--c-text-muted)] hover:bg-white/5 hover:text-[var(--c-text)]">
@@ -139,37 +199,83 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError 
           </button>
         </div>
 
-        <div className="flex shrink-0 items-end gap-2 border-b border-[var(--c-border)] px-4 py-2.5">
-          <label className="block flex-1 space-y-1">
-            <span className="text-xs font-medium text-[var(--c-text-muted)]">Profil</span>
-            {profiles && profiles.length > 0 ? (
-              <select value={profile} onChange={(e) => setProfile(e.target.value)} className={inputClass}>
-                {profiles.map((p) => <option key={p} value={p}>{p}</option>)}
-              </select>
-            ) : (
-              <input value={profile} onChange={(e) => setProfile(e.target.value)} placeholder="default" className={inputClass} />
-            )}
-          </label>
-          <label className="block w-44 space-y-1">
-            <span className="text-xs font-medium text-[var(--c-text-muted)]">Région</span>
-            <input list="aws-regions" value={region} onChange={(e) => setRegion(e.target.value)} className={inputClass} />
-            <datalist id="aws-regions">
-              {COMMON_REGIONS.map((r) => <option key={r} value={r} />)}
-            </datalist>
-          </label>
-          <button
-            onClick={discover}
-            disabled={loading || !profile.trim() || !region.trim()}
-            className="accent-surface shrink-0 rounded-md border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
-          >
-            {loading ? "Recherche…" : "Lister les instances"}
-          </button>
+        <div className="shrink-0 border-b border-[var(--c-border)] px-4 py-2.5">
+          <div className="flex items-end gap-2">
+            <label className="block flex-1 space-y-1">
+              <span className="text-xs font-medium text-[var(--c-text-muted)]">Profil</span>
+              {profiles && profiles.length > 0 ? (
+                <select value={profile} onChange={(e) => setProfile(e.target.value)} className={inputClass}>
+                  {profileGroups.map((group) => (
+                    <optgroup key={group.session ?? "__none"} label={group.session ? `Session SSO — ${group.session}` : "Sans session SSO"}>
+                      {group.profiles.map((p) => (
+                        <option key={p.name} value={p.name}>
+                          {p.name}{p.accountId ? ` · ${p.accountId}` : ""}
+                        </option>
+                      ))}
+                    </optgroup>
+                  ))}
+                </select>
+              ) : (
+                <input value={profile} onChange={(e) => setProfile(e.target.value)} placeholder="default" className={inputClass} />
+              )}
+            </label>
+            <label className="block w-40 space-y-1">
+              <span className="text-xs font-medium text-[var(--c-text-muted)]">Région</span>
+              <input list="aws-regions" value={region} onChange={(e) => setRegion(e.target.value)} className={inputClass} />
+              <datalist id="aws-regions">
+                {COMMON_REGIONS.map((r) => <option key={r} value={r} />)}
+              </datalist>
+            </label>
+            <button
+              onClick={discover}
+              disabled={loading || !profile.trim() || !region.trim()}
+              className="accent-surface shrink-0 rounded-md border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+            >
+              {loading ? "Recherche…" : "Lister les instances"}
+            </button>
+          </div>
+          <div className="mt-1.5 flex items-center gap-2">
+            {/* `aws configure sso` asks questions and opens a browser — it only
+                works with a real terminal, which this app happens to have.
+                Running it hidden would hang on the first prompt. */}
+            <button
+              onClick={() => { onRunInTerminal("aws configure sso"); onClose(); }}
+              className="text-[11px] text-[var(--c-accent-text)] underline-offset-2 hover:underline"
+            >
+              Ajouter un profil (aws configure sso)…
+            </button>
+            <span className="text-[11px] text-[var(--c-text-faint)]">s'ouvre dans un terminal local</span>
+            <button onClick={loadProfiles} className="ml-auto text-[11px] text-[var(--c-text-secondary)] hover:text-[var(--c-text)]">
+              Rafraîchir les profils
+            </button>
+          </div>
         </div>
 
         {failure && (
           <div className="shrink-0 border-b border-rose-900/60 bg-rose-950/40 px-4 py-2.5">
             <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] text-rose-200/90">{failure.message}</pre>
             {failure.hint && <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--c-text-secondary)]">{failure.hint}</p>}
+          </div>
+        )}
+
+        {instances !== null && instances.length > 0 && (
+          <div className="flex shrink-0 items-center gap-2 border-b border-[var(--c-border)] px-4 py-2">
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Rechercher — nom, id, IP, plateforme, tag…"
+              className="flex-1 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+            />
+            <label className="flex shrink-0 items-center gap-1.5 text-[11px] text-[var(--c-text-secondary)]">
+              <input
+                type="checkbox"
+                checked={allVisibleSelected}
+                onChange={(e) => toggleVisible(e.target.checked)}
+                disabled={selectableVisible === 0}
+                className="h-3.5 w-3.5 accent-[var(--c-accent)]"
+              />
+              Tout cocher{search ? " (résultats)" : ""}
+            </label>
           </div>
         )}
 
@@ -184,7 +290,12 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError 
               Aucune instance dans cette région pour ce profil.
             </p>
           )}
-          {instances?.map((instance) => (
+          {instances !== null && instances.length > 0 && visible.length === 0 && (
+            <p className="px-2 py-8 text-center text-[13px] text-[var(--c-text-muted)]">
+              Aucune instance ne correspond à « {search} ».
+            </p>
+          )}
+          {visible.map((instance) => (
             <label
               key={instance.instanceId}
               className={`flex items-center gap-2 rounded-md px-2 py-1.5 ${instance.ssmOnline ? "hover:bg-white/5" : "opacity-55"}`}
@@ -216,6 +327,57 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError 
           ))}
         </div>
 
+        {/* SSH credentials for the whole batch. Shown only once there is
+            something to import, so the panel stays a listing until it becomes
+            a form. */}
+        {selected.size > 0 && (
+          <div className="shrink-0 space-y-1.5 border-t border-[var(--c-border)] px-4 py-2.5">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-[var(--c-text-muted)]">Connexion SSH</span>
+              <select value={authKind} onChange={(e) => setAuthKind(e.target.value as AuthKind)} className="rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text)] focus:outline-none">
+                <option value="privateKey">Clé privée</option>
+                <option value="agent">Agent SSH</option>
+                <option value="password">Mot de passe</option>
+              </select>
+              <span className="text-[11px] text-[var(--c-text-faint)]">appliqué aux {selected.size} hôte{selected.size > 1 ? "s" : ""} importé{selected.size > 1 ? "s" : ""}</span>
+            </div>
+            {authKind === "privateKey" && (
+              <div className="flex items-center gap-2">
+                <select
+                  value={keyId}
+                  onChange={(e) => { setKeyId(e.target.value as KeyId | ""); if (e.target.value) setKeyPath(""); }}
+                  className="flex-1 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text)] focus:outline-none"
+                >
+                  <option value="">— clé par chemin de fichier —</option>
+                  {workspace.keychain.map((key) => <option key={key.id} value={key.id}>{key.name}</option>)}
+                </select>
+                {!keyId && (
+                  <>
+                    <input
+                      value={keyPath}
+                      onChange={(e) => setKeyPath(e.target.value)}
+                      placeholder="C:\\Users\\…\\ma-keypair.pem"
+                      className="flex-[2] rounded-md bg-[var(--c-bg3)] px-2 py-1 font-mono text-xs text-[var(--c-text)] placeholder:font-sans placeholder:text-[var(--c-text-muted)] focus:outline-none"
+                    />
+                    <button onClick={pickKeyFile} className="shrink-0 rounded-md border border-[var(--c-border)] px-2 py-1 text-xs text-[var(--c-text-secondary)] hover:border-[var(--c-accent)]">
+                      Parcourir…
+                    </button>
+                  </>
+                )}
+              </div>
+            )}
+            {(authKind === "password" || (authKind === "privateKey" && !keyId)) && (
+              <input
+                type="password"
+                value={secret}
+                onChange={(e) => setSecret(e.target.value)}
+                placeholder={authKind === "password" ? "Mot de passe" : "Passphrase de la clé (optionnelle)"}
+                className="w-full rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none"
+              />
+            )}
+          </div>
+        )}
+
         <div className="flex shrink-0 items-center gap-2 border-t border-[var(--c-border)] px-4 py-2.5">
           {tagKeys.length > 0 && (
             <label className="flex items-center gap-1.5">
@@ -227,7 +389,7 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError 
             </label>
           )}
           <span className="flex-1 text-[11px] text-[var(--c-text-muted)]">
-            {instances !== null && `${selectable} instance${selectable > 1 ? "s" : ""} joignable${selectable > 1 ? "s" : ""} via SSM`}
+            {instances !== null && `${visible.length} affichée${visible.length > 1 ? "s" : ""} · ${selectableVisible} joignable${selectableVisible > 1 ? "s" : ""} via SSM`}
           </span>
           <button
             onClick={runImport}

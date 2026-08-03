@@ -474,6 +474,23 @@ export interface AwsInstance {
   defaultUsername: string;
 }
 
+/** A profile from `~/.aws/config`, as `list_aws_profiles` reports it. */
+export interface AwsProfile {
+  name: string;
+  /** The `sso_session` it logs in through — the unit of `aws sso login`, so
+   * profiles sharing one expire together. `null` for static credentials. */
+  ssoSession: string | null;
+  accountId: string | null;
+  roleName: string | null;
+  region: string | null;
+}
+
+/** SSH credentials applied to every host of one import. */
+export interface AwsImportAuth {
+  auth: AuthMethod;
+  secret: string | null;
+}
+
 export interface AwsImportSelection {
   instanceId: string;
   label: string;
