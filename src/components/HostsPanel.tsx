@@ -27,6 +27,7 @@ interface HostsPanelProps {
   onNewHost: () => void;
   onEditHost: (host: Host) => void;
   onNewGroup: () => void;
+  onImportAws: () => void;
   onNewHostInGroup: (groupId: GroupId) => void;
   onNewGroupUnder: (parentId: GroupId) => void;
   onEditGroup: (group: Group) => void;
@@ -98,7 +99,7 @@ function LocalTerminalButton({ onOpen }: { onOpen: (shell?: string) => void }) {
 
 export function HostsPanel({
   workspace, activeHostId, onConnect, onConnectDocker, onConnectK8s, onConnectRdpView, onOpenTransfer, onOpenLocalTerminal,
-  onNewHost, onEditHost, onNewGroup, onNewHostInGroup, onNewGroupUnder,
+  onNewHost, onEditHost, onNewGroup, onImportAws, onNewHostInGroup, onNewGroupUnder,
   onEditGroup, onQuickSSH, onWorkspaceUpdate, onError,
 }: HostsPanelProps) {
   const [search, setSearch] = useState("");
@@ -449,6 +450,12 @@ export function HostsPanel({
                   className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)]"
                 >
                   <IconDownload size={14} /> Importer un hôte
+                </button>
+                <button
+                  onClick={() => { onImportAws(); setShowAddMenu(false); }}
+                  className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)]"
+                >
+                  <IconDownload size={14} /> Importer depuis AWS
                 </button>
               </div>
             </>

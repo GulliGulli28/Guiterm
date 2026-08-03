@@ -458,6 +458,30 @@ export type ProxyProbe =
   | { kind: "silent" }
   | { kind: "failed"; message: string; hint: string | null };
 
+/** One EC2 instance as `discover_aws_instances` reports it. `ssmOnline` is
+ * what decides whether it can be imported: without SSM there is no way in. */
+export interface AwsInstance {
+  instanceId: string;
+  name: string | null;
+  privateIp: string | null;
+  publicIp: string | null;
+  state: string;
+  platform: string | null;
+  ssmOnline: boolean;
+  /** Tag key/value pairs, straight from EC2. */
+  tags: [string, string][];
+  /** Conventional login for the AMI family — a guess, editable afterwards. */
+  defaultUsername: string;
+}
+
+export interface AwsImportSelection {
+  instanceId: string;
+  label: string;
+  username: string;
+  groupId: GroupId | null;
+  tags: string[];
+}
+
 export interface SshConfigHost {
   alias: string;
   hostname: string | null;

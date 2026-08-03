@@ -33,6 +33,7 @@ interface SidebarProps {
   onNewHost: () => void;
   onEditHost: (host: Host) => void;
   onNewGroup: () => void;
+  onImportAws: () => void;
   onNewHostInGroup: (groupId: GroupId) => void;
   onNewGroupUnder: (parentId: GroupId) => void;
   onEditGroup: (group: Group) => void;
@@ -138,6 +139,7 @@ export function Sidebar(props: SidebarProps) {
               onNewHost={props.onNewHost}
               onEditHost={props.onEditHost}
               onNewGroup={props.onNewGroup}
+              onImportAws={props.onImportAws}
               onNewHostInGroup={props.onNewHostInGroup}
               onNewGroupUnder={props.onNewGroupUnder}
               onEditGroup={props.onEditGroup}

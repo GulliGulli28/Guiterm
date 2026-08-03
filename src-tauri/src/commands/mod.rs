@@ -1,4 +1,5 @@
 pub mod adaptive;
+pub mod aws;
 pub mod command_history;
 pub mod dialog;
 pub mod docker;

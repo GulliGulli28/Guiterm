@@ -187,6 +187,7 @@ async function runScenarios(browser) {
   await runZoomScenario(browser);
   await runFullscreenScenario(browser);
   await runProxyCommandFieldScenario(browser);
+  await runAwsImportPanelScenario(browser);
 
   await mkdir(outDir, { recursive: true });
   const screenshotPath = path.join(outDir, "e2e-smoke.png");
@@ -561,4 +562,49 @@ async function runProxyTestButtonScenario(browser) {
   if (!text.includes("PATH")) {
     throw new Error(`le verdict doit expliquer quoi faire, obtenu : ${JSON.stringify(text.slice(0, 400))}`);
   }
+}
+
+/**
+ * The AWS import panel opens and really reaches the backend.
+ *
+ * There is no AWS account here, so the assertion is about the path rather than
+ * the data: the menu entry exists, the panel mounts, and pressing "Lister les
+ * instances" produces a *verdict* — either a listing or the CLI failure
+ * rendered with its remediation. Both prove the invoke round trip; only the
+ * absence of either would mean the panel is decorative.
+ *
+ * Nothing is imported, so the real workspace is untouched.
+ */
+async function runAwsImportPanelScenario(browser) {
+  await clickButtonByText(browser, "Ajouter…");
+  await clickButtonByText(browser, "Importer depuis AWS");
+
+  const panelText = () => browser.execute(() => {
+    const heading = Array.from(document.querySelectorAll("p"))
+      .find((el) => el.textContent?.trim() === "Importer des instances EC2");
+    return heading?.closest("div.flex.max-h-full")?.textContent ?? "";
+  });
+
+  await browser.waitUntil(async () => (await panelText()).length > 0, {
+    timeout: 5_000,
+    timeoutMsg: "le panneau d import AWS ne s est pas ouvert — entrée de menu inerte",
+  });
+
+  await clickButtonByText(browser, "Lister les instances");
+  await browser.waitUntil(async () => {
+    const text = await panelText();
+    return text.includes("Aucune instance")
+      || text.includes("aws")
+      || text.includes("introuvable")
+      || text.includes("joignable");
+  }, {
+    timeout: 60_000,
+    timeoutMsg: "aucun verdict apres Lister les instances — la commande n atteint pas le backend",
+  });
+
+  await browser.execute(() => {
+    const close = document.querySelector("[aria-label=\"Fermer\"]");
+    if (close instanceof HTMLElement) close.click();
+  });
+  console.log("Import AWS : OK (panneau atteignable depuis le menu, appel backend effectif).");
 }

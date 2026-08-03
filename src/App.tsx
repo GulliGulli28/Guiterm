@@ -22,6 +22,7 @@ const RdpTab = lazy(() => import("./components/RdpTab").then((m) => ({ default: 
 const FleetTab = lazy(() => import("./components/FleetTab").then((m) => ({ default: m.FleetTab })));
 import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, loadPreferences, savePreferences } from "./lib/preferences";
 import { SplitPane } from "./components/SplitPane";
+import { AwsImportPanel } from "./components/AwsImportPanel";
 import { GroupForm, type GroupFormData } from "./components/GroupForm";
 import { SqlConnectionForm } from "./components/SqlConnectionForm";
 import { IconTerminal, IconClose } from "./components/ui-icons";
@@ -65,6 +66,7 @@ export default function App() {
   const toggleSplit = useCallback(() => setSplitOpen((v) => !v), []);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [snippetPickerOpen, setSnippetPickerOpen] = useState(false);
+  const [awsImportOpen, setAwsImportOpen] = useState(false);
   const terminalRefs = useRef<Map<string, TerminalTabHandle>>(new Map());
   const { fullscreen, toggleFullscreen } = useFullscreen(reportError);
   // In fullscreen the title bar is hidden — this is it being brought back by
@@ -446,6 +448,14 @@ export default function App() {
       {vaultUnlockModal}
       {authPromptModal}
       {paletteOpen && <CommandPalette commands={paletteCommands} onClose={() => setPaletteOpen(false)} />}
+      {awsImportOpen && (
+        <AwsImportPanel
+          workspace={workspace}
+          onWorkspaceUpdate={refreshWorkspace}
+          onClose={() => setAwsImportOpen(false)}
+          onError={reportError}
+        />
+      )}
       {snippetPickerOpen && workspace && (
         <SnippetPicker
           snippets={workspace.snippets}
@@ -526,6 +536,7 @@ export default function App() {
             onNewHost={() => { setEditingHost("new"); setNewHostDefaultGroupId(null); setEditingGroup(null); setEditingSqlConnection(null); }}
             onEditHost={(host) => { setEditingHost(host); setEditingGroup(null); setEditingSqlConnection(null); }}
             onNewGroup={() => { setEditingGroup({ id: null, name: "", parentId: null, icon: null, color: null }); setEditingHost(null); setEditingSqlConnection(null); }}
+            onImportAws={() => setAwsImportOpen(true)}
             onNewHostInGroup={(groupId) => { setEditingHost("new"); setNewHostDefaultGroupId(groupId); setEditingGroup(null); setEditingSqlConnection(null); }}
             onNewGroupUnder={(parentId) => { setEditingGroup({ id: null, name: "", parentId, icon: null, color: null }); setEditingHost(null); setEditingSqlConnection(null); }}
             onEditGroup={(group) => { setEditingGroup({ id: group.id, name: group.name, parentId: group.parentId ?? null, icon: group.icon ?? null, color: group.color ?? null }); setEditingHost(null); setEditingSqlConnection(null); }}
