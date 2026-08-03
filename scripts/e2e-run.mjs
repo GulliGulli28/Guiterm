@@ -501,7 +501,64 @@ async function runProxyCommandFieldScenario(browser) {
     timeoutMsg: "cliquer un exemple n'a rien inséré dans le champ de commande de proxy",
   });
 
+  await runProxyTestButtonScenario(browser);
+
   // Leave the form, saving nothing.
   await clickButtonByText(browser, "Annuler");
-  console.log("Commande de proxy : OK (champ atteignable depuis le formulaire d'hôte, exemples fonctionnels).");
+  console.log("Commande de proxy : OK (champ atteignable, exemples et bouton Tester fonctionnels).");
+}
+
+/**
+ * The "Tester" button really runs the command and renders the verdict.
+ *
+ * Driven with a program that cannot exist, so the expected outcome is the same
+ * on both platforms and needs nothing installed: `sh` says "command not
+ * found", `cmd.exe` says "is not recognized", and both are mapped to the same
+ * remediation. Proves the whole round trip — button, `invoke`, the helper
+ * actually being spawned in Rust, and the result reaching the DOM — which is
+ * the part no unit test can reach.
+ */
+async function runProxyTestButtonScenario(browser) {
+  // React tracks its own value for controlled inputs, so assigning `.value`
+  // updates the element while leaving the component's state stale. Going
+  // through the prototype's setter and dispatching `input` is what makes
+  // React notice, and is the difference between filling a form and only
+  // appearing to.
+  const fillFieldLabelled = async (labelPrefix, value) => {
+    const filled = await browser.execute((prefix, text) => {
+      const holder = Array.from(document.querySelectorAll("label"))
+        .find((el) => el.textContent?.trim().startsWith(prefix));
+      const control = holder?.querySelector("textarea, input");
+      if (!control) return false;
+      const proto = control.tagName === "TEXTAREA"
+        ? window.HTMLTextAreaElement.prototype
+        : window.HTMLInputElement.prototype;
+      Object.getOwnPropertyDescriptor(proto, "value")?.set?.call(control, text);
+      control.dispatchEvent(new Event("input", { bubbles: true }));
+      return true;
+    }, labelPrefix, value);
+    if (!filled) throw new Error(`champ « ${labelPrefix} » introuvable dans le formulaire`);
+  };
+
+  // The address is substituted into the command, so the button stays disabled
+  // until there is one.
+  await fillFieldLabelled("Adresse", "127.0.0.1");
+  await fillFieldLabelled("Commande de proxy", "guiterm-programme-qui-nexiste-pas");
+  await clickButtonByText(browser, "Tester la commande");
+
+  const verdict = () => browser.execute(() => {
+    const holder = Array.from(document.querySelectorAll("label, div"))
+      .find((el) => el.textContent?.trim().startsWith("Commande de proxy"));
+    return holder?.textContent ?? "";
+  });
+
+  await browser.waitUntil(async () => (await verdict()).includes("n'a pas établi de tunnel"), {
+    timeout: 30_000,
+    timeoutMsg: "le bouton Tester n'a produit aucun verdict — la commande n'atteint pas le backend, ou le résultat n'est pas rendu",
+  });
+
+  const text = await verdict();
+  if (!text.includes("PATH")) {
+    throw new Error(`le verdict doit expliquer quoi faire, obtenu : ${JSON.stringify(text.slice(0, 400))}`);
+  }
 }

@@ -12,6 +12,7 @@ pub mod k8s;
 pub mod keys;
 pub mod known_hosts;
 pub mod mongo;
+pub mod proxy;
 pub mod rdp_view;
 pub mod redis;
 pub mod remote_edit;

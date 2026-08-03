@@ -2,7 +2,7 @@ import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "../lib/api";
 import { IconTrash } from "./ui-icons";
-import type { AuthMethod, EnvVar, GroupId, Host, HostId, HostKind, KeyId, SnippetId, Workspace } from "../lib/types";
+import type { AuthMethod, EnvVar, GroupId, Host, HostId, HostKind, KeyId, ProxyProbe, SnippetId, Workspace } from "../lib/types";
 import { HostIcon } from "./icons";
 import { IconPicker } from "./IconPicker";
 import { GroupTreePicker } from "./GroupTreePicker";
@@ -35,6 +35,44 @@ interface HostFormProps {
   }) => void;
   onDeleteHost?: (id: HostId) => void;
   onWorkspaceUpdate?: (ws: Workspace) => void;
+}
+
+/** Verdict of the "Tester" button.
+ *
+ * Shows the server's own identification string on success rather than a bare
+ * tick: "SSH-2.0-OpenSSH_8.0" is proof something real answered, where a green
+ * check is just this app's opinion. And the failure case leads with the
+ * helper's own words — that is what actually names the problem. */
+function ProxyProbeResult({ probe }: { probe: ProxyProbe }) {
+  if (probe.kind === "reached") {
+    return (
+      <div className="rounded-md border border-emerald-800/60 bg-emerald-950/40 px-2.5 py-2">
+        <p className="text-xs font-medium text-emerald-300">Le tunnel s'ouvre et un serveur SSH répond.</p>
+        <code className="mt-0.5 block truncate font-mono text-[10px] text-emerald-400/80">{probe.banner}</code>
+        <p className="mt-1 text-[10px] text-[var(--c-text-muted)]">
+          L'authentification n'est pas testée : il reste à vérifier l'utilisateur et la clé.
+        </p>
+      </div>
+    );
+  }
+  if (probe.kind === "silent") {
+    return (
+      <div className="rounded-md border border-amber-800/60 bg-amber-950/40 px-2.5 py-2">
+        <p className="text-xs font-medium text-amber-300">La commande tourne, mais rien ne répond.</p>
+        <p className="mt-1 text-[10px] text-[var(--c-text-muted)]">
+          Le tunnel s'ouvre sans doute vers un port où rien n'écoute, ou la cible met très longtemps
+          à répondre.
+        </p>
+      </div>
+    );
+  }
+  return (
+    <div className="rounded-md border border-rose-900/60 bg-rose-950/40 px-2.5 py-2">
+      <p className="text-xs font-medium text-rose-300">La commande n'a pas établi de tunnel.</p>
+      <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] text-rose-200/80">{probe.message}</pre>
+      {probe.hint && <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--c-text-secondary)]">{probe.hint}</p>}
+    </div>
+  );
 }
 
 /** Ready-made proxy commands, inserted into the field as ordinary editable
@@ -106,6 +144,23 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
   const [dockerViaHostId, setDockerViaHostId] = useState<HostId | "">(host?.dockerViaHostId ?? "");
   const [jumpVia, setJumpVia] = useState<HostId[]>(host?.jumpVia ?? []);
   const [proxyCommand, setProxyCommand] = useState(host?.proxyCommand ?? "");
+  const [proxyProbe, setProxyProbe] = useState<ProxyProbe | null>(null);
+  const [proxyProbing, setProxyProbing] = useState(false);
+  // Cleared whenever the command changes: a result shown next to a command it
+  // wasn't produced from is worse than no result at all.
+  const setProxyCommandChecked = (value: string) => {
+    setProxyCommand(value);
+    setProxyProbe(null);
+  };
+
+  const runProxyProbe = () => {
+    setProxyProbing(true);
+    setProxyProbe(null);
+    api.testProxyCommand(proxyCommand.trim(), address.trim(), Number(port) || 22, username.trim())
+      .then(setProxyProbe)
+      .catch((e) => setProxyProbe({ kind: "failed", message: String(e), hint: null }))
+      .finally(() => setProxyProbing(false));
+  };
   const [groupId, setGroupId] = useState<GroupId | "">(host?.groupId ?? defaultGroupId ?? "");
   const [tags, setTags] = useState<string[]>(host?.tags ?? []);
   const [tagInput, setTagInput] = useState("");
@@ -562,7 +617,7 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
           <div className="space-y-1.5">
             <textarea
               value={proxyCommand}
-              onChange={(e) => setProxyCommand(e.target.value)}
+              onChange={(e) => setProxyCommandChecked(e.target.value)}
               rows={2}
               spellCheck={false}
               placeholder="Connexion directe (aucune commande de proxy)"
@@ -580,6 +635,17 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
                 Incompatible avec la chaîne de bastions ci-dessus : les deux remplacent le transport.
               </p>
             )}
+            {proxyCommand.trim() && (
+              <button
+                type="button"
+                onClick={runProxyProbe}
+                disabled={proxyProbing || !address.trim()}
+                className="rounded-md border border-[var(--c-border)] px-2.5 py-1 text-xs text-[var(--c-text-secondary)] hover:border-[var(--c-accent)] hover:text-[var(--c-text)] disabled:opacity-50"
+              >
+                {proxyProbing ? "Test en cours…" : "Tester la commande"}
+              </button>
+            )}
+            {proxyProbe && <ProxyProbeResult probe={proxyProbe} />}
             <details className="rounded-md bg-[var(--c-bg3)] px-2 py-1.5">
               <summary className="cursor-pointer select-none text-xs text-[var(--c-text-secondary)] hover:text-[var(--c-text)]">
                 Exemples — cliquer pour insérer
@@ -589,7 +655,7 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
                   <button
                     key={example.label}
                     type="button"
-                    onClick={() => setProxyCommand(example.command)}
+                    onClick={() => setProxyCommandChecked(example.command)}
                     title={example.command}
                     className="block w-full rounded bg-[var(--c-bg2)] px-2 py-1.5 text-left hover:bg-[var(--c-bg)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
                   >

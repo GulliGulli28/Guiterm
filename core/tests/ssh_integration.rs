@@ -193,3 +193,103 @@ async fn a_proxy_command_applies_to_the_first_hop_only() {
         "unexpected error: {err}"
     );
 }
+
+/// The "Tester" button's verdict, against a real SSH server.
+///
+/// The success case is the interesting one: `probe` claims a tunnel is good
+/// when it sees an SSH identification string come back, so this checks that
+/// claim against a server that really sends one, rather than against a mock
+/// that would only prove the parsing.
+#[tokio::test]
+async fn probing_a_working_proxy_command_sees_the_server_banner() {
+    let key = ClientKey::generate();
+    let sshd = TestSshd::start("probe-ok", &key.public);
+    let host = test_host(&sshd, &key, "test-probe");
+
+    let probe = termius_core::proxy_command::probe(
+        "nc %h %p",
+        &host.address,
+        host.port,
+        &host.username,
+        std::time::Duration::from_secs(10),
+    )
+    .await;
+
+    match probe {
+        termius_core::proxy_command::ProxyProbe::Reached { banner } => {
+            assert!(banner.starts_with("SSH-"), "bannière inattendue : {banner}");
+        }
+        other => panic!("un tunnel qui fonctionne doit être reconnu, obtenu : {other:?}"),
+    }
+}
+
+/// A tunnel that opens onto something that isn't SSH must not be reported as
+/// working — the connection would fail later with a corrupt handshake, and the
+/// test button would have said it was fine.
+#[tokio::test]
+async fn probing_a_tunnel_to_something_that_is_not_ssh_fails() {
+    let probe = termius_core::proxy_command::probe(
+        // Answers immediately, with something that is plainly not SSH.
+        "echo PAS-UN-SERVEUR-SSH",
+        "127.0.0.1",
+        22,
+        "u",
+        std::time::Duration::from_secs(10),
+    )
+    .await;
+
+    match probe {
+        termius_core::proxy_command::ProxyProbe::Failed { message, .. } => {
+            assert!(
+                message.contains("PAS-UN-SERVEUR-SSH"),
+                "le message doit citer ce qui a répondu, obtenu : {message}"
+            );
+        }
+        other => panic!("une réponse non-SSH ne doit pas passer pour un succès : {other:?}"),
+    }
+}
+
+/// A command that fails is reported with its own words, and with the
+/// remediation when we recognise it.
+#[tokio::test]
+async fn probing_a_failing_command_reports_the_cause_and_the_fix() {
+    let probe = termius_core::proxy_command::probe(
+        "echo 'SessionManagerPlugin is not found' >&2; exit 1",
+        "i-0abc",
+        22,
+        "ec2-user",
+        std::time::Duration::from_secs(10),
+    )
+    .await;
+
+    match probe {
+        termius_core::proxy_command::ProxyProbe::Failed { message, hint } => {
+            assert!(message.contains("SessionManagerPlugin"), "message : {message}");
+            let hint = hint.expect("cette erreur-là doit venir avec une remédiation");
+            assert!(hint.contains("winget"), "remédiation attendue, obtenue : {hint}");
+            // The PATH remark is the half that makes the fix actually work.
+            assert!(hint.contains("relancer Guiterm"), "remédiation incomplète : {hint}");
+        }
+        other => panic!("un échec doit être rapporté comme tel : {other:?}"),
+    }
+}
+
+/// A helper that runs but never says anything is its own verdict, distinct
+/// from a failure: nothing is broken, the tunnel just leads nowhere.
+#[tokio::test]
+async fn probing_a_mute_command_is_reported_as_silence() {
+    let probe = termius_core::proxy_command::probe(
+        "sleep 30",
+        "127.0.0.1",
+        22,
+        "u",
+        std::time::Duration::from_millis(300),
+    )
+    .await;
+
+    assert_eq!(
+        probe,
+        termius_core::proxy_command::ProxyProbe::Silent,
+        "un helper muet ne doit être ni un succès ni une erreur"
+    );
+}

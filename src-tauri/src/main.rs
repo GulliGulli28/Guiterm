@@ -68,6 +68,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             commands::hosts::get_workspace,
             commands::hosts::save_host,
+            commands::proxy::test_proxy_command,
             commands::hosts::delete_host,
             commands::hosts::save_group,
             commands::hosts::delete_group,

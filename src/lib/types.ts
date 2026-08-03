@@ -450,6 +450,14 @@ export interface VaultStatus {
   unlocked: boolean;
 }
 
+/** Outcome of trying a proxy command out, from `test_proxy_command`.
+ * `reached` is the only good one: it means the helper carried us all the way
+ * to something that answered with an SSH identification string. */
+export type ProxyProbe =
+  | { kind: "reached"; banner: string }
+  | { kind: "silent" }
+  | { kind: "failed"; message: string; hint: string | null };
+
 export interface SshConfigHost {
   alias: string;
   hostname: string | null;

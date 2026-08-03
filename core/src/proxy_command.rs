@@ -21,9 +21,11 @@
 //! cloud tool the user copied it from says they do. It is configuration the
 //! user typed for their own machine, on the same footing as `~/.ssh/config`.
 
+use serde::Serialize;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
-use tokio::io::{AsyncBufReadExt, BufReader, Join};
+use std::time::Duration;
+use tokio::io::{AsyncBufReadExt, AsyncReadExt, BufReader, Join};
 use tokio::process::{Child, ChildStdin, ChildStdout, Command};
 
 use crate::sync_ext::MutexExt;
@@ -237,6 +239,153 @@ pub fn spawn(
         },
         tokio::io::join(stdout, stdin),
     ))
+}
+
+/// What a trial run of a proxy command established, for the "Tester" button.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase", tag = "kind", rename_all_fields = "camelCase")]
+pub enum ProxyProbe {
+    /// The helper carried us all the way to something speaking SSH.
+    ///
+    /// This is a far stronger result than "the command started": the server
+    /// sends its identification string as soon as a TCP connection to sshd is
+    /// established, so seeing it proves the CLI exists, the credentials are
+    /// valid, the target is reachable, its port is open and a real SSH server
+    /// is listening — everything except the user's own authentication, which
+    /// this deliberately never attempts.
+    Reached { banner: String },
+    /// It started and is still running, but nothing came back in time. Usually
+    /// a tunnel pointed at a port where nothing is listening.
+    Silent,
+    /// It stopped, or never started.
+    Failed {
+        message: String,
+        /// A remediation when the output is one we recognise.
+        hint: Option<String>,
+    },
+}
+
+/// Recognises a helper's own error output and says what to do about it.
+///
+/// Deliberately a small table of the failures that actually cost time rather
+/// than an attempt at understanding every cloud CLI: each entry here is one a
+/// user hit for real. The PATH remark on the first two matters more than it
+/// looks — a program installed *after* the app was started is invisible to it
+/// until the app is restarted, which reads as "I installed it and it still
+/// doesn't work".
+pub fn hint_for(output: &str) -> Option<String> {
+    let haystack = output.to_lowercase();
+    let hint = if haystack.contains("sessionmanagerplugin is not found") {
+        "Le plugin Session Manager d'AWS n'est pas installé. Une fois : \
+         `winget install Amazon.SessionManagerPlugin`, puis relancer Guiterm — \
+         une application déjà lancée garde l'ancien PATH et ne verra pas le plugin."
+    } else if haystack.contains("is not recognized as an internal")
+        || haystack.contains("n'est pas reconnu en tant que")
+        || haystack.contains("command not found")
+        || haystack.contains("not found")
+    {
+        "Le programme de la commande est introuvable. Vérifier son installation et \
+         qu'il est dans le PATH — et si l'installation vient d'être faite, relancer \
+         Guiterm : une application déjà lancée garde l'ancien PATH."
+    } else if haystack.contains("expiredtoken") || haystack.contains("token included in the request is expired") {
+        "La session AWS a expiré : `aws sso login --profile <profil>`. Penser à \
+         préciser `--profile` dans la commande, sinon c'est le profil par défaut qui \
+         est utilisé."
+    } else if haystack.contains("unable to locate credentials")
+        || haystack.contains("nocredentialproviders")
+    {
+        "Aucun identifiant AWS trouvé pour cette commande. Ajouter `--profile <profil>` \
+         (le profil par défaut n'est pas forcément celui qui est connecté)."
+    } else if haystack.contains("targetnotconnected") {
+        "L'instance n'est pas enregistrée auprès de SSM : agent SSM arrêté, rôle \
+         d'instance sans `AmazonSSMManagedInstanceCore`, ou aucune route vers le \
+         service SSM (NAT ou endpoints VPC ssm/ssmmessages/ec2messages)."
+    } else if haystack.contains("accessdenied") || haystack.contains("not authorized") {
+        "Identifiants valides mais droits insuffisants pour ouvrir la session \
+         (`ssm:StartSession` sur l'instance et sur le document utilisé)."
+    } else {
+        return None;
+    };
+    Some(hint.to_string())
+}
+
+/// Runs a proxy command for real, just long enough to find out whether it
+/// reaches an SSH server, and reports what happened.
+///
+/// Never authenticates and never keeps the tunnel: the helper is killed as
+/// soon as the answer is known (dropping [`ProxyProcess`] does it). Safe to
+/// run from a settings form — the worst it does is open and immediately close
+/// one session on the target.
+pub async fn probe(
+    template: &str,
+    address: &str,
+    port: u16,
+    username: &str,
+    timeout: Duration,
+) -> ProxyProbe {
+    let (mut proxy, mut transport) = match spawn(template, address, port, username) {
+        Ok(started) => started,
+        Err(e) => {
+            return ProxyProbe::Failed {
+                hint: hint_for(&e.to_string()),
+                message: e.to_string(),
+            };
+        }
+    };
+
+    let mut buffer = [0u8; 256];
+    match tokio::time::timeout(timeout, transport.read(&mut buffer)).await {
+        // Bytes came back: the far end is talking. Report its greeting, which
+        // is what makes the success believable rather than a bare green tick.
+        Ok(Ok(n)) if n > 0 => {
+            let banner = String::from_utf8_lossy(&buffer[..n]);
+            let banner = banner.lines().next().unwrap_or("").trim().to_string();
+            if banner.starts_with("SSH-") {
+                ProxyProbe::Reached { banner }
+            } else {
+                // Something answered, but it isn't an SSH server — a tunnel
+                // pointed at the wrong port, or a helper printing a banner of
+                // its own onto the transport (which would corrupt the
+                // handshake, so it's worth saying).
+                ProxyProbe::Failed {
+                    message: format!(
+                        "la commande a répondu, mais ce n'est pas un serveur SSH : « {banner} »"
+                    ),
+                    hint: Some(
+                        "Vérifier le port visé par la commande, et qu'elle n'écrit rien \
+                         d'autre que le flux SSH sur sa sortie standard."
+                            .to_string(),
+                    ),
+                }
+            }
+        }
+        // Clean end of stream: the helper gave up. Its own words explain why.
+        Ok(Ok(_)) | Ok(Err(_)) => {
+            let detail = proxy.stderr_flushed().await;
+            let message = if detail.is_empty() {
+                "la commande s'est arrêtée sans rien renvoyer".to_string()
+            } else {
+                detail.clone()
+            };
+            ProxyProbe::Failed {
+                hint: hint_for(&detail),
+                message,
+            }
+        }
+        Err(_) => {
+            // Still running but mute. Its stderr may still say something
+            // useful (a progress line, a warning), so it is worth reporting.
+            let detail = proxy.stderr_snapshot();
+            if detail.is_empty() {
+                ProxyProbe::Silent
+            } else {
+                ProxyProbe::Failed {
+                    hint: hint_for(&detail),
+                    message: detail,
+                }
+            }
+        }
+    }
 }
 
 #[cfg(test)]
