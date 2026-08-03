@@ -23,6 +23,7 @@ interface HostFormProps {
     auth: AuthMethod;
     dockerViaHostId: HostId | null;
     jumpVia: HostId[];
+    proxyCommand: string | null;
     groupId: GroupId | null;
     tags: string[];
     startupSnippets: SnippetId[];
@@ -35,6 +36,47 @@ interface HostFormProps {
   onDeleteHost?: (id: HostId) => void;
   onWorkspaceUpdate?: (ws: Workspace) => void;
 }
+
+/** Ready-made proxy commands, inserted into the field as ordinary editable
+ * text rather than hidden behind a provider setting.
+ *
+ * Each one is a program that relays bytes on stdin/stdout — that is the only
+ * thing `ProxyCommand` requires, and the only thing these have in common.
+ * They are shown rather than applied silently because the exact incantation
+ * moves with each provider's CLI, and none of them can be verified from
+ * inside the app: the user has to see the command line that will actually
+ * run on their machine.
+ *
+ * Azure Bastion is deliberately absent — `az network bastion tunnel` opens a
+ * local TCP port instead of relaying on stdio, so it isn't a proxy command at
+ * all; it's used by pointing a host at 127.0.0.1 with the tunnel running. */
+const PROXY_COMMAND_EXAMPLES: { label: string; hint: string; command: string }[] = [
+  {
+    label: "AWS SSM",
+    hint: "instance EC2 sans IP publique — mettre l'id i-… en adresse",
+    command: "aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters portNumber=%p",
+  },
+  {
+    label: "GCP IAP",
+    hint: "remplacer ZONE par la zone de l'instance",
+    command: "gcloud compute start-iap-tunnel %h %p --listen-on-stdin --zone=ZONE",
+  },
+  {
+    label: "Cloudflare",
+    hint: "cloudflared access ssh",
+    command: "cloudflared access ssh --hostname %h",
+  },
+  {
+    label: "Bastion ssh -W",
+    hint: "rebond par un hôte joignable en SSH, sans le déclarer dans l'app",
+    command: "ssh -W %h:%p utilisateur@bastion.example.com",
+  },
+  {
+    label: "netcat",
+    hint: "simple relais TCP — utile pour vérifier que le mécanisme fonctionne",
+    command: "nc %h %p",
+  },
+];
 
 type AuthKind = "agent" | "password" | "privateKey" | "keyboardInteractive";
 
@@ -63,6 +105,7 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
   const [secret, setSecret] = useState("");
   const [dockerViaHostId, setDockerViaHostId] = useState<HostId | "">(host?.dockerViaHostId ?? "");
   const [jumpVia, setJumpVia] = useState<HostId[]>(host?.jumpVia ?? []);
+  const [proxyCommand, setProxyCommand] = useState(host?.proxyCommand ?? "");
   const [groupId, setGroupId] = useState<GroupId | "">(host?.groupId ?? defaultGroupId ?? "");
   const [tags, setTags] = useState<string[]>(host?.tags ?? []);
   const [tagInput, setTagInput] = useState("");
@@ -168,7 +211,7 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
       onSave({
         id: host?.id ?? null, label: label.trim(), kind, address: address.trim(),
         port: 0, username: "", auth: "agent", dockerViaHostId: dockerViaHostId || null,
-        jumpVia: [], groupId: groupId || null,
+        jumpVia: [], proxyCommand: null, groupId: groupId || null,
         tags, startupSnippets, envVars: envVars.filter((v) => v.key.trim()), icon, secret: null,
         keepaliveIntervalSecs: null, agentForward: false,
       });
@@ -180,7 +223,7 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
       onSave({
         id: host?.id ?? null, label: label.trim(), kind, address: address.trim(),
         port: 0, username: username.trim(), auth: "agent", dockerViaHostId: null,
-        jumpVia: [], groupId: groupId || null,
+        jumpVia: [], proxyCommand: null, groupId: groupId || null,
         tags, startupSnippets, envVars: envVars.filter((v) => v.key.trim()), icon, secret: null,
         keepaliveIntervalSecs: null, agentForward: false,
       });
@@ -203,6 +246,15 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
       return;
     }
 
+    // Both replace the transport, so a host carrying both is ambiguous —
+    // OpenSSH treats ProxyCommand and ProxyJump as alternatives for the same
+    // reason. Caught here rather than at connection time, where it would only
+    // surface once the user tried to connect.
+    if (sshOnlyExtras && proxyCommand.trim() && jumpVia.length > 0) {
+      setError("Commande de proxy et chaîne de bastions sont incompatibles : gardez l'une ou l'autre");
+      return;
+    }
+
     const auth: AuthMethod = kind === "rdp"
       ? "password"
       : authKind === "privateKey"
@@ -221,6 +273,7 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
       auth,
       dockerViaHostId: null,
       jumpVia: sshOnlyExtras ? jumpVia : [],
+      proxyCommand: sshOnlyExtras && proxyCommand.trim() ? proxyCommand.trim() : null,
       groupId: groupId || null,
       tags,
       startupSnippets: sshOnlyExtras ? startupSnippets : [],
@@ -500,6 +553,55 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
                 ))}
               </select>
             )}
+          </div>
+        </Field>
+        )}
+
+        {sshOnlyExtras && (
+        <Field label="Commande de proxy">
+          <div className="space-y-1.5">
+            <textarea
+              value={proxyCommand}
+              onChange={(e) => setProxyCommand(e.target.value)}
+              rows={2}
+              spellCheck={false}
+              placeholder="Connexion directe (aucune commande de proxy)"
+              className="w-full resize-y rounded-md bg-[var(--c-bg3)] px-2 py-1.5 font-mono text-xs text-[var(--c-text)] placeholder:font-sans placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+            />
+            <p className="text-xs leading-relaxed text-[var(--c-text-muted)]">
+              Lance ce programme et parle SSH sur son entrée/sortie standard au lieu de se connecter
+              directement à l'adresse — c'est ainsi qu'on atteint une machine sans IP publique ni SSH
+              entrant. <code className="text-[var(--c-text-secondary)]">%h</code> adresse,{" "}
+              <code className="text-[var(--c-text-secondary)]">%p</code> port,{" "}
+              <code className="text-[var(--c-text-secondary)]">%r</code> utilisateur.
+            </p>
+            {proxyCommand.trim() && jumpVia.length > 0 && (
+              <p className="text-xs text-amber-400">
+                Incompatible avec la chaîne de bastions ci-dessus : les deux remplacent le transport.
+              </p>
+            )}
+            <details className="rounded-md bg-[var(--c-bg3)] px-2 py-1.5">
+              <summary className="cursor-pointer select-none text-xs text-[var(--c-text-secondary)] hover:text-[var(--c-text)]">
+                Exemples — cliquer pour insérer
+              </summary>
+              <div className="mt-1.5 space-y-1">
+                {PROXY_COMMAND_EXAMPLES.map((example) => (
+                  <button
+                    key={example.label}
+                    type="button"
+                    onClick={() => setProxyCommand(example.command)}
+                    title={example.command}
+                    className="block w-full rounded bg-[var(--c-bg2)] px-2 py-1.5 text-left hover:bg-[var(--c-bg)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                  >
+                    <span className="text-xs font-medium text-[var(--c-text)]">{example.label}</span>
+                    <span className="ml-1.5 text-[10px] text-[var(--c-text-muted)]">{example.hint}</span>
+                    <code className="mt-0.5 block truncate font-mono text-[10px] text-[var(--c-text-secondary)]">
+                      {example.command}
+                    </code>
+                  </button>
+                ))}
+              </div>
+            </details>
           </div>
         </Field>
         )}

@@ -28,6 +28,8 @@ pub struct SaveHostInput {
     #[serde(default)]
     pub docker_via_host_id: Option<HostId>,
     pub jump_via: Vec<HostId>,
+    #[serde(default)]
+    pub proxy_command: Option<String>,
     pub group_id: Option<GroupId>,
     pub tags: Vec<String>,
     pub startup_snippets: Vec<SnippetId>,
@@ -60,6 +62,7 @@ pub fn save_host(state: State<'_, AppState>, input: SaveHostInput) -> Result<Wor
                 host.auth = input.auth.clone();
                 host.docker_via_host_id = input.docker_via_host_id;
                 host.jump_via = input.jump_via;
+                host.proxy_command = input.proxy_command.clone();
                 host.group_id = input.group_id;
                 host.tags = input.tags;
                 host.startup_snippets = input.startup_snippets;
@@ -77,6 +80,7 @@ pub fn save_host(state: State<'_, AppState>, input: SaveHostInput) -> Result<Wor
             host.auth = input.auth.clone();
             host.docker_via_host_id = input.docker_via_host_id;
             host.jump_via = input.jump_via;
+            host.proxy_command = input.proxy_command.clone();
             host.group_id = input.group_id;
             host.tags = input.tags;
             host.startup_snippets = input.startup_snippets;

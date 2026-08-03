@@ -13,6 +13,11 @@ pub struct SshConfigHost {
     pub port: Option<u16>,
     pub identity_file: Option<String>,
     pub proxy_jump: Option<String>,
+    /// `ProxyCommand` verbatim, tokens included — expanded at connection time
+    /// by [`crate::proxy_command`], not here. This is how an entry that
+    /// already reaches a VM through AWS SSM or GCP IAP keeps working once
+    /// imported.
+    pub proxy_command: Option<String>,
 }
 
 /// The user's default `~/.ssh/config` path, if a home directory can be determined.
@@ -58,6 +63,7 @@ fn parse_str(content: &str) -> Vec<SshConfigHost> {
                         port: None,
                         identity_file: None,
                         proxy_jump: None,
+                        proxy_command: None,
                     });
                 }
             }
@@ -84,6 +90,13 @@ fn parse_str(content: &str) -> Vec<SshConfigHost> {
             "proxyjump" => {
                 if let Some(h) = current.as_mut() {
                     h.proxy_jump = Some(value.to_string());
+                }
+            }
+            // Taken whole: unlike every other keyword here, the value is a
+            // command line, so it keeps its own spacing, quotes and `=` signs.
+            "proxycommand" => {
+                if let Some(h) = current.as_mut() {
+                    h.proxy_command = Some(value.to_string());
                 }
             }
             _ => {}
@@ -127,6 +140,35 @@ Host *\n\
 
         assert_eq!(hosts[1].alias, "bastion");
         assert_eq!(hosts[1].hostname.as_deref(), Some("bastion.example.com"));
+    }
+
+    // A ProxyCommand is a command line, not a token: it has to survive its own
+    // spaces, flags and `=` signs intact, unlike every other value here. The
+    // `portNumber=%p` in AWS's documented incantation is exactly the shape
+    // that a naive split on `=` would truncate.
+    #[test]
+    fn keeps_a_proxy_command_whole() {
+        let content = "\
+Host ssm-box\n\
+    HostName i-0abc123def\n\
+    User ec2-user\n\
+    ProxyCommand aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters portNumber=%p\n\
+";
+        let hosts = parse_str(content);
+        assert_eq!(hosts.len(), 1);
+        assert_eq!(
+            hosts[0].proxy_command.as_deref(),
+            Some(
+                "aws ssm start-session --target %h --document-name AWS-StartSSHSession --parameters portNumber=%p"
+            )
+        );
+        assert_eq!(hosts[0].proxy_jump, None);
+    }
+
+    #[test]
+    fn an_entry_without_a_proxy_command_has_none() {
+        let hosts = parse_str("Host plain\n    HostName 10.0.0.1\n");
+        assert_eq!(hosts[0].proxy_command, None);
     }
 
     #[test]

@@ -3,6 +3,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 
 const appWindow = getCurrentWindow();
 
+
 /**
  * Real OS fullscreen for the app window, mirrored into React state.
  *
@@ -53,6 +54,10 @@ export function useFullscreen(onError: (message: string) => void): {
         await appWindow.setFullscreen(true);
       } else {
         await appWindow.setFullscreen(false);
+        // The window manager finishes putting the geometry back on its own
+        // schedule, after this resolves — so the window is briefly small
+        // before it is maximized again. Visible as a flicker, not as a wrong
+        // final state.
         if (wasMaximizedRef.current) await appWindow.maximize();
       }
       setFullscreen(next);

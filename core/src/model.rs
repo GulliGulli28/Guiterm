@@ -151,6 +151,18 @@ pub struct Host {
     /// `jump_via[0]` is the first hop, `jump_via[n-1]` is the last before the target.
     #[serde(default, deserialize_with = "deser_jump_via")]
     pub jump_via: Vec<HostId>,
+    /// Reach this host by running a local helper program and speaking SSH over
+    /// its stdin/stdout, instead of opening a TCP connection to `address` —
+    /// OpenSSH's `ProxyCommand`, tokens and all (see
+    /// [`crate::proxy_command`]). This is how a cloud VM with no public IP and
+    /// no inbound SSH is reached: AWS SSM, GCP IAP, Azure Bastion,
+    /// `cloudflared`, Teleport.
+    ///
+    /// Mutually exclusive with `jump_via`, for the same reason OpenSSH treats
+    /// `ProxyCommand` and `ProxyJump` as alternatives: both replace the
+    /// transport, and only one can.
+    #[serde(default)]
+    pub proxy_command: Option<String>,
     pub tags: Vec<String>,
     /// Snippets to execute automatically right after the shell opens, in order.
     #[serde(default)]
@@ -202,6 +214,7 @@ impl Host {
             docker_via_host_id: None,
             group_id: None,
             jump_via: Vec::new(),
+            proxy_command: None,
             tags: Vec::new(),
             startup_snippets: Vec::new(),
             env_vars: Vec::new(),

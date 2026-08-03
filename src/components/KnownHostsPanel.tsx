@@ -55,6 +55,10 @@ export function KnownHostsPanel({ onWorkspaceUpdate, onError }: KnownHostsPanelP
         user: h.user ?? "",
         port: h.port ?? 22,
         groupId: null,
+        // Without this an SSM/IAP-only entry would import as a plain direct
+        // connection and simply time out — the config file already knew how
+        // to reach it.
+        proxyCommand: h.proxyCommand,
       }));
     if (selections.length === 0) { setShowImport(false); return; }
     setImporting(true);
@@ -125,6 +129,11 @@ export function KnownHostsPanel({ onWorkspaceUpdate, onError }: KnownHostsPanelP
                     <p className="truncate font-mono text-[11px] text-[var(--c-text-muted)]">
                       {h.user ?? "?"}@{h.hostname ?? h.alias}{h.port ? `:${h.port}` : ""}
                     </p>
+                    {h.proxyCommand && (
+                      <p className="truncate font-mono text-[10px] text-[var(--c-text-faint)]" title={h.proxyCommand}>
+                        via {h.proxyCommand}
+                      </p>
+                    )}
                   </div>
                 </label>
               ))}

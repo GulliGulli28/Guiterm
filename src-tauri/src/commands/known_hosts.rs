@@ -41,6 +41,7 @@ pub struct SshConfigHostDto {
     pub port: Option<u16>,
     pub identity_file: Option<String>,
     pub proxy_jump: Option<String>,
+    pub proxy_command: Option<String>,
 }
 
 impl From<ssh_config::SshConfigHost> for SshConfigHostDto {
@@ -52,6 +53,7 @@ impl From<ssh_config::SshConfigHost> for SshConfigHostDto {
             port: h.port,
             identity_file: h.identity_file,
             proxy_jump: h.proxy_jump,
+            proxy_command: h.proxy_command,
         }
     }
 }
@@ -81,6 +83,13 @@ pub struct ImportSelection {
     pub user: String,
     pub port: u16,
     pub group_id: Option<GroupId>,
+    /// Carried over from the config entry's `ProxyCommand`, so a host that was
+    /// only reachable through SSM/IAP/a jump helper stays reachable once
+    /// imported instead of silently becoming a direct connection that times
+    /// out. `#[serde(default)]` because the panel omits it for entries that
+    /// had none.
+    #[serde(default)]
+    pub proxy_command: Option<String>,
 }
 
 fn persist(workspace: &Workspace) -> Result<(), String> {
@@ -97,6 +106,7 @@ pub fn import_ssh_config_hosts(
         let mut host = Host::new(sel.alias, sel.hostname, sel.user);
         host.port = sel.port;
         host.group_id = sel.group_id;
+        host.proxy_command = sel.proxy_command;
         workspace.hosts.push(host);
     }
     persist(&workspace)?;

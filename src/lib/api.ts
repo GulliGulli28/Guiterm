@@ -50,6 +50,7 @@ export const api = {
     auth: AuthMethod;
     dockerViaHostId: HostId | null;
     jumpVia: HostId[];
+    proxyCommand: string | null;
     groupId: GroupId | null;
     tags: string[];
     startupSnippets: SnippetId[];

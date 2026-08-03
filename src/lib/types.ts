@@ -84,6 +84,12 @@ export interface Host {
   dockerViaHostId?: HostId | null;
   groupId: GroupId | null;
   jumpVia: HostId[];
+  /** Reach this host by running a local helper and speaking SSH over its
+   * stdin/stdout instead of connecting to `address` — OpenSSH `ProxyCommand`,
+   * `%h`/`%p`/`%r` tokens included. How a cloud VM with no public IP and no
+   * inbound SSH is reached (AWS SSM, GCP IAP, Azure Bastion, cloudflared).
+   * Mutually exclusive with `jumpVia`. */
+  proxyCommand?: string | null;
   tags: string[];
   startupSnippets: SnippetId[];
   envVars: EnvVar[];
@@ -451,6 +457,7 @@ export interface SshConfigHost {
   port: number | null;
   identityFile: string | null;
   proxyJump: string | null;
+  proxyCommand: string | null;
 }
 
 export interface ImportSelection {
@@ -459,6 +466,9 @@ export interface ImportSelection {
   user: string;
   port: number;
   groupId: GroupId | null;
+  /** Carried over from the entry`s ProxyCommand so an SSM/IAP-only host stays
+   * reachable after import instead of becoming a direct connection. */
+  proxyCommand: string | null;
 }
 
 export interface Entry {

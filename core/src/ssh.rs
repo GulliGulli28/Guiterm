@@ -147,6 +147,12 @@ impl client::Handler for AppHandler {
 pub struct Connection {
     chain: Vec<client::Handle<AppHandler>>,
     remote_forward_routes: RemoteForwardRoutes,
+    /// The helper process the first hop's transport runs over, when the host
+    /// uses a proxy command. Never read — held so that dropping the connection
+    /// kills the helper, which is what tears the tunnel down. Without this the
+    /// process would be killed the moment the handshake returned, taking the
+    /// connection with it.
+    _proxy: Option<crate::proxy_command::ProxyProcess>,
 }
 
 impl Connection {
@@ -483,6 +489,20 @@ async fn connect_chain(workspace: &Workspace, chain: Vec<&Host>) -> anyhow::Resu
     let remote_forward_routes: RemoteForwardRoutes = Arc::new(Mutex::new(HashMap::new()));
 
     let first = chain[0];
+
+    // A proxy command on any hop but the first can't mean anything: later hops
+    // are reached through a channel on the previous one, so there is no local
+    // transport left for a helper process to be. Rejected rather than ignored
+    // — a host silently connected the wrong way is exactly the kind of thing
+    // nobody notices until it matters.
+    if let Some(host) = chain[1..].iter().find(|h| proxy_command_of(h).is_some()) {
+        anyhow::bail!(
+            "'{}' has a proxy command but is used as a jump host here — a proxy command can only \
+             apply to the first hop of a chain",
+            host.label
+        );
+    }
+
     let first_routes = if chain.len() == 1 {
         remote_forward_routes.clone()
     } else {
@@ -490,17 +510,57 @@ async fn connect_chain(workspace: &Workspace, chain: Vec<&Host>) -> anyhow::Resu
     };
     let first_handler = AppHandler::new(identity_of(first), label_of(first), first_routes);
     let first_mismatch = first_handler.host_key_mismatch.clone();
-    let mut handle = client::connect(
-        config.clone(),
-        (first.address.as_str(), first.port),
-        first_handler,
-    )
-    .await
-    .map_err(|e| {
-        mismatch_error(&first_mismatch, || {
-            anyhow::anyhow!("could not reach '{}': {e}", first.label)
-        })
-    })?;
+    let (proxy, mut handle) = match proxy_command_of(first) {
+        Some(template) => {
+            let (mut proxy, transport) = crate::proxy_command::spawn(
+                template,
+                &first.address,
+                first.port,
+                &first.username,
+            )?;
+            // Not a `map_err`: the helper's own output is what actually
+            // explains this failure (an expired cloud login, a mistyped
+            // instance id), and collecting it means awaiting — a helper that
+            // dies instantly otherwise loses the race and the user is told
+            // only "Broken pipe".
+            let handle = match client::connect_stream(config.clone(), transport, first_handler)
+                .await
+            {
+                Ok(handle) => handle,
+                Err(e) => {
+                    let stderr = proxy.stderr_flushed().await;
+                    return Err(mismatch_error(&first_mismatch, || {
+                        if stderr.is_empty() {
+                            anyhow::anyhow!(
+                                "the proxy command for '{}' did not establish a connection: {e}",
+                                first.label
+                            )
+                        } else {
+                            anyhow::anyhow!(
+                                "the proxy command for '{}' did not establish a connection: {e}\n{stderr}",
+                                first.label
+                            )
+                        }
+                    }));
+                }
+            };
+            (Some(proxy), handle)
+        }
+        None => {
+            let handle = client::connect(
+                config.clone(),
+                (first.address.as_str(), first.port),
+                first_handler,
+            )
+            .await
+            .map_err(|e| {
+                mismatch_error(&first_mismatch, || {
+                    anyhow::anyhow!("could not reach '{}': {e}", first.label)
+                })
+            })?;
+            (None, handle)
+        }
+    };
     authenticate(&mut handle, first, workspace).await?;
 
     let mut hops = vec![handle];
@@ -538,7 +598,18 @@ async fn connect_chain(workspace: &Workspace, chain: Vec<&Host>) -> anyhow::Resu
     Ok(Connection {
         chain: hops,
         remote_forward_routes,
+        _proxy: proxy,
     })
+}
+
+/// A host's proxy command, if it has a usable one — treating whitespace-only
+/// as absent so a field the user cleared doesn't spawn `sh -c ""` and fail the
+/// connection with a blank error.
+fn proxy_command_of(host: &Host) -> Option<&str> {
+    host.proxy_command
+        .as_deref()
+        .map(str::trim)
+        .filter(|c| !c.is_empty())
 }
 
 /// Input sent to an interactive remote shell.

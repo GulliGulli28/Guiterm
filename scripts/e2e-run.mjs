@@ -186,6 +186,7 @@ async function runScenarios(browser) {
 
   await runZoomScenario(browser);
   await runFullscreenScenario(browser);
+  await runProxyCommandFieldScenario(browser);
 
   await mkdir(outDir, { recursive: true });
   const screenshotPath = path.join(outDir, "e2e-smoke.png");
@@ -363,12 +364,16 @@ async function runFullscreenScenario(browser) {
     timeoutMsg: "le bouton plein écran de la barre d'onglets n'a pas fait revenir la barre de titre",
   });
 
-  // ...and the window is back the way it was found, not restored to some
-  // earlier smaller size.
-  const restored = (await viewport()).inner;
-  if (Math.abs(restored - maximizedHeight) > 2) {
-    throw new Error(`sortie du plein écran : fenêtre à ${restored}px au lieu de retrouver son état maximisé (${maximizedHeight}px)`);
-  }
+  // ...and the window ends up back the way it was found, not restored to some
+  // earlier smaller size. Waited for rather than read once: the title bar
+  // comes back as soon as the window leaves fullscreen, which is *before* the
+  // window manager has finished putting the geometry back, so an immediate
+  // read catches the window mid-restore.
+  await browser.waitUntil(async () => Math.abs((await viewport()).inner - maximizedHeight) <= 2, {
+    timeout: 5_000,
+    timeoutMsg: async () =>
+      `sortie du plein écran : fenêtre restée à ${(await viewport()).inner}px au lieu de retrouver son état maximisé (${maximizedHeight}px)`,
+  });
   console.log("Plein écran : OK (depuis une fenêtre maximisée, couvre l'écran, retour à l'état d'origine).");
 }
 
@@ -430,3 +435,73 @@ async function main() {
 }
 
 main();
+
+
+/** Clicks the first <button> whose visible text is exactly `text`. */
+async function clickButtonByText(browser, text) {
+  const found = await browser.execute((label) => {
+    const button = Array.from(document.querySelectorAll("button"))
+      .find((b) => b.textContent?.trim() === label);
+    if (!button) return false;
+    button.click();
+    return true;
+  }, text);
+  if (!found) throw new Error(`bouton « ${text} » introuvable`);
+}
+
+/** Same, for buttons whose label is only part of their text (an entry made of
+ * a name, a hint and a code sample, say). */
+async function clickButtonContaining(browser, text) {
+  const found = await browser.execute((needle) => {
+    const button = Array.from(document.querySelectorAll("button"))
+      .find((b) => b.textContent?.includes(needle));
+    if (!button) return false;
+    button.click();
+    return true;
+  }, text);
+  if (!found) throw new Error(`aucun bouton ne contient « ${text} »`);
+}
+
+/**
+ * The proxy-command field is actually reachable from the host form, and bound.
+ *
+ * This is the check that was missing when MongoDB shipped with a complete
+ * backend and no way to get to it: `core/tests/ssh_integration.rs` proves the
+ * tunnel works, but nothing there proves a user can ever configure one. Kept
+ * to opening the form and typing — deliberately never saves, because this
+ * runs against the real profile and must not add a host to it.
+ */
+async function runProxyCommandFieldScenario(browser) {
+  await clickButtonByText(browser, "Ajouter…");
+  await clickButtonByText(browser, "Nouvel hôte");
+
+  const field = () => browser.execute(() => {
+    const labels = Array.from(document.querySelectorAll("label, div"));
+    const holder = labels.find((el) => el.textContent?.trim().startsWith("Commande de proxy"));
+    const textarea = holder?.querySelector("textarea");
+    return textarea ? { present: true, value: textarea.value } : { present: false, value: null };
+  });
+
+  await browser.waitUntil(async () => (await field()).present, {
+    timeout: 5_000,
+    timeoutMsg: "le champ « Commande de proxy » n'existe pas dans le formulaire d'hôte — la fonctionnalité serait inatteignable",
+  });
+
+  // The example buttons are the discoverable path in; clicking one must land
+  // real text in the field rather than merely looking clickable.
+  await browser.execute(() => {
+    const summary = Array.from(document.querySelectorAll("summary"))
+      .find((el) => el.textContent?.includes("Exemples"));
+    summary?.click();
+  });
+  await clickButtonContaining(browser, "nc %h %p");
+
+  await browser.waitUntil(async () => (await field()).value.includes("nc %h %p"), {
+    timeout: 5_000,
+    timeoutMsg: "cliquer un exemple n'a rien inséré dans le champ de commande de proxy",
+  });
+
+  // Leave the form, saving nothing.
+  await clickButtonByText(browser, "Annuler");
+  console.log("Commande de proxy : OK (champ atteignable depuis le formulaire d'hôte, exemples fonctionnels).");
+}

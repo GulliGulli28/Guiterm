@@ -18,6 +18,7 @@ pub mod local_fs;
 pub mod local_shell;
 pub mod model;
 pub mod port_forward;
+pub mod proxy_command;
 pub mod mongo_client;
 pub mod redis_client;
 pub mod remote_edit;
