@@ -188,6 +188,7 @@ async function runScenarios(browser) {
   await runFullscreenScenario(browser);
   await runProxyCommandFieldScenario(browser);
   await runAwsImportPanelScenario(browser);
+  await runAwsDatabasePanelScenario(browser);
 
   await mkdir(outDir, { recursive: true });
   const screenshotPath = path.join(outDir, "e2e-smoke.png");
@@ -438,6 +439,25 @@ async function main() {
 main();
 
 
+/** Closes a dialog by its heading, clicking the close button *inside* it.
+ *
+ * Scoped on purpose: the title bar's own window-close button also carries
+ * `aria-label="Fermer"`, and a document-wide query finds whichever comes first
+ * in the DOM — which would close the application instead of the dialog, on a
+ * JSX ordering nothing enforces. */
+async function closeDialogTitled(browser, heading) {
+  const closed = await browser.execute((title) => {
+    const label = Array.from(document.querySelectorAll("p"))
+      .find((el) => el.textContent?.trim() === title);
+    const dialog = label?.closest("div.flex.max-h-full");
+    const close = dialog?.querySelector('[aria-label="Fermer"]');
+    if (!(close instanceof HTMLElement)) return false;
+    close.click();
+    return true;
+  }, heading);
+  if (!closed) throw new Error(`impossible de fermer la boite de dialogue « ${heading} »`);
+}
+
 /** Clicks the first <button> whose visible text is exactly `text`. */
 async function clickButtonByText(browser, text) {
   const found = await browser.execute((label) => {
@@ -602,9 +622,55 @@ async function runAwsImportPanelScenario(browser) {
     timeoutMsg: "aucun verdict apres Lister les instances — la commande n atteint pas le backend",
   });
 
-  await browser.execute(() => {
-    const close = document.querySelector("[aria-label=\"Fermer\"]");
-    if (close instanceof HTMLElement) close.click();
-  });
+  await closeDialogTitled(browser, "Importer des instances EC2");
   console.log("Import AWS : OK (panneau atteignable depuis le menu, appel backend effectif).");
+}
+
+/**
+ * The database import panel is reachable from the database sidebar and really
+ * calls the backend.
+ *
+ * Same shape and same reason as the EC2 one: with no AWS account here the
+ * assertion is about the path, not the data. A panel that opens but whose
+ * button does nothing is exactly the MongoDB-class failure this suite exists
+ * to catch. Nothing is imported, so the real workspace is untouched.
+ */
+async function runAwsDatabasePanelScenario(browser) {
+  await browser.execute(() => {
+    const tab = Array.from(document.querySelectorAll("button"))
+      .find((b) => (b.getAttribute("title") || "").toLowerCase().includes("base"));
+    if (tab instanceof HTMLElement) tab.click();
+  });
+  // The database panel is lazy-loaded, so its button does not exist the
+  // instant the tab is clicked — only once the chunk has resolved.
+  await browser.waitUntil(async () => await browser.execute(() =>
+    Array.from(document.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Importer depuis AWS")
+  ), { timeout: 10_000, timeoutMsg: "le panneau Bases de donnees ne s est pas charge" });
+  await clickButtonByText(browser, "Importer depuis AWS");
+
+  const panelText = () => browser.execute(() => {
+    const heading = Array.from(document.querySelectorAll("p"))
+      .find((el) => el.textContent?.trim() === "Importer des bases depuis AWS");
+    return heading?.closest("div.flex.max-h-full")?.textContent ?? "";
+  });
+
+  await browser.waitUntil(async () => (await panelText()).length > 0, {
+    timeout: 5_000,
+    timeoutMsg: "le panneau d import de bases AWS ne s est pas ouvert",
+  });
+
+  await clickButtonByText(browser, "Lister les bases");
+  await browser.waitUntil(async () => {
+    const text = await panelText();
+    return text.includes("Aucune base")
+      || text.includes("aws")
+      || text.includes("introuvable")
+      || text.includes("importable");
+  }, {
+    timeout: 60_000,
+    timeoutMsg: "aucun verdict apres Lister les bases — la commande n atteint pas le backend",
+  });
+
+  await closeDialogTitled(browser, "Importer des bases depuis AWS");
+  console.log("Import bases AWS : OK (panneau atteignable, appel backend effectif).");
 }

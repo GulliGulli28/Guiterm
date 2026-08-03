@@ -6,8 +6,12 @@
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 use tauri::State;
+use termius_core::aws_databases::{self, AwsDatabase};
 use termius_core::aws_inventory::{self, AwsCliError, AwsInstance, AwsProfile};
-use termius_core::model::{AuthMethod, GroupId, Host, Workspace};
+use termius_core::model::{
+    AuthMethod, EngineConfig, GroupId, Host, HostId, ServerConfig, SqlConnection, SqlEngine,
+    Workspace,
+};
 use termius_core::store;
 use termius_core::sync_ext::MutexExt;
 use termius_core::vault::{self, SecretKind};
@@ -112,6 +116,75 @@ pub fn import_aws_instances(
             }
         }
         workspace.hosts.push(host);
+    }
+    store::save(&workspace).map_err(|e| e.to_string())?;
+    Ok(workspace.clone())
+}
+
+/// One managed database the user ticked.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AwsDatabaseSelection {
+    pub label: String,
+    pub engine: SqlEngine,
+    pub address: String,
+    pub port: u16,
+    pub username: String,
+    pub initial_database: Option<String>,
+}
+
+#[tauri::command]
+pub async fn discover_aws_databases(
+    profile: String,
+    region: String,
+) -> Result<Vec<AwsDatabase>, AwsFailure> {
+    aws_databases::discover(&profile, &region)
+        .await
+        .map_err(Into::into)
+}
+
+/// Creates SQL connections from discovered databases.
+///
+/// `tunnel_host_id` applies to all of them: a managed database normally lives
+/// in a private subnet with no route from this machine, so the realistic shape
+/// is "reach it through a host I already have" — usually an EC2 instance
+/// imported by `import_aws_instances`. `None` stays possible for the
+/// publicly-reachable case.
+#[tauri::command]
+pub fn import_aws_databases(
+    state: State<'_, AppState>,
+    selections: Vec<AwsDatabaseSelection>,
+    tunnel_host_id: Option<HostId>,
+    password: Option<String>,
+) -> Result<Workspace, String> {
+    let mut workspace = state.workspace.lock_recover();
+    let password = password.filter(|p| !p.is_empty());
+    for selection in selections {
+        let server = ServerConfig {
+            tunnel_host_id,
+            address: selection.address,
+            port: selection.port,
+            username: selection.username,
+            database: selection.initial_database,
+        };
+        let config = match selection.engine {
+            SqlEngine::Mysql => EngineConfig::Mysql(server),
+            SqlEngine::Postgres => EngineConfig::Postgres(server),
+            SqlEngine::Redis => EngineConfig::Redis(server),
+            // The panel only offers the three engines above; the other two
+            // have no address/port shape for AWS to fill in at all.
+            SqlEngine::Sqlite | SqlEngine::Mongodb => {
+                return Err(format!(
+                    "{:?} ne peut pas être importé depuis AWS",
+                    selection.engine
+                ));
+            }
+        };
+        let connection = SqlConnection::new(selection.label, config);
+        if let Some(password) = password.as_deref() {
+            let _ = vault::store(connection.id, SecretKind::SqlPassword, password);
+        }
+        workspace.sql_connections.push(connection);
     }
     store::save(&workspace).map_err(|e| e.to_string())?;
     Ok(workspace.clone())

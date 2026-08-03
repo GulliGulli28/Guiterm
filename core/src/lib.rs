@@ -1,4 +1,5 @@
 pub mod adaptive;
+pub mod aws_databases;
 pub mod aws_inventory;
 pub mod command_history;
 pub mod crypto;

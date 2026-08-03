@@ -1,17 +1,18 @@
 import { sqlConnectionTarget, sqlConnectionViaHostId, sqlEngineLabel, type SqlConnection, type Workspace } from "../lib/types";
-import { IconDatabase, IconPlus, IconEdit, IconFlash } from "./ui-icons";
+import { IconDatabase, IconPlus, IconEdit, IconFlash, IconDownload } from "./ui-icons";
 
 interface SqlConnectionsPanelProps {
   workspace: Workspace;
   onConnect: (conn: SqlConnection) => void;
   onNewConnection: () => void;
   onEditConnection: (conn: SqlConnection) => void;
+  onImportAws: () => void;
 }
 
 /** List-only — creating/editing (and deleting, from inside that form) goes
  * through `SqlConnectionForm` in the app's right panel, same as hosts/groups
  * (`App.tsx`'s `showRightPanel`), not an inline expansion in this list. */
-export function SqlConnectionsPanel({ workspace, onConnect, onNewConnection, onEditConnection }: SqlConnectionsPanelProps) {
+export function SqlConnectionsPanel({ workspace, onConnect, onNewConnection, onEditConnection, onImportAws }: SqlConnectionsPanelProps) {
   return (
     <div className="flex h-full min-w-0 flex-col">
       <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-2 overflow-y-auto pb-2 pl-2 pt-2">
@@ -20,6 +21,12 @@ export function SqlConnectionsPanel({ workspace, onConnect, onNewConnection, onE
           className="accent-surface flex w-full items-center justify-center gap-1.5 rounded-xl border py-2 text-xs font-semibold transition-all"
         >
           <IconPlus size={13} /> Ajouter une connexion
+        </button>
+        <button
+          onClick={onImportAws}
+          className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-[var(--c-border)] py-1.5 text-[11px] text-[var(--c-text-muted)] hover:border-[var(--c-accent)] hover:text-[var(--c-accent-text)]"
+        >
+          <IconDownload size={12} /> Importer depuis AWS
         </button>
         {workspace.sqlConnections.map((conn) => {
           const viaHostId = sqlConnectionViaHostId(conn);

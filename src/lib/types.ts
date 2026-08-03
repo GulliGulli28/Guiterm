@@ -491,6 +491,32 @@ export interface AwsImportAuth {
   secret: string | null;
 }
 
+/** A managed AWS database, as `discover_aws_databases` reports it.
+ * `supportedEngine` null means it cannot be imported and `unsupportedReason`
+ * says why — shown rather than hidden, so the gap is actionable. */
+export interface AwsDatabase {
+  identifier: string;
+  service: string;
+  engine: string;
+  engineVersion: string | null;
+  address: string;
+  port: number;
+  username: string;
+  initialDatabase: string | null;
+  status: string;
+  supportedEngine: SqlEngine | null;
+  unsupportedReason: string | null;
+}
+
+export interface AwsDatabaseSelection {
+  label: string;
+  engine: SqlEngine;
+  address: string;
+  port: number;
+  username: string;
+  initialDatabase: string | null;
+}
+
 export interface AwsImportSelection {
   instanceId: string;
   label: string;

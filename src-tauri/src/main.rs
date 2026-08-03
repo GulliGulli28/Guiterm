@@ -72,6 +72,8 @@ fn main() {
             commands::aws::list_aws_profiles,
             commands::aws::discover_aws_instances,
             commands::aws::import_aws_instances,
+            commands::aws::discover_aws_databases,
+            commands::aws::import_aws_databases,
             commands::hosts::delete_host,
             commands::hosts::save_group,
             commands::hosts::delete_group,

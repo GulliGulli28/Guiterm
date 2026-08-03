@@ -23,6 +23,7 @@ const FleetTab = lazy(() => import("./components/FleetTab").then((m) => ({ defau
 import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, loadPreferences, savePreferences } from "./lib/preferences";
 import { SplitPane } from "./components/SplitPane";
 import { AwsImportPanel } from "./components/AwsImportPanel";
+import { AwsDatabaseImportPanel } from "./components/AwsDatabaseImportPanel";
 import { GroupForm, type GroupFormData } from "./components/GroupForm";
 import { SqlConnectionForm } from "./components/SqlConnectionForm";
 import { IconTerminal, IconClose } from "./components/ui-icons";
@@ -67,6 +68,7 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [snippetPickerOpen, setSnippetPickerOpen] = useState(false);
   const [awsImportOpen, setAwsImportOpen] = useState(false);
+  const [awsDbImportOpen, setAwsDbImportOpen] = useState(false);
   const terminalRefs = useRef<Map<string, TerminalTabHandle>>(new Map());
   const { fullscreen, toggleFullscreen } = useFullscreen(reportError);
   // In fullscreen the title bar is hidden — this is it being brought back by
@@ -457,6 +459,14 @@ export default function App() {
           onRunInTerminal={(command) => openLocalTerminal(command)}
         />
       )}
+      {awsDbImportOpen && (
+        <AwsDatabaseImportPanel
+          workspace={workspace}
+          onWorkspaceUpdate={refreshWorkspace}
+          onClose={() => setAwsDbImportOpen(false)}
+          onError={reportError}
+        />
+      )}
       {snippetPickerOpen && workspace && (
         <SnippetPicker
           snippets={workspace.snippets}
@@ -559,6 +569,7 @@ export default function App() {
             onRenameKey={(id, name) => api.renamePrivateKey(id, name).then(refreshWorkspace).catch((e) => reportError(String(e)))}
             onConnectSql={(conn) => openSql(conn)}
             onNewSqlConnection={() => { setEditingSqlConnection("new"); setEditingHost(null); setEditingGroup(null); }}
+            onImportAwsDatabases={() => setAwsDbImportOpen(true)}
             onEditSqlConnection={(conn) => { setEditingSqlConnection(conn); setEditingHost(null); setEditingGroup(null); }}
             onOpenFleet={openFleet}
             onError={reportError}

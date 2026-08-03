@@ -52,6 +52,7 @@ interface SidebarProps {
   onRenameKey: (id: KeyId, name: string) => void;
   onConnectSql: (conn: SqlConnection) => void;
   onNewSqlConnection: () => void;
+  onImportAwsDatabases: () => void;
   onEditSqlConnection: (conn: SqlConnection) => void;
   onOpenFleet: () => void;
   onWorkspaceUpdate: (ws: Workspace) => void;
@@ -176,6 +177,7 @@ export function Sidebar(props: SidebarProps) {
               onConnect={props.onConnectSql}
               onNewConnection={props.onNewSqlConnection}
               onEditConnection={props.onEditSqlConnection}
+              onImportAws={props.onImportAwsDatabases}
             />
           )}
           {panel === "keychain" && (

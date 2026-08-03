@@ -141,7 +141,7 @@ pub fn classify_failure(stderr: &str) -> AwsCliError {
 const CLI_TIMEOUT: Duration = Duration::from_secs(45);
 
 /// Runs `aws` with the given arguments and returns its stdout.
-async fn run_aws(args: &[&str]) -> Result<String, AwsCliError> {
+pub(crate) async fn run_aws(args: &[&str]) -> Result<String, AwsCliError> {
     let mut command = tokio::process::Command::new("aws");
     command
         .args(args)

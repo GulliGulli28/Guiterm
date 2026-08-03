@@ -1,6 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AuthMethod, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, CollectionInfo, ColumnInfo, CollectFactsResult, ComposeResult, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostId, HostKind, ImportSelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, RedisKeyDetail, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, ScanPage, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SshAuthPrompt, SshConfigHost, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
+import type { AuthMethod, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, CollectionInfo, ColumnInfo, CollectFactsResult, ComposeResult, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostId, HostKind, ImportSelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, RedisKeyDetail, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, ScanPage, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SshAuthPrompt, SshConfigHost, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
 
 /** Mirrors the 12-byte little-endian header `commands::rdp_view::connect_rdp_view`
  * writes ahead of each frame's raw RGBA8 pixels (see its doc comment for why
@@ -70,6 +70,10 @@ export const api = {
     invoke<AwsInstance[]>("discover_aws_instances", { profile, region }),
   importAwsInstances: (selections: AwsImportSelection[], profile: string, region: string, credentials: AwsImportAuth) =>
     invoke<Workspace>("import_aws_instances", { selections, profile, region, credentials }),
+  discoverAwsDatabases: (profile: string, region: string) =>
+    invoke<AwsDatabase[]>("discover_aws_databases", { profile, region }),
+  importAwsDatabases: (selections: AwsDatabaseSelection[], tunnelHostId: HostId | null, password: string | null) =>
+    invoke<Workspace>("import_aws_databases", { selections, tunnelHostId, password }),
   checkHostStatus: (hostId: HostId) => invoke<boolean>("check_host_status", { hostId }),
 
   saveGroup: (input: { id: GroupId | null; name: string; parentId: GroupId | null; icon: string | null; color: string | null }) => invoke<Workspace>("save_group", { input }),
