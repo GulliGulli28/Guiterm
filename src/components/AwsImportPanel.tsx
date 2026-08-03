@@ -53,6 +53,11 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError,
 
   // SSH credentials for the batch — the machines arrive from AWS, but getting
   // into them is still ordinary SSH.
+  // Empty means "keep each instance's own guess" — which is right far more
+  // often than any single value, since an account routinely mixes Amazon
+  // Linux, Ubuntu and Rocky. Filling it overrides all of them at once, for the
+  // fleets built on one hardened AMI where the guess is simply wrong.
+  const [usernameOverride, setUsernameOverride] = useState("");
   const [authKind, setAuthKind] = useState<AuthKind>("privateKey");
   const [keyId, setKeyId] = useState<KeyId | "">("");
   const [keyPath, setKeyPath] = useState("");
@@ -131,10 +136,18 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError,
   };
 
   const authMethod = (): AuthMethod => {
-    if (authKind === "privateKey") {
-      return { privateKey: { path: keyId ? "" : keyPath.trim(), keyId: keyId || null } };
-    }
-    return authKind;
+    if (authKind !== "privateKey") return authKind;
+    // A keychain key keeps its file path too: `ssh::authenticate` reads the
+    // stored content when it has it and falls back to the file otherwise, so
+    // dropping the path here would leave keys imported before content was
+    // captured with nowhere to load from.
+    const fromKeychain = workspace.keychain.find((key) => key.id === keyId);
+    return {
+      privateKey: {
+        path: fromKeychain?.path ?? keyPath.trim(),
+        keyId: keyId || null,
+      },
+    };
   };
 
   const runImport = () => {
@@ -159,7 +172,7 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError,
       chosen.map((instance) => ({
         instanceId: instance.instanceId,
         label: instance.name ?? instance.instanceId,
-        username: instance.defaultUsername,
+        username: usernameOverride.trim() || instance.defaultUsername,
         groupId: groupIdFor(instance),
         tags: instance.tags.filter(([key]) => key !== "Name").map(([key, value]) => `${key}=${value}`),
       })),
@@ -177,6 +190,15 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError,
       .then((picked) => { if (typeof picked === "string") { setKeyPath(picked); setKeyId(""); } })
       .catch(() => {});
   };
+
+  /** What the guess would produce for the current selection, so the field
+   * shows what it is overriding rather than an abstract example. */
+  const usernamePlaceholder = useMemo(() => {
+    const guesses = [...new Set(
+      (instances ?? []).filter((i) => selected.has(i.instanceId)).map((i) => i.defaultUsername),
+    )];
+    return guesses.length > 0 ? guesses.join(", ") : "ec2-user";
+  }, [instances, selected]);
 
   const selectableVisible = visible.filter((i) => i.ssmOnline).length;
   const allVisibleSelected = selectableVisible > 0 && visible.every((i) => !i.ssmOnline || selected.has(i.instanceId));
@@ -332,6 +354,20 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError,
             a form. */}
         {selected.size > 0 && (
           <div className="shrink-0 space-y-1.5 border-t border-[var(--c-border)] px-4 py-2.5">
+            <div className="flex items-center gap-2">
+              <span className="text-xs font-medium text-[var(--c-text-muted)]">Utilisateur</span>
+              <input
+                value={usernameOverride}
+                onChange={(e) => setUsernameOverride(e.target.value)}
+                placeholder={usernamePlaceholder}
+                className="w-44 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+              />
+              <span className="text-[11px] text-[var(--c-text-faint)]">
+                {usernameOverride.trim()
+                  ? "appliqué à tous les hôtes importés"
+                  : "vide : deviné depuis l'AMI de chaque instance"}
+              </span>
+            </div>
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium text-[var(--c-text-muted)]">Connexion SSH</span>
               <select value={authKind} onChange={(e) => setAuthKind(e.target.value as AuthKind)} className="rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text)] focus:outline-none">

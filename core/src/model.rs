@@ -15,8 +15,18 @@ pub struct EnvVar {
     pub value: String,
 }
 
+// `rename_all` renames *variants* only — it has never touched the fields of a
+// struct variant, which is why `key_id` was still `key_id` in the JSON while
+// every frontend type said `keyId`. Unknown fields are ignored and this one
+// has a default, so a keychain-backed key silently arrived as `None`: no
+// error, on either side. `rename_all_fields` is the attribute that covers
+// struct-variant fields (see the same trap listed in CLAUDE.md).
+//
+// The `alias` keeps `workspace.json` files written before this readable —
+// they contain `key_id`, and without it every already-configured keychain key
+// would quietly detach on upgrade, which is the exact bug being fixed.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
-#[serde(rename_all = "camelCase")]
+#[serde(rename_all = "camelCase", rename_all_fields = "camelCase")]
 pub enum AuthMethod {
     #[default]
     Password,
@@ -24,7 +34,7 @@ pub enum AuthMethod {
         path: String,
         /// If set, the passphrase is stored in the vault under this key's ID
         /// rather than under the host's ID.
-        #[serde(default)]
+        #[serde(default, alias = "key_id")]
         key_id: Option<KeyId>,
     },
     Agent,
@@ -624,6 +634,87 @@ impl Workspace {
         }
         chain.push(target);
         Ok(chain)
+    }
+}
+
+#[cfg(test)]
+mod auth_method_json {
+    use super::*;
+
+    /// The exact payload `HostForm.tsx` and `AwsImportPanel.tsx` send.
+    ///
+    /// Written by hand rather than produced by serialising a Rust value: a
+    /// Rust round trip agrees with itself whatever the casing is, which is
+    /// precisely why this went unnoticed. The frontend says `keyId`; if Rust
+    /// ever stops reading that, a keychain-backed key silently becomes "no
+    /// key" — no error at either end, and the connection fails much later
+    /// with a misleading message about a key file.
+    #[test]
+    fn reads_the_camel_cased_key_id_the_frontend_sends() {
+        let json = r#"{"privateKey":{"path":"","keyId":"11111111-2222-3333-4444-555555555555"}}"#;
+        let parsed: AuthMethod = serde_json::from_str(json).expect("doit se désérialiser");
+        match parsed {
+            AuthMethod::PrivateKey { key_id, .. } => {
+                assert_eq!(
+                    key_id.map(|id| id.to_string()).as_deref(),
+                    Some("11111111-2222-3333-4444-555555555555"),
+                    "le keyId envoyé par le frontend doit arriver jusqu'au modèle"
+                );
+            }
+            other => panic!("variante inattendue : {other:?}"),
+        }
+    }
+
+    /// ...and it must go back out under the same name, or the host form would
+    /// load with no key selected even though one is stored.
+    #[test]
+    fn writes_the_key_id_back_as_camel_case() {
+        let auth = AuthMethod::PrivateKey {
+            path: "/home/u/.ssh/id_ed25519".to_string(),
+            key_id: Some(KeyId::nil()),
+        };
+        let json = serde_json::to_value(&auth).unwrap();
+        assert!(
+            json["privateKey"].get("keyId").is_some(),
+            "sérialisé en {json}, le frontend lit keyId"
+        );
+    }
+
+    /// `workspace.json` files written before the rename contain `key_id`.
+    /// Without the alias they would still parse — into `None` — and every
+    /// already-configured keychain key would detach on upgrade.
+    #[test]
+    fn still_reads_the_snake_cased_form_already_on_disk() {
+        let json = r#"{"privateKey":{"path":"/k","key_id":"11111111-2222-3333-4444-555555555555"}}"#;
+        let parsed: AuthMethod = serde_json::from_str(json).expect("les anciens fichiers doivent rester lisibles");
+        match parsed {
+            AuthMethod::PrivateKey { key_id, .. } => assert!(key_id.is_some()),
+            other => panic!("variante inattendue : {other:?}"),
+        }
+    }
+
+    /// A key given by path carries no id, and that has to stay expressible.
+    #[test]
+    fn a_key_without_an_id_stays_none() {
+        let json = r#"{"privateKey":{"path":"/home/u/.ssh/id_ed25519","keyId":null}}"#;
+        let parsed: AuthMethod = serde_json::from_str(json).unwrap();
+        assert_eq!(
+            parsed,
+            AuthMethod::PrivateKey { path: "/home/u/.ssh/id_ed25519".to_string(), key_id: None }
+        );
+    }
+
+    /// The other variants are plain strings on the wire; renaming fields must
+    /// not have disturbed them.
+    #[test]
+    fn the_simple_variants_are_unchanged() {
+        assert_eq!(serde_json::to_string(&AuthMethod::Agent).unwrap(), "\"agent\"");
+        assert_eq!(
+            serde_json::to_string(&AuthMethod::KeyboardInteractive).unwrap(),
+            "\"keyboardInteractive\""
+        );
+        let parsed: AuthMethod = serde_json::from_str("\"password\"").unwrap();
+        assert_eq!(parsed, AuthMethod::Password);
     }
 }
 
