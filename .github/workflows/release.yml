@@ -96,18 +96,51 @@ jobs:
           mkdir -p ../src-tauri/binaries
           cp target/release/rdp-sidecar "../src-tauri/binaries/rdp-sidecar-$TRIPLE"
 
+      # macOS code signing + notarization, wired but dormant until the Apple
+      # secrets exist (see RELEASING.md, "Signature par le système
+      # d'exploitation"). Without them the .app ships with only the ad-hoc
+      # signature the linker puts on every arm64 binary, and Gatekeeper does
+      # not say "unverified developer" — it says the app is **damaged and
+      # should be moved to the Trash** (issue #27), which on macOS 15+ can no
+      # longer be dismissed by right-click → Open.
+      #
+      # Why a step that writes to $GITHUB_ENV instead of plain `env:` entries
+      # on the build step below: a GitHub secret that doesn't exist still
+      # yields a *defined but empty* environment variable, and tauri-bundler
+      # only tests for presence (`var_os("APPLE_CERTIFICATE")`, see its
+      # macos/sign.rs). Passing them unconditionally would therefore make it
+      # import an empty .p12 and fail every macOS build until the day the
+      # secrets are added — so export each variable only when it is non-empty.
+      - name: Export Apple signing credentials (no-op until the secrets exist)
+        if: startsWith(matrix.platform, 'macos')
+        shell: bash
+        env:
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          if [ -z "$APPLE_CERTIFICATE" ]; then
+            echo "::warning title=Unsigned macOS build::No APPLE_CERTIFICATE secret configured — the .app will be unsigned and Gatekeeper will report it as damaged on the user's machine. See RELEASING.md."
+            exit 0
+          fi
+          for var in APPLE_CERTIFICATE APPLE_CERTIFICATE_PASSWORD \
+                     APPLE_SIGNING_IDENTITY APPLE_ID APPLE_PASSWORD APPLE_TEAM_ID; do
+            eval "value=\${$var}"
+            # An empty APPLE_ID/APPLE_TEAM_ID would make the bundler attempt
+            # notarization with blank credentials rather than skip it.
+            [ -n "$value" ] || continue
+            printf '%s<<__GUITERM_EOF__\n%s\n__GUITERM_EOF__\n' "$var" "$value" >> "$GITHUB_ENV"
+          done
+          echo "Apple signing credentials exported for this job."
+
       # `TAURI_SIGNING_*` below signs the *updater* artifacts (minisign) — it
       # is what makes the in-app updater trust a release, and is unrelated to
-      # OS code signing. Neither platform is OS-signed today:
-      #   - Windows: no Authenticode certificate, so SmartScreen warns on
-      #     first run of every new release.
-      #   - macOS: no Apple Developer ID, so Gatekeeper refuses to open the
-      #     .dmg outright ("cannot be opened because the developer cannot be
-      #     verified") — users have to right-click → Open, or clear the
-      #     quarantine attribute by hand. Worth stating in the release notes
-      #     until a certificate exists; tauri-action reads APPLE_CERTIFICATE /
-      #     APPLE_SIGNING_IDENTITY / APPLE_ID / APPLE_PASSWORD / APPLE_TEAM_ID
-      #     from the environment once there is one to add.
+      # the OS-level signing above. Windows is still unsigned either way (no
+      # Authenticode certificate), so SmartScreen warns on first run of every
+      # new release.
       - name: Build and publish
         uses: tauri-apps/tauri-action@v0
         env:
