@@ -184,6 +184,18 @@ pub fn spawn(
         // goes, so must it, or every closed session leaks a process.
         .kill_on_drop(true);
 
+    // Windows gives a console to any console subsystem process it starts, and
+    // `cmd.exe` is one — so without this a black console window pops up in
+    // front of the app and sits there for the whole session. The helper has no
+    // use for a console of its own: all three of its streams are pipes we
+    // hold.
+    #[cfg(windows)]
+    {
+        /// `CREATE_NO_WINDOW` — from the Win32 process creation flags.
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        builder.creation_flags(CREATE_NO_WINDOW);
+    }
+
     let mut child = builder
         .spawn()
         .map_err(|e| anyhow::anyhow!("could not start the proxy command '{command}': {e}"))?;
