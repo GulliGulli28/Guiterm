@@ -1,16 +1,18 @@
 import { useEffect, useRef, useState } from "react";
 import type { TabMeta } from "../lib/types";
-import { IconTerminal, IconTransfer, IconMonitor, IconSplit, IconClose, IconBroadcast, IconDatabase } from "./ui-icons";
+import { IconTerminal, IconTransfer, IconMonitor, IconSplit, IconClose, IconBroadcast, IconDatabase, IconFullscreen, IconFullscreenExit } from "./ui-icons";
 
 interface TabBarProps {
   tabs: TabMeta[];
   activeTabId: string | null;
   splitOpen: boolean;
   broadcastActive: boolean;
+  fullscreen: boolean;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   onToggleSplit: () => void;
   onToggleBroadcast: () => void;
+  onToggleFullscreen: () => void;
   onReorder: (tabs: TabMeta[]) => void;
   /** Resolves a tab to its host group's tag color (hex), if any. */
   tabColor?: (tab: TabMeta) => string | undefined;
@@ -24,7 +26,7 @@ function TabIcon({ kind }: { kind: TabMeta["kind"] }) {
   return <IconMonitor size={13} />;
 }
 
-export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, onSelect, onClose, onToggleSplit, onToggleBroadcast, onReorder, tabColor }: TabBarProps) {
+export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, fullscreen, onSelect, onClose, onToggleSplit, onToggleBroadcast, onToggleFullscreen, onReorder, tabColor }: TabBarProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const dragState = useRef<{ draggedId: string; moved: boolean; startX: number } | null>(null);
   const [draggedId, setDraggedId] = useState<string | null>(null);
@@ -123,6 +125,21 @@ export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, onSelect
         }`}
       >
         <IconSplit size={15} />
+      </button>
+      {/* Here rather than among the window controls: in fullscreen the title
+          bar is hidden, so this row is the only chrome left on screen — and
+          the way back out has to stay visible. */}
+      <button
+        onClick={onToggleFullscreen}
+        title={fullscreen ? "Quitter le plein écran (F11)" : "Plein écran (F11)"}
+        aria-label={fullscreen ? "Quitter le plein écran" : "Plein écran"}
+        className={`flex shrink-0 items-center justify-center rounded-lg border p-1.5 transition-all ${
+          fullscreen
+            ? "accent-surface"
+            : "border-transparent text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)] hover:text-[var(--c-text)]"
+        }`}
+      >
+        {fullscreen ? <IconFullscreenExit size={15} /> : <IconFullscreen size={15} />}
       </button>
     </div>
   );

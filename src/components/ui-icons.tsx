@@ -364,3 +364,19 @@ export function IconRefresh({ size = 16, className }: P) {
     </svg>
   );
 }
+
+export function IconFullscreen({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path d="M2 6V2.5h3.5M10.5 2H14v3.5M14 10v3.5h-3.5M5.5 14H2v-3.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+export function IconFullscreenExit({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path d="M5.5 2v3.5H2M14 5.5h-3.5V2M10.5 14v-3.5H14M2 10.5h3.5V14" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}

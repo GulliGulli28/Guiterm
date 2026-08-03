@@ -305,18 +305,35 @@ async function runZoomScenario(browser) {
 }
 
 /**
- * F11 toggles real fullscreen and hides the app's own title bar.
+ * F11 toggles real fullscreen, hides the app's own title bar, and the window
+ * actually covers the screen.
  *
- * Sent while a terminal has focus on purpose: xterm swallows every key it
- * handles, so this also covers `shouldBubbleToShortcut` letting F11 through —
- * without which the shortcut would work everywhere *except* where the user
- * actually is.
+ * F11 is sent while a terminal has focus on purpose: xterm swallows every key
+ * it handles, so this also covers `shouldBubbleToShortcut` letting F11
+ * through — without which the shortcut would work everywhere *except* where
+ * the user actually is.
+ *
+ * Entered from a **maximized** window on purpose too. That's the state the
+ * gap-at-the-bottom bug needed: asking an already-maximized undecorated
+ * window to go fullscreen left it at the work-area height (screen minus
+ * taskbar) while still reporting itself as fullscreen. From a normal window
+ * the same call has always worked, so testing only that would have proved
+ * nothing.
  */
 async function runFullscreenScenario(browser) {
   const titleBarVisible = () =>
     browser.execute(() => document.querySelector('[aria-label="Réduire"]') !== null);
+  const viewport = () =>
+    browser.execute(() => ({ inner: window.innerHeight, screen: window.screen.height }));
 
   if (!(await titleBarVisible())) throw new Error("la barre de titre est absente avant même de passer en plein écran");
+
+  await browser.$('[aria-label="Agrandir"]').click();
+  await browser.waitUntil(async () => (await viewport()).inner > 800, {
+    timeout: 5_000,
+    timeoutMsg: "la fenêtre ne s'est pas maximisée",
+  });
+  const maximizedHeight = (await viewport()).inner;
 
   await browser.keys("F11");
   await browser.waitUntil(async () => !(await titleBarVisible()), {
@@ -324,12 +341,35 @@ async function runFullscreenScenario(browser) {
     timeoutMsg: "F11 n'a pas masqué la barre de titre — plein écran refusé (capability manquante ?) ou raccourci avalé par xterm",
   });
 
-  await browser.keys("F11");
+  // The assertion the bug report came down to: "ça ne prend pas l'entièreté
+  // de l'écran". A couple of pixels of tolerance for rounding at non-integer
+  // display scaling; the bug itself was ~48px (the taskbar).
+  await browser.waitUntil(async () => {
+    const { inner, screen } = await viewport();
+    return Math.abs(inner - screen) <= 2;
+  }, {
+    timeout: 5_000,
+    timeoutMsg: async () => {
+      const { inner, screen } = await viewport();
+      return `la fenêtre plein écran ne couvre pas l'écran : ${inner}px de hauteur utile pour un écran de ${screen}px`;
+    },
+  });
+
+  // Out again through the TabBar button rather than F11 — it's the control
+  // the user reaches for, and in fullscreen it's the only one left on screen.
+  await browser.$('[aria-label="Quitter le plein écran"]').click();
   await browser.waitUntil(async () => await titleBarVisible(), {
     timeout: 5_000,
-    timeoutMsg: "F11 n'a pas fait revenir la barre de titre — on ne peut plus sortir du plein écran",
+    timeoutMsg: "le bouton plein écran de la barre d'onglets n'a pas fait revenir la barre de titre",
   });
-  console.log("Plein écran : OK (F11 depuis un terminal, aller-retour).");
+
+  // ...and the window is back the way it was found, not restored to some
+  // earlier smaller size.
+  const restored = (await viewport()).inner;
+  if (Math.abs(restored - maximizedHeight) > 2) {
+    throw new Error(`sortie du plein écran : fenêtre à ${restored}px au lieu de retrouver son état maximisé (${maximizedHeight}px)`);
+  }
+  console.log("Plein écran : OK (depuis une fenêtre maximisée, couvre l'écran, retour à l'état d'origine).");
 }
 
 async function main() {

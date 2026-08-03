@@ -389,7 +389,6 @@ export default function App() {
       sidebarVisible={sidebarVisible}
       onToggleSidebar={() => setSidebarVisible((v) => !v)}
       fullscreen={fullscreen}
-      onToggleFullscreen={toggleFullscreen}
       notifications={notifications}
       onDismissNotification={dismissNotification}
       onClearAllNotifications={clearAllNotifications}
@@ -483,10 +482,12 @@ export default function App() {
           activeTabId={activeTabId}
           splitOpen={splitOpen}
           broadcastActive={broadcastMode}
+          fullscreen={fullscreen}
           onSelect={setActiveTabId}
           onClose={requestCloseTab}
           onToggleSplit={toggleSplit}
           onToggleBroadcast={toggleBroadcastMode}
+          onToggleFullscreen={toggleFullscreen}
           onReorder={setTabs}
           tabColor={tabColor}
         />

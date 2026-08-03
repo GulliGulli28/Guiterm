@@ -25,6 +25,10 @@ export function useFullscreen(onError: (message: string) => void): {
   const [fullscreen, setFullscreen] = useState(false);
   const fullscreenRef = useRef(false);
   useEffect(() => { fullscreenRef.current = fullscreen; }, [fullscreen]);
+  // Whether the window was maximized when fullscreen was entered, so leaving
+  // it puts the window back the way it was found rather than restoring to
+  // some earlier, smaller size.
+  const wasMaximizedRef = useRef(false);
 
   useEffect(() => {
     const sync = () => { appWindow.isFullscreen().then(setFullscreen).catch(() => {}); };
@@ -35,9 +39,24 @@ export function useFullscreen(onError: (message: string) => void): {
 
   const toggleFullscreen = useCallback(() => {
     const next = !fullscreenRef.current;
-    appWindow.setFullscreen(next)
-      .then(() => setFullscreen(next))
-      .catch((e) => onError(`Plein écran impossible : ${e}`));
+    (async () => {
+      if (next) {
+        // Un-maximize first. On Windows, asking an already-maximized
+        // undecorated window to go fullscreen leaves it at the *work area*
+        // size — the screen minus the taskbar — while still reporting itself
+        // as fullscreen: a strip of desktop stays visible along the bottom
+        // and nothing ever corrects it. Measured through WebView2: 1032px on
+        // a 1080px screen. From a normal window the same call is fine, so the
+        // fix is to never make that call from the maximized state.
+        wasMaximizedRef.current = await appWindow.isMaximized();
+        if (wasMaximizedRef.current) await appWindow.unmaximize();
+        await appWindow.setFullscreen(true);
+      } else {
+        await appWindow.setFullscreen(false);
+        if (wasMaximizedRef.current) await appWindow.maximize();
+      }
+      setFullscreen(next);
+    })().catch((e) => onError(`Plein écran impossible : ${e}`));
   }, [onError]);
 
   return { fullscreen, toggleFullscreen };
