@@ -32,7 +32,11 @@ This changelog starts 2026-07-21 — for earlier versions, see
   when something went wrong.
 - Settings → Appearance: "Terminal GPU acceleration" (on by default) and a
   render-performance readout, to compare both renderers on your own machine.
-- macOS builds are now produced on release, for Apple Silicon and Intel.
+- macOS builds are now produced on release. (Corrected after the fact: this
+  entry originally said "for Apple Silicon and Intel", but the Intel job of
+  that release never got a runner and was cancelled, so only the Apple
+  Silicon `.dmg` shipped. macOS builds are also unsigned — macOS reports them
+  as damaged on first launch; see the README for the workaround.)
 
 ### Changed
 - SSH connections are shared between everything that talks to the same host.

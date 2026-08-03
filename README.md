@@ -177,12 +177,34 @@ for clipboard sync) — is written up in
 
 Download the latest installer for your platform from the
 [Releases](https://github.com/GulliGulli28/Guiterm/releases) page
-(Windows `.msi`/`.exe`, Linux `.deb`/`.rpm`/AppImage). The app updates
-itself afterward (silent check on launch, or Settings → General → "Check
-for updates").
+(Windows `.msi`/`.exe`, Linux `.deb`/`.rpm`/AppImage, macOS `.dmg`). The app
+updates itself afterward (silent check on launch, or Settings → General →
+"Check for updates").
 
-macOS isn't built yet — there's no technical blocker, just no CI runner for
-it configured so far. Contributions welcome; see [Contributing](#contributing).
+### macOS: "Guiterm is damaged and can't be opened"
+
+That message is Gatekeeper, not a corrupted download. The app is not signed
+with an Apple Developer ID yet, and macOS words its refusal that way for
+unsigned apps under quarantine — instead of the milder "unidentified
+developer" prompt it shows for apps that are signed but not notarized. The
+file itself is fine.
+
+To run it, clear the quarantine attribute after copying the app into
+`/Applications`:
+
+```bash
+xattr -dr com.apple.quarantine /Applications/Guiterm.app
+```
+
+Or open **System Settings → Privacy & Security**, scroll to the message
+saying Guiterm was blocked, and click **Open Anyway**. Right-click → Open,
+the workaround you'll find in older write-ups, no longer bypasses this on
+macOS 15 and later.
+
+Only Apple Silicon is published so far — the Intel job of the release
+workflow didn't complete for 2.4.0. Signing and notarization are wired into
+the release workflow already, waiting on an Apple Developer ID; see
+[`RELEASING.md`](RELEASING.md) for what that involves.
 
 ## Development
 
@@ -283,7 +305,12 @@ the hard way:
   fixed that way (see `CLAUDE.md` in this repo for the blow-by-blow if
   you're curious). Upload/download also buffer the whole file in memory via
   a tar stream — fine for configs and code, not for multi-gigabyte files.
-- **macOS** isn't built or tested at all yet.
+- **macOS** builds are unsigned and un-notarized, so Gatekeeper refuses them
+  on first launch with a "damaged" message — see
+  [Installation](#macos-guiterm-is-damaged-and-cant-be-opened) for the
+  workaround. Only Apple Silicon is published (the Intel job didn't complete
+  for 2.4.0), and the macOS build gets far less real-world use than the
+  Windows and Linux ones.
 
 ## Roadmap
 
