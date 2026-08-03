@@ -23,13 +23,30 @@ async fn run_command(
     channel.exec(true, command).await.expect("exec");
 
     let mut output = Vec::new();
-    loop {
-        match channel.wait().await {
-            Some(russh::ChannelMsg::Data { data }) => output.extend_from_slice(&data),
-            Some(russh::ChannelMsg::ExitStatus { .. }) | None => break,
-            _ => {}
+    // Read to the *end of the channel*, not to the exit status.
+    //
+    // `exit-status` says the remote program has exited; it says nothing about
+    // the client having received everything the program wrote. They are
+    // separate messages, and stopping at the first one discards whatever is
+    // still in flight behind it — silently, as an empty or truncated string
+    // that then fails an assertion with no hint as to why. That is what these
+    // tests did on the macOS runner while passing everywhere else: the same
+    // race, decided differently by a slower machine under more load.
+    //
+    // The channel ending (`None`, after EOF and close) is the only signal that
+    // means "there is nothing more".
+    let read = async {
+        while let Some(message) = channel.wait().await {
+            if let russh::ChannelMsg::Data { data } = message {
+                output.extend_from_slice(&data);
+            }
         }
-    }
+    };
+    // Bounded so a channel that never closes fails as a readable timeout here
+    // rather than as a job-level timeout twenty minutes later.
+    tokio::time::timeout(std::time::Duration::from_secs(30), read)
+        .await
+        .expect("le canal doit se fermer");
     String::from_utf8(output).unwrap()
 }
 
@@ -45,6 +62,16 @@ async fn direct_connection_runs_a_command() {
 
     let output = run_command(&workspace, host_id, "echo hello-from-test-sshd").await;
     assert_eq!(output.trim(), "hello-from-test-sshd");
+
+    // Output large enough to span many SSH packets, reusing the same server
+    // rather than starting a second one: a one-line `echo` fits in a single
+    // message and hides any question of what happens around the exit status,
+    // where several thousand lines do not. This is the case `run_command`'s
+    // read loop exists for.
+    let long = run_command(&workspace, host_id, "seq 1 20000").await;
+    let lines: Vec<_> = long.lines().collect();
+    assert_eq!(lines.len(), 20_000, "sortie tronquée : {} lignes reçues", lines.len());
+    assert_eq!(lines.last(), Some(&"20000"), "la fin de la sortie a été perdue");
 }
 
 #[tokio::test]
@@ -126,10 +153,10 @@ async fn proxy_command_reaches_the_target() {
 /// about the expired login or mistyped instance id behind it.
 #[tokio::test]
 async fn a_failing_proxy_command_reports_its_own_error() {
-    let key = ClientKey::generate();
-    let sshd = TestSshd::start("proxy-cmd-fail", &key.public);
-
-    let mut host = test_host(&sshd, &key, "test-proxy-fail");
+    // No `TestSshd` here on purpose: the helper exits before anything is
+    // connected to, so a server would only be an extra process for the runner
+    // to carry — and this suite already starts several.
+    let mut host = termius_core::model::Host::new("test-proxy-fail", "127.0.0.1", "u");
     host.proxy_command = Some("echo 'identifiants expires' >&2; exit 1".to_string());
     let host_id = host.id;
 
