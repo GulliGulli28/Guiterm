@@ -77,9 +77,24 @@ impl ProxyProcess {
     /// far is the best answer available. Only ever called on the failure path.
     pub async fn stderr_flushed(&mut self) -> String {
         if let Some(task) = self.reader.take() {
-            let _ = tokio::time::timeout(std::time::Duration::from_millis(500), task).await;
+            let _ = tokio::time::timeout(std::time::Duration::from_millis(1500), task).await;
         }
         self.stderr_snapshot()
+    }
+
+    /// A ready-to-show account of what was run and what it said, for the
+    /// connection error. The expanded command line belongs in there: the user
+    /// wrote a template with `%h`/`%p` in it, so seeing the line that actually
+    /// executed is often the whole diagnosis — a token that didn't expand, an
+    /// instance id landing where a hostname was expected.
+    pub async fn failure_detail(&mut self) -> String {
+        let stderr = self.stderr_flushed().await;
+        let mut detail = format!("commande : {}", self.command);
+        if !stderr.is_empty() {
+            detail.push('\n');
+            detail.push_str(&stderr);
+        }
+        detail
     }
 
     /// The command line as actually run, after token expansion.
@@ -119,6 +134,16 @@ pub fn expand(template: &str, address: &str, port: u16, username: &str) -> Strin
     out
 }
 
+/// A directory the helper can safely be started in: the user's home, falling
+/// back to the temp directory. Both are always local paths, which is the point
+/// — see the `current_dir` call in [`spawn`].
+fn helper_working_dir() -> std::path::PathBuf {
+    directories::BaseDirs::new()
+        .map(|dirs| dirs.home_dir().to_path_buf())
+        .filter(|home| home.is_dir())
+        .unwrap_or_else(std::env::temp_dir)
+}
+
 /// Launches `template` (after [`expand`]) and returns the helper plus the byte
 /// stream to run the SSH handshake over.
 ///
@@ -148,6 +173,13 @@ pub fn spawn(
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
+        // Never inherit the app's own working directory. A helper has no
+        // business depending on where the app was launched from — and on
+        // Windows it actively breaks: `cmd.exe` refuses to run with a UNC path
+        // (`\\server\share\...`) as its current directory, printing "UNC paths
+        // are not supported" to stderr before falling back. That warning then
+        // surfaces as the connection's error message, hiding the real cause.
+        .current_dir(helper_working_dir())
         // The helper exists only to carry this connection; when the connection
         // goes, so must it, or every closed session leaks a process.
         .kill_on_drop(true);
@@ -269,6 +301,32 @@ mod tests {
         assert!(
             flushed.contains(message),
             "stderr du helper perdu sur le chemin d'erreur : {flushed:?}"
+        );
+    }
+
+    /// The helper starts in a directory of our choosing, not wherever the app
+    /// happened to be launched from.
+    ///
+    /// Found in real use: the app had been started from a UNC path
+    /// (`\\wsl.localhost\...`), `cmd.exe` refuses to run with one as its
+    /// current directory, and its "UNC paths are not supported" warning went
+    /// out on stderr — where it landed in the user's connection error,
+    /// looking like the cause of a failure it had nothing to do with.
+    #[tokio::test]
+    async fn the_helper_does_not_inherit_the_apps_working_directory() {
+        let (mut proxy, _transport) =
+            spawn(if cfg!(windows) { "cd 1>&2" } else { "pwd >&2" }, "srv", 22, "u")
+                .expect("spawning a shell command should succeed");
+
+        let reported = proxy.stderr_flushed().await;
+        assert_eq!(
+            std::path::Path::new(reported.trim()),
+            helper_working_dir(),
+            "le helper doit démarrer dans le dossier choisi, pas dans celui de l'app"
+        );
+        assert!(
+            !reported.trim_start().starts_with("\\\\"),
+            "un chemin UNC comme dossier courant est exactement ce que cmd.exe refuse : {reported:?}"
         );
     }
 

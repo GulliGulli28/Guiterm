@@ -528,19 +528,12 @@ async fn connect_chain(workspace: &Workspace, chain: Vec<&Host>) -> anyhow::Resu
             {
                 Ok(handle) => handle,
                 Err(e) => {
-                    let stderr = proxy.stderr_flushed().await;
+                    let detail = proxy.failure_detail().await;
                     return Err(mismatch_error(&first_mismatch, || {
-                        if stderr.is_empty() {
-                            anyhow::anyhow!(
-                                "the proxy command for '{}' did not establish a connection: {e}",
-                                first.label
-                            )
-                        } else {
-                            anyhow::anyhow!(
-                                "the proxy command for '{}' did not establish a connection: {e}\n{stderr}",
-                                first.label
-                            )
-                        }
+                        anyhow::anyhow!(
+                            "the proxy command for '{}' did not establish a connection: {e}\n{detail}",
+                            first.label
+                        )
                     }));
                 }
             };
