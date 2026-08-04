@@ -167,7 +167,45 @@ pub async fn connect(workspace: &Workspace, conn: &SqlConnection) -> anyhow::Res
         }
     };
 
-    let client = match mongodb::Client::with_uri_str(&uri).await {
+    // Refused up front rather than left to fail as an opaque TLS error: the
+    // driver would dial `127.0.0.1` and reject a certificate issued for the
+    // real endpoint, and "certificate not valid for name" says nothing about
+    // the tunnel being the cause. See `MongoConfig::tls_insecure`.
+    if mongo.tls && tunnel.is_some() && !mongo.tls_insecure {
+        if let Some((connection, active)) = tunnel {
+            active.stop(&connection).await;
+        }
+        anyhow::bail!(
+            "TLS à travers un tunnel SSH : le certificat du serveur ne peut pas correspondre à \
+             127.0.0.1, l'adresse locale du tunnel. Cocher « ne pas vérifier le certificat » sur \
+             cette connexion, ou se connecter sans tunnel."
+        );
+    }
+
+    let build = async {
+        let mut options = mongodb::options::ClientOptions::parse(&uri).await?;
+        if mongo.tls {
+            let mut tls_options = mongodb::options::TlsOptions::default();
+            if let Some(path) = mongo.tls_ca_file.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+                tls_options.ca_file_path = Some(std::path::PathBuf::from(path));
+            }
+            // Through a tunnel the URI now says `127.0.0.1`, which no server
+            // certificate will ever carry — the name the certificate is issued
+            // for is the one on the far side of the forward. Host *identity*
+            // here is established by SSH (we chose the host, and the forward
+            // goes where we told it), so what TLS still has to prove is the
+            // certificate chain, which stays verified. Only the name check is
+            // dropped, and only when tunnelling.
+            if mongo.tls_insecure {
+                tls_options.allow_invalid_certificates = Some(true);
+            }
+            options.tls = Some(mongodb::options::Tls::Enabled(tls_options));
+        }
+        mongodb::Client::with_options(options)
+    }
+    .await;
+
+    let client = match build {
         Ok(client) => client,
         Err(e) => {
             // The client never came up — nothing to close, but the tunnel

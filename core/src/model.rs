@@ -442,6 +442,38 @@ pub struct MongoConfig {
     /// failover assumes it can reach every member directly).
     #[serde(default)]
     pub tunnel_host_id: Option<HostId>,
+    /// Require TLS. DocumentDB accepts nothing else by default, and a plain
+    /// `mongodb://` dial to it hangs rather than failing.
+    #[serde(default)]
+    pub tls: bool,
+    /// A PEM bundle to verify the server against, when the system trust store
+    /// isn't enough.
+    ///
+    /// Empty is the right answer for MongoDB Atlas and for DocumentDB clusters
+    /// whose certificates chain to a public root — the system store covers
+    /// those. It is *not* enough for clusters still presenting the private
+    /// Amazon RDS authority, and that is the case this field exists for:
+    /// download `global-bundle.pem` from AWS and point here. Deliberately a
+    /// path rather than a bundle shipped inside the app, which would make
+    /// Guiterm responsible for keeping a certificate store current.
+    #[serde(default)]
+    pub tls_ca_file: Option<String>,
+    /// Connect over TLS without verifying the server's certificate.
+    ///
+    /// Exists for one situation, and is off unless asked for. Through an SSH
+    /// tunnel the driver dials `127.0.0.1`, which no server certificate
+    /// carries — the name it was issued for is on the far side of the
+    /// forward. The Rust driver has no "skip the *name* check only" option
+    /// (unlike `mongosh --tlsAllowInvalidHostnames`), so the only way through
+    /// is to skip verification entirely.
+    ///
+    /// What that costs is bounded but real: the tunnel's far end is already
+    /// chosen and authenticated by SSH, and the leg from there to the database
+    /// stays inside the provider's network — but a certificate is no longer
+    /// proof of anything on that leg. Which is why nothing sets this on the
+    /// user's behalf.
+    #[serde(default)]
+    pub tls_insecure: bool,
 }
 
 /// Everything a [`SqlConnection`] needs to dial its engine, as a sum type so

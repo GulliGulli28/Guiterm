@@ -3,19 +3,14 @@
 //! Same footing as [`crate::aws_inventory`] — no SDK, no credentials of our
 //! own — but pointed at the managed data stores instead of EC2. Every engine
 //! AWS manages that this app already speaks has a counterpart here:
-//! RDS/Aurora for MySQL and PostgreSQL, ElastiCache for Redis. Nothing new is
-//! implemented; existing connections are discovered instead of typed.
+//! RDS/Aurora for MySQL and PostgreSQL, ElastiCache for Redis, DocumentDB for
+//! MongoDB. Nothing new is implemented; existing connections are discovered
+//! instead of typed.
 //!
 //! **What is deliberately *not* importable** is as much the point as what is.
-//! A managed database this app cannot actually reach is listed with the reason
-//! rather than hidden or, worse, imported into a connection that fails later:
-//!
-//! - Oracle and SQL Server — engines the app doesn't speak at all.
-//! - DocumentDB — requires TLS signed by the Amazon RDS certificate authority,
-//!   which is not in any system trust store and which this app does not carry.
-//!
-//! Each of those is a real gap with a real fix; showing them is what makes the
-//! gap actionable instead of mysterious.
+//! Oracle and SQL Server are engines this app doesn't speak, so they are listed
+//! with that reason rather than hidden — or worse, imported into a connection
+//! that fails later. A real gap shown is a gap someone can act on.
 
 use crate::aws_inventory::{AwsCliError, run_aws};
 use crate::model::SqlEngine;
@@ -67,12 +62,6 @@ pub fn map_engine(engine: &str) -> (Option<SqlEngine>, Option<String>) {
     let engine = engine.to_ascii_lowercase();
     let unsupported = |reason: &str| (None, Some(reason.to_string()));
 
-    if engine.contains("docdb") {
-        return unsupported(
-            "DocumentDB impose TLS signé par l'autorité de certification Amazon RDS, \
-             que Guiterm n'embarque pas — la connexion échouerait à la négociation.",
-        );
-    }
     if engine.contains("oracle") || engine.contains("sqlserver") {
         return unsupported("Moteur non géré par Guiterm.");
     }
@@ -84,6 +73,13 @@ pub fn map_engine(engine: &str) -> (Option<SqlEngine>, Option<String>) {
         // dialled as `rediss://`; ElastiCache's certificates chain to a public
         // CA, so the system trust store is enough.
         return (Some(SqlEngine::Redis), None);
+    }
+    if engine.contains("docdb") {
+        // Imported with `tls` set. Whether the system trust store is enough
+        // depends on the cluster's certificate generation, so the connection
+        // also carries an optional CA bundle path the user can fill in — see
+        // `MongoConfig::tls_ca_file`.
+        return (Some(SqlEngine::Mongodb), None);
     }
     if engine.contains("postgres") {
         return (Some(SqlEngine::Postgres), None);
@@ -133,7 +129,9 @@ pub fn parse_clusters(json: &str, service: &str) -> Result<Vec<AwsDatabase>, Aws
             address,
             supported_engine,
             unsupported_reason,
-            tls: false,
+            // DocumentDB refuses anything else; RDS/Aurora negotiate through
+            // the driver's own defaults and need no flag here.
+            tls: supported_engine == Some(SqlEngine::Mongodb),
         });
     }
     Ok(out)
@@ -449,13 +447,23 @@ mod tests {
         assert!(!parse_replication_groups(json).unwrap()[0].tls);
     }
 
-    /// DocumentDB is reachable only over TLS signed by the Amazon RDS CA,
-    /// which isn't in any system trust store and isn't shipped here.
+    /// DocumentDB speaks the MongoDB protocol and is imported as such — over
+    /// TLS, which it accepts nothing else than.
     #[test]
-    fn documentdb_is_refused_with_the_certificate_reason() {
-        let (engine, reason) = map_engine("docdb");
-        assert_eq!(engine, None);
-        assert!(reason.unwrap().contains("Amazon RDS"));
+    fn documentdb_is_imported_as_mongodb_over_tls() {
+        assert_eq!(map_engine("docdb").0, Some(SqlEngine::Mongodb));
+        let json = r#"{"DBClusters":[{
+            "DBClusterIdentifier": "docs",
+            "Engine": "docdb",
+            "Status": "available",
+            "MasterUsername": "docadmin",
+            "Endpoint": "docs.cluster-abc.eu-west-3.docdb.amazonaws.com",
+            "Port": 27017
+        }]}"#;
+        let found = parse_clusters(json, "DocumentDB").unwrap();
+        assert_eq!(found[0].supported_engine, Some(SqlEngine::Mongodb));
+        assert!(found[0].tls, "DocumentDB n'accepte que TLS");
+        assert!(found[0].importable());
     }
 
     #[test]

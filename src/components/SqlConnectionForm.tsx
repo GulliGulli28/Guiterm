@@ -62,6 +62,9 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
   const [engine, setEngine] = useState<SqlEngine>(connection?.engine ?? "mysql");
   const [tunnelHostId, setTunnelHostId] = useState(existingServer?.tunnelHostId ?? existingMongo?.tunnelHostId ?? "");
   const [tls, setTls] = useState(existingServer?.tls ?? false);
+  const [mongoTls, setMongoTls] = useState(existingMongo?.tls ?? false);
+  const [mongoCaFile, setMongoCaFile] = useState(existingMongo?.tlsCaFile ?? "");
+  const [mongoInsecure, setMongoInsecure] = useState(existingMongo?.tlsInsecure ?? false);
   const [address, setAddress] = useState(existingServer?.address ?? "");
   const [port, setPort] = useState(String(existingServer?.port ?? DEFAULT_PORTS.mysql));
   const [username, setUsername] = useState(existingServer?.username ?? existingMongo?.username ?? "");
@@ -130,6 +133,9 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
         connectionString: connectionString.trim(),
         username: username.trim(),
         tunnelHostId: tunnelHostId || null,
+        tls: mongoTls,
+        tlsCaFile: mongoCaFile.trim() || null,
+        tlsInsecure: mongoInsecure,
         groupId: null,
         tags: [],
         secret: password || null,
@@ -242,6 +248,33 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
                     <option key={h.id} value={h.id}>Tunnel SSH via {h.label}</option>
                   ))}
               </select>
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={mongoTls} onChange={(e) => setMongoTls(e.target.checked)} className="h-4 w-4 accent-[var(--c-accent)]" />
+                <span className="text-xs text-[var(--c-text-secondary)]">
+                  Connexion chiffrée (TLS)
+                  <span className="ml-1 text-[var(--c-text-faint)]">— exigé par DocumentDB</span>
+                </span>
+              </label>
+              {mongoTls && (
+                <>
+                  <input
+                    value={mongoCaFile}
+                    onChange={(e) => setMongoCaFile(e.target.value)}
+                    placeholder="Bundle CA (optionnel) — vide : magasin de certificats du système"
+                    className={`${inputClass} w-full font-mono`}
+                  />
+                  <label className="flex items-start gap-2">
+                    <input type="checkbox" checked={mongoInsecure} onChange={(e) => setMongoInsecure(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[var(--c-accent)]" />
+                    <span className="text-xs text-[var(--c-text-secondary)]">
+                      Ne pas vérifier le certificat
+                      <span className="ml-1 text-[var(--c-text-faint)]">
+                        — nécessaire pour combiner TLS et tunnel SSH : le certificat du serveur ne peut
+                        pas correspondre à l'adresse locale du tunnel.
+                      </span>
+                    </span>
+                  </label>
+                </>
+              )}
               {tunnelHostId && !isTunnelableMongoUri(connectionString) && (
                 <p className="px-0.5 text-[11px] leading-relaxed text-amber-400">
                   Le tunnel SSH ne fonctionne qu'avec une chaîne mongodb:// mono-hôte — mongodb+srv:// ou une

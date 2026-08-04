@@ -9,8 +9,8 @@ use tauri::State;
 use termius_core::aws_databases::{self, AwsDatabase};
 use termius_core::aws_inventory::{self, AwsCliError, AwsInstance, AwsProfile};
 use termius_core::model::{
-    AuthMethod, EngineConfig, GroupId, Host, HostId, ServerConfig, SqlConnection, SqlEngine,
-    Workspace,
+    AuthMethod, EngineConfig, GroupId, Host, HostId, MongoConfig, ServerConfig, SqlConnection,
+    SqlEngine, Workspace,
 };
 use termius_core::store;
 use termius_core::sync_ext::MutexExt;
@@ -162,25 +162,44 @@ pub fn import_aws_databases(
     let mut workspace = state.workspace.lock_recover();
     let password = password.filter(|p| !p.is_empty());
     for selection in selections {
-        let server = ServerConfig {
-            tunnel_host_id,
-            address: selection.address,
-            port: selection.port,
-            username: selection.username,
-            database: selection.initial_database,
-            tls: selection.tls,
-        };
         let config = match selection.engine {
-            SqlEngine::Mysql => EngineConfig::Mysql(server),
-            SqlEngine::Postgres => EngineConfig::Postgres(server),
-            SqlEngine::Redis => EngineConfig::Redis(server),
-            // The panel only offers the three engines above; the other two
-            // have no address/port shape for AWS to fill in at all.
-            SqlEngine::Sqlite | SqlEngine::Mongodb => {
-                return Err(format!(
-                    "{:?} ne peut pas être importé depuis AWS",
-                    selection.engine
-                ));
+            // DocumentDB speaks the MongoDB protocol, which is dialled by
+            // connection string rather than by address/port. `retryWrites` is
+            // turned off because DocumentDB doesn't implement retryable
+            // writes and rejects the connection outright when it's asked for
+            // — the driver asks by default.
+            SqlEngine::Mongodb => EngineConfig::Mongodb(MongoConfig {
+                connection_string: format!(
+                    "mongodb://{}:{}/?retryWrites=false",
+                    selection.address, selection.port
+                ),
+                username: selection.username,
+                tunnel_host_id,
+                tls: selection.tls,
+                tls_ca_file: None,
+                // Never set here: see `MongoConfig::tls_insecure`. An import
+                // through a tunnel therefore refuses to connect until the user
+                // decides, which is the intended outcome.
+                tls_insecure: false,
+            }),
+            engine => {
+                let server = ServerConfig {
+                    tunnel_host_id,
+                    address: selection.address,
+                    port: selection.port,
+                    username: selection.username,
+                    database: selection.initial_database,
+                    tls: selection.tls,
+                };
+                match engine {
+                    SqlEngine::Mysql => EngineConfig::Mysql(server),
+                    SqlEngine::Postgres => EngineConfig::Postgres(server),
+                    SqlEngine::Redis => EngineConfig::Redis(server),
+                    // No address/port shape for AWS to fill in at all.
+                    SqlEngine::Sqlite | SqlEngine::Mongodb => {
+                        return Err("SQLite ne peut pas être importé depuis AWS".to_string());
+                    }
+                }
             }
         };
         let connection = SqlConnection::new(selection.label, config);

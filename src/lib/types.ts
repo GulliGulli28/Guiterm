@@ -297,6 +297,16 @@ export type SqlEngineConfig =
        * string — rejected for `mongodb+srv://` or a multi-host string
        * (neither can be tunnelled through one TCP forward). */
       tunnelHostId?: HostId | null;
+      /** Require TLS — DocumentDB accepts nothing else. */
+      tls?: boolean;
+      /** PEM bundle to verify the server against, when the system trust store
+       * isn't enough (a DocumentDB cluster still on the private Amazon RDS
+       * authority). Empty uses the system store. */
+      tlsCaFile?: string | null;
+      /** Skip certificate verification. Needed only to combine TLS with an
+       * SSH tunnel, where the certificate can't match the tunnel's local
+       * address — see `core::model::MongoConfig::tls_insecure`. */
+      tlsInsecure?: boolean;
     };
 
 /** A saved database connection — deliberately not a `Host`/`HostKind` (see
