@@ -279,10 +279,21 @@ pub fn hint_for(output: &str) -> Option<String> {
         "Le plugin Session Manager d'AWS n'est pas installé. Une fois : \
          `winget install Amazon.SessionManagerPlugin`, puis relancer Guiterm — \
          une application déjà lancée garde l'ancien PATH et ne verra pas le plugin."
+    } else if haystack.contains("session token not found")
+        || haystack.contains("unauthorizedexception")
+    {
+        "La session SSO n'est plus valide côté AWS : se reconnecter (le jeton en \
+         cache a expiré, ou il appartient à une autre session)."
     } else if haystack.contains("is not recognized as an internal")
         || haystack.contains("n'est pas reconnu en tant que")
         || haystack.contains("command not found")
-        || haystack.contains("not found")
+        // Bare "not found" only when it reads like a shell reporting a missing
+        // program (`sh: aws: not found`). It used to match anything containing
+        // the words — so AWS answering "Session token not found or invalid"
+        // was explained as a missing executable, sending the user to check
+        // their PATH for a problem that was purely a stale token.
+        || haystack.contains(": not found")
+        || haystack.contains("no such file or directory")
     {
         "Le programme de la commande est introuvable. Vérifier son installation et \
          qu'il est dans le PATH — et si l'installation vient d'être faite, relancer \

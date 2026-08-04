@@ -37,6 +37,16 @@ describe("describeState", () => {
     expect(describeState({ kind: "neverLoggedIn" }).needsLogin).toBe(true);
     expect(describeState({ kind: "expired", expiresAt: "2020-01-01T00:00:00Z" }).needsLogin).toBe(true);
     expect(describeState({ kind: "valid", expiresAt: null, secondsLeft: 3600 }).needsLogin).toBe(false);
+    // The one that shipped wrong: a token the CLI renews by itself is a
+    // working session, and demanding a browser trip for it is the bug.
+    expect(describeState({ kind: "renewable", expiresAt: "2020-01-01T00:00:00Z" }).needsLogin).toBe(false);
+  });
+
+  it("ne présente pas un jeton renouvelable comme une session expirée", () => {
+    const renewable = describeState({ kind: "renewable", expiresAt: "2020-01-01T00:00:00Z" });
+    expect(renewable.label).not.toContain("expirée");
+    expect(renewable.tone).not.toBe("warn");
+    expect(renewable.detail).toBeTruthy();
   });
 
   it("affiche le compte à rebours quand il est connu", () => {

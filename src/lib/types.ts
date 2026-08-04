@@ -533,6 +533,10 @@ export interface AwsProfile {
  * `SsoSessionState` in `core/src/aws_sso.rs`. */
 export type AwsSsoState =
   | { kind: "neverLoggedIn" }
+  /** Access token lapsed, refresh token cached: the CLI mints a new one by
+   * itself. Access tokens last an hour and sessions last a day, so this is the
+   * ordinary state of a working session — not a dead one. */
+  | { kind: "renewable"; expiresAt: string }
   | { kind: "expired"; expiresAt: string }
   /** `expiresAt`/`secondsLeft` are null when the cache carried no readable
    * expiry — usable, just without a countdown. */

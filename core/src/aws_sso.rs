@@ -342,6 +342,7 @@ pub fn pick_token<'a>(
     start_url: &str,
     session: &str,
 ) -> Option<CachedToken> {
+    let mut best: Option<(u8, i64, CachedToken)> = None;
     for text in documents {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
             continue;
@@ -352,16 +353,35 @@ pub fn pick_token<'a>(
         let Some(token) = value["accessToken"].as_str() else {
             continue;
         };
-        let matches = value["startUrl"].as_str() == Some(start_url)
-            || value["sessionName"].as_str() == Some(session);
-        if matches {
-            return Some(CachedToken {
-                access_token: token.to_string(),
-                expires_at: value["expiresAt"].as_str().map(str::to_string),
-            });
+        let by_session = value["sessionName"].as_str() == Some(session);
+        let by_url = value["startUrl"].as_str() == Some(start_url);
+        if !by_session && !by_url {
+            continue;
+        }
+        let expires_at = value["expiresAt"].as_str().map(str::to_string);
+        // Two levels, both learned from a real cache directory: the session
+        // name identifies exactly one session, while several sessions of the
+        // same Identity Center instance share a start URL — and the cache
+        // keeps every token it has ever written, so "the first one that
+        // matches" is very often an hour-old one. Which is what reported every
+        // session as expired, and sent a dead token to `list-accounts`.
+        let rank = (
+            u8::from(by_session),
+            expires_at.as_deref().and_then(parse_expiry).unwrap_or(i64::MIN),
+        );
+        if best.as_ref().is_none_or(|(session_match, expiry, _)| rank > (*session_match, *expiry)) {
+            best = Some((
+                rank.0,
+                rank.1,
+                CachedToken {
+                    access_token: token.to_string(),
+                    refreshable: value["refreshToken"].as_str().is_some(),
+                    expires_at,
+                },
+            ));
         }
     }
-    None
+    best.map(|(_, _, token)| token)
 }
 
 /// What the CLI's cache holds for one session.
@@ -372,6 +392,12 @@ pub struct CachedToken {
     /// [`parse_expiry`]). Kept verbatim so an unparsable one can still be
     /// shown rather than silently becoming "never logged in".
     pub expires_at: Option<String>,
+    /// A refresh token sits next to it, so the CLI can mint a new access token
+    /// without a browser. Access tokens last an hour while an Identity Center
+    /// session lasts hours or days — so "expired" here is the *normal* state
+    /// of a perfectly usable session, and calling it a dead one would be
+    /// wrong far more often than right.
+    pub refreshable: bool,
 }
 
 pub fn pick_access_token<'a>(
@@ -394,9 +420,55 @@ fn cached_documents() -> Vec<String> {
         .unwrap_or_default()
 }
 
-fn cached_access_token(start_url: &str, session: &str) -> Option<String> {
+fn cached_token(start_url: &str, session: &str) -> Option<CachedToken> {
     let documents = cached_documents();
-    pick_access_token(documents.iter().map(String::as_str), start_url, session)
+    pick_token(documents.iter().map(String::as_str), start_url, session)
+}
+
+fn now_secs() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0)
+}
+
+/// Whether a cached token can still be sent to the SSO API.
+///
+/// An unreadable expiry counts as usable: the alternative is refusing to try a
+/// token that is probably fine, and the API's own answer is more authoritative
+/// than our parser anyway.
+fn is_usable(token: &CachedToken) -> bool {
+    token
+        .expires_at
+        .as_deref()
+        .and_then(parse_expiry)
+        .is_none_or(|at| at > now_secs())
+}
+
+/// The first profile that signs in through this session, if any.
+fn profile_for_session(session: &str) -> Option<String> {
+    crate::aws_inventory::parse_config(&read_config())
+        .into_iter()
+        .find(|profile| profile.sso_session.as_deref() == Some(session))
+        .map(|profile| profile.name)
+}
+
+/// Gets the CLI to mint a fresh access token from the refresh token it holds.
+///
+/// There is no `aws sso refresh`: renewal only happens as a side effect of the
+/// CLI resolving credentials for a profile, which then rewrites the cache
+/// document. So this asks for the cheapest call that does that — the same
+/// `get-caller-identity` the panel's check button uses, needing no permission
+/// beyond being authenticated.
+///
+/// Worth the round trip because an access token lives one hour while the
+/// session behind it lives a day or more: without this, adding a profile to a
+/// session signed in this morning would demand a pointless browser trip.
+async fn renew_via_profile(session: &str) -> bool {
+    let Some(profile) = profile_for_session(session) else {
+        return false;
+    };
+    crate::aws_inventory::whoami(&profile).await.is_ok()
 }
 
 /// Days since 1970-01-01 for a proleptic Gregorian date (Howard Hinnant's
@@ -484,6 +556,14 @@ fn parse_offset(zone: &str) -> Option<i64> {
 pub enum SsoSessionState {
     /// Nothing in the CLI's cache: never signed in, or the cache was cleared.
     NeverLoggedIn,
+    /// The access token has lapsed but a refresh token is cached: the CLI will
+    /// mint a new one by itself, with no browser, for as long as the Identity
+    /// Center session lives. Kept apart from [`Self::Expired`] because access
+    /// tokens last an hour and sessions last a day — showing "expired" for
+    /// this was the first thing anyone noticed, and it was wrong: the profiles
+    /// underneath answered perfectly well.
+    Renewable { expires_at: String },
+    /// Lapsed with nothing to renew it from. Signing in again is the only fix.
     Expired { expires_at: String },
     /// A token is cached and hasn't expired. `expires_at` is `None` when the
     /// cache document carried no readable expiry — usable, just no countdown.
@@ -523,6 +603,7 @@ pub fn session_state<'a>(
         };
     };
     match parse_expiry(&raw) {
+        Some(at) if at <= now && token.refreshable => SsoSessionState::Renewable { expires_at: raw },
         Some(at) if at <= now => SsoSessionState::Expired { expires_at: raw },
         Some(at) => SsoSessionState::Valid {
             seconds_left: Some(at - now),
@@ -545,10 +626,7 @@ pub fn session_state<'a>(
 /// case where a network call would hang.
 pub fn list_status() -> Vec<SsoSessionStatus> {
     let documents = cached_documents();
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_secs() as i64)
-        .unwrap_or(0);
+    let now = now_secs();
     crate::aws_inventory::list_sso_sessions()
         .into_iter()
         .map(|session| SsoSessionStatus {
@@ -617,12 +695,29 @@ pub async fn list_accounts(
     region: &str,
     session: &str,
 ) -> Result<Vec<SsoAccount>, AwsCliError> {
-    let token = cached_access_token(start_url, session).ok_or_else(|| AwsCliError::Refused {
-        message: "Aucun jeton SSO en cache pour cette session.".to_string(),
-        hint: Some("Se connecter d'abord — la session n'a jamais été ouverte, ou son jeton a été effacé.".to_string()),
-        // Reconnecting is exactly the fix here.
-        session_expired: true,
-    })?;
+    let mut cached = cached_token(start_url, session);
+    // A lapsed access token is the ordinary state of a session signed in more
+    // than an hour ago, not a dead one — let the CLI renew it before giving
+    // up. Sending it anyway is what produced "Session token not found or
+    // invalid" right after a successful browser login.
+    if !cached.as_ref().is_some_and(is_usable) {
+        if renew_via_profile(session).await {
+            cached = cached_token(start_url, session);
+        }
+        cached = cached.filter(is_usable);
+    }
+    let token = cached
+        .map(|token| token.access_token)
+        .ok_or_else(|| AwsCliError::Refused {
+            message: "Le jeton SSO de cette session n'est pas utilisable.".to_string(),
+            hint: Some(
+                "Se reconnecter : la session n'a jamais été ouverte, ou son jeton a expiré \
+                 sans pouvoir être renouvelé tout seul."
+                    .to_string(),
+            ),
+            // Reconnecting is exactly the fix here.
+            session_expired: true,
+        })?;
 
     let listing = run_aws(&[
         "sso",
@@ -875,6 +970,66 @@ mod tests {
     }
 
     const TOKEN_VALID: &str = r#"{"accessToken":"t","startUrl":"https://x/start","expiresAt":"2026-04-04T18:14:32Z"}"#;
+
+    /// The shape that broke it, taken from a real cache directory: access
+    /// tokens last an hour, the CLI never deletes the old documents, and
+    /// several sessions of the same Identity Center instance share a start
+    /// URL. Taking the first match therefore hands out an hours-old token —
+    /// which reported every session as expired and made `list-accounts` answer
+    /// "Session token not found or invalid" *right after a successful login*.
+    #[test]
+    fn picks_the_freshest_of_several_tokens_sharing_a_start_url() {
+        const URL: &str = "https://identitycenter.amazonaws.com/ssoins-6656330dd42c431b";
+        let stale = format!(r#"{{"accessToken":"vieux","startUrl":"{URL}","expiresAt":"2026-04-04T09:21:09Z"}}"#);
+        let older = format!(r#"{{"accessToken":"encore-plus-vieux","startUrl":"{URL}","expiresAt":"2026-04-04T09:20:43Z"}}"#);
+        let fresh = format!(r#"{{"accessToken":"frais","startUrl":"{URL}","expiresAt":"2026-04-04T18:14:32Z"}}"#);
+        // Stale ones first: that is exactly the order `read_dir` gave, and
+        // taking the first match is what shipped.
+        let picked = pick_token([stale.as_str(), older.as_str(), fresh.as_str()], URL, "peu-importe");
+        assert_eq!(picked.unwrap().access_token, "frais");
+    }
+
+    /// A session name identifies one session; a start URL is shared by all the
+    /// sessions of an Identity Center instance. The specific one wins even when
+    /// a shared-URL document expires later.
+    #[test]
+    fn an_exact_session_match_beats_a_shared_start_url() {
+        let shared = r#"{"accessToken":"partagé","startUrl":"https://x/start","expiresAt":"2030-01-01T00:00:00Z"}"#;
+        let mine = r#"{"accessToken":"le-mien","sessionName":"ma-session","expiresAt":"2026-04-04T18:14:32Z"}"#;
+        let picked = pick_token([shared, mine], "https://x/start", "ma-session");
+        assert_eq!(picked.unwrap().access_token, "le-mien");
+    }
+
+    /// An access token lives an hour, the session behind it a day or more. A
+    /// lapsed one with a refresh token next to it is the *ordinary* state of a
+    /// working session — the CLI renews it silently, which is why the profiles
+    /// underneath answered fine while the panel claimed the session had
+    /// expired.
+    #[test]
+    fn a_refreshable_token_is_renewable_rather_than_expired() {
+        let refreshable = r#"{"accessToken":"t","refreshToken":"r","startUrl":"https://x/start","expiresAt":"2026-04-04T18:14:32Z"}"#;
+        let after = 1_775_326_472 + 60;
+        assert_eq!(
+            session_state([refreshable], "https://x/start", "x", after),
+            SsoSessionState::Renewable { expires_at: "2026-04-04T18:14:32Z".to_string() }
+        );
+        // Without one, nothing can renew it and signing in again is the only
+        // way out — the two must not read the same.
+        assert!(matches!(
+            session_state([TOKEN_VALID], "https://x/start", "x", after),
+            SsoSessionState::Expired { .. }
+        ));
+    }
+
+    #[test]
+    fn the_json_carries_the_renewable_state() {
+        let json = serde_json::to_value(SsoSessionState::Renewable {
+            expires_at: "2026-04-04T18:14:32Z".to_string(),
+        })
+        .unwrap();
+        assert_eq!(json["kind"], "renewable");
+        assert_eq!(json["expiresAt"], "2026-04-04T18:14:32Z");
+    }
 
     #[test]
     fn tells_the_three_states_apart() {

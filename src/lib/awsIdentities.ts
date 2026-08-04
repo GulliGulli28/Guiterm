@@ -26,6 +26,8 @@ export function formatRemaining(seconds: number): string {
 export interface StateBadge {
   tone: "ok" | "warn" | "idle";
   label: string;
+  /** Shown on hover, for the state whose one-liner can't say everything. */
+  detail?: string;
   /** Whether signing in is what fixes (or starts) this session. */
   needsLogin: boolean;
 }
@@ -41,8 +43,27 @@ export function describeState(state: AwsSsoState): StateBadge {
   switch (state.kind) {
     case "neverLoggedIn":
       return { tone: "idle", label: "Jamais connectée", needsLogin: true };
+    // Not a failure, and deliberately not worded as one: an access token lives
+    // an hour while the session behind it lives a day or more, so this is what
+    // a working session looks like most of the time. Calling it "expirée" was
+    // the first thing that looked broken — the profiles underneath answered
+    // perfectly well.
+    case "renewable":
+      return {
+        tone: "idle",
+        label: "Connectée · jeton à renouveler",
+        detail:
+          "Le jeton d'accès a une heure de validité ; la CLI en obtient un nouveau toute seule, "
+          + "sans navigateur, tant que la session AWS tient. Reconnecter si elle ne le fait plus.",
+        needsLogin: false,
+      };
     case "expired":
-      return { tone: "warn", label: "Session expirée", needsLogin: true };
+      return {
+        tone: "warn",
+        label: "Session expirée",
+        detail: "Aucun jeton de renouvellement en cache : il faut repasser par le navigateur.",
+        needsLogin: true,
+      };
     case "valid":
       return {
         tone: "ok",

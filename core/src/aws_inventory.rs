@@ -160,6 +160,12 @@ pub fn classify_failure(stderr: &str) -> AwsCliError {
 /// enough to qualify.
 pub fn is_expired_session(stderr: &str) -> bool {
     let lowered = stderr.to_lowercase();
+    // The SSO API's own wording when the access token it was handed has
+    // lapsed or belongs to another session — it never says "expired", and
+    // reconnecting is exactly what fixes it.
+    if lowered.contains("session token not found") {
+        return true;
+    }
     lowered.contains("expired") && (lowered.contains("token") || lowered.contains("sso session"))
 }
 
@@ -662,6 +668,27 @@ mod tests {
         assert!(!is_expired_session(
             "An error occurred (RequestExpired) when calling DescribeInstances: Request has expired."
         ));
+    }
+
+    /// What the SSO API answers when handed a lapsed token — it never says
+    /// "expired", so the rule above missed it and no reconnect button appeared
+    /// for the one failure reconnecting fixes.
+    #[test]
+    fn the_sso_api_wording_for_a_dead_token_counts_as_expired() {
+        let real = "An error occurred (UnauthorizedException) when calling the ListAccounts operation: Session token not found or invalid";
+        assert!(is_expired_session(real));
+        match classify_failure(real) {
+            AwsCliError::Refused { hint, session_expired, .. } => {
+                assert!(session_expired);
+                let hint = hint.expect("un jeton mort a une remédiation");
+                // It used to be explained as a missing executable, purely
+                // because the sentence contains "not found" — sending the user
+                // to check their PATH for a stale-token problem.
+                assert!(!hint.contains("PATH"), "obtenu : {hint}");
+                assert!(hint.contains("reconnecter"), "obtenu : {hint}");
+            }
+            other => panic!("attendu un refus, obtenu {other:?}"),
+        }
     }
 
     #[test]

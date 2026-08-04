@@ -184,7 +184,10 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
                     </button>
                   </div>
 
-                  <p className={`mt-1.5 text-[11px] ${badge.tone === "ok" ? "text-emerald-400" : badge.tone === "warn" ? "text-amber-400" : "text-[var(--c-text-muted)]"}`}>
+                  <p
+                    title={badge.detail}
+                    className={`mt-1.5 text-[11px] ${badge.tone === "ok" ? "text-emerald-400" : badge.tone === "warn" ? "text-amber-400" : "text-[var(--c-text-muted)]"}`}
+                  >
                     {badge.label}
                   </p>
 
