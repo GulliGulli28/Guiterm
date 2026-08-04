@@ -107,7 +107,11 @@ export function AwsSsoSetupPanel({ onClose, onProfilesCreated, initialSession }:
   const canStart = name.trim() && startUrl.trim() && region.trim();
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6" onClick={onClose}>
+    // Above the import panels, not merely equal to them: this one is always
+    // opened *from* one of those, and with the same z-index the winner is
+    // whichever React renders later — which put it invisibly behind the
+    // database panel while working from the hosts panel, purely by JSX order.
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-6" onClick={onClose}>
       <div
         className="flex max-h-full w-[min(44rem,100%)] flex-col overflow-hidden rounded-xl border border-[var(--c-border)] bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]"
         onClick={(e) => e.stopPropagation()}

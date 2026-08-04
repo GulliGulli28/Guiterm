@@ -480,6 +480,7 @@ export default function App() {
           onClose={() => setAwsDbImportOpen(false)}
           onError={reportError}
           onReconnectSso={(session) => setAwsSsoOpen(session)}
+          onConfigureSso={() => setAwsSsoOpen(true)}
           key={`aws-db-import-${awsProfilesEpoch}`}
         />
       )}

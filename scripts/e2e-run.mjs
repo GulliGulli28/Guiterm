@@ -676,8 +676,26 @@ async function runAwsDatabasePanelScenario(browser) {
     timeoutMsg: "aucun verdict apres Lister les bases — la commande n atteint pas le backend",
   });
 
+  // The SSO panel opens *from* this one, so it has to land on top of it.
+  // Checked by hit-testing rather than by presence: it was being rendered
+  // perfectly correctly and painted underneath, because both panels shared a
+  // z-index and the one rendered later won. "Nothing happens" was the symptom.
+  await clickButtonByText(browser, "Configurer une session SSO…");
+  await browser.waitUntil(async () => await browser.execute(() => {
+    const heading = Array.from(document.querySelectorAll("p"))
+      .find((el) => el.textContent?.trim() === "Configurer une session SSO");
+    const dialog = heading?.closest("div.flex.max-h-full");
+    if (!dialog) return false;
+    const topmost = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
+    return !!topmost && dialog.contains(topmost);
+  }), {
+    timeout: 5_000,
+    timeoutMsg: "le panneau SSO ne passe pas devant celui des bases — il s ouvre mais reste invisible",
+  });
+  await closeDialogTitled(browser, "Configurer une session SSO");
+
   await closeDialogTitled(browser, "Importer des bases depuis AWS");
-  console.log("Import bases AWS : OK (panneau atteignable, appel backend effectif).");
+  console.log("Import bases AWS : OK (panneau atteignable, appel backend, panneau SSO au-dessus).");
 }
 
 /**

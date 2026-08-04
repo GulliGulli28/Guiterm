@@ -11,6 +11,8 @@ interface AwsDatabaseImportPanelProps {
   onError: (message: string) => void;
   /** Opens the SSO panel pre-filled to reconnect an expired session. */
   onReconnectSso: (session: AwsSsoSession) => void;
+  /** Opens the SSO panel to set up a new session and its profiles. */
+  onConfigureSso: () => void;
 }
 
 /** Same list as the EC2 panel, and for the same reason: `describe-regions`
@@ -40,7 +42,7 @@ const ENGINE_LABEL: Record<string, string> = {
  * reach it through — typically an EC2 instance imported by the other panel.
  * Without that, the imports would be correct and uniformly unusable.
  */
-export function AwsDatabaseImportPanel({ workspace, onWorkspaceUpdate, onClose, onError, onReconnectSso }: AwsDatabaseImportPanelProps) {
+export function AwsDatabaseImportPanel({ workspace, onWorkspaceUpdate, onClose, onError, onReconnectSso, onConfigureSso }: AwsDatabaseImportPanelProps) {
   const [profiles, setProfiles] = useState<AwsProfile[] | null>(null);
   const [ssoSessions, setSsoSessions] = useState<AwsSsoSession[]>([]);
   useEffect(() => { api.listAwsSsoSessions().then(setSsoSessions).catch(() => {}); }, []);
@@ -54,7 +56,7 @@ export function AwsDatabaseImportPanel({ workspace, onWorkspaceUpdate, onClose, 
   const [password, setPassword] = useState("");
   const [importing, setImporting] = useState(false);
 
-  useEffect(() => {
+  const loadProfiles = () => {
     api.listAwsProfiles()
       .then((found) => {
         setProfiles(found);
@@ -64,7 +66,8 @@ export function AwsDatabaseImportPanel({ workspace, onWorkspaceUpdate, onClose, 
         setProfiles([]);
         setFailure({ message: e.message ?? String(e), hint: e.reason?.hint ?? null, sessionExpired: e.reason?.sessionExpired === true });
       });
-  }, []);
+  };
+  useEffect(loadProfiles, []);
 
   useEffect(() => {
     const found = profiles?.find((p) => p.name === profile);
@@ -167,6 +170,19 @@ export function AwsDatabaseImportPanel({ workspace, onWorkspaceUpdate, onClose, 
             className="accent-surface shrink-0 rounded-md border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
           >
             {loading ? "Recherche…" : "Lister les bases"}
+          </button>
+        </div>
+
+        <div className="flex shrink-0 items-center gap-2 border-b border-[var(--c-border)] px-4 pb-2.5">
+          <button
+            onClick={onConfigureSso}
+            className="text-[11px] text-[var(--c-accent-text)] underline-offset-2 hover:underline"
+          >
+            Configurer une session SSO…
+          </button>
+          <span className="text-[11px] text-[var(--c-text-faint)]">formulaire, puis navigateur</span>
+          <button onClick={loadProfiles} className="ml-auto text-[11px] text-[var(--c-text-secondary)] hover:text-[var(--c-text)]">
+            Rafraîchir les profils
           </button>
         </div>
 
