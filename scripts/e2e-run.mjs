@@ -86,6 +86,27 @@ function waitForHttp(url, timeoutMs) {
   });
 }
 
+/** Requests a module from the dev server and reads it to the end, so Vite's
+ * dependency pre-bundling happens before anything is being timed. */
+async function warmViteEntry(url, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  const started = Date.now();
+  for (;;) {
+    try {
+      const response = await fetch(url);
+      await response.text();
+      if (response.ok) {
+        console.log(`Graphe de modules Vite préchauffé en ${Math.round((Date.now() - started) / 100) / 10}s.`);
+        return;
+      }
+    } catch {
+      // Dev server not answering for this path yet — keep trying.
+    }
+    if (Date.now() > deadline) throw new Error(`Vite n'a jamais servi ${url}`);
+    await new Promise((resolve) => setTimeout(resolve, 500));
+  }
+}
+
 function waitForPort(port, timeoutMs) {
   const deadline = Date.now() + timeoutMs;
   return new Promise((resolve, reject) => {
@@ -421,7 +442,16 @@ async function main() {
 
   let exitCode = 0;
   try {
-    if (needsViteDevServer) await waitForHttp("http://localhost:1420", 20_000);
+    if (needsViteDevServer) {
+      await waitForHttp("http://localhost:1420", 20_000);
+      // Then warm the entry module. `index.html` is static and comes back
+      // instantly, but the first request for `/src/main.tsx` is what makes
+      // Vite scan the imports and pre-bundle every dependency — tens of
+      // seconds on a cold cache, and the app window would otherwise pay that
+      // inside the "React has mounted" wait. That is exactly how this suite
+      // failed intermittently, with an empty #root and nothing else wrong.
+      await warmViteEntry("http://localhost:1420/src/main.tsx", 120_000);
+    }
     await waitForPort(4444, 10_000);
 
     console.log("Connexion à tauri-driver, lancement de la vraie fenêtre...");
