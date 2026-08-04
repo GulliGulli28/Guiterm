@@ -79,6 +79,22 @@ This changelog starts 2026-07-21 — for earlier versions, see
   install directories are now searched as well. And when a proxy command fails,
   its error comes with what to do about it — advice that until now appeared only
   under the settings form's "Test the command" button.
+- « Est-ce que cet hôte atteint telle adresse, sur tel port ? » — from an SSH
+  host's menu, or from the command palette to ask about this machine. The
+  answer makes the distinction that matters: a **refusal** means something
+  answered and the machine was reached (closed port, stopped service), a
+  **silence** means nothing came back at all (firewall, security group, missing
+  route). Same symptom, opposite investigations. A name that doesn't resolve
+  and a network with no route are told apart too. Several sources can be asked
+  at once, which is what turns "it fails from here" into "it fails from
+  everywhere" — and nothing is installed on any of them.
+- Environment variables set on a host can be marked secret, one at a time. The
+  value then lives in the vault — OS keychain, or the encrypted vault when you
+  use one — instead of `workspace.json`, which is where an API token would
+  otherwise sit in clear next to your hosts. The form never shows a stored
+  secret back, so leaving the field empty keeps it; and when a secret can't be
+  read as the session opens (locked vault), the session says which variable and
+  why, instead of quietly starting without it.
 - Redis connections can use TLS (`rediss://`), from a checkbox on the
   connection — and automatically for an imported ElastiCache group that has
   encryption in transit enabled.
