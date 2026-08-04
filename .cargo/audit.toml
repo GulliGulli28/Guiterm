@@ -15,4 +15,24 @@ ignore = [
     # bumps its `plist` requirement: https://rustsec.org/advisories/RUSTSEC-2026-0194
     "RUSTSEC-2026-0194",
     "RUSTSEC-2026-0195",
+
+    # rkyv 0.7.46 — out-of-bounds reads when validating archives containing
+    # Rc/Arc. Ignored because it is never built: it is an *optional* feature of
+    # `rust_decimal` (itself pulled by sqlx for NUMERIC/DECIMAL columns) that
+    # nothing in this workspace enables. `cargo audit` reads `Cargo.lock`,
+    # which records optional dependencies whether or not they are compiled.
+    #
+    # Verified rather than assumed: `cargo tree -i rkyv` is empty even with
+    # `--all-features`, and a full build produces twelve `rust_decimal`
+    # artifacts and zero `rkyv` ones.
+    #
+    # No upgrade path either — `rust_decimal` 1.42.1, the latest, requires
+    # `rkyv ^0.7`, so `--precise 0.8.17` fails to resolve. Dropping sqlx's
+    # `rust_decimal` feature would remove it, but would also break every
+    # NUMERIC/DECIMAL column in the SQL client, which is not a trade worth
+    # making for a crate that isn't compiled.
+    #
+    # Revisit when `rust_decimal` moves to rkyv 0.8 — at which point this entry
+    # should simply be deleted: https://rustsec.org/advisories/RUSTSEC-2026-0235
+    "RUSTSEC-2026-0235",
 ]

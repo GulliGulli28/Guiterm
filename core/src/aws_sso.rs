@@ -366,7 +366,7 @@ pub async fn list_accounts(
             email,
         });
     }
-    accounts.sort_by(|a, b| a.name.to_lowercase().cmp(&b.name.to_lowercase()));
+    accounts.sort_by_key(|account| account.name.to_lowercase());
     Ok(accounts)
 }
 

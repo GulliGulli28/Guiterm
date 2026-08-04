@@ -14,7 +14,7 @@
 //   npm run verify           # everything except E2E (~2-4 min)
 //   npm run verify -- --e2e  # also drives the real window via WebDriver
 //   npm run verify -- --fast # type-check and lint only, no test suites
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -98,6 +98,32 @@ for (const step of steps) {
   const result = await run(step);
   results.push({ step, ...result });
 }
+
+/**
+ * Warns when the local stable toolchain is behind the one CI will use.
+ *
+ * CI pins the *action*, not a version — it installs whatever `stable` is on
+ * the day it runs. So a local toolchain that has simply not been updated runs
+ * an older clippy, and `verify` passes on checks CI will fail: exactly what
+ * happened with `unnecessary_sort_by`, a lint that only fires from 1.97 while
+ * this machine was still on 1.92.
+ *
+ * A warning rather than a step: being behind is not an error, and a failing
+ * `verify` on a plane with no network would be worse than the problem.
+ */
+function warnIfToolchainBehind() {
+  const check = spawnSync("rustup", ["check"], { encoding: "utf8" });
+  if (check.status !== 0 || !check.stdout) return;
+  const stable = check.stdout.split("\n").find((line) => line.startsWith("stable-"));
+  if (!stable || !stable.includes("Update available")) return;
+  console.log(
+    `\n${red("⚠ Toolchain Rust en retard")} ${grey("— le CI installe la dernière stable, donc il lancera un clippy plus récent que celui-ci.")}`,
+  );
+  console.log(`  ${grey(stable.trim())}`);
+  console.log(`  ${grey("`rustup update stable` avant de pousser, sinon des lints passeront ici et échoueront là-bas.")}`);
+}
+
+warnIfToolchainBehind();
 
 console.log(`\n${bold("── Récapitulatif ──")}`);
 for (const r of results) {

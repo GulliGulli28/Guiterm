@@ -292,7 +292,7 @@ pub async fn discover(profile: &str, region: &str) -> Result<Vec<AwsDatabase>, A
     // `aws rds describe-db-clusters` also returns DocumentDB clusters in some
     // API versions, so the same cluster can arrive twice under two service
     // names. Keyed on the endpoint, which is what actually identifies it.
-    found.sort_by(|a, b| a.identifier.to_lowercase().cmp(&b.identifier.to_lowercase()));
+    found.sort_by_key(|database| database.identifier.to_lowercase());
     found.dedup_by(|a, b| a.address == b.address && a.port == b.port);
     Ok(found)
 }
