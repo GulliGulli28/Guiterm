@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { check as checkForUpdate } from "@tauri-apps/plugin-updater";
 import { api, onSshAuthPrompt } from "./lib/api";
-import type { GroupId, Host, HostId, SqlConnection, SshAuthPrompt, TabMeta, VaultStatus, Workspace } from "./lib/types";
+import type { AwsSsoSession, GroupId, Host, HostId, SqlConnection, SshAuthPrompt, TabMeta, VaultStatus, Workspace } from "./lib/types";
 import { Sidebar, type SidebarPanelKind } from "./components/Sidebar";
 import { HostForm } from "./components/HostForm";
 import { TabBar } from "./components/TabBar";
@@ -70,10 +70,20 @@ export default function App() {
   const [snippetPickerOpen, setSnippetPickerOpen] = useState(false);
   const [awsImportOpen, setAwsImportOpen] = useState(false);
   const [awsDbImportOpen, setAwsDbImportOpen] = useState(false);
-  const [awsSsoOpen, setAwsSsoOpen] = useState<{ name: string; startUrl: string; region: string } | true | null>(null);
+  // What the one SSO modal is being opened for: a session that doesn't exist
+  // yet, signing a known one in again, or picking new profiles out of a
+  // session already signed in (no browser round trip).
+  const [awsSsoOpen, setAwsSsoOpen] = useState<
+    { mode: "new" } | { mode: "reconnect" | "profiles"; session: AwsSsoSession } | null
+  >(null);
   // Bumped after profiles are written, so an open import panel reloads its
   // list instead of the user having to close and reopen it.
   const [awsProfilesEpoch, setAwsProfilesEpoch] = useState(0);
+  // Separate from the one above because the identities panel also cares about
+  // a *login*, which writes no profile and so only shows up as the modal
+  // closing. Bumping the shared one there would remount the import panels —
+  // discarding an instance listing every time someone cancelled the modal.
+  const [awsIdentitiesEpoch, setAwsIdentitiesEpoch] = useState(0);
   const terminalRefs = useRef<Map<string, TerminalTabHandle>>(new Map());
   const { fullscreen, toggleFullscreen } = useFullscreen(reportError);
   // In fullscreen the title bar is hidden — this is it being brought back by
@@ -461,16 +471,17 @@ export default function App() {
           onWorkspaceUpdate={refreshWorkspace}
           onClose={() => setAwsImportOpen(false)}
           onError={reportError}
-          onConfigureSso={() => setAwsSsoOpen(true)}
-          onReconnectSso={(session) => setAwsSsoOpen(session)}
+          onConfigureSso={() => setAwsSsoOpen({ mode: "new" })}
+          onReconnectSso={(session) => setAwsSsoOpen({ mode: "reconnect", session })}
           key={`aws-import-${awsProfilesEpoch}`}
         />
       )}
       {awsSsoOpen && (
         <AwsSsoSetupPanel
-          onClose={() => setAwsSsoOpen(null)}
-          onProfilesCreated={() => setAwsProfilesEpoch((n) => n + 1)}
-          initialSession={awsSsoOpen === true ? undefined : awsSsoOpen}
+          onClose={() => { setAwsSsoOpen(null); setAwsIdentitiesEpoch((n) => n + 1); }}
+          onProfilesCreated={() => { setAwsProfilesEpoch((n) => n + 1); setAwsIdentitiesEpoch((n) => n + 1); }}
+          initialSession={awsSsoOpen.mode === "new" ? undefined : awsSsoOpen.session}
+          startAt={awsSsoOpen.mode === "profiles" ? "accounts" : "form"}
         />
       )}
       {awsDbImportOpen && (
@@ -479,8 +490,8 @@ export default function App() {
           onWorkspaceUpdate={refreshWorkspace}
           onClose={() => setAwsDbImportOpen(false)}
           onError={reportError}
-          onReconnectSso={(session) => setAwsSsoOpen(session)}
-          onConfigureSso={() => setAwsSsoOpen(true)}
+          onReconnectSso={(session) => setAwsSsoOpen({ mode: "reconnect", session })}
+          onConfigureSso={() => setAwsSsoOpen({ mode: "new" })}
           key={`aws-db-import-${awsProfilesEpoch}`}
         />
       )}
@@ -587,6 +598,10 @@ export default function App() {
             onConnectSql={(conn) => openSql(conn)}
             onNewSqlConnection={() => { setEditingSqlConnection("new"); setEditingHost(null); setEditingGroup(null); }}
             onImportAwsDatabases={() => setAwsDbImportOpen(true)}
+            onConfigureSso={() => setAwsSsoOpen({ mode: "new" })}
+            onReconnectSso={(session) => setAwsSsoOpen({ mode: "reconnect", session })}
+            onAddAwsProfiles={(session) => setAwsSsoOpen({ mode: "profiles", session })}
+            awsRefreshToken={awsIdentitiesEpoch}
             onEditSqlConnection={(conn) => { setEditingSqlConnection(conn); setEditingHost(null); setEditingGroup(null); }}
             onOpenFleet={openFleet}
             onError={reportError}

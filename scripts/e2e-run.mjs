@@ -193,6 +193,7 @@ async function runScenarios(browser) {
   await runProxyCommandFieldScenario(browser);
   await runAwsImportPanelScenario(browser);
   await runAwsDatabasePanelScenario(browser);
+  await runAwsIdentitiesPanelScenario(browser);
 
   await mkdir(outDir, { recursive: true });
   const screenshotPath = path.join(outDir, "e2e-smoke.png");
@@ -696,6 +697,73 @@ async function runAwsDatabasePanelScenario(browser) {
 
   await closeDialogTitled(browser, "Importer des bases depuis AWS");
   console.log("Import bases AWS : OK (panneau atteignable, appel backend, panneau SSO au-dessus).");
+}
+
+/**
+ * The AWS identities sidebar tab is reachable, loads, and opens the SSO panel.
+ *
+ * This is the assertion the MongoDB release didn't have: a backend that
+ * answers, commands registered, bindings typed — and a tab nothing renders.
+ * `tauriCommands.test.ts` catches an unreachable *command*; only clicking the
+ * tab catches an unreachable *panel*.
+ *
+ * The verdict waited for is deliberately "the panel finished loading, however
+ * that turned out": with no `aws` CLI on the machine the honest outcome is the
+ * failure block, and demanding a listing would make this fail for the wrong
+ * reason. Nothing is written — the panel only reads until a button is pressed.
+ */
+async function runAwsIdentitiesPanelScenario(browser) {
+  await browser.execute(() => {
+    const tab = Array.from(document.querySelectorAll("button"))
+      .find((b) => (b.getAttribute("title") || "") === "Identités AWS");
+    if (tab instanceof HTMLElement) tab.click();
+  });
+
+  // Lazy-loaded like every other sidebar panel: the chunk resolves a tick
+  // after the click.
+  await browser.waitUntil(async () => await browser.execute(() =>
+    Array.from(document.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Nouvelle session SSO")
+  ), { timeout: 10_000, timeoutMsg: "l onglet Identités AWS ne rend rien — onglet inerte ou panneau jamais monté" });
+
+  const panelText = () => browser.execute(() => document.querySelector("aside")?.textContent ?? "");
+  await browser.waitUntil(async () => {
+    const text = await panelText();
+    return text.includes("Aucune identité AWS")
+      || text.includes("Sans session SSO")
+      || text.includes("Se connecter")
+      || text.includes("Ajouter des profils")
+      || text.includes("introuvable")
+      || text.includes("aws");
+  }, {
+    timeout: 30_000,
+    timeoutMsg: "le panneau des identités n a jamais rendu de verdict — les commandes n atteignent pas le backend",
+  });
+
+  // "No session configured" and "the command never answered" render almost
+  // identically — an empty list either way. This distinguishes them, and is
+  // what catches a command dropped from `generate_handler!` or renamed on one
+  // side only. It really did fail here first, against a binary built before
+  // the command existed.
+  if ((await panelText()).includes("Les sessions SSO n'ont pas pu être lues")) {
+    throw new Error("list_aws_sso_status n a pas repondu — commande absente du binaire ou renommee d un seul cote");
+  }
+
+  // The SSO modal opens from the sidebar too, not only from the import panels
+  // — same z-index question, and here the opener is behind rather than above.
+  await clickButtonByText(browser, "Nouvelle session SSO");
+  await browser.waitUntil(async () => await browser.execute(() => {
+    const heading = Array.from(document.querySelectorAll("p"))
+      .find((el) => el.textContent?.trim() === "Configurer une session SSO");
+    const dialog = heading?.closest("div.flex.max-h-full");
+    if (!dialog) return false;
+    const topmost = document.elementFromPoint(window.innerWidth / 2, window.innerHeight / 2);
+    return !!topmost && dialog.contains(topmost);
+  }), {
+    timeout: 5_000,
+    timeoutMsg: "le panneau SSO ne s ouvre pas depuis l onglet Identités AWS",
+  });
+  await closeDialogTitled(browser, "Configurer une session SSO");
+  console.log("Identités AWS : OK (onglet atteignable, backend interrogé, panneau SSO ouvrable).");
 }
 
 /**

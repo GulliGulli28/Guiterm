@@ -383,6 +383,48 @@ pub async fn list_profiles() -> Result<Vec<AwsProfile>, AwsCliError> {
         .collect())
 }
 
+/// Who a profile actually turns out to be, as `sts get-caller-identity` says.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CallerIdentity {
+    pub account: String,
+    /// The full ARN — the only part that names the *role*, which is what
+    /// distinguishes two profiles on the same account.
+    pub arn: String,
+    pub user_id: String,
+}
+
+pub fn parse_caller_identity(json: &str) -> Result<CallerIdentity, AwsCliError> {
+    let parsed: serde_json::Value =
+        serde_json::from_str(json).map_err(|e| AwsCliError::Unreadable {
+            message: format!("réponse get-caller-identity illisible : {e}"),
+        })?;
+    Ok(CallerIdentity {
+        account: parsed["Account"].as_str().unwrap_or_default().to_string(),
+        arn: parsed["Arn"].as_str().unwrap_or_default().to_string(),
+        user_id: parsed["UserId"].as_str().unwrap_or_default().to_string(),
+    })
+}
+
+/// Resolves a profile to the identity AWS grants it right now.
+///
+/// The one call that answers "does this profile still work", and the cheapest
+/// one there is — no permissions are needed beyond being authenticated, so a
+/// failure here means the credentials, not the rights. Which is exactly what
+/// makes it usable as a check button next to every profile.
+pub async fn whoami(profile: &str) -> Result<CallerIdentity, AwsCliError> {
+    let out = run_aws(&[
+        "sts",
+        "get-caller-identity",
+        "--profile",
+        profile,
+        "--output",
+        "json",
+    ])
+    .await?;
+    parse_caller_identity(&out)
+}
+
 /// Instance ids SSM currently reports as online.
 async fn ssm_online_ids(profile: &str, region: &str) -> Result<Vec<String>, AwsCliError> {
     let out = run_aws(&[
@@ -699,6 +741,23 @@ sso_role_name = ReadOnly\n\
     fn a_profile_without_a_region_reports_none_rather_than_an_empty_string() {
         let profiles = parse_config("[profile bare]\nregion =\n");
         assert_eq!(profiles[0].region, None);
+    }
+
+    #[test]
+    fn reads_the_caller_identity() {
+        let json = r#"{
+          "UserId": "AROAX:guillaume",
+          "Account": "167004607868",
+          "Arn": "arn:aws:sts::167004607868:assumed-role/AWSReservedSSO_AdministratorAccess_abc/guillaume"
+        }"#;
+        let identity = parse_caller_identity(json).unwrap();
+        assert_eq!(identity.account, "167004607868");
+        assert!(identity.arn.contains("AdministratorAccess"));
+        assert_eq!(identity.user_id, "AROAX:guillaume");
+        // Read off the JSON by the frontend, so the casing is part of the
+        // contract rather than an implementation detail.
+        let value = serde_json::to_value(&identity).unwrap();
+        assert_eq!(value["userId"], "AROAX:guillaume");
     }
 
     // The profile and region are baked in on purpose: the app inherits no

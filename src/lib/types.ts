@@ -525,6 +525,35 @@ export interface AwsProfile {
   region: string | null;
 }
 
+/** Whether an SSO session can be used right now.
+ *
+ * A tagged union rather than a couple of booleans: the three cases have
+ * genuinely different remedies (sign in, sign in again, nothing), and the
+ * rendering closes on `assertNever` so a fourth one can't slip through. Mirrors
+ * `SsoSessionState` in `core/src/aws_sso.rs`. */
+export type AwsSsoState =
+  | { kind: "neverLoggedIn" }
+  | { kind: "expired"; expiresAt: string }
+  /** `expiresAt`/`secondsLeft` are null when the cache carried no readable
+   * expiry — usable, just without a countdown. */
+  | { kind: "valid"; expiresAt: string | null; secondsLeft: number | null };
+
+/** An `[sso-session]` block plus its current sign-in state, as
+ * `list_aws_sso_status` reports it. */
+export interface AwsSsoSessionStatus {
+  name: string;
+  startUrl: string;
+  region: string;
+  state: AwsSsoState;
+}
+
+/** Who a profile resolves to, from `sts get-caller-identity`. */
+export interface AwsCallerIdentity {
+  account: string;
+  arn: string;
+  userId: string;
+}
+
 /** SSH credentials applied to every host of one import. */
 export interface AwsImportAuth {
   auth: AuthMethod;

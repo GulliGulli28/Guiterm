@@ -1,6 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AuthMethod, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, CollectionInfo, ColumnInfo, CollectFactsResult, ComposeResult, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostId, HostKind, ImportSelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, RedisKeyDetail, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, ScanPage, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SshAuthPrompt, SshConfigHost, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
+import type { AuthMethod, AwsCallerIdentity, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, AwsSsoSessionStatus, CollectionInfo, ColumnInfo, CollectFactsResult, ComposeResult, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostId, HostKind, ImportSelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, RedisKeyDetail, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, ScanPage, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SshAuthPrompt, SshConfigHost, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
 
 /** Mirrors the 12-byte little-endian header `commands::rdp_view::connect_rdp_view`
  * writes ahead of each frame's raw RGBA8 pixels (see its doc comment for why
@@ -79,6 +79,17 @@ export const api = {
     invoke<AwsSsoAccount[]>("list_aws_sso_accounts", { startUrl, region, session }),
   saveAwsSsoProfiles: (profiles: AwsSsoProfileSpec[]) =>
     invoke<void>("save_aws_sso_profiles", { profiles }),
+  /** Sessions with their sign-in state. Local files only — instant, and still
+   * answers when the machine is offline. */
+  listAwsSsoStatus: () => invoke<AwsSsoSessionStatus[]>("list_aws_sso_status"),
+  /** Resolves a profile to the identity AWS grants it right now — the cheapest
+   * "does this still work" there is. */
+  checkAwsIdentity: (profile: string) => invoke<AwsCallerIdentity>("check_aws_identity", { profile }),
+  /** Removes the profile from `~/.aws/config` and `~/.aws/credentials`. */
+  deleteAwsProfile: (name: string) => invoke<void>("delete_aws_profile", { name }),
+  /** Removes the `[sso-session]` block. Profiles pointing at it are left as
+   * they are — the panel warns how many that is. */
+  deleteAwsSsoSession: (name: string) => invoke<void>("delete_aws_sso_session", { name }),
   discoverAwsInstances: (profile: string, region: string) =>
     invoke<AwsInstance[]>("discover_aws_instances", { profile, region }),
   importAwsInstances: (selections: AwsImportSelection[], profile: string, region: string, credentials: AwsImportAuth) =>

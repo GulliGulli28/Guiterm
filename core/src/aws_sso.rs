@@ -83,6 +83,107 @@ pub fn upsert_section(content: &str, header: &str, body: &[String]) -> String {
     text
 }
 
+/// Removes one `[header]` section, leaving every other byte alone.
+///
+/// The mirror image of [`upsert_section`], and it inherits the same promise:
+/// this file belongs to the user and to every other AWS tool on the machine.
+///
+/// The blank lines that followed the section go with it — they separated it
+/// from the next one, and keeping them would make the file grow a hole every
+/// time something is deleted. The blank line *before* it stays, because it
+/// belongs to whatever comes before.
+pub fn delete_section(content: &str, header: &str) -> String {
+    let wanted = format!("[{header}]");
+    let mut out: Vec<String> = Vec::new();
+    let mut skipping = false;
+
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if trimmed.starts_with('[') && trimmed.ends_with(']') {
+            skipping = trimmed == wanted;
+            if skipping {
+                continue;
+            }
+        }
+        if !skipping {
+            out.push(line.to_string());
+        }
+    }
+
+    let mut text = out.join("\n");
+    if !text.is_empty() && !text.ends_with('\n') {
+        text.push('\n');
+    }
+    text
+}
+
+/// The section header a profile is written under.
+///
+/// `default` is the exception the CLI itself makes: it is `[default]`, never
+/// `[profile default]`, and getting this wrong deletes nothing while reporting
+/// success.
+fn profile_header(name: &str) -> String {
+    if name == "default" {
+        "default".to_string()
+    } else {
+        format!("profile {name}")
+    }
+}
+
+/// `~/.aws/credentials` — the *other* file the CLI reads.
+///
+/// Profiles defined there use a bare `[name]` header (no `profile ` prefix),
+/// and `aws configure list-profiles` lists them alongside the config ones. A
+/// deletion that only touched `~/.aws/config` would therefore leave the profile
+/// in the picker and look like it silently failed.
+fn credentials_path() -> Option<PathBuf> {
+    directories::BaseDirs::new().map(|dirs| dirs.home_dir().join(".aws").join("credentials"))
+}
+
+/// Deletes a profile from both files the CLI reads.
+///
+/// Not an error when the profile is in neither: the caller's intent is "make
+/// this go away", and it already has.
+pub fn delete_profile(name: &str) -> Result<(), AwsCliError> {
+    let header = profile_header(name);
+    if let Some(path) = config_path() {
+        rewrite_without_section(&path, &header)?;
+    }
+    if let Some(path) = credentials_path() {
+        // Bare `[name]` here, and the file holds real secrets — hence the same
+        // atomic 0600 write as everything else.
+        rewrite_without_section(&path, name)?;
+    }
+    Ok(())
+}
+
+/// Deletes an `[sso-session]` block.
+///
+/// The profiles that pointed at it are left alone on purpose: deleting
+/// someone's profiles as a side effect of removing a login would be a
+/// surprise, and the panel says how many are affected before asking.
+pub fn delete_sso_session(name: &str) -> Result<(), AwsCliError> {
+    let Some(path) = config_path() else {
+        return Ok(());
+    };
+    rewrite_without_section(&path, &format!("sso-session {name}"))
+}
+
+fn rewrite_without_section(path: &std::path::Path, header: &str) -> Result<(), AwsCliError> {
+    let Ok(content) = std::fs::read_to_string(path) else {
+        return Ok(());
+    };
+    let updated = delete_section(&content, header);
+    if updated == content {
+        return Ok(());
+    }
+    crate::secure_file::write_private(path, updated.as_bytes()).map_err(|e| {
+        AwsCliError::Unreadable {
+            message: format!("écriture de {} impossible : {e}", path.display()),
+        }
+    })
+}
+
 fn read_config() -> String {
     config_path()
         .and_then(|path| std::fs::read_to_string(path).ok())
@@ -236,11 +337,11 @@ pub async fn login(
 /// Matched on the start URL or the session name, because which one the CLI
 /// writes depends on how the session was configured, and a token found under
 /// the wrong key is a token not found.
-pub fn pick_access_token<'a>(
+pub fn pick_token<'a>(
     documents: impl IntoIterator<Item = &'a str>,
     start_url: &str,
     session: &str,
-) -> Option<String> {
+) -> Option<CachedToken> {
     for text in documents {
         let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
             continue;
@@ -254,20 +355,214 @@ pub fn pick_access_token<'a>(
         let matches = value["startUrl"].as_str() == Some(start_url)
             || value["sessionName"].as_str() == Some(session);
         if matches {
-            return Some(token.to_string());
+            return Some(CachedToken {
+                access_token: token.to_string(),
+                expires_at: value["expiresAt"].as_str().map(str::to_string),
+            });
         }
     }
     None
 }
 
+/// What the CLI's cache holds for one session.
+#[derive(Debug, Clone, PartialEq)]
+pub struct CachedToken {
+    pub access_token: String,
+    /// As written, because the CLI has used more than one format for it (see
+    /// [`parse_expiry`]). Kept verbatim so an unparsable one can still be
+    /// shown rather than silently becoming "never logged in".
+    pub expires_at: Option<String>,
+}
+
+pub fn pick_access_token<'a>(
+    documents: impl IntoIterator<Item = &'a str>,
+    start_url: &str,
+    session: &str,
+) -> Option<String> {
+    pick_token(documents, start_url, session).map(|cached| cached.access_token)
+}
+
+fn cached_documents() -> Vec<String> {
+    sso_cache_dir()
+        .and_then(|dir| std::fs::read_dir(dir).ok())
+        .map(|entries| {
+            entries
+                .flatten()
+                .filter_map(|entry| std::fs::read_to_string(entry.path()).ok())
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 fn cached_access_token(start_url: &str, session: &str) -> Option<String> {
-    let dir = sso_cache_dir()?;
-    let documents: Vec<String> = std::fs::read_dir(dir)
-        .ok()?
-        .flatten()
-        .filter_map(|entry| std::fs::read_to_string(entry.path()).ok())
-        .collect();
+    let documents = cached_documents();
     pick_access_token(documents.iter().map(String::as_str), start_url, session)
+}
+
+/// Days since 1970-01-01 for a proleptic Gregorian date (Howard Hinnant's
+/// `days_from_civil`). Vendored rather than pulled in: this is the only date
+/// arithmetic in the whole crate, and a date library would be a dependency
+/// bought for eight lines.
+fn days_from_civil(y: i64, m: i64, d: i64) -> i64 {
+    let y = if m <= 2 { y - 1 } else { y };
+    let era = if y >= 0 { y } else { y - 399 } / 400;
+    let yoe = y - era * 400;
+    let mp = (m + 9) % 12;
+    let doy = (153 * mp + 2) / 5 + d - 1;
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy;
+    era * 146097 + doe - 719468
+}
+
+/// Unix seconds for an `expiresAt` out of the SSO cache.
+///
+/// Hand-rolled because the CLI has written this field at least three ways —
+/// `2026-08-04T18:14:32Z` today, `2026-08-04T18:14:32UTC` in older botocore
+/// releases, and offsets or fractional seconds depending on the path taken.
+/// A parser that accepted only today's shape would report a perfectly valid
+/// session as expired, which is worse than showing no countdown at all: it
+/// would send someone re-authenticating for nothing.
+///
+/// Anything unrecognisable yields `None`, and the caller treats that as
+/// "logged in, expiry unknown" rather than as an expiry.
+pub fn parse_expiry(raw: &str) -> Option<i64> {
+    let raw = raw.trim();
+    let (date, rest) = raw.split_once('T').or_else(|| raw.split_once(' '))?;
+    let mut fields = date.split('-');
+    let year: i64 = fields.next()?.parse().ok()?;
+    let month: i64 = fields.next()?.parse().ok()?;
+    let day: i64 = fields.next()?.parse().ok()?;
+    if !(1..=12).contains(&month) || !(1..=31).contains(&day) {
+        return None;
+    }
+
+    // The time ends where the zone marker starts: `Z`, `UTC`, or a signed
+    // offset. `find('-')` only after the others, since a time itself never
+    // contains one.
+    let end = rest
+        .find(['Z', 'z', '+', 'U', 'u'])
+        .or_else(|| rest.find('-'))
+        .unwrap_or(rest.len());
+    let (time, zone) = rest.split_at(end);
+    // Fractional seconds carry no information at this resolution.
+    let mut clock = time.split('.').next()?.split(':');
+    let hour: i64 = clock.next()?.parse().ok()?;
+    let minute: i64 = clock.next()?.parse().ok()?;
+    let second: i64 = clock.next().unwrap_or("0").parse().ok()?;
+
+    let offset = parse_offset(zone)?;
+    Some(days_from_civil(year, month, day) * 86_400 + hour * 3_600 + minute * 60 + second - offset)
+}
+
+/// Seconds to subtract to reach UTC. `Z`, `UTC` and an absent marker are all
+/// zero — the CLI writes UTC in every shape it uses.
+fn parse_offset(zone: &str) -> Option<i64> {
+    let zone = zone.trim();
+    let sign = match zone.chars().next() {
+        None => return Some(0),
+        Some('Z' | 'z') => return Some(0),
+        Some('U' | 'u') => return Some(0),
+        Some('+') => 1,
+        Some('-') => -1,
+        Some(_) => return None,
+    };
+    let digits: String = zone[1..].chars().filter(char::is_ascii_digit).collect();
+    let (hours, minutes) = match digits.len() {
+        2 => (digits.parse::<i64>().ok()?, 0),
+        4 => (digits[..2].parse::<i64>().ok()?, digits[2..].parse::<i64>().ok()?),
+        _ => return None,
+    };
+    Some(sign * (hours * 3_600 + minutes * 60))
+}
+
+/// Whether a session can be used right now, and for how much longer.
+///
+/// A tagged union rather than a pair of booleans because the three cases have
+/// genuinely different remedies — sign in, sign in again, nothing — and the
+/// frontend closes the `switch` with `assertNever`.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum SsoSessionState {
+    /// Nothing in the CLI's cache: never signed in, or the cache was cleared.
+    NeverLoggedIn,
+    Expired { expires_at: String },
+    /// A token is cached and hasn't expired. `expires_at` is `None` when the
+    /// cache document carried no readable expiry — usable, just no countdown.
+    Valid {
+        expires_at: Option<String>,
+        seconds_left: Option<i64>,
+    },
+}
+
+/// An `[sso-session]` block plus whether it is currently signed in.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SsoSessionStatus {
+    pub name: String,
+    pub start_url: String,
+    pub region: String,
+    pub state: SsoSessionState,
+}
+
+/// Reads the state of one session out of a set of cache documents.
+///
+/// `now` is passed in rather than read here so the three branches are testable
+/// without waiting for a token to expire.
+pub fn session_state<'a>(
+    documents: impl IntoIterator<Item = &'a str>,
+    start_url: &str,
+    session: &str,
+    now: i64,
+) -> SsoSessionState {
+    let Some(token) = pick_token(documents, start_url, session) else {
+        return SsoSessionState::NeverLoggedIn;
+    };
+    let Some(raw) = token.expires_at else {
+        return SsoSessionState::Valid {
+            expires_at: None,
+            seconds_left: None,
+        };
+    };
+    match parse_expiry(&raw) {
+        Some(at) if at <= now => SsoSessionState::Expired { expires_at: raw },
+        Some(at) => SsoSessionState::Valid {
+            seconds_left: Some(at - now),
+            expires_at: Some(raw),
+        },
+        // Unreadable expiry: the token is there, so it is not "never logged
+        // in", and calling it expired would send someone signing in for
+        // nothing.
+        None => SsoSessionState::Valid {
+            expires_at: Some(raw),
+            seconds_left: None,
+        },
+    }
+}
+
+/// Every session in `~/.aws/config`, with its current sign-in state.
+///
+/// Reads two local files and nothing else: the panel that lists identities
+/// must open instantly and work offline, and an expired session is exactly the
+/// case where a network call would hang.
+pub fn list_status() -> Vec<SsoSessionStatus> {
+    let documents = cached_documents();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    crate::aws_inventory::list_sso_sessions()
+        .into_iter()
+        .map(|session| SsoSessionStatus {
+            state: session_state(
+                documents.iter().map(String::as_str),
+                &session.start_url,
+                &session.name,
+                now,
+            ),
+            name: session.name,
+            start_url: session.start_url,
+            region: session.region,
+        })
+        .collect()
 }
 
 /// An account the signed-in user can reach, with the roles available in it.
@@ -517,5 +812,133 @@ mod tests {
     fn an_empty_listing_is_not_an_error() {
         assert!(parse_accounts(r#"{"accountList":[]}"#).unwrap().is_empty());
         assert!(parse_roles(r#"{}"#).unwrap().is_empty());
+    }
+
+    #[test]
+    fn deletes_a_section_and_leaves_the_rest_alone() {
+        let updated = delete_section(EXISTING, "sso-session ma-boite");
+        assert!(!updated.contains("[sso-session ma-boite]"));
+        assert!(!updated.contains("ancien.example"), "le corps part avec l'en-tête");
+        assert!(updated.contains("[default]\nregion = us-east-1"));
+        assert!(updated.contains("credential_process = /usr/bin/truc"));
+    }
+
+    /// The section's own trailing blank lines go with it. Keeping them would
+    /// make the file gain a hole at every deletion.
+    #[test]
+    fn a_deletion_does_not_leave_a_growing_gap() {
+        let updated = delete_section(EXISTING, "sso-session ma-boite");
+        assert!(!updated.contains("\n\n\n"), "obtenu :\n{updated}");
+    }
+
+    #[test]
+    fn deleting_a_section_that_is_not_there_changes_nothing() {
+        assert_eq!(delete_section(EXISTING, "profile inexistant"), EXISTING);
+    }
+
+    #[test]
+    fn deleting_the_last_section_leaves_the_earlier_ones() {
+        let updated = delete_section(EXISTING, "profile garde-moi");
+        assert!(!updated.contains("[profile garde-moi]"));
+        assert!(updated.contains("[sso-session ma-boite]"));
+    }
+
+    /// `[default]`, never `[profile default]` — the CLI's own exception, and
+    /// getting it wrong deletes nothing while reporting success.
+    #[test]
+    fn the_default_profile_has_no_profile_prefix() {
+        assert_eq!(profile_header("default"), "default");
+        assert_eq!(profile_header("prod"), "profile prod");
+        let updated = delete_section(EXISTING, &profile_header("default"));
+        assert!(!updated.contains("[default]"));
+        assert!(updated.contains("[sso-session ma-boite]"));
+    }
+
+    /// The format the CLI writes today, plus the ones it has written before.
+    /// Accepting only the current one would report a valid session as expired.
+    #[test]
+    fn reads_every_expiry_format_the_cli_has_written() {
+        let reference = 1_775_326_472; // 2026-04-04T18:14:32Z
+        assert_eq!(parse_expiry("2026-04-04T18:14:32Z"), Some(reference));
+        assert_eq!(parse_expiry("2026-04-04T18:14:32UTC"), Some(reference), "botocore historique");
+        assert_eq!(parse_expiry("2026-04-04T18:14:32.123Z"), Some(reference), "secondes fractionnaires");
+        assert_eq!(parse_expiry("2026-04-04T20:14:32+02:00"), Some(reference), "décalage positif");
+        assert_eq!(parse_expiry("2026-04-04T16:14:32-02:00"), Some(reference), "décalage négatif");
+    }
+
+    #[test]
+    fn an_unreadable_expiry_is_none_rather_than_a_wrong_date() {
+        assert_eq!(parse_expiry(""), None);
+        assert_eq!(parse_expiry("bientôt"), None);
+        assert_eq!(parse_expiry("2026-04-04"), None);
+        assert_eq!(parse_expiry("2026-13-04T18:14:32Z"), None);
+    }
+
+    const TOKEN_VALID: &str = r#"{"accessToken":"t","startUrl":"https://x/start","expiresAt":"2026-04-04T18:14:32Z"}"#;
+
+    #[test]
+    fn tells_the_three_states_apart() {
+        let before = 1_775_326_472 - 3_600;
+        assert_eq!(
+            session_state([TOKEN_VALID], "https://x/start", "x", before),
+            SsoSessionState::Valid {
+                expires_at: Some("2026-04-04T18:14:32Z".to_string()),
+                seconds_left: Some(3_600),
+            }
+        );
+        assert!(matches!(
+            session_state([TOKEN_VALID], "https://x/start", "x", 1_775_326_472 + 1),
+            SsoSessionState::Expired { .. }
+        ));
+        // A cache holding only client registrations is "never signed in", not
+        // "expired": the remedies are the same here, but the sentence shown
+        // isn't, and "expired" for a session never used is simply wrong.
+        let registration = r#"{"clientId":"a","clientSecret":"b"}"#;
+        assert_eq!(
+            session_state([registration], "https://x/start", "x", before),
+            SsoSessionState::NeverLoggedIn
+        );
+    }
+
+    /// A token with no readable expiry is usable, and saying otherwise would
+    /// send someone re-authenticating for nothing.
+    #[test]
+    fn a_token_without_a_readable_expiry_still_counts_as_signed_in() {
+        let odd = r#"{"accessToken":"t","sessionName":"x","expiresAt":"jamais"}"#;
+        assert_eq!(
+            session_state([odd], "https://x/start", "x", 0),
+            SsoSessionState::Valid {
+                expires_at: Some("jamais".to_string()),
+                seconds_left: None,
+            }
+        );
+        let none = r#"{"accessToken":"t","sessionName":"x"}"#;
+        assert_eq!(
+            session_state([none], "https://x/start", "x", 0),
+            SsoSessionState::Valid { expires_at: None, seconds_left: None }
+        );
+    }
+
+    /// `rename_all` on an internally-tagged enum renames the *variants*, never
+    /// the fields of a struct variant — a silent mismatch this repo has been
+    /// bitten by six times. Asserted on real JSON, since a Rust round trip
+    /// proves nothing about the casing the frontend actually reads.
+    #[test]
+    fn the_json_state_carries_the_camel_cased_fields_the_frontend_reads() {
+        let json = serde_json::to_value(SsoSessionState::Valid {
+            expires_at: Some("2026-04-04T18:14:32Z".to_string()),
+            seconds_left: Some(42),
+        })
+        .unwrap();
+        assert_eq!(json["kind"], "valid");
+        assert_eq!(json["secondsLeft"], 42);
+        assert_eq!(json["expiresAt"], "2026-04-04T18:14:32Z");
+        assert_eq!(serde_json::to_value(SsoSessionState::NeverLoggedIn).unwrap()["kind"], "neverLoggedIn");
+        let expired = serde_json::to_value(SsoSessionState::Expired {
+            expires_at: "2020-01-01T00:00:00Z".to_string(),
+        })
+        .unwrap();
+        assert_eq!(expired["kind"], "expired");
+        assert_eq!(expired["expiresAt"], "2020-01-01T00:00:00Z");
     }
 }

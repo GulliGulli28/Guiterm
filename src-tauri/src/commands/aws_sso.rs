@@ -6,7 +6,7 @@
 
 use crate::commands::aws::AwsFailure;
 use tauri::{AppHandle, Emitter};
-use termius_core::aws_sso::{self, ProfileSpec, SsoAccount};
+use termius_core::aws_sso::{self, ProfileSpec, SsoAccount, SsoSessionStatus};
 
 /// Line of `aws sso login` output, forwarded as it arrives so the panel can
 /// show the verification URL and code while the CLI waits for the browser.
@@ -56,4 +56,28 @@ pub fn save_aws_sso_profiles(profiles: Vec<ProfileSpec>) -> Result<(), AwsFailur
 #[tauri::command]
 pub async fn list_aws_account_names() -> std::collections::HashMap<String, String> {
     aws_sso::account_names().await
+}
+
+/// Every SSO session with its current sign-in state. Two local file reads and
+/// no network call, so the identities panel opens instantly — and still says
+/// something useful when the machine is offline.
+#[tauri::command]
+pub fn list_aws_sso_status() -> Vec<SsoSessionStatus> {
+    aws_sso::list_status()
+}
+
+/// Removes a profile from `~/.aws/config` *and* `~/.aws/credentials`.
+///
+/// Both, because `aws configure list-profiles` reads both: deleting from one
+/// only would leave the profile in the list and look like nothing happened.
+#[tauri::command]
+pub fn delete_aws_profile(name: String) -> Result<(), AwsFailure> {
+    aws_sso::delete_profile(name.trim()).map_err(Into::into)
+}
+
+/// Removes an `[sso-session]` block. The profiles pointing at it are left
+/// alone — the panel says how many there are before asking.
+#[tauri::command]
+pub fn delete_aws_sso_session(name: String) -> Result<(), AwsFailure> {
+    aws_sso::delete_sso_session(name.trim()).map_err(Into::into)
 }

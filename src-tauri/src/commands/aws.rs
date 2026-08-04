@@ -7,7 +7,9 @@ use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use termius_core::aws_databases::{self, AwsDatabase};
-use termius_core::aws_inventory::{self, AwsCliError, AwsInstance, AwsProfile, AwsSsoSession};
+use termius_core::aws_inventory::{
+    self, AwsCliError, AwsInstance, AwsProfile, AwsSsoSession, CallerIdentity,
+};
 use termius_core::model::{
     AuthMethod, EngineConfig, GroupId, Host, HostId, MongoConfig, ServerConfig, SqlConnection,
     SqlEngine, Workspace,
@@ -45,6 +47,14 @@ pub async fn list_aws_profiles() -> Result<Vec<AwsProfile>, AwsFailure> {
 #[tauri::command]
 pub fn list_aws_sso_sessions() -> Vec<AwsSsoSession> {
     aws_inventory::list_sso_sessions()
+}
+
+/// Who a profile currently resolves to. The check button next to a profile:
+/// it needs no permission beyond being authenticated, so a failure points at
+/// the credentials rather than at the rights.
+#[tauri::command]
+pub async fn check_aws_identity(profile: String) -> Result<CallerIdentity, AwsFailure> {
+    aws_inventory::whoami(profile.trim()).await.map_err(Into::into)
 }
 
 #[tauri::command]

@@ -10,9 +10,14 @@ interface AwsSsoSetupPanelProps {
   onProfilesCreated: () => void;
   /** Pre-filled when reconnecting a session that already exists. */
   initialSession?: { name: string; startUrl: string; region: string };
+  /** `"accounts"` skips the browser round trip and lists the accounts with the
+   * token already in the CLI's cache — adding a profile to a session that is
+   * signed in shouldn't cost a re-authentication. Falls back to the form (with
+   * the refusal shown) if that token turns out not to work after all. */
+  startAt?: "form" | "accounts";
 }
 
-type Stage = "form" | "loggingIn" | "accounts" | "done";
+type Stage = "form" | "loggingIn" | "listing" | "accounts" | "done";
 
 const inputClass =
   "w-full rounded-md bg-[var(--c-bg3)] px-2 py-1.5 text-sm text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]";
@@ -32,7 +37,7 @@ function profileName(roleName: string, accountId: string): string {
  * the same panel reconnects an expired session later, because the whole
  * procedure *is* that one login command.
  */
-export function AwsSsoSetupPanel({ onClose, onProfilesCreated, initialSession }: AwsSsoSetupPanelProps) {
+export function AwsSsoSetupPanel({ onClose, onProfilesCreated, initialSession, startAt = "form" }: AwsSsoSetupPanelProps) {
   const [name, setName] = useState(initialSession?.name ?? "");
   const [startUrl, setStartUrl] = useState(initialSession?.startUrl ?? "");
   const [region, setRegion] = useState(initialSession?.region ?? "eu-west-3");
@@ -54,6 +59,21 @@ export function AwsSsoSetupPanel({ onClose, onProfilesCreated, initialSession }:
   }, []);
 
   useEffect(() => { outputEndRef.current?.scrollIntoView({ block: "end" }); }, [output]);
+
+  // Adding profiles to a session already signed in: the accounts are readable
+  // with the cached token, so the browser step is skipped entirely. Run once,
+  // on mount — a failure here just lands on the form, where "Reconnecter" is.
+  useEffect(() => {
+    if (startAt !== "accounts" || !initialSession) return;
+    setStage("listing");
+    api.listAwsSsoAccounts(initialSession.startUrl, initialSession.region, initialSession.name)
+      .then((found) => { setAccounts(found); setSelected(new Set()); setStage("accounts"); })
+      .catch((e) => {
+        setFailure({ message: e.message ?? String(e), hint: e.reason?.hint ?? null });
+        setStage("form");
+      });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const start = () => {
     setFailure(null);
@@ -119,7 +139,11 @@ export function AwsSsoSetupPanel({ onClose, onProfilesCreated, initialSession }:
         <div className="flex shrink-0 items-center justify-between border-b border-[var(--c-border)] px-4 py-2.5">
           <div>
             <p className="text-[13px] font-medium text-[var(--c-text)]">
-              {initialSession ? "Reconnecter la session SSO" : "Configurer une session SSO"}
+              {startAt === "accounts"
+                ? "Ajouter des profils"
+                : initialSession
+                  ? "Reconnecter la session SSO"
+                  : "Configurer une session SSO"}
             </p>
             <p className="text-[11px] text-[var(--c-text-muted)]">
               Écrit dans `~/.aws/config` : ta CLI et tes autres outils verront la même configuration.
@@ -185,6 +209,12 @@ export function AwsSsoSetupPanel({ onClose, onProfilesCreated, initialSession }:
                 </pre>
               )}
             </div>
+          )}
+
+          {stage === "listing" && (
+            <p className="py-6 text-center text-[13px] text-[var(--c-text-muted)]">
+              Lecture des comptes accessibles avec la session « {initialSession?.name} »…
+            </p>
           )}
 
           {failure && (
@@ -262,10 +292,10 @@ export function AwsSsoSetupPanel({ onClose, onProfilesCreated, initialSession }:
           ) : (
             <button
               onClick={start}
-              disabled={stage === "loggingIn" || !canStart}
+              disabled={stage === "loggingIn" || stage === "listing" || !canStart}
               className="accent-surface rounded-md border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
             >
-              {stage === "loggingIn" ? "Connexion…" : initialSession ? "Reconnecter" : "Se connecter"}
+              {stage === "loggingIn" ? "Connexion…" : stage === "listing" ? "Lecture…" : initialSession ? "Reconnecter" : "Se connecter"}
             </button>
           )}
         </div>

@@ -1,8 +1,8 @@
-import type { Group, GroupId, Host, HostId, KeyAlgorithm, KeyId, PortForwardId, PortForwardKind, SnippetId, SqlConnection, VaultStatus, Workspace } from "../lib/types";
+import type { AwsSsoSession, Group, GroupId, Host, HostId, KeyAlgorithm, KeyId, PortForwardId, PortForwardKind, SnippetId, SqlConnection, VaultStatus, Workspace } from "../lib/types";
 import type { AppPreferences } from "../lib/preferences";
 import { lazy, Suspense, type ComponentType } from "react";
 import { HostsPanel } from "./HostsPanel";
-import { IconHosts, IconSnippets, IconTunnels, IconKeychain, IconSettings, IconTransfer, IconShield, IconDatabase, IconFleet } from "./ui-icons";
+import { IconHosts, IconSnippets, IconTunnels, IconKeychain, IconSettings, IconTransfer, IconShield, IconDatabase, IconFleet, IconCloud } from "./ui-icons";
 import { TabLoadingFallback } from "./TabLoadingFallback";
 
 // Lazy-loaded: "Hôtes" is the default panel shown on launch (stays eager),
@@ -15,8 +15,9 @@ const SnippetsPanel = lazy(() => import("./SnippetsPanel").then((m) => ({ defaul
 const SftpPanel = lazy(() => import("./SftpPanel").then((m) => ({ default: m.SftpPanel })));
 const TunnelsPanel = lazy(() => import("./TunnelsPanel").then((m) => ({ default: m.TunnelsPanel })));
 const SqlConnectionsPanel = lazy(() => import("./SqlConnectionsPanel").then((m) => ({ default: m.SqlConnectionsPanel })));
+const AwsIdentitiesPanel = lazy(() => import("./AwsIdentitiesPanel").then((m) => ({ default: m.AwsIdentitiesPanel })));
 
-export type SidebarPanelKind = "knownHosts" | "hosts" | "sftp" | "snippets" | "tunnels" | "keychain" | "database" | "settings";
+export type SidebarPanelKind = "knownHosts" | "hosts" | "sftp" | "snippets" | "tunnels" | "keychain" | "database" | "aws" | "settings";
 
 interface SidebarProps {
   workspace: Workspace;
@@ -53,6 +54,13 @@ interface SidebarProps {
   onConnectSql: (conn: SqlConnection) => void;
   onNewSqlConnection: () => void;
   onImportAwsDatabases: () => void;
+  /** AWS identities panel — the SSO modal it opens lives at the App level,
+   * since the import panels open the very same one. */
+  onConfigureSso: () => void;
+  onReconnectSso: (session: AwsSsoSession) => void;
+  onAddAwsProfiles: (session: AwsSsoSession) => void;
+  /** Bumped whenever that modal wrote something, so the listing catches up. */
+  awsRefreshToken: number;
   onEditSqlConnection: (conn: SqlConnection) => void;
   onOpenFleet: () => void;
   onWorkspaceUpdate: (ws: Workspace) => void;
@@ -71,6 +79,7 @@ const TABS: { key: Exclude<SidebarPanelKind, "settings">; label: string; Icon: C
   { key: "tunnels",    label: "Tunnels",     Icon: IconTunnels  },
   { key: "database",   label: "Bases de données", Icon: IconDatabase },
   { key: "keychain",   label: "Clés",        Icon: IconKeychain },
+  { key: "aws",        label: "Identités AWS", Icon: IconCloud   },
 ];
 
 export function Sidebar(props: SidebarProps) {
@@ -187,6 +196,14 @@ export function Sidebar(props: SidebarProps) {
               onGenerateKey={props.onGenerateKey}
               onDeleteKey={props.onDeleteKey}
               onRenameKey={props.onRenameKey}
+            />
+          )}
+          {panel === "aws" && (
+            <AwsIdentitiesPanel
+              onConfigureSso={props.onConfigureSso}
+              onReconnectSso={props.onReconnectSso}
+              onAddProfiles={props.onAddAwsProfiles}
+              refreshToken={props.awsRefreshToken}
             />
           )}
           {panel === "settings" && (

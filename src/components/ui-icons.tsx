@@ -42,6 +42,23 @@ export function IconKeychain({ size = 16, className }: P) {
   );
 }
 
+/** A cloud with a keyhole: the AWS identities panel — a login, not a machine
+ * (which is what `IconServerStack` already says). */
+export function IconCloud({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path
+        d="M4.4 12.5a2.9 2.9 0 0 1-.3-5.78 3.9 3.9 0 0 1 7.48-1.06A2.94 2.94 0 0 1 12 12.5H4.4Z"
+        stroke="currentColor"
+        strokeWidth="1.25"
+        strokeLinejoin="round"
+      />
+      <circle cx="8" cy="8.2" r="1.35" stroke="currentColor" strokeWidth="1.15" />
+      <path d="M8 9.55v1.4" stroke="currentColor" strokeWidth="1.15" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function IconSettings({ size = 16, className }: P) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
