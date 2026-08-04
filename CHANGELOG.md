@@ -59,6 +59,26 @@ This changelog starts 2026-07-21 — for earlier versions, see
   Nothing about any of this asks for AWS credentials or stores any: every call
   goes through the `aws` CLI you already have configured, so SSO, assume-role
   and MFA keep working exactly as they do in your terminal.
+- AWS identities have a sidebar tab of their own. It lists the SSO sessions in
+  `~/.aws/config` with whether each one is signed in and for how much longer,
+  and the profiles grouped under the session that authenticates them — with the
+  account, the role and the region each one reaches. From there you can sign in,
+  reconnect, add profiles to a session that is already signed in (no second trip
+  through the browser), check who a profile really resolves to at this moment,
+  and delete a profile or a session. Until now all of this was reachable only
+  from inside the EC2 import panel, and nothing anywhere answered "am I still
+  signed in, and as whom".
+  A session whose hourly access token has lapsed reads as signed in with a token
+  to renew, not as expired: the CLI renews it by itself, without a browser, for
+  as long as the AWS session lives — and the app now triggers that renewal
+  rather than refusing the operation.
+- Connections through AWS Session Manager find the plugin even when it was
+  installed while the app was running. A process keeps the PATH it started with,
+  so `aws ssm start-session` could report the plugin as missing on a machine
+  where it was installed *and* correctly on the system PATH; the standard
+  install directories are now searched as well. And when a proxy command fails,
+  its error comes with what to do about it — advice that until now appeared only
+  under the settings form's "Test the command" button.
 - Redis connections can use TLS (`rediss://`), from a checkbox on the
   connection — and automatically for an imported ElastiCache group that has
   encryption in transit enabled.
