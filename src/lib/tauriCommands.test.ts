@@ -23,7 +23,13 @@ const read = (relative: string) => readFileSync(fileURLToPath(new URL(relative, 
 function invokedCommands(): Set<string> {
   const source = read("./api.ts");
   const names = new Set<string>();
-  for (const m of source.matchAll(/invoke<[^>]*>\(\s*"([a-z0-9_]+)"/g)) names.add(m[1]);
+  // Non-greedy up to the first `>(` rather than "anything but `>`": a return
+  // type with a generic of its own (`Record<string, string>`) contains `>`,
+  // and the stricter form skipped the whole binding — reporting the Rust
+  // command as unreachable when it was wired perfectly well. A guard that
+  // cries wolf gets disabled, so its blind spots matter as much as its
+  // catches.
+  for (const m of source.matchAll(/invoke<[\s\S]*?>\(\s*"([a-z0-9_]+)"/g)) names.add(m[1]);
   for (const m of source.matchAll(/writeBytes\(\s*"([a-z0-9_]+)"/g)) names.add(m[1]);
   return names;
 }

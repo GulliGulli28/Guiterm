@@ -66,3 +66,22 @@ export function groupProfilesBySession<T extends { name: string; ssoSession: str
       return a.session.localeCompare(b.session);
     });
 }
+
+/**
+ * How a profile is shown in the picker: its name, then the account it reaches.
+ *
+ * The account *name* when it could be resolved, the number otherwise — never
+ * neither. A profile called `AdministratorAccess-167004607868` already carries
+ * the number; what it doesn't say, and what someone with several accounts
+ * needs, is which one that is.
+ */
+export function profileLabel(
+  profile: { name: string; accountId: string | null },
+  accountNames: Record<string, string>,
+): string {
+  if (!profile.accountId) return profile.name;
+  const known = accountNames[profile.accountId];
+  return known
+    ? `${profile.name} · ${known} (${profile.accountId})`
+    : `${profile.name} · ${profile.accountId}`;
+}

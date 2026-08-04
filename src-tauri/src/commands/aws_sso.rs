@@ -49,3 +49,11 @@ pub async fn list_aws_sso_accounts(
 pub fn save_aws_sso_profiles(profiles: Vec<ProfileSpec>) -> Result<(), AwsFailure> {
     aws_sso::save_profiles(&profiles).map_err(Into::into)
 }
+
+/// Account id → name, so a profile can show what it actually reaches rather
+/// than a twelve-digit number. Best effort: an unreachable session simply
+/// contributes nothing.
+#[tauri::command]
+pub async fn list_aws_account_names() -> std::collections::HashMap<String, String> {
+    aws_sso::account_names().await
+}

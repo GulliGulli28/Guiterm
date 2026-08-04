@@ -1,8 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import type { AwsDatabase, AwsProfile, AwsSsoSession, HostId, Workspace } from "../lib/types";
-import { groupProfilesBySession } from "../lib/awsInstances";
+import { groupProfilesBySession, profileLabel } from "../lib/awsInstances";
 import { IconClose } from "./ui-icons";
+import { RegionSelect } from "./RegionSelect";
 
 interface AwsDatabaseImportPanelProps {
   workspace: Workspace;
@@ -15,14 +16,6 @@ interface AwsDatabaseImportPanelProps {
   onConfigureSso: () => void;
 }
 
-/** Same list as the EC2 panel, and for the same reason: `describe-regions`
- * needs working credentials, which is what may not be true yet. */
-const COMMON_REGIONS = [
-  "eu-west-1", "eu-west-2", "eu-west-3", "eu-central-1", "eu-north-1", "eu-south-1",
-  "us-east-1", "us-east-2", "us-west-1", "us-west-2",
-  "ca-central-1", "sa-east-1",
-  "ap-northeast-1", "ap-southeast-1", "ap-southeast-2", "ap-south-1",
-];
 
 const inputClass =
   "w-full rounded-md bg-[var(--c-bg3)] px-2 py-1.5 text-sm text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]";
@@ -45,6 +38,11 @@ const ENGINE_LABEL: Record<string, string> = {
 export function AwsDatabaseImportPanel({ workspace, onWorkspaceUpdate, onClose, onError, onReconnectSso, onConfigureSso }: AwsDatabaseImportPanelProps) {
   const [profiles, setProfiles] = useState<AwsProfile[] | null>(null);
   const [ssoSessions, setSsoSessions] = useState<AwsSsoSession[]>([]);
+  // Resolved after the profiles are listed, not before: a twelve-digit account
+  // number identifies nothing to a human, but waiting on a network round trip
+  // before showing the list at all would be worse. Unresolved ones stay as ids.
+  const [accountNames, setAccountNames] = useState<Record<string, string>>({});
+  useEffect(() => { api.listAwsAccountNames().then(setAccountNames).catch(() => {}); }, []);
   useEffect(() => { api.listAwsSsoSessions().then(setSsoSessions).catch(() => {}); }, []);
   const [profile, setProfile] = useState("");
   const [region, setRegion] = useState("eu-west-3");
@@ -148,7 +146,7 @@ export function AwsDatabaseImportPanel({ workspace, onWorkspaceUpdate, onClose, 
                 {profileGroups.map((group) => (
                   <optgroup key={group.session ?? "__none"} label={group.session ? `Session SSO — ${group.session}` : "Sans session SSO"}>
                     {group.profiles.map((p) => (
-                      <option key={p.name} value={p.name}>{p.name}{p.accountId ? ` · ${p.accountId}` : ""}</option>
+                      <option key={p.name} value={p.name}>{profileLabel(p, accountNames)}</option>
                     ))}
                   </optgroup>
                 ))}
@@ -159,10 +157,7 @@ export function AwsDatabaseImportPanel({ workspace, onWorkspaceUpdate, onClose, 
           </label>
           <label className="block w-40 space-y-1">
             <span className="text-xs font-medium text-[var(--c-text-muted)]">Région</span>
-            <input list="aws-db-regions" value={region} onChange={(e) => setRegion(e.target.value)} className={inputClass} />
-            <datalist id="aws-db-regions">
-              {COMMON_REGIONS.map((r) => <option key={r} value={r} />)}
-            </datalist>
+              <RegionSelect value={region} onChange={setRegion} className={inputClass} />
           </label>
           <button
             onClick={discover}

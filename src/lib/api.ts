@@ -67,6 +67,9 @@ export const api = {
 
   listAwsProfiles: () => invoke<AwsProfile[]>("list_aws_profiles"),
   listAwsSsoSessions: () => invoke<AwsSsoSession[]>("list_aws_sso_sessions"),
+  /** Account id → name, for profile labels. Best effort: a session whose
+   * token has expired contributes nothing rather than failing. */
+  listAwsAccountNames: () => invoke<Record<string, string>>("list_aws_account_names"),
   saveAwsSsoSession: (name: string, startUrl: string, region: string) =>
     invoke<void>("save_aws_sso_session", { name, startUrl, region }),
   /** Long-lived on purpose: resolves only once the browser authentication has

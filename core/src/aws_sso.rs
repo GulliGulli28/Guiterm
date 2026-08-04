@@ -370,6 +370,36 @@ pub async fn list_accounts(
     Ok(accounts)
 }
 
+/// Account id → human name, for every SSO session that currently has a
+/// usable token.
+///
+/// Best effort on purpose, and never fatal: an account number tells nobody
+/// anything, but failing to resolve one must not stop a profile from being
+/// selectable. A session whose token has expired simply contributes nothing,
+/// and the caller falls back to showing the id.
+///
+/// One call per session rather than per profile — several profiles usually
+/// share a session, and per-profile lookups would multiply a round trip that
+/// answers the same question.
+pub async fn account_names() -> std::collections::HashMap<String, String> {
+    let mut names = std::collections::HashMap::new();
+    for session in crate::aws_inventory::list_sso_sessions() {
+        if session.start_url.is_empty() || session.region.is_empty() {
+            continue;
+        }
+        let Ok(accounts) = list_accounts(&session.start_url, &session.region, &session.name).await
+        else {
+            continue;
+        };
+        for account in accounts {
+            if !account.name.is_empty() {
+                names.insert(account.account_id, account.name);
+            }
+        }
+    }
+    names
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

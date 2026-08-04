@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterAwsInstances, groupProfilesBySession } from "./awsInstances";
+import { filterAwsInstances, groupProfilesBySession, profileLabel } from "./awsInstances";
 import type { AwsInstance } from "./types";
 
 function instance(overrides: Partial<AwsInstance>): AwsInstance {
@@ -104,5 +104,24 @@ describe("groupProfilesBySession", () => {
     const groups = groupProfilesBySession([{ name: "default", ssoSession: null }]);
     expect(groups).toHaveLength(1);
     expect(groups[0].session).toBeNull();
+  });
+});
+
+describe("profileLabel", () => {
+  const profile = { name: "AdministratorAccess-167004607868", accountId: "167004607868" };
+
+  it("shows the account name when it could be resolved", () => {
+    expect(profileLabel(profile, { "167004607868": "prod" }))
+      .toBe("AdministratorAccess-167004607868 · prod (167004607868)");
+  });
+
+  // The number is already half of the profile name; what it does not say is
+  // which account that is. Falling back to it beats showing nothing.
+  it("falls back to the account number when it is unknown", () => {
+    expect(profileLabel(profile, {})).toBe("AdministratorAccess-167004607868 · 167004607868");
+  });
+
+  it("leaves a profile with no account alone", () => {
+    expect(profileLabel({ name: "static-old", accountId: null }, {})).toBe("static-old");
   });
 });

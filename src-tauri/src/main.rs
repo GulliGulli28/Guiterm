@@ -79,6 +79,7 @@ fn main() {
             commands::aws_sso::aws_sso_login,
             commands::aws_sso::list_aws_sso_accounts,
             commands::aws_sso::save_aws_sso_profiles,
+            commands::aws_sso::list_aws_account_names,
             commands::hosts::delete_host,
             commands::hosts::save_group,
             commands::hosts::delete_group,
