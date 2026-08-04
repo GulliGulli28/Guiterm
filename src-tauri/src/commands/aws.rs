@@ -131,6 +131,8 @@ pub struct AwsDatabaseSelection {
     pub port: u16,
     pub username: String,
     pub initial_database: Option<String>,
+    #[serde(default)]
+    pub tls: bool,
 }
 
 #[tauri::command]
@@ -166,6 +168,7 @@ pub fn import_aws_databases(
             port: selection.port,
             username: selection.username,
             database: selection.initial_database,
+            tls: selection.tls,
         };
         let config = match selection.engine {
             SqlEngine::Mysql => EngineConfig::Mysql(server),

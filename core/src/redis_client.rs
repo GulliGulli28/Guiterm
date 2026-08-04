@@ -131,20 +131,14 @@ pub async fn connect(workspace: &Workspace, conn: &SqlConnection) -> anyhow::Res
         }
     };
 
-    // Built via `url::Url`'s setters (never hand-`format!`-ed), same
-    // safe-percent-encoding reasoning as `core::sql::build_url` — then
-    // converted to a plain string before handing to `redis::Client::open`
-    // rather than passed as a `url::Url` object directly, so this never
-    // depends on this workspace's `url` crate version being pinned
-    // identically to whatever `redis` itself resolves internally.
-    let mut url = url::Url::parse("redis://placeholder").expect("valid literal");
-    url.set_host(Some(&dial_host)).map_err(|_| anyhow::anyhow!("adresse invalide : {dial_host:?}"))?;
-    url.set_port(Some(dial_port)).map_err(|_| anyhow::anyhow!("port invalide"))?;
-    if !server.username.is_empty() {
-        url.set_username(&server.username).map_err(|_| anyhow::anyhow!("nom d'utilisateur invalide"))?;
-    }
-    url.set_password(password.as_deref().filter(|p| !p.is_empty())).map_err(|_| anyhow::anyhow!("mot de passe invalide"))?;
-    url.set_path(&database.to_string());
+    let url = build_url(
+        server.tls,
+        &dial_host,
+        dial_port,
+        &server.username,
+        password.as_deref(),
+        database,
+    )?;
 
     let connect_result = async {
         let client = redis::Client::open(url.as_str())?;
@@ -166,6 +160,42 @@ pub async fn connect(workspace: &Workspace, conn: &SqlConnection) -> anyhow::Res
     };
 
     Ok(RedisSession { manager, database, tunnel })
+}
+
+/// Builds the URL handed to `redis::Client::open`.
+///
+/// Extracted from [`connect`] so the one decision that cannot be observed
+/// without a live server — which scheme gets dialled — is testable: reverting
+/// it to a hardcoded `redis://` compiled cleanly and broke no test, which is
+/// how an encrypted cluster would come to be dialled in the clear (and hang,
+/// rather than fail).
+///
+/// Built via `url::Url`'s setters, never hand-`format!`-ed — same
+/// safe-percent-encoding reasoning as `core::sql::build_url`. The caller turns
+/// it into a plain string rather than passing the `Url` itself, so this never
+/// depends on this workspace's `url` version matching whatever `redis`
+/// resolves internally.
+fn build_url(
+    tls: bool,
+    host: &str,
+    port: u16,
+    username: &str,
+    password: Option<&str>,
+    database: u8,
+) -> anyhow::Result<url::Url> {
+    // `rediss://` is the scheme redis-rs keys TLS off; nothing else about the
+    // URL changes. Certificates are checked against the system roots, which is
+    // what ElastiCache needs — its certificates chain to a public CA.
+    let scheme = if tls { "rediss" } else { "redis" };
+    let mut url = url::Url::parse(&format!("{scheme}://placeholder")).expect("valid literal");
+    url.set_host(Some(host)).map_err(|_| anyhow::anyhow!("adresse invalide : {host:?}"))?;
+    url.set_port(Some(port)).map_err(|_| anyhow::anyhow!("port invalide"))?;
+    if !username.is_empty() {
+        url.set_username(username).map_err(|_| anyhow::anyhow!("nom d'utilisateur invalide"))?;
+    }
+    url.set_password(password.filter(|p| !p.is_empty())).map_err(|_| anyhow::anyhow!("mot de passe invalide"))?;
+    url.set_path(&database.to_string());
+    Ok(url)
 }
 
 /// Row batch cap for [`scan_keys`] — the tree's flat, paginated key list is
@@ -494,6 +524,38 @@ pub async fn run_command(handle: RedisHandle, line: &str) -> anyhow::Result<Redi
 
 #[cfg(test)]
 mod tests {
+    use super::build_url;
+
+    /// The whole point of the `tls` flag: an ElastiCache group with
+    /// encryption in transit must be dialled over TLS. Getting this wrong
+    /// doesn't fail — it hangs, which is the least diagnosable outcome there
+    /// is.
+    #[test]
+    fn tls_selects_the_rediss_scheme() {
+        let plain = build_url(false, "cache.example", 6379, "", None, 0u8).unwrap();
+        assert_eq!(plain.scheme(), "redis");
+        let secure = build_url(true, "cache.example", 6379, "", None, 0u8).unwrap();
+        assert_eq!(secure.scheme(), "rediss");
+    }
+
+    #[test]
+    fn the_database_index_and_credentials_survive_the_url() {
+        let url = build_url(true, "cache.example", 6380, "acl-user", Some("p@ss:w/rd"), 3u8).unwrap();
+        assert_eq!(url.host_str(), Some("cache.example"));
+        assert_eq!(url.port(), Some(6380));
+        assert_eq!(url.path(), "/3");
+        assert_eq!(url.username(), "acl-user");
+        // Percent-encoded rather than breaking the URL structure, same as
+        // `sql::build_url`.
+        assert_eq!(url.password(), Some("p%40ss%3Aw%2Frd"));
+    }
+
+    #[test]
+    fn an_empty_password_is_left_out_entirely() {
+        let url = build_url(false, "cache.example", 6379, "", Some(""), 0u8).unwrap();
+        assert_eq!(url.password(), None);
+    }
+
     use super::*;
 
     #[test]

@@ -383,6 +383,18 @@ pub struct ServerConfig {
     /// connect time.
     #[serde(default)]
     pub database: Option<String>,
+    /// Encrypt the connection to this server.
+    ///
+    /// A property of the *transport*, so it belongs on the config every
+    /// TCP-dialled engine shares rather than on one engine's own — but only
+    /// `Redis` reads it today (`rediss://`, see
+    /// [`crate::redis_client::connect`]). MySQL and PostgreSQL negotiate TLS
+    /// through `sqlx`'s own defaults and have never needed a switch here.
+    ///
+    /// Set automatically when importing an ElastiCache group that has
+    /// encryption in transit enabled.
+    #[serde(default)]
+    pub tls: bool,
 }
 
 /// How to reach a SQLite database — an embedded single-file engine with no

@@ -13,8 +13,6 @@
 //! - Oracle and SQL Server — engines the app doesn't speak at all.
 //! - DocumentDB — requires TLS signed by the Amazon RDS certificate authority,
 //!   which is not in any system trust store and which this app does not carry.
-//! - ElastiCache with encryption in transit — `crate::redis_client` dials
-//!   `redis://` only, it has no TLS.
 //!
 //! Each of those is a real gap with a real fix; showing them is what makes the
 //! gap actionable instead of mysterious.
@@ -47,6 +45,10 @@ pub struct AwsDatabase {
     /// [`Self::unsupported_reason`] says why.
     pub supported_engine: Option<SqlEngine>,
     pub unsupported_reason: Option<String>,
+    /// The connection must be encrypted — ElastiCache with encryption in
+    /// transit. Carried onto the imported connection rather than guessed
+    /// later: dialling such a cluster in the clear simply hangs.
+    pub tls: bool,
 }
 
 impl AwsDatabase {
@@ -61,7 +63,7 @@ impl AwsDatabase {
 /// codes: each names the missing capability, because each is fixable and
 /// knowing which one it is decides whether you reach for a parameter group or
 /// for a different tool.
-pub fn map_engine(engine: &str, transit_encryption: bool) -> (Option<SqlEngine>, Option<String>) {
+pub fn map_engine(engine: &str) -> (Option<SqlEngine>, Option<String>) {
     let engine = engine.to_ascii_lowercase();
     let unsupported = |reason: &str| (None, Some(reason.to_string()));
 
@@ -78,12 +80,9 @@ pub fn map_engine(engine: &str, transit_encryption: bool) -> (Option<SqlEngine>,
         return unsupported("Memcached n'est pas un moteur géré par Guiterm.");
     }
     if engine.contains("redis") || engine.contains("valkey") {
-        if transit_encryption {
-            return unsupported(
-                "Chiffrement en transit activé sur ce cluster : le client Redis de Guiterm \
-                 se connecte en clair (redis://) et ne sait pas encore faire de TLS.",
-            );
-        }
+        // Encryption in transit is carried through as `AwsDatabase::tls` and
+        // dialled as `rediss://`; ElastiCache's certificates chain to a public
+        // CA, so the system trust store is enough.
         return (Some(SqlEngine::Redis), None);
     }
     if engine.contains("postgres") {
@@ -121,7 +120,7 @@ pub fn parse_clusters(json: &str, service: &str) -> Result<Vec<AwsDatabase>, Aws
             continue;
         };
         let engine = text(&raw["Engine"]).unwrap_or_default();
-        let (supported_engine, unsupported_reason) = map_engine(&engine, false);
+        let (supported_engine, unsupported_reason) = map_engine(&engine);
         out.push(AwsDatabase {
             identifier,
             service: service.to_string(),
@@ -134,6 +133,7 @@ pub fn parse_clusters(json: &str, service: &str) -> Result<Vec<AwsDatabase>, Aws
             address,
             supported_engine,
             unsupported_reason,
+            tls: false,
         });
     }
     Ok(out)
@@ -163,7 +163,7 @@ pub fn parse_instances(json: &str) -> Result<Vec<AwsDatabase>, AwsCliError> {
             continue;
         };
         let engine = text(&raw["Engine"]).unwrap_or_default();
-        let (supported_engine, unsupported_reason) = map_engine(&engine, false);
+        let (supported_engine, unsupported_reason) = map_engine(&engine);
         out.push(AwsDatabase {
             identifier,
             service: "RDS".to_string(),
@@ -176,6 +176,7 @@ pub fn parse_instances(json: &str) -> Result<Vec<AwsDatabase>, AwsCliError> {
             address,
             supported_engine,
             unsupported_reason,
+            tls: false,
         });
     }
     Ok(out)
@@ -213,7 +214,7 @@ pub fn parse_replication_groups(json: &str) -> Result<Vec<AwsDatabase>, AwsCliEr
         };
         let transit_encryption = raw["TransitEncryptionEnabled"].as_bool().unwrap_or(false);
         let engine = text(&raw["Engine"]).unwrap_or_else(|| "redis".to_string());
-        let (supported_engine, unsupported_reason) = map_engine(&engine, transit_encryption);
+        let (supported_engine, unsupported_reason) = map_engine(&engine);
         out.push(AwsDatabase {
             identifier,
             service: "ElastiCache".to_string(),
@@ -226,6 +227,7 @@ pub fn parse_replication_groups(json: &str) -> Result<Vec<AwsDatabase>, AwsCliEr
             address,
             supported_engine,
             unsupported_reason,
+            tls: transit_encryption,
         });
     }
     Ok(out)
@@ -419,10 +421,11 @@ mod tests {
         assert_eq!(found[0].address, "sharded.abc.clustercfg.euw3.cache.amazonaws.com");
     }
 
-    /// The app's Redis client dials `redis://` and nothing else. Importing an
-    /// encrypted cluster would produce a connection that cannot succeed.
+    /// Encryption in transit is importable, and the flag has to travel with
+    /// it: dialling an encrypted cluster in the clear hangs rather than
+    /// failing, which is the least diagnosable outcome available.
     #[test]
-    fn an_encrypted_elasticache_group_is_refused_with_the_reason() {
+    fn an_encrypted_elasticache_group_is_imported_with_tls_set() {
         let json = r#"{"ReplicationGroups":[{
             "ReplicationGroupId": "secure",
             "Status": "available",
@@ -430,26 +433,38 @@ mod tests {
             "NodeGroups": [{ "PrimaryEndpoint": { "Address": "secure.example", "Port": 6379 } }]
         }]}"#;
         let found = parse_replication_groups(json).unwrap();
-        assert_eq!(found[0].supported_engine, None);
-        assert!(found[0].unsupported_reason.as_deref().unwrap().contains("TLS"));
+        assert_eq!(found[0].supported_engine, Some(SqlEngine::Redis));
+        assert!(found[0].tls, "le chiffrement en transit doit suivre jusqu'à la connexion");
+        assert!(found[0].importable());
+    }
+
+    #[test]
+    fn an_unencrypted_group_is_not_marked_tls() {
+        let json = r#"{"ReplicationGroups":[{
+            "ReplicationGroupId": "plain",
+            "Status": "available",
+            "TransitEncryptionEnabled": false,
+            "NodeGroups": [{ "PrimaryEndpoint": { "Address": "plain.example", "Port": 6379 } }]
+        }]}"#;
+        assert!(!parse_replication_groups(json).unwrap()[0].tls);
     }
 
     /// DocumentDB is reachable only over TLS signed by the Amazon RDS CA,
     /// which isn't in any system trust store and isn't shipped here.
     #[test]
     fn documentdb_is_refused_with_the_certificate_reason() {
-        let (engine, reason) = map_engine("docdb", false);
+        let (engine, reason) = map_engine("docdb");
         assert_eq!(engine, None);
         assert!(reason.unwrap().contains("Amazon RDS"));
     }
 
     #[test]
     fn maps_the_aws_engine_names_onto_app_engines() {
-        assert_eq!(map_engine("aurora-mysql", false).0, Some(SqlEngine::Mysql));
-        assert_eq!(map_engine("mariadb", false).0, Some(SqlEngine::Mysql));
-        assert_eq!(map_engine("postgres", false).0, Some(SqlEngine::Postgres));
-        assert_eq!(map_engine("valkey", false).0, Some(SqlEngine::Redis));
-        assert_eq!(map_engine("sqlserver-ex", false).0, None);
+        assert_eq!(map_engine("aurora-mysql").0, Some(SqlEngine::Mysql));
+        assert_eq!(map_engine("mariadb").0, Some(SqlEngine::Mysql));
+        assert_eq!(map_engine("postgres").0, Some(SqlEngine::Postgres));
+        assert_eq!(map_engine("valkey").0, Some(SqlEngine::Redis));
+        assert_eq!(map_engine("sqlserver-ex").0, None);
     }
 
     /// A database still being created can't be connected to; it is listed so

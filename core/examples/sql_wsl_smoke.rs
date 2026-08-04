@@ -42,6 +42,7 @@ async fn main() -> anyhow::Result<()> {
             port: 5432,
             username: "postgres".to_string(),
             database: (database != "-").then_some(database),
+            tls: false,
         }),
     );
     vault::store(conn.id, SecretKind::SqlPassword, &pg_password)?;

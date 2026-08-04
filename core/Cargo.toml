@@ -91,7 +91,7 @@ url = "2"
 # either, and it wouldn't make sense through this app's SSH-tunnel path
 # anyway (a cert issued for the real host would never match `127.0.0.1`) —
 # revisit as a cross-engine addition later if needed, not Redis-only.
-redis = { version = "1", default-features = false, features = ["tokio-comp", "connection-manager"] }
+redis = { version = "1", default-features = false, features = ["tokio-comp", "connection-manager", "tokio-rustls-comp"] }
 # `mongo_client`: official MongoDB driver — checked against the RDP/ecdsa
 # saga before adding (see CLAUDE.md's "Pourquoi un processus RDP séparé"),
 # and actually compiled (not just `cargo check`) to confirm no exact-pin

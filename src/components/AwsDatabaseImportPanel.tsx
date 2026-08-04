@@ -96,6 +96,7 @@ export function AwsDatabaseImportPanel({ workspace, onWorkspaceUpdate, onClose, 
         port: database.port,
         username: database.username,
         initialDatabase: database.initialDatabase,
+        tls: database.tls,
       })),
       tunnelHostId || null,
       password || null,
@@ -215,6 +216,9 @@ export function AwsDatabaseImportPanel({ workspace, onWorkspaceUpdate, onClose, 
                     <p className="mt-0.5 text-[10px] leading-relaxed text-amber-400/90">{database.unsupportedReason}</p>
                   )}
                 </div>
+                {database.tls && (
+                  <span className="mt-0.5 shrink-0 rounded bg-emerald-950/60 px-1.5 py-0.5 text-[10px] text-emerald-300">TLS</span>
+                )}
                 {database.supportedEngine && (
                   <span className="mt-0.5 shrink-0 rounded bg-[var(--c-bg3)] px-1.5 py-0.5 text-[10px] text-[var(--c-text-secondary)]">
                     {ENGINE_LABEL[database.supportedEngine] ?? database.supportedEngine}

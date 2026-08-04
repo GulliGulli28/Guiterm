@@ -251,6 +251,11 @@ export interface SqlServerConfig {
    * database index (0-15 by default) as a string, e.g. `"0"` — empty/absent
    * defaults to `0`. */
   database?: string | null;
+  /** Encrypt the connection. Only `redis` reads it today (`rediss://`) —
+   * MySQL and PostgreSQL negotiate TLS through the driver's own defaults.
+   * Set automatically when importing an ElastiCache group that has
+   * encryption in transit enabled. */
+  tls?: boolean;
 }
 
 /** Which engine a connection speaks, plus everything needed to dial it — a
@@ -506,6 +511,8 @@ export interface AwsDatabase {
   status: string;
   supportedEngine: SqlEngine | null;
   unsupportedReason: string | null;
+  /** ElastiCache with encryption in transit — dialled as `rediss://`. */
+  tls: boolean;
 }
 
 export interface AwsDatabaseSelection {
@@ -515,6 +522,7 @@ export interface AwsDatabaseSelection {
   port: number;
   username: string;
   initialDatabase: string | null;
+  tls: boolean;
 }
 
 export interface AwsImportSelection {

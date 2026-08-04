@@ -61,6 +61,7 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
   const [label, setLabel] = useState(connection?.label ?? "");
   const [engine, setEngine] = useState<SqlEngine>(connection?.engine ?? "mysql");
   const [tunnelHostId, setTunnelHostId] = useState(existingServer?.tunnelHostId ?? existingMongo?.tunnelHostId ?? "");
+  const [tls, setTls] = useState(existingServer?.tls ?? false);
   const [address, setAddress] = useState(existingServer?.address ?? "");
   const [port, setPort] = useState(String(existingServer?.port ?? DEFAULT_PORTS.mysql));
   const [username, setUsername] = useState(existingServer?.username ?? existingMongo?.username ?? "");
@@ -153,6 +154,7 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
       port: p,
       username: username.trim(),
       database: database.trim() || null,
+      tls,
       groupId: null,
       tags: [],
       secret: password || null,
@@ -300,6 +302,17 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
                 <input value={port} onChange={(e) => setPort(e.target.value)} placeholder="Port" inputMode="numeric" className={`${inputClass} w-full font-mono`} />
               </div>
             </div>
+            {/* Redis only: MySQL and PostgreSQL negotiate TLS through sqlx's
+                own defaults and have never needed a switch here. */}
+            {engine === "redis" && (
+              <label className="flex items-center gap-2">
+                <input type="checkbox" checked={tls} onChange={(e) => setTls(e.target.checked)} className="h-4 w-4 accent-[var(--c-accent)]" />
+                <span className="text-xs text-[var(--c-text-secondary)]">
+                  Connexion chiffrée (TLS)
+                  <span className="ml-1 text-[var(--c-text-faint)]">— requis par ElastiCache avec chiffrement en transit</span>
+                </span>
+              </label>
+            )}
 
             <div className="space-y-1">
               <span className="text-xs font-medium text-[var(--c-text-secondary)]">
