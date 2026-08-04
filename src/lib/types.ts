@@ -763,6 +763,25 @@ export interface FleetOutcome {
   error: string | null;
 }
 
+/** Search on a host's filesystem: by file name, or by what's inside.
+ * Mirrors `termius_core::remote_search::SearchMode`. */
+export type RemoteSearchMode = "name" | "content";
+
+/** One hit. `line`/`excerpt` are only set for a content search. */
+export interface RemoteSearchHit {
+  path: string;
+  line: number | null;
+  excerpt: string | null;
+}
+
+/** A search's results, plus whether they are the whole story — a partial list
+ * presented as complete would make "it isn't there" a wrong answer. */
+export interface RemoteSearchOutcome {
+  hits: RemoteSearchHit[];
+  truncated: boolean;
+  timedOut: boolean;
+}
+
 /** What a reachability probe found. Mirrors
  * `termius_core::reachability::Verdict`.
  *

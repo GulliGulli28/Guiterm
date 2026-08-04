@@ -26,6 +26,8 @@ interface HostsPanelProps {
   /** « Est-ce que cet hôte atteint telle adresse ? » — le panneau s'ouvre avec
    * cet hôte déjà coché comme source. */
   onProbeReachability: (host: Host) => void;
+  /** « Où est ce fichier ? » — recherche par nom ou par contenu sur cet hôte. */
+  onSearchFiles: (host: Host) => void;
   onOpenLocalTerminal: (shell?: string) => void;
   onNewHost: () => void;
   onEditHost: (host: Host) => void;
@@ -102,7 +104,7 @@ function LocalTerminalButton({ onOpen }: { onOpen: (shell?: string) => void }) {
 
 export function HostsPanel({
   workspace, activeHostId, onConnect, onConnectDocker, onConnectK8s, onConnectRdpView, onOpenTransfer,
-  onProbeReachability, onOpenLocalTerminal,
+  onProbeReachability, onSearchFiles, onOpenLocalTerminal,
   onNewHost, onEditHost, onNewGroup, onImportAws, onNewHostInGroup, onNewGroupUnder,
   onEditGroup, onQuickSSH, onWorkspaceUpdate, onError,
 }: HostsPanelProps) {
@@ -345,6 +347,15 @@ export function HostsPanel({
             >
               <IconUpload size={12} /> Exporter
             </button>
+            {kind === "ssh" && (
+              <button
+                onClick={() => { onSearchFiles(host); setOpenMenuHostId(null); }}
+                title="Chercher un fichier par son nom ou par son contenu ; un résultat s'ouvre directement dans ton éditeur"
+                className="flex flex-1 basis-[80px] items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
+              >
+                <IconSearch size={12} /> Rechercher
+              </button>
+            )}
             {kind === "ssh" && (
               <button
                 onClick={() => { onProbeReachability(host); setOpenMenuHostId(null); }}

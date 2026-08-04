@@ -1,6 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AuthMethod, AwsCallerIdentity, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, AwsSsoSessionStatus, CollectionInfo, ColumnInfo, CollectFactsResult, ComposeResult, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostId, HostKind, ImportSelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, ReachabilityOutcome, RedisKeyDetail, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, ScanPage, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SshAuthPrompt, SshConfigHost, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
+import type { AuthMethod, AwsCallerIdentity, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, AwsSsoSessionStatus, CollectionInfo, ColumnInfo, CollectFactsResult, ComposeResult, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostId, HostKind, ImportSelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, ReachabilityOutcome, RedisKeyDetail, RemoteSearchMode, RemoteSearchOutcome, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, ScanPage, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SshAuthPrompt, SshConfigHost, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
 
 /** Mirrors the 12-byte little-endian header `commands::rdp_view::connect_rdp_view`
  * writes ahead of each frame's raw RGBA8 pixels (see its doc comment for why
@@ -387,6 +387,11 @@ export const api = {
    * whole answer takes about as long as the slowest one. */
   probeReachability: (targets: FleetTarget[], host: string, port: number) =>
     invoke<ReachabilityOutcome[]>("probe_reachability", { targets, host, port }),
+
+  /** `find`/`grep -rn` on a host, bounded in depth, results and time — the
+   * outcome says when it was cut short. SSH hosts only. */
+  searchRemoteFiles: (hostId: HostId, mode: RemoteSearchMode, root: string, pattern: string) =>
+    invoke<RemoteSearchOutcome>("search_remote_files", { hostId, mode, root, pattern }),
 
   /** Collects live state (OS, kernel, CPU, load, memory) for `hostIds` (SSH
    * only), concurrently. Batch: resolves once every host has reported.

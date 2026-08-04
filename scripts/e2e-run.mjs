@@ -224,6 +224,7 @@ async function runScenarios(browser) {
   await runAwsDatabasePanelScenario(browser);
   await runAwsIdentitiesPanelScenario(browser);
   await runReachabilityScenario(browser);
+  await runRemoteSearchScenario(browser);
 
   await mkdir(outDir, { recursive: true });
   const screenshotPath = path.join(outDir, "e2e-smoke.png");
@@ -736,6 +737,65 @@ async function runAwsDatabasePanelScenario(browser) {
 
   await closeDialogTitled(browser, "Importer des bases depuis AWS");
   console.log("Import bases AWS : OK (panneau atteignable, appel backend, panneau SSO au-dessus).");
+}
+
+/**
+ * The remote search panel is reachable from a host's menu.
+ *
+ * Stops at opening it: running a search would SSH into whichever machine the
+ * developer's workspace happens to hold, and this suite doesn't touch anyone's
+ * infrastructure. What it covers is the half no unit test can — that the entry
+ * point exists and the panel mounts — while the search itself is proved
+ * against a real `sshd` in `core/tests/remote_search_integration.rs`.
+ *
+ * Skips, loudly, on a workspace with no host: a scenario that silently passes
+ * when it tested nothing is worse than one that isn't there.
+ */
+async function runRemoteSearchScenario(browser) {
+  // The hosts panel is the launch default, but the previous scenarios moved
+  // the sidebar elsewhere.
+  await browser.execute(() => {
+    const tab = Array.from(document.querySelectorAll("button"))
+      .find((b) => (b.getAttribute("title") || "") === "Hôtes");
+    if (tab instanceof HTMLElement) tab.click();
+  });
+  // Every host's menu in turn, not just the first: the entry only exists on an
+  // SSH host, and what sits at the top of the developer's list is whatever
+  // they put there. One `execute` per step so React has re-rendered in between
+  // — a click and a query in the same call would read the DOM from before.
+  const menuCount = await browser.execute(() => document.querySelectorAll('button[title="Options"]').length);
+  let clicked = false;
+  for (let index = 0; index < menuCount && !clicked; index += 1) {
+    await browser.execute((i) => document.querySelectorAll('button[title="Options"]')[i]?.click(), index);
+    clicked = await browser.execute(() => {
+      const button = Array.from(document.querySelectorAll("button"))
+        .find((b) => b.textContent?.trim() === "Rechercher");
+      if (!(button instanceof HTMLElement)) return false;
+      button.click();
+      return true;
+    });
+    // Not an SSH host — fold this menu back before trying the next.
+    if (!clicked) {
+      await browser.execute((i) => document.querySelectorAll('button[title="Options"]')[i]?.click(), index);
+    }
+  }
+  if (!clicked) {
+    console.log(`Recherche distante : ignorée (aucun hôte SSH parmi les ${menuCount} de ce workspace).`);
+    return;
+  }
+
+  await browser.waitUntil(async () => await browser.execute(() =>
+    Array.from(document.querySelectorAll("p")).some((el) => (el.textContent || "").startsWith("Rechercher des fichiers"))
+  ), { timeout: 5_000, timeoutMsg: "le panneau de recherche distante ne s est pas ouvert depuis le menu de l hôte" });
+
+  await browser.execute(() => {
+    const heading = Array.from(document.querySelectorAll("p"))
+      .find((el) => (el.textContent || "").startsWith("Rechercher des fichiers"));
+    const dialog = heading?.closest("div.flex.max-h-full");
+    const close = dialog?.querySelector('button[aria-label="Fermer"]');
+    if (close instanceof HTMLElement) close.click();
+  });
+  console.log("Recherche distante : OK (panneau atteignable depuis le menu d un hôte SSH).");
 }
 
 /**

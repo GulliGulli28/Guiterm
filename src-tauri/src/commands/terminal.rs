@@ -127,8 +127,9 @@ pub fn recording_session_ids(state: State<'_, AppState>) -> Vec<String> {
 }
 
 /// Wraps a value in single quotes, escaping any embedded single quotes.
+/// Delegates to `core` so the escaping exists once — see [`termius_core::shell::quote`].
 fn shell_quote(s: &str) -> String {
-    format!("'{}'", s.replace('\'', r"'\''"))
+    termius_core::shell::quote(s)
 }
 
 /// Whether `key` is a safe environment-variable name to splice into a shell

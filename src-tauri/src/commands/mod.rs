@@ -19,6 +19,7 @@ pub mod rdp_view;
 pub mod reachability;
 pub mod redis;
 pub mod remote_edit;
+pub mod remote_search;
 pub mod sftp;
 pub mod sql;
 pub mod terminal;
