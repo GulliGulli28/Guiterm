@@ -118,17 +118,25 @@ async function runScenarios(browser) {
   // nothing. Assert React actually rendered *into* it (waiting for the async
   // mount): a strict CSP that blocks the app's scripts or stylesheet would leave
   // #root empty, which this catches where the string check above can't.
-  await browser.waitUntil(
-    async () => (await browser.execute(() => document.getElementById("root")?.childElementCount ?? 0)) > 0,
-    {
-      timeout: 10_000,
-      timeoutMsg: async () => {
-        const title = await browser.getTitle();
-        const body = await browser.execute(() => document.body.innerHTML.slice(0, 600));
-        return `#root vide. TITRE=${title} BODY=${body}`;
-      },
-    },
-  );
+  //
+  // The diagnostics are printed from a `catch` rather than passed as
+  // `timeoutMsg`: that option is a string, and the async function that used to
+  // be there was never awaited — so this wait failed with WebdriverIO's own
+  // "condition timed out" and none of the context it was written to give.
+  // Observed for real on a slow start, where the message said nothing at all.
+  try {
+    await browser.waitUntil(
+      async () => (await browser.execute(() => document.getElementById("root")?.childElementCount ?? 0)) > 0,
+      { timeout: 15_000, timeoutMsg: "#root est resté vide : React n a jamais monté" },
+    );
+  } catch (e) {
+    const title = await browser.getTitle().catch(() => "<illisible>");
+    const body = await browser
+      .execute(() => document.body.innerHTML.slice(0, 600))
+      .catch(() => "<illisible>");
+    console.log(`#root vide. TITRE=${title} BODY=${body}`);
+    throw e;
+  }
 
   // Exercise a real `invoke(...)` over Tauri's IPC — the thing a plain headless
   // browser can't do. `master_password_status` is read-only (never creates or
@@ -194,6 +202,7 @@ async function runScenarios(browser) {
   await runAwsImportPanelScenario(browser);
   await runAwsDatabasePanelScenario(browser);
   await runAwsIdentitiesPanelScenario(browser);
+  await runReachabilityScenario(browser);
 
   await mkdir(outDir, { recursive: true });
   const screenshotPath = path.join(outDir, "e2e-smoke.png");
@@ -697,6 +706,69 @@ async function runAwsDatabasePanelScenario(browser) {
 
   await closeDialogTitled(browser, "Importer des bases depuis AWS");
   console.log("Import bases AWS : OK (panneau atteignable, appel backend, panneau SSO au-dessus).");
+}
+
+/**
+ * The reachability probe runs for real, end to end.
+ *
+ * Opened from the command palette rather than from a host's menu — the other
+ * entry point — because that one needs a host to exist in the developer's real
+ * workspace, and a test that only runs on some machines proves nothing on the
+ * others.
+ *
+ * Probes `127.0.0.1:22` **from this machine only**, so nothing connects to
+ * anyone's infrastructure: the whole round trip stays local while still going
+ * through `invoke` → fleet executor → local shell → the real script. The
+ * assertion is that a verdict comes back, not which one — whether an sshd
+ * happens to be listening is not this test's business.
+ */
+async function runReachabilityScenario(browser) {
+  await browser.keys(["Control", "k"]);
+  for (const ch of "joignab") await browser.keys(ch);
+  await browser.keys("Enter");
+
+  const dialogText = () => browser.execute(() => {
+    const heading = Array.from(document.querySelectorAll("p"))
+      .find((el) => el.textContent?.trim() === "Tester la joignabilité");
+    return heading?.closest("div.flex.max-h-full")?.textContent ?? "";
+  });
+  await browser.waitUntil(async () => (await dialogText()).length > 0, {
+    timeout: 5_000,
+    timeoutMsg: "le panneau de joignabilité ne s est pas ouvert depuis la palette",
+  });
+
+  // The dialog's first two inputs are the address and the port.
+  const filled = await browser.execute(() => {
+    const heading = Array.from(document.querySelectorAll("p"))
+      .find((el) => el.textContent?.trim() === "Tester la joignabilité");
+    const dialog = heading?.closest("div.flex.max-h-full");
+    const inputs = dialog ? Array.from(dialog.querySelectorAll("input")).filter((i) => i.type !== "checkbox") : [];
+    if (inputs.length < 2) return false;
+    const set = (el, value) => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+      setter.call(el, value);
+      el.dispatchEvent(new Event("input", { bubbles: true }));
+    };
+    set(inputs[0], "127.0.0.1");
+    set(inputs[1], "22");
+    return true;
+  });
+  if (!filled) throw new Error("les champs adresse/port du panneau de joignabilité sont introuvables");
+
+  await clickButtonByText(browser, "Tester");
+  // Any verdict is a pass: this asserts the probe ran and came back, not what
+  // the machine's port 22 happens to be doing.
+  await browser.waitUntil(async () => {
+    const text = await dialogText();
+    return ["Joignable", "Refusé", "Silence", "Pas de route", "Nom non résolu", "Sonde indisponible", "Échec"]
+      .some((verdict) => text.includes(verdict));
+  }, {
+    timeout: 30_000,
+    timeoutMsg: "aucun verdict de joignabilité — la sonde n atteint pas le backend",
+  });
+
+  await closeDialogTitled(browser, "Tester la joignabilité");
+  console.log("Joignabilité : OK (palette → panneau → sonde réelle exécutée localement).");
 }
 
 /**

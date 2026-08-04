@@ -23,6 +23,7 @@ const FleetTab = lazy(() => import("./components/FleetTab").then((m) => ({ defau
 import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, loadPreferences, savePreferences } from "./lib/preferences";
 import { SplitPane } from "./components/SplitPane";
 import { AwsImportPanel } from "./components/AwsImportPanel";
+import { ReachabilityPanel } from "./components/ReachabilityPanel";
 import { AwsDatabaseImportPanel } from "./components/AwsDatabaseImportPanel";
 import { AwsSsoSetupPanel } from "./components/AwsSsoSetupPanel";
 import { GroupForm, type GroupFormData } from "./components/GroupForm";
@@ -69,6 +70,10 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [snippetPickerOpen, setSnippetPickerOpen] = useState(false);
   const [awsImportOpen, setAwsImportOpen] = useState(false);
+  /** Open state of the reachability panel. `sourceId` is the host it was
+   * opened from — `null` when opened from the palette, which is the "does *my*
+   * machine reach it" case and needs no host at all. */
+  const [reachabilityOpen, setReachabilityOpen] = useState<{ sourceId: HostId | null } | null>(null);
   const [awsDbImportOpen, setAwsDbImportOpen] = useState(false);
   // What the one SSO modal is being opened for: a session that doesn't exist
   // yet, signing a known one in again, or picking new profiles out of a
@@ -325,6 +330,15 @@ export default function App() {
       run: () => { exportActiveScrollback(); },
     },
     {
+      // Also in each SSH host's menu, pre-filled with that host. Here it opens
+      // with no source but this machine — during an incident the question is
+      // as often "do *I* reach it" as "does that box reach it", and reaching
+      // for a host first would be a detour.
+      id: "diagnostics.reachability",
+      label: "Tester la joignabilité d'une adresse…",
+      run: () => setReachabilityOpen({ sourceId: null }),
+    },
+    {
       id: "terminal.zoomIn",
       label: "Terminal actif — agrandir la police",
       hint: "Ctrl + +",
@@ -465,6 +479,13 @@ export default function App() {
       {vaultUnlockModal}
       {authPromptModal}
       {paletteOpen && <CommandPalette commands={paletteCommands} onClose={() => setPaletteOpen(false)} />}
+      {reachabilityOpen && workspace && (
+        <ReachabilityPanel
+          workspace={workspace}
+          initialSourceId={reachabilityOpen.sourceId}
+          onClose={() => setReachabilityOpen(null)}
+        />
+      )}
       {awsImportOpen && (
         <AwsImportPanel
           workspace={workspace}
@@ -576,6 +597,7 @@ export default function App() {
             onEditHost={(host) => { setEditingHost(host); setEditingGroup(null); setEditingSqlConnection(null); }}
             onNewGroup={() => { setEditingGroup({ id: null, name: "", parentId: null, icon: null, color: null }); setEditingHost(null); setEditingSqlConnection(null); }}
             onImportAws={() => setAwsImportOpen(true)}
+            onProbeReachability={(host) => setReachabilityOpen({ sourceId: host.id })}
             onNewHostInGroup={(groupId) => { setEditingHost("new"); setNewHostDefaultGroupId(groupId); setEditingGroup(null); setEditingSqlConnection(null); }}
             onNewGroupUnder={(parentId) => { setEditingGroup({ id: null, name: "", parentId, icon: null, color: null }); setEditingHost(null); setEditingSqlConnection(null); }}
             onEditGroup={(group) => { setEditingGroup({ id: group.id, name: group.name, parentId: group.parentId ?? null, icon: group.icon ?? null, color: group.color ?? null }); setEditingHost(null); setEditingSqlConnection(null); }}

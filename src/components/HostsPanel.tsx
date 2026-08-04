@@ -12,7 +12,7 @@ import {
   IconHosts, IconSearch, IconPlus, IconKeyboard, IconFlash,
   IconFolder, IconChevronDown, IconChevronRight,
   IconDotsVertical, IconEdit,
-  IconUpload, IconDownload, IconTransfer,
+  IconUpload, IconDownload, IconTransfer, IconTunnels,
 } from "./ui-icons";
 
 interface HostsPanelProps {
@@ -23,6 +23,9 @@ interface HostsPanelProps {
   onConnectK8s: (host: Host, podName: string, containerName: string | null) => void;
   onConnectRdpView: (host: Host) => void;
   onOpenTransfer: (host: Host) => void;
+  /** « Est-ce que cet hôte atteint telle adresse ? » — le panneau s'ouvre avec
+   * cet hôte déjà coché comme source. */
+  onProbeReachability: (host: Host) => void;
   onOpenLocalTerminal: (shell?: string) => void;
   onNewHost: () => void;
   onEditHost: (host: Host) => void;
@@ -98,7 +101,8 @@ function LocalTerminalButton({ onOpen }: { onOpen: (shell?: string) => void }) {
 }
 
 export function HostsPanel({
-  workspace, activeHostId, onConnect, onConnectDocker, onConnectK8s, onConnectRdpView, onOpenTransfer, onOpenLocalTerminal,
+  workspace, activeHostId, onConnect, onConnectDocker, onConnectK8s, onConnectRdpView, onOpenTransfer,
+  onProbeReachability, onOpenLocalTerminal,
   onNewHost, onEditHost, onNewGroup, onImportAws, onNewHostInGroup, onNewGroupUnder,
   onEditGroup, onQuickSSH, onWorkspaceUpdate, onError,
 }: HostsPanelProps) {
@@ -341,6 +345,15 @@ export function HostsPanel({
             >
               <IconUpload size={12} /> Exporter
             </button>
+            {kind === "ssh" && (
+              <button
+                onClick={() => { onProbeReachability(host); setOpenMenuHostId(null); }}
+                title="Est-ce que cet hôte atteint telle adresse, sur tel port ? Distingue un refus (le port est fermé) d'un silence (pare-feu ou route manquante)"
+                className="flex flex-1 basis-[80px] items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
+              >
+                <IconTunnels size={12} /> Joignabilité
+              </button>
+            )}
             {kind === "rdp" && (
               <button
                 onClick={() => { onOpenTransfer(host); setOpenMenuHostId(null); }}

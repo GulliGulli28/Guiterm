@@ -758,6 +758,30 @@ export interface FleetOutcome {
   error: string | null;
 }
 
+/** What a reachability probe found. Mirrors
+ * `termius_core::reachability::Verdict`.
+ *
+ * A tagged union rather than a boolean, because the failures have four
+ * different remedies — and telling `refused` (something answered "no": port
+ * closed, service down) from `filtered` (nothing answered: firewall, security
+ * group, missing route) is the entire reason the feature exists. */
+export type ReachabilityVerdict =
+  | { kind: "open"; via: string }
+  | { kind: "refused"; via: string }
+  | { kind: "filtered"; via: string }
+  | { kind: "unknownHost"; via: string }
+  | { kind: "unreachable"; via: string }
+  /** Neither `bash`+`timeout`, `nc` nor `curl` on the source host. */
+  | { kind: "noTool" }
+  | { kind: "failed"; message: string };
+
+/** One source's answer about one destination (`probe_reachability`). */
+export interface ReachabilityOutcome {
+  target: FleetTarget;
+  verdict: ReachabilityVerdict;
+  durationMs: number;
+}
+
 /** Live host state collected by `collect_facts`. Mirrors
  * `termius_core::facts::HostFacts` — every field is best-effort (`null` when it
  * couldn't be read). */

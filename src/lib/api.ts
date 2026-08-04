@@ -1,6 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AuthMethod, AwsCallerIdentity, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, AwsSsoSessionStatus, CollectionInfo, ColumnInfo, CollectFactsResult, ComposeResult, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostId, HostKind, ImportSelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, RedisKeyDetail, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, ScanPage, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SshAuthPrompt, SshConfigHost, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
+import type { AuthMethod, AwsCallerIdentity, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, AwsSsoSessionStatus, CollectionInfo, ColumnInfo, CollectFactsResult, ComposeResult, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostId, HostKind, ImportSelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, ReachabilityOutcome, RedisKeyDetail, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, ScanPage, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SshAuthPrompt, SshConfigHost, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
 
 /** Mirrors the 12-byte little-endian header `commands::rdp_view::connect_rdp_view`
  * writes ahead of each frame's raw RGBA8 pixels (see its doc comment for why
@@ -381,6 +381,12 @@ export const api = {
    * `crypto.randomUUID()`) tells concurrent runs apart on the shared events. */
   runFleetCommand: (runId: string, targets: FleetTarget[], command: string) =>
     invoke<void>("run_fleet_command", { runId, targets, command }),
+
+  /** Asks every target whether it reaches `host:port`. Batch, not streamed:
+   * the probe is bounded on each target and they run concurrently, so the
+   * whole answer takes about as long as the slowest one. */
+  probeReachability: (targets: FleetTarget[], host: string, port: number) =>
+    invoke<ReachabilityOutcome[]>("probe_reachability", { targets, host, port }),
 
   /** Collects live state (OS, kernel, CPU, load, memory) for `hostIds` (SSH
    * only), concurrently. Batch: resolves once every host has reported.

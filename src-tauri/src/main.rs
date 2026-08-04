@@ -105,6 +105,7 @@ fn main() {
             commands::k8s::list_k8s_pods,
             commands::k8s::connect_k8s_exec,
             commands::fleet::run_fleet_command,
+            commands::reachability::probe_reachability,
             commands::fleet::get_fleet_history,
             commands::facts::collect_facts,
             commands::adaptive::generate_adaptive_program,

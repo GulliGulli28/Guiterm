@@ -16,6 +16,7 @@ pub mod known_hosts;
 pub mod mongo;
 pub mod proxy;
 pub mod rdp_view;
+pub mod reachability;
 pub mod redis;
 pub mod remote_edit;
 pub mod sftp;
