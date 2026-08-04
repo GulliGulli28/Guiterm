@@ -31,6 +31,73 @@ pub fn ssm_proxy_command(profile: &str, region: &str) -> String {
     )
 }
 
+/// The `--profile` a proxy command pins, if it pins one.
+///
+/// Imported hosts carry the profile inside their proxy command rather than in
+/// a field of their own (see [`ssm_proxy_command`]), so this is the only way to
+/// answer "which hosts depend on this profile" — and the app has to be able to
+/// answer it before offering to delete one.
+///
+/// Both spellings, because the command is editable text: the app writes
+/// `--profile x`, a person may well write `--profile=x`.
+pub fn profile_in_command(command: &str) -> Option<&str> {
+    let mut tokens = command.split_whitespace();
+    while let Some(token) = tokens.next() {
+        if let Some(value) = token.strip_prefix("--profile=") {
+            return Some(value);
+        }
+        if token == "--profile" {
+            return tokens.next();
+        }
+    }
+    None
+}
+
+/// Byte ranges of the whitespace-separated tokens of `command`.
+fn token_ranges(command: &str) -> Vec<(usize, usize)> {
+    let mut ranges = Vec::new();
+    let mut start: Option<usize> = None;
+    for (index, character) in command.char_indices() {
+        if character.is_whitespace() {
+            if let Some(from) = start.take() {
+                ranges.push((from, index));
+            }
+        } else if start.is_none() {
+            start = Some(index);
+        }
+    }
+    if let Some(from) = start {
+        ranges.push((from, command.len()));
+    }
+    ranges
+}
+
+/// Points a proxy command at another profile, leaving every other byte alone.
+///
+/// `None` when the command doesn't pin `from` — so a caller can tell "nothing
+/// to do" from "done" without comparing strings.
+///
+/// Spliced rather than rebuilt from tokens: these commands are editable, and
+/// re-joining them would silently reformat someone's spacing and quoting while
+/// claiming to have only changed a profile name.
+pub fn swap_profile(command: &str, from: &str, to: &str) -> Option<String> {
+    let ranges = token_ranges(command);
+    for (index, &(start, end)) in ranges.iter().enumerate() {
+        let token = &command[start..end];
+        if token.strip_prefix("--profile=") == Some(from) {
+            let value_start = start + "--profile=".len();
+            return Some(format!("{}{to}{}", &command[..value_start], &command[end..]));
+        }
+        if token == "--profile" {
+            let &(next_start, next_end) = ranges.get(index + 1)?;
+            if &command[next_start..next_end] == from {
+                return Some(format!("{}{to}{}", &command[..next_start], &command[next_end..]));
+            }
+        }
+    }
+    None
+}
+
 /// Why a CLI call couldn't be made sense of. Kept apart from a plain string so
 /// the UI can offer the matching remedy rather than printing a stack of AWS
 /// jargon.
@@ -431,6 +498,78 @@ pub async fn whoami(profile: &str) -> Result<CallerIdentity, AwsCliError> {
     parse_caller_identity(&out)
 }
 
+/// One instance the user ticked, with the choices the import panel let them
+/// make.
+#[derive(Debug, Clone, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AwsImportSelection {
+    pub instance_id: String,
+    pub label: String,
+    pub username: String,
+    pub group_id: Option<crate::model::GroupId>,
+    /// Tags carried over onto the host, so fleet targeting by tag works on
+    /// imported machines the same way it does on hand-made ones.
+    #[serde(default)]
+    pub tags: Vec<String>,
+}
+
+/// What one import did. The caller needs the split: credentials are stored for
+/// the hosts it created, never for the ones it refreshed.
+#[derive(Debug, Default, PartialEq)]
+pub struct ImportOutcome {
+    pub added: Vec<crate::model::HostId>,
+    pub updated: Vec<crate::model::HostId>,
+}
+
+/// Creates the hosts of one EC2 import, refreshing the ones already there.
+///
+/// Re-importing an account is the ordinary case, not the exception: instances
+/// come and go, and the way to pick up the new ones used to be an import that
+/// appended a second copy of every machine already in the list. Matching is on
+/// the instance id, which is what an imported host carries as its address — it
+/// identifies one machine for as long as it exists, unlike its name or its
+/// addresses.
+///
+/// Only what AWS owns is refreshed: the EC2 tags and the proxy command (whose
+/// profile and region may have changed). The label, the login, the group and
+/// the credentials are the user's own decisions — a re-import that undid an
+/// edit would make the feature unusable on any list someone has curated.
+pub fn apply_import(
+    workspace: &mut crate::model::Workspace,
+    selections: Vec<AwsImportSelection>,
+    proxy: &str,
+    auth: &crate::model::AuthMethod,
+) -> ImportOutcome {
+    let mut outcome = ImportOutcome::default();
+    for selection in selections {
+        if let Some(existing) = workspace
+            .hosts
+            .iter_mut()
+            .find(|host| host.address == selection.instance_id)
+        {
+            existing.tags = selection.tags;
+            existing.proxy_command = Some(proxy.to_string());
+            outcome.updated.push(existing.id);
+            continue;
+        }
+        // The instance id goes in as the address: it's what the proxy command
+        // targets, and a private IP would be unreachable by definition — these
+        // are machines with no route to them.
+        let mut host = crate::model::Host::new(
+            selection.label,
+            selection.instance_id,
+            selection.username,
+        );
+        host.proxy_command = Some(proxy.to_string());
+        host.group_id = selection.group_id;
+        host.tags = selection.tags;
+        host.auth = auth.clone();
+        outcome.added.push(host.id);
+        workspace.hosts.push(host);
+    }
+    outcome
+}
+
 /// Instance ids SSM currently reports as online.
 async fn ssm_online_ids(profile: &str, region: &str) -> Result<Vec<String>, AwsCliError> {
     let out = run_aws(&[
@@ -768,6 +907,101 @@ sso_role_name = ReadOnly\n\
     fn a_profile_without_a_region_reports_none_rather_than_an_empty_string() {
         let profiles = parse_config("[profile bare]\nregion =\n");
         assert_eq!(profiles[0].region, None);
+    }
+
+    fn selection(instance_id: &str, label: &str, tags: &[&str]) -> AwsImportSelection {
+        AwsImportSelection {
+            instance_id: instance_id.to_string(),
+            label: label.to_string(),
+            username: "ec2-user".to_string(),
+            group_id: None,
+            tags: tags.iter().map(|t| t.to_string()).collect(),
+        }
+    }
+
+    /// Importing the same account twice used to append a second copy of every
+    /// machine already in the list, which made "pick up the new instances" a
+    /// destructive operation on a curated list.
+    #[test]
+    fn re_importing_refreshes_a_host_instead_of_duplicating_it() {
+        let mut workspace = crate::model::Workspace::default();
+        let auth = crate::model::AuthMethod::Agent;
+        let first = apply_import(
+            &mut workspace,
+            vec![selection("i-0aa", "app-01", &["Environment=dev"])],
+            &ssm_proxy_command("ancien", "eu-west-3"),
+            &auth,
+        );
+        assert_eq!(first.added.len(), 1);
+        assert!(first.updated.is_empty());
+
+        let second = apply_import(
+            &mut workspace,
+            vec![
+                selection("i-0aa", "app-01", &["Environment=prod"]),
+                selection("i-0bb", "app-02", &[]),
+            ],
+            &ssm_proxy_command("neuf", "eu-west-1"),
+            &auth,
+        );
+        assert_eq!(workspace.hosts.len(), 2, "aucun doublon : {:?}", workspace.hosts.iter().map(|h| &h.address).collect::<Vec<_>>());
+        assert_eq!(second.updated, first.added, "la machine déjà connue est rafraîchie, pas recréée");
+        assert_eq!(second.added.len(), 1);
+
+        let refreshed = workspace.hosts.iter().find(|h| h.address == "i-0aa").unwrap();
+        // What AWS owns follows: the tags decide fleet targeting, and the
+        // profile/region are what the import was performed with.
+        assert_eq!(refreshed.tags, vec!["Environment=prod"]);
+        assert!(refreshed.proxy_command.as_deref().unwrap().contains("--profile neuf"));
+    }
+
+    /// The other half of that promise: a re-import must not undo an edit, or
+    /// nobody could use it twice on a list they have curated.
+    #[test]
+    fn a_refresh_leaves_the_users_own_choices_alone() {
+        let mut workspace = crate::model::Workspace::default();
+        let auth = crate::model::AuthMethod::Agent;
+        apply_import(&mut workspace, vec![selection("i-0aa", "app-01", &[])], "proxy", &auth);
+        let host = workspace.hosts.first_mut().unwrap();
+        host.label = "le nom que j'ai choisi".to_string();
+        host.username = "glorin".to_string();
+        host.port = 2222;
+
+        apply_import(&mut workspace, vec![selection("i-0aa", "app-01", &[])], "proxy", &auth);
+        let host = workspace.hosts.first().unwrap();
+        assert_eq!(host.label, "le nom que j'ai choisi");
+        assert_eq!(host.username, "glorin");
+        assert_eq!(host.port, 2222);
+    }
+
+    #[test]
+    fn reads_the_profile_a_proxy_command_pins() {
+        let command = ssm_proxy_command("AdministratorAccess-1670", "eu-west-3");
+        assert_eq!(profile_in_command(&command), Some("AdministratorAccess-1670"));
+        // Editable text: someone may well have written the other spelling.
+        assert_eq!(profile_in_command("aws ssm start-session --profile=prod --target %h"), Some("prod"));
+        assert_eq!(profile_in_command("cloudflared access ssh --hostname %h"), None);
+        assert_eq!(profile_in_command("aws ssm start-session --profile"), None, "un drapeau sans valeur");
+    }
+
+    /// Spliced, not rebuilt: these commands are editable, and reformatting
+    /// someone's spacing while claiming to have changed only a profile name is
+    /// the kind of edit nobody asked for.
+    #[test]
+    fn swapping_a_profile_leaves_every_other_byte_alone() {
+        let command = "aws  ssm start-session --profile old   --region eu-west-3 --target %h";
+        let swapped = swap_profile(command, "old", "new").unwrap();
+        assert_eq!(swapped, "aws  ssm start-session --profile new   --region eu-west-3 --target %h");
+        assert_eq!(
+            swap_profile("aws ssm start-session --profile=old --target %h", "old", "new").unwrap(),
+            "aws ssm start-session --profile=new --target %h"
+        );
+    }
+
+    #[test]
+    fn swapping_reports_nothing_to_do_rather_than_an_unchanged_string() {
+        assert_eq!(swap_profile("aws ssm start-session --profile autre", "old", "new"), None);
+        assert_eq!(swap_profile("cloudflared access ssh --hostname %h", "old", "new"), None);
     }
 
     #[test]

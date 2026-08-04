@@ -203,6 +203,7 @@ export function Sidebar(props: SidebarProps) {
               onConfigureSso={props.onConfigureSso}
               onReconnectSso={props.onReconnectSso}
               onAddProfiles={props.onAddAwsProfiles}
+              onWorkspaceUpdate={props.onWorkspaceUpdate}
               refreshToken={props.awsRefreshToken}
             />
           )}

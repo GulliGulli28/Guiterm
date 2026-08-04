@@ -200,6 +200,15 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError,
     return guesses.length > 0 ? guesses.join(", ") : "ec2-user";
   }, [instances, selected]);
 
+  /** Instance ids already in the workspace. An imported host carries the
+   * instance id as its address — which is what lets a second import refresh
+   * those machines instead of appending a duplicate of each. */
+  const imported = useMemo(
+    () => new Set(workspace.hosts.map((host) => host.address)),
+    [workspace.hosts],
+  );
+  const toUpdate = [...selected].filter((id) => imported.has(id)).length;
+
   const selectableVisible = visible.filter((i) => i.ssmOnline).length;
   const allVisibleSelected = selectableVisible > 0 && visible.every((i) => !i.ssmOnline || selected.has(i.instanceId));
 
@@ -352,6 +361,14 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError,
                   {` · ${instance.state}`}
                 </p>
               </div>
+              {imported.has(instance.instanceId) && (
+                <span
+                  title="Déjà dans tes hôtes — l'import rafraîchira ses tags et sa commande proxy au lieu d'en créer un second"
+                  className="shrink-0 rounded bg-[var(--c-bg3)] px-1.5 py-0.5 text-[10px] text-[var(--c-text-secondary)]"
+                >
+                  déjà importée
+                </span>
+              )}
               <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${instance.ssmOnline ? "bg-emerald-950/60 text-emerald-300" : "bg-[var(--c-bg3)] text-[var(--c-text-faint)]"}`}>
                 {instance.ssmOnline ? "SSM" : "hors SSM"}
               </span>
@@ -440,9 +457,14 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError,
           <button
             onClick={runImport}
             disabled={importing || selected.size === 0}
+            title={toUpdate > 0 ? "Les machines déjà importées voient leurs tags et leur commande proxy rafraîchis ; leur nom, leur login et leurs identifiants restent tels que tu les as réglés" : undefined}
             className="accent-surface rounded-md border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
           >
-            Importer {selected.size > 0 ? `(${selected.size})` : ""}
+            {/* The count that matters is the split: "importer (12)" on a list
+                already imported eleven times looked like it was about to make
+                twelve more hosts, which is exactly what it used to do. */}
+            Importer {selected.size > 0 ? `(${selected.size - toUpdate})` : ""}
+            {toUpdate > 0 ? ` · ${toUpdate} à jour` : ""}
           </button>
         </div>
       </div>

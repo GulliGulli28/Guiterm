@@ -72,6 +72,8 @@ fn main() {
             commands::aws::list_aws_profiles,
             commands::aws::list_aws_sso_sessions,
             commands::aws::check_aws_identity,
+            commands::aws::list_aws_profile_usage,
+            commands::aws::reassign_aws_profile,
             commands::aws::discover_aws_instances,
             commands::aws::import_aws_instances,
             commands::aws::discover_aws_databases,

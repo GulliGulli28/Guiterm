@@ -1,11 +1,14 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
-import type { AwsCallerIdentity, AwsProfile, AwsSsoSession, AwsSsoSessionStatus } from "../lib/types";
+import type { AwsCallerIdentity, AwsProfile, AwsSsoSession, AwsSsoSessionStatus, Workspace } from "../lib/types";
 import { describeState, groupIdentities, roleFromArn } from "../lib/awsIdentities";
 import { profileLabel } from "../lib/awsInstances";
 import { IconCloud, IconPlus, IconRefresh, IconTrash } from "./ui-icons";
 
 interface AwsIdentitiesPanelProps {
+  /** Hosts pinning this profile are refreshed from here after a reassignment,
+   * so the rest of the app sees it without a reload. */
+  onWorkspaceUpdate: (workspace: Workspace) => void;
   /** Opens the SSO setup panel for a session that doesn't exist yet. */
   onConfigureSso: () => void;
   /** Opens it prefilled, to sign a known session in again. */
@@ -38,9 +41,14 @@ type Check = { kind: "ok"; identity: AwsCallerIdentity } | { kind: "error"; mess
  * credential: the sign-in state comes from the CLI's own token cache, and the
  * identity check from `sts get-caller-identity`.
  */
-export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfiles, refreshToken }: AwsIdentitiesPanelProps) {
+export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfiles, onWorkspaceUpdate, refreshToken }: AwsIdentitiesPanelProps) {
   const [sessions, setSessions] = useState<AwsSsoSessionStatus[]>([]);
   const [profiles, setProfiles] = useState<AwsProfile[]>([]);
+  /** Profile name → hosts that pin it in their proxy command. */
+  const [usage, setUsage] = useState<Record<string, string[]>>({});
+  /** Which profile's hosts are being moved, and where to. */
+  const [reassigning, setReassigning] = useState<{ from: string; to: string } | null>(null);
+  const [reassigned, setReassigned] = useState<string | null>(null);
   const [accountNames, setAccountNames] = useState<Record<string, string>>({});
   const [failure, setFailure] = useState<{ message: string; hint: string | null } | null>(null);
   // Kept apart from the one above, and never swallowed: this call reads two
@@ -67,6 +75,7 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
 
   const load = useCallback(() => {
     void loadSessions();
+    api.listAwsProfileUsage().then(setUsage).catch(() => setUsage({}));
     api.listAwsProfiles()
       .then((found) => { setProfiles(found); setFailure(null); })
       .catch((e) => {
@@ -98,6 +107,19 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
     setConfirming(null);
     api.deleteAwsProfile(name)
       .then(load)
+      .catch((e) => setFailure({ message: e.message ?? String(e), hint: null }));
+  };
+
+  const runReassign = () => {
+    if (!reassigning || !reassigning.to) return;
+    const { from, to } = reassigning;
+    api.reassignAwsProfile(from, to)
+      .then((workspace) => {
+        onWorkspaceUpdate(workspace);
+        setReassigning(null);
+        setReassigned(to);
+        load();
+      })
       .catch((e) => setFailure({ message: e.message ?? String(e), hint: null }));
   };
 
@@ -244,6 +266,7 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
                 )}
                 {group.profiles.map((profile) => {
                   const result = checks[profile.name];
+                  const hosts = usage[profile.name] ?? [];
                   return (
                     <div key={profile.name} className="group rounded-lg bg-[var(--c-bg2)] px-2 py-1.5">
                       <div className="flex items-center gap-1.5">
@@ -261,7 +284,27 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
                               .join(" · ") || "aucun détail dans ~/.aws/config"}
                           </p>
                         </div>
+                        {/* Always visible, unlike the actions: it is the one
+                            thing that makes deleting this profile a decision
+                            rather than a surprise. */}
+                        {hosts.length > 0 && (
+                          <span
+                            title={`Hôtes dont la commande proxy épingle ce profil :\n${hosts.join("\n")}`}
+                            className="shrink-0 rounded bg-[var(--c-bg)] px-1.5 py-0.5 text-[10px] text-[var(--c-text-muted)]"
+                          >
+                            {hosts.length} hôte{hosts.length > 1 ? "s" : ""}
+                          </span>
+                        )}
                         <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                          {hosts.length > 0 && (
+                            <button
+                              onClick={() => setReassigning(reassigning?.from === profile.name ? null : { from: profile.name, to: "" })}
+                              title="Faire pointer ces hôtes vers un autre profil"
+                              className="rounded px-1.5 py-0.5 text-[10px] text-[var(--c-text-muted)] hover:bg-white/5 hover:text-[var(--c-text-secondary)]"
+                            >
+                              Basculer
+                            </button>
+                          )}
                           <button
                             onClick={() => check(profile.name)}
                             disabled={checking === profile.name}
@@ -289,12 +332,63 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
                         <p className="mt-1 line-clamp-3 break-words font-mono text-[10px] text-rose-300/90">{result.message}</p>
                       )}
 
+                      {reassigning?.from === profile.name && (
+                        <div className="mt-1.5 rounded-md bg-[var(--c-bg3)] p-1.5">
+                          <p className="text-[10px] leading-relaxed text-[var(--c-text-secondary)]">
+                            Faire pointer {hosts.length} hôte{hosts.length > 1 ? "s" : ""} vers un autre profil.
+                            Seul le <span className="font-mono">--profile</span> de leur commande change.
+                          </p>
+                          <select
+                            value={reassigning.to}
+                            onChange={(e) => setReassigning({ from: profile.name, to: e.target.value })}
+                            className="mt-1 w-full rounded bg-[var(--c-bg2)] px-1.5 py-1 text-[11px] text-[var(--c-text)] focus:outline-none"
+                          >
+                            <option value="">— choisir un profil —</option>
+                            {profiles
+                              .filter((candidate) => candidate.name !== profile.name)
+                              .map((candidate) => (
+                                <option key={candidate.name} value={candidate.name}>{candidate.name}</option>
+                              ))}
+                          </select>
+                          <div className="mt-1.5 flex gap-1.5">
+                            <button
+                              onClick={runReassign}
+                              disabled={!reassigning.to}
+                              className="accent-surface flex-1 rounded border py-0.5 text-[10px] font-medium disabled:opacity-50"
+                            >
+                              Basculer
+                            </button>
+                            <button onClick={() => setReassigning(null)} className="flex-1 rounded bg-[var(--c-bg2)] py-0.5 text-[10px] text-[var(--c-text-secondary)] hover:bg-white/5">
+                              Annuler
+                            </button>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* Shown on the profile that received them: after the
+                          move the source has no hosts left to point at, so a
+                          message there would sit under an empty count. */}
+                      {reassigned === profile.name && (
+                        <p className="mt-1 text-[10px] text-emerald-400">
+                          ✓ {hosts.length} hôte{hosts.length > 1 ? "s" : ""} pointent maintenant vers ce profil
+                        </p>
+                      )}
+
                       {confirming === `profile:${profile.name}` && (
                         <div className="mt-1.5 rounded-md bg-rose-950/50 p-1.5">
                           <p className="text-[10px] leading-relaxed text-rose-200/90">
                             Retirer <span className="font-mono">{profile.name}</span> de ~/.aws/config et ~/.aws/credentials ?
-                            Les hôtes déjà importés qui s'en servent perdront leur accès SSM.
                           </p>
+                          {hosts.length > 0 && (
+                            // Named, not counted: "3 hôtes vont casser" is a
+                            // number to accept blindly, "ARCHIVE-1-DEV va
+                            // casser" is a decision.
+                            <p className="mt-1 text-[10px] leading-relaxed text-rose-200/90">
+                              {hosts.slice(0, 4).join(", ")}
+                              {hosts.length > 4 ? ` et ${hosts.length - 4} autre${hosts.length - 4 > 1 ? "s" : ""}` : ""}
+                              {" "}perdra{hosts.length > 1 ? "ont" : ""} leur accès SSM — « Basculer » les déplace vers un autre profil d'abord.
+                            </p>
+                          )}
                           <div className="mt-1.5 flex gap-1.5">
                             <button onClick={() => removeProfile(profile.name)} className="flex-1 rounded bg-rose-900/70 py-0.5 text-[10px] font-medium text-rose-100 hover:bg-rose-900">
                               Supprimer

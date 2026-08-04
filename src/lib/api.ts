@@ -92,8 +92,17 @@ export const api = {
   deleteAwsSsoSession: (name: string) => invoke<void>("delete_aws_sso_session", { name }),
   discoverAwsInstances: (profile: string, region: string) =>
     invoke<AwsInstance[]>("discover_aws_instances", { profile, region }),
+  /** Instances already imported are refreshed rather than duplicated — matched
+   * on the instance id, which is the host's address. */
   importAwsInstances: (selections: AwsImportSelection[], profile: string, region: string, credentials: AwsImportAuth) =>
     invoke<Workspace>("import_aws_instances", { selections, profile, region, credentials }),
+  /** Profile name → labels of the hosts whose proxy command pins it. The
+   * profile lives inside that command, so nothing else can answer it. */
+  listAwsProfileUsage: () => invoke<Record<string, string[]>>("list_aws_profile_usage"),
+  /** Points every host pinning `from` at `to`, leaving the rest of each
+   * command byte for byte. */
+  reassignAwsProfile: (from: string, to: string) =>
+    invoke<Workspace>("reassign_aws_profile", { from, to }),
   discoverAwsDatabases: (profile: string, region: string) =>
     invoke<AwsDatabase[]>("discover_aws_databases", { profile, region }),
   importAwsDatabases: (selections: AwsDatabaseSelection[], tunnelHostId: HostId | null, password: string | null) =>

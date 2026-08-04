@@ -5,14 +5,15 @@
 
 use crate::state::AppState;
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use tauri::State;
 use termius_core::aws_databases::{self, AwsDatabase};
 use termius_core::aws_inventory::{
-    self, AwsCliError, AwsInstance, AwsProfile, AwsSsoSession, CallerIdentity,
+    self, AwsCliError, AwsImportSelection, AwsInstance, AwsProfile, AwsSsoSession, CallerIdentity,
 };
 use termius_core::model::{
-    AuthMethod, EngineConfig, GroupId, Host, HostId, MongoConfig, ServerConfig, SqlConnection,
-    SqlEngine, Workspace,
+    AuthMethod, EngineConfig, HostId, MongoConfig, ServerConfig, SqlConnection, SqlEngine,
+    Workspace,
 };
 use termius_core::store;
 use termius_core::sync_ext::MutexExt;
@@ -67,20 +68,6 @@ pub async fn discover_aws_instances(
         .map_err(Into::into)
 }
 
-/// One instance the user ticked, with the choices the panel let them make.
-#[derive(Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct AwsImportSelection {
-    pub instance_id: String,
-    pub label: String,
-    pub username: String,
-    pub group_id: Option<GroupId>,
-    /// Tags carried over onto the host, so fleet targeting by tag works on
-    /// imported machines the same way it does on hand-made ones.
-    #[serde(default)]
-    pub tags: Vec<String>,
-}
-
 /// SSH credentials applied to every host of one import.
 ///
 /// One set for the batch rather than one per instance: machines imported
@@ -107,32 +94,70 @@ pub fn import_aws_instances(
 ) -> Result<Workspace, String> {
     let mut workspace = state.workspace.lock_recover();
     let proxy = aws_inventory::ssm_proxy_command(&profile, &region);
-    let secret = credentials.secret.filter(|s| !s.is_empty());
-    for selection in selections {
-        // The instance id goes in as the address: it's what the proxy command
-        // targets, and a private IP would be unreachable by definition — these
-        // are machines with no route to them.
-        let mut host = Host::new(selection.label, selection.instance_id, selection.username);
-        host.proxy_command = Some(proxy.clone());
-        host.group_id = selection.group_id;
-        host.tags = selection.tags;
-        host.auth = credentials.auth.clone();
+    let outcome = aws_inventory::apply_import(&mut workspace, selections, &proxy, &credentials.auth);
 
-        // Mirrors `hosts::save_host`: which slot a secret belongs in depends on
-        // the auth method, and a key held in the keychain carries its own
-        // passphrase under the key's id rather than the host's.
-        if let Some(secret) = secret.as_deref() {
+    // Only for the hosts this import created: refreshing an existing one must
+    // not overwrite the credentials it was given afterwards, which the panel's
+    // batch field knows nothing about.
+    if let Some(secret) = credentials.secret.filter(|s| !s.is_empty()).as_deref() {
+        for id in &outcome.added {
+            // Mirrors `hosts::save_host`: which slot a secret belongs in
+            // depends on the auth method, and a key held in the keychain
+            // carries its own passphrase under the key's id rather than the
+            // host's.
             match &credentials.auth {
                 AuthMethod::Password | AuthMethod::KeyboardInteractive => {
-                    let _ = vault::store(host.id, SecretKind::Password, secret);
+                    let _ = vault::store(*id, SecretKind::Password, secret);
                 }
                 AuthMethod::PrivateKey { key_id: None, .. } => {
-                    let _ = vault::store(host.id, SecretKind::KeyPassphrase, secret);
+                    let _ = vault::store(*id, SecretKind::KeyPassphrase, secret);
                 }
                 _ => {}
             }
         }
-        workspace.hosts.push(host);
+    }
+    store::save(&workspace).map_err(|e| e.to_string())?;
+    Ok(workspace.clone())
+}
+
+/// Which hosts depend on each AWS profile, by label.
+///
+/// The profile lives inside an imported host's proxy command, so nothing in
+/// the UI could show this — and deleting a profile silently broke however many
+/// hosts happened to pin it.
+#[tauri::command]
+pub fn list_aws_profile_usage(state: State<'_, AppState>) -> HashMap<String, Vec<String>> {
+    let workspace = state.workspace.lock_recover();
+    let mut usage: HashMap<String, Vec<String>> = HashMap::new();
+    for host in &workspace.hosts {
+        let Some(command) = host.proxy_command.as_deref() else {
+            continue;
+        };
+        if let Some(profile) = aws_inventory::profile_in_command(command) {
+            usage.entry(profile.to_string()).or_default().push(host.label.clone());
+        }
+    }
+    usage
+}
+
+/// Points every host pinning `from` at `to` instead.
+///
+/// What makes deleting a profile — or renaming one in `~/.aws/config` — a
+/// recoverable move rather than a silent breakage of a whole group of hosts.
+#[tauri::command]
+pub fn reassign_aws_profile(
+    state: State<'_, AppState>,
+    from: String,
+    to: String,
+) -> Result<Workspace, String> {
+    let mut workspace = state.workspace.lock_recover();
+    for host in &mut workspace.hosts {
+        let Some(command) = host.proxy_command.as_deref() else {
+            continue;
+        };
+        if let Some(updated) = aws_inventory::swap_profile(command, from.trim(), to.trim()) {
+            host.proxy_command = Some(updated);
+        }
     }
     store::save(&workspace).map_err(|e| e.to_string())?;
     Ok(workspace.clone())
