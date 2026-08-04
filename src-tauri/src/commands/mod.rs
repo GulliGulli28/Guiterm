@@ -1,5 +1,6 @@
 pub mod adaptive;
 pub mod aws;
+pub mod aws_sso;
 pub mod command_history;
 pub mod dialog;
 pub mod docker;

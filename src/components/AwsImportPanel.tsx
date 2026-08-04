@@ -10,9 +10,9 @@ interface AwsImportPanelProps {
   onWorkspaceUpdate: (ws: Workspace) => void;
   onClose: () => void;
   onError: (message: string) => void;
-  /** Opens a local terminal running `command` — how `aws configure sso` gets
-   * the interactive session it needs. */
-  onRunInTerminal: (command: string) => void;
+  /** Opens the SSO setup panel — a form and a browser round trip, rather
+   * than a terminal running the `aws configure sso` wizard. */
+  onConfigureSso: () => void;
 }
 
 /** Regions offered without asking AWS for the list — `describe-regions` needs
@@ -39,7 +39,7 @@ const inputClass =
  * unreachable" points straight at the SSM agent or the VPC endpoints. They
  * simply can't be selected.
  */
-export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError, onRunInTerminal }: AwsImportPanelProps) {
+export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError, onConfigureSso }: AwsImportPanelProps) {
   const [profiles, setProfiles] = useState<AwsProfile[] | null>(null);
   const [profile, setProfile] = useState("");
   const [region, setRegion] = useState("eu-west-3");
@@ -257,16 +257,13 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError,
             </button>
           </div>
           <div className="mt-1.5 flex items-center gap-2">
-            {/* `aws configure sso` asks questions and opens a browser — it only
-                works with a real terminal, which this app happens to have.
-                Running it hidden would hang on the first prompt. */}
             <button
-              onClick={() => { onRunInTerminal("aws configure sso"); onClose(); }}
+              onClick={onConfigureSso}
               className="text-[11px] text-[var(--c-accent-text)] underline-offset-2 hover:underline"
             >
-              Ajouter un profil (aws configure sso)…
+              Configurer une session SSO…
             </button>
-            <span className="text-[11px] text-[var(--c-text-faint)]">s'ouvre dans un terminal local</span>
+            <span className="text-[11px] text-[var(--c-text-faint)]">formulaire, puis navigateur</span>
             <button onClick={loadProfiles} className="ml-auto text-[11px] text-[var(--c-text-secondary)] hover:text-[var(--c-text)]">
               Rafraîchir les profils
             </button>

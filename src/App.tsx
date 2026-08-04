@@ -24,6 +24,7 @@ import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, loadPrefe
 import { SplitPane } from "./components/SplitPane";
 import { AwsImportPanel } from "./components/AwsImportPanel";
 import { AwsDatabaseImportPanel } from "./components/AwsDatabaseImportPanel";
+import { AwsSsoSetupPanel } from "./components/AwsSsoSetupPanel";
 import { GroupForm, type GroupFormData } from "./components/GroupForm";
 import { SqlConnectionForm } from "./components/SqlConnectionForm";
 import { IconTerminal, IconClose } from "./components/ui-icons";
@@ -69,6 +70,10 @@ export default function App() {
   const [snippetPickerOpen, setSnippetPickerOpen] = useState(false);
   const [awsImportOpen, setAwsImportOpen] = useState(false);
   const [awsDbImportOpen, setAwsDbImportOpen] = useState(false);
+  const [awsSsoOpen, setAwsSsoOpen] = useState(false);
+  // Bumped after profiles are written, so an open import panel reloads its
+  // list instead of the user having to close and reopen it.
+  const [awsProfilesEpoch, setAwsProfilesEpoch] = useState(0);
   const terminalRefs = useRef<Map<string, TerminalTabHandle>>(new Map());
   const { fullscreen, toggleFullscreen } = useFullscreen(reportError);
   // In fullscreen the title bar is hidden — this is it being brought back by
@@ -456,7 +461,14 @@ export default function App() {
           onWorkspaceUpdate={refreshWorkspace}
           onClose={() => setAwsImportOpen(false)}
           onError={reportError}
-          onRunInTerminal={(command) => openLocalTerminal(command)}
+          onConfigureSso={() => setAwsSsoOpen(true)}
+          key={`aws-import-${awsProfilesEpoch}`}
+        />
+      )}
+      {awsSsoOpen && (
+        <AwsSsoSetupPanel
+          onClose={() => setAwsSsoOpen(false)}
+          onProfilesCreated={() => setAwsProfilesEpoch((n) => n + 1)}
         />
       )}
       {awsDbImportOpen && (

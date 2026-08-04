@@ -489,6 +489,23 @@ export interface AwsInstance {
   defaultUsername: string;
 }
 
+/** One account an SSO session grants access to, with its roles. */
+export interface AwsSsoAccount {
+  accountId: string;
+  name: string;
+  email: string | null;
+  roles: string[];
+}
+
+/** A profile to write into `~/.aws/config` for one (account, role) pair. */
+export interface AwsSsoProfileSpec {
+  name: string;
+  session: string;
+  accountId: string;
+  roleName: string;
+  region: string;
+}
+
 /** A profile from `~/.aws/config`, as `list_aws_profiles` reports it. */
 export interface AwsProfile {
   name: string;

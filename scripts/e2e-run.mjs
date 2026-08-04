@@ -622,6 +622,7 @@ async function runAwsImportPanelScenario(browser) {
     timeoutMsg: "aucun verdict apres Lister les instances — la commande n atteint pas le backend",
   });
 
+  await runAwsSsoPanelScenario(browser);
   await closeDialogTitled(browser, "Importer des instances EC2");
   console.log("Import AWS : OK (panneau atteignable depuis le menu, appel backend effectif).");
 }
@@ -673,4 +674,59 @@ async function runAwsDatabasePanelScenario(browser) {
 
   await closeDialogTitled(browser, "Importer des bases depuis AWS");
   console.log("Import bases AWS : OK (panneau atteignable, appel backend effectif).");
+}
+
+/**
+ * The SSO setup panel opens from the EC2 import panel and its form works.
+ *
+ * Stops short of pressing Connect: that runs a real `aws sso login`, which
+ * opens a browser and waits for a human. What is checked is everything up to
+ * it — the entry point exists, the form mounts, and the action is only enabled
+ * once the three fields it needs are filled, which is the part a user hits
+ * first and the part no unit test can see.
+ */
+async function runAwsSsoPanelScenario(browser) {
+  await clickButtonByText(browser, "Configurer une session SSO…");
+
+  const panelText = () => browser.execute(() => {
+    const heading = Array.from(document.querySelectorAll("p"))
+      .find((el) => el.textContent?.trim() === "Configurer une session SSO");
+    return heading?.closest("div.flex.max-h-full")?.textContent ?? "";
+  });
+  await browser.waitUntil(async () => (await panelText()).length > 0, {
+    timeout: 5_000,
+    timeoutMsg: "le panneau de configuration SSO ne s est pas ouvert",
+  });
+
+  const connectDisabled = () => browser.execute(() => {
+    const button = Array.from(document.querySelectorAll("button"))
+      .find((b) => b.textContent?.trim() === "Se connecter");
+    return button instanceof HTMLButtonElement ? button.disabled : null;
+  });
+  if ((await connectDisabled()) !== true) {
+    throw new Error("« Se connecter » doit rester desactive tant que le formulaire est vide");
+  }
+
+  const fill = async (labelPrefix, value) => {
+    const done = await browser.execute((prefix, text) => {
+      const holder = Array.from(document.querySelectorAll("label"))
+        .find((el) => el.textContent?.trim().startsWith(prefix));
+      const input = holder?.querySelector("input");
+      if (!input) return false;
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value")?.set?.call(input, text);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      return true;
+    }, labelPrefix, value);
+    if (!done) throw new Error(`champ « ${labelPrefix} » introuvable`);
+  };
+  await fill("Nom de la session", "e2e-session");
+  await fill("URL du portail", "https://exemple.awsapps.com/start");
+
+  await browser.waitUntil(async () => (await connectDisabled()) === false, {
+    timeout: 5_000,
+    timeoutMsg: "« Se connecter » est reste desactive alors que le formulaire est rempli",
+  });
+
+  await closeDialogTitled(browser, "Configurer une session SSO");
+  console.log("Session SSO : OK (panneau atteignable depuis l import EC2, formulaire fonctionnel).");
 }
