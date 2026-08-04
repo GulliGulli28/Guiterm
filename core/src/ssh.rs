@@ -530,10 +530,14 @@ async fn connect_chain(workspace: &Workspace, chain: Vec<&Host>) -> anyhow::Resu
                 Err(e) => {
                     let detail = proxy.failure_detail().await;
                     return Err(mismatch_error(&first_mismatch, || {
-                        anyhow::anyhow!(
-                            "the proxy command for '{}' did not establish a connection: {e}\n{detail}",
-                            first.label
-                        )
+                        // Message built in `proxy_command` so the remediation
+                        // comes with it: the raw helper output alone told the
+                        // user what broke and never what to do about it.
+                        anyhow::anyhow!(crate::proxy_command::failure_message(
+                            &first.label,
+                            &e.to_string(),
+                            &detail
+                        ))
                     }));
                 }
             };

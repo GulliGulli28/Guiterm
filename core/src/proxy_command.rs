@@ -22,6 +22,8 @@
 //! user typed for their own machine, on the same footing as `~/.ssh/config`.
 
 use serde::Serialize;
+use std::ffi::{OsStr, OsString};
+use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
@@ -186,6 +188,17 @@ pub fn spawn(
         // goes, so must it, or every closed session leaks a process.
         .kill_on_drop(true);
 
+    // `aws ssm start-session` doesn't speak the protocol itself: it hands over
+    // to `session-manager-plugin`, found on PATH. A process inherits the PATH
+    // that existed when it started, so installing the plugin while Guiterm is
+    // open leaves the app unable to see it — reported as "SessionManagerPlugin
+    // is not found" on a machine where the plugin is installed *and* correctly
+    // on the system PATH. Telling the user to restart the app worked, but
+    // asking is worse than looking.
+    if let Some(path) = path_with_plugin_dirs(&std::env::var_os("PATH").unwrap_or_default(), &installed_plugin_dirs()) {
+        builder.env("PATH", path);
+    }
+
     // Windows gives a console to any console subsystem process it starts, and
     // `cmd.exe` is one — so without this a black console window pops up in
     // front of the app and sits there for the whole session. The helper has no
@@ -273,12 +286,86 @@ pub enum ProxyProbe {
 /// looks — a program installed *after* the app was started is invisible to it
 /// until the app is restarted, which reads as "I installed it and it still
 /// doesn't work".
+/// Where a Session Manager plugin install actually puts its binary, for the
+/// installs that exist on this machine.
+///
+/// A fixed list rather than a search: these are the paths the official
+/// installers use, they have not moved, and probing anything wider would mean
+/// walking the disk on every connection.
+fn installed_plugin_dirs() -> Vec<PathBuf> {
+    let mut candidates: Vec<PathBuf> = Vec::new();
+    if cfg!(windows) {
+        for variable in ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"] {
+            if let Some(base) = std::env::var_os(variable) {
+                candidates.push(
+                    PathBuf::from(base)
+                        .join("Amazon")
+                        .join("SessionManagerPlugin")
+                        .join("bin"),
+                );
+            }
+        }
+    } else {
+        // The Linux/macOS packages install here and symlink into
+        // /usr/local/bin — which is already on PATH, so this only matters when
+        // that symlink is missing.
+        candidates.push(PathBuf::from("/usr/local/sessionmanagerplugin/bin"));
+    }
+    candidates.retain(|dir| dir.is_dir());
+    candidates
+}
+
+/// The PATH to give the helper: what this process inherited, plus any plugin
+/// directory that is installed but absent from it.
+///
+/// Appended, never prepended: an entry the user placed earlier on purpose must
+/// keep winning. Returns `None` when there is nothing to add, so the common
+/// case leaves the child's environment untouched.
+pub fn path_with_plugin_dirs(current: &OsStr, plugin_dirs: &[PathBuf]) -> Option<OsString> {
+    let mut entries: Vec<PathBuf> = std::env::split_paths(current).collect();
+    let mut added = false;
+    for dir in plugin_dirs {
+        if !entries.iter().any(|entry| entry == dir) {
+            entries.push(dir.clone());
+            added = true;
+        }
+    }
+    if !added {
+        return None;
+    }
+    std::env::join_paths(entries).ok()
+}
+
+/// What the user is shown when a proxy command ran but never carried a
+/// connection.
+///
+/// Built next to [`hint_for`] so the remediation travels with the failure. It
+/// used to be reachable only through the settings form's "Test" button, so a
+/// real connection failure printed the helper's raw output — "SessionManagerPlugin
+/// is not found", and nothing about what to do — while the app knew the answer
+/// all along.
+pub fn failure_message(label: &str, cause: &str, detail: &str) -> String {
+    let mut message =
+        format!("the proxy command for '{label}' did not establish a connection: {cause}\n{detail}");
+    // Both halves: which one carries the helper's own words depends on how it
+    // failed, and a remediation missed because it was in the other one is a
+    // remediation that might as well not exist.
+    if let Some(hint) = hint_for(&format!("{cause}\n{detail}")) {
+        message.push_str("\n\n");
+        message.push_str(&hint);
+    }
+    message
+}
+
 pub fn hint_for(output: &str) -> Option<String> {
     let haystack = output.to_lowercase();
     let hint = if haystack.contains("sessionmanagerplugin is not found") {
-        "Le plugin Session Manager d'AWS n'est pas installé. Une fois : \
-         `winget install Amazon.SessionManagerPlugin`, puis relancer Guiterm — \
-         une application déjà lancée garde l'ancien PATH et ne verra pas le plugin."
+        "Le plugin Session Manager d'AWS est introuvable — `aws ssm start-session` \
+         lui passe la main et ne peut rien faire sans lui. Une fois : \
+         `winget install Amazon.SessionManagerPlugin` (paquet officiel AWS sous \
+         macOS/Linux). Guiterm regarde aussi dans le dossier d'installation \
+         standard : s'il est installé ailleurs, ajouter ce dossier au PATH puis \
+         relancer Guiterm."
     } else if haystack.contains("session token not found")
         || haystack.contains("unauthorizedexception")
     {
@@ -419,6 +506,58 @@ mod tests {
             let hint = hint_for(output).unwrap_or_else(|| panic!("aucune remédiation pour : {output}"));
             assert!(hint.contains("PATH"), "attendu la remédiation d'exécutable pour : {output}");
         }
+    }
+
+    /// The real failure, verbatim from a user's connection attempt. The app
+    /// knew the remedy and showed only the raw helper output, because the
+    /// message was assembled in `ssh.rs` where `hint_for` was never consulted.
+    #[test]
+    fn a_failed_proxy_connection_carries_its_remediation() {
+        let message = failure_message(
+            "ARCHIVE-1-DEV",
+            "Disconnected",
+            "commande : aws ssm start-session --profile AdministratorAccess-167004607868 \
+             --region eu-west-3 --target i-05a8c14a81fcda5fd --document-name AWS-StartSSHSession \
+             --parameters portNumber=22\nSessionManagerPlugin is not found. Please refer to \
+             SessionManager Documentation here: http://docs.aws.amazon.com/console/systems-manager/session-manager-plugin-not-found",
+        );
+        assert!(message.contains("ARCHIVE-1-DEV"), "l'hôte doit rester nommé");
+        assert!(message.contains("SessionManagerPlugin is not found"), "la sortie brute reste lisible");
+        assert!(
+            message.contains("winget install Amazon.SessionManagerPlugin"),
+            "la remédiation doit accompagner l'échec — obtenu :\n{message}"
+        );
+    }
+
+    /// A failure nothing explains must not gain a trailing blank line or an
+    /// invented remedy.
+    #[test]
+    fn a_failure_without_a_known_cause_is_left_as_it_was() {
+        let message = failure_message("srv", "Broken pipe", "rien d'intelligible");
+        assert_eq!(message, "the proxy command for 'srv' did not establish a connection: Broken pipe\nrien d'intelligible");
+    }
+
+    /// Installing the plugin while the app is open used to be invisible to it:
+    /// a process keeps the PATH it started with. Reported as "plugin not
+    /// found" on a machine where it was installed *and* on the system PATH.
+    #[test]
+    fn the_plugin_directory_is_added_to_a_path_that_predates_its_install() {
+        let plugin = PathBuf::from("/opt/sessionmanagerplugin/bin");
+        let path = OsString::from("/usr/bin");
+        let augmented = path_with_plugin_dirs(&path, std::slice::from_ref(&plugin)).expect("doit compléter");
+        let entries: Vec<PathBuf> = std::env::split_paths(&augmented).collect();
+        assert_eq!(entries, vec![PathBuf::from("/usr/bin"), plugin]);
+    }
+
+    /// Appended, never prepended, and only when something is missing: an entry
+    /// the user put earlier on purpose keeps winning, and the ordinary case
+    /// leaves the child's environment alone.
+    #[test]
+    fn a_path_that_already_has_it_is_left_untouched() {
+        let plugin = PathBuf::from("/opt/sessionmanagerplugin/bin");
+        let path = std::env::join_paths(["/usr/bin", "/opt/sessionmanagerplugin/bin"]).unwrap();
+        assert!(path_with_plugin_dirs(&path, std::slice::from_ref(&plugin)).is_none());
+        assert!(path_with_plugin_dirs(&path, &[]).is_none(), "rien à ajouter = rien à changer");
     }
 
     #[test]
