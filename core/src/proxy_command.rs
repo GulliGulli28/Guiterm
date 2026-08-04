@@ -403,6 +403,34 @@ pub async fn probe(
 mod tests {
     use super::*;
 
+    /// The "missing program" hint used to fire on any output containing the
+    /// words "not found", which is how an AWS token error got explained as a
+    /// PATH problem. Tightening it must not lose the real cases — those are
+    /// the ones this hint exists for.
+    #[test]
+    fn a_missing_program_is_still_recognised_after_tightening_not_found() {
+        for output in [
+            "'aws' is not recognized as an internal or external command",
+            "aws : n'est pas reconnu en tant que commande interne",
+            "bash: aws: command not found",
+            "sh: 1: aws: not found",
+            "No such file or directory (os error 2)",
+        ] {
+            let hint = hint_for(output).unwrap_or_else(|| panic!("aucune remédiation pour : {output}"));
+            assert!(hint.contains("PATH"), "attendu la remédiation d'exécutable pour : {output}");
+        }
+    }
+
+    #[test]
+    fn a_dead_sso_token_is_not_explained_as_a_missing_program() {
+        let hint = hint_for(
+            "An error occurred (UnauthorizedException) when calling the ListAccounts operation: Session token not found or invalid",
+        )
+        .expect("un jeton mort a une remédiation");
+        assert!(!hint.contains("PATH"), "obtenu : {hint}");
+        assert!(hint.contains("reconnecter"), "obtenu : {hint}");
+    }
+
     #[test]
     fn substitutes_the_openssh_tokens() {
         assert_eq!(
