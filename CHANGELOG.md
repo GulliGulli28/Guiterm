@@ -21,6 +21,40 @@ This changelog starts 2026-07-21 — for earlier versions, see
   title bar goes away with the window decorations, leaving the tabs and the
   terminal; push the pointer against the top edge of the screen to bring it
   back.
+- Machines with no public address and no inbound SSH can now be reached, by
+  giving a host a proxy command — the program is run locally and the session
+  travels over its input and output, exactly as OpenSSH's `ProxyCommand` does.
+  One generic setting rather than a per-provider integration, so AWS Session
+  Manager, GCP IAP, `cloudflared` and a site's own jump tooling all work the
+  same way. `ProxyCommand` entries are also picked up when importing
+  `~/.ssh/config`.
+- A "Test the command" button next to that field. It runs the command and says
+  what happened: it reports success only when a real SSH server answers, and
+  on failure shows the program's own error alongside what to do about it —
+  a missing Session Manager plugin, a program that isn't on the PATH, an
+  expired SSO session, an instance SSM can't see.
+- EC2 instances can be imported as hosts, from Hosts → Add → Import from AWS.
+  Pick a profile and a region, search the account, tick what you want: the
+  instance id, the proxy command, the login guessed from the AMI and the EC2
+  tags are all filled in. Profiles are grouped by SSO session, `aws configure
+  sso` can be started from the panel, and SSH credentials are set for the whole
+  batch. Instances SSM cannot reach are listed with the reason rather than
+  hidden.
+- RDS, Aurora and ElastiCache databases can be imported as connections, from
+  Databases → Import from AWS, each pointed at a saved host to reach it
+  through — managed databases usually sit in a private subnet. Engines the app
+  can't reach (Oracle, SQL Server, DocumentDB, ElastiCache with encryption in
+  transit) are listed with what's missing instead of being hidden.
+
+  Nothing about this asks for AWS credentials or stores any: every call goes
+  through the `aws` CLI you already have configured, so SSO, assume-role and
+  MFA keep working exactly as they do in your terminal.
+
+### Fixed
+- A private key chosen from the keychain was not saved with the host. The key's
+  identifier never reached storage, so the link was lost and the passphrase was
+  filed under the host instead of the key. Hosts saved before this keep working
+  and pick their key back up.
 
 ### Changed
 - Terminal keystrokes travel to the session as raw bytes instead of being
