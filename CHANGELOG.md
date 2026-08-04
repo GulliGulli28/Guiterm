@@ -34,21 +34,40 @@ This changelog starts 2026-07-21 — for earlier versions, see
   a missing Session Manager plugin, a program that isn't on the PATH, an
   expired SSO session, an instance SSM can't see.
 - EC2 instances can be imported as hosts, from Hosts → Add → Import from AWS.
-  Pick a profile and a region, search the account, tick what you want: the
-  instance id, the proxy command, the login guessed from the AMI and the EC2
-  tags are all filled in. Profiles are grouped by SSO session, `aws configure
-  sso` can be started from the panel, and SSH credentials are set for the whole
-  batch. Instances SSM cannot reach are listed with the reason rather than
+  Pick a profile and a region, search the account by name, id, address, platform
+  or tag, tick what you want: the instance id, the proxy command, the login
+  guessed from the AMI and the EC2 tags are all filled in, with SSH credentials
+  set for the whole batch. Instances SSM cannot reach are listed with the reason
+  rather than hidden.
+- RDS, Aurora, ElastiCache and DocumentDB databases can be imported as
+  connections, from Databases → Import from AWS, each pointed at a saved host to
+  reach it through — managed databases usually sit in a private subnet. Aurora
+  clusters are offered by their cluster endpoint, the one that survives a
+  failover, and their member instances are left out. Engines the app doesn't
+  speak (Oracle, SQL Server) are listed with that reason instead of being
   hidden.
-- RDS, Aurora and ElastiCache databases can be imported as connections, from
-  Databases → Import from AWS, each pointed at a saved host to reach it
-  through — managed databases usually sit in a private subnet. Engines the app
-  can't reach (Oracle, SQL Server, DocumentDB, ElastiCache with encryption in
-  transit) are listed with what's missing instead of being hidden.
+- An SSO session can be set up from the app, without a terminal: fill in the
+  portal address, authenticate in the browser, then tick the accounts and roles
+  you want profiles for. When a session later expires, the error offers to
+  reconnect it in one click. Everything is written to `~/.aws/config` in the
+  form the CLI writes itself, so your terminal and your other tools see the same
+  configuration — and nothing is duplicated into a store of our own.
+- Profile pickers show which account each profile reaches, by name rather than
+  by twelve-digit number, and regions are picked from the full list (with a
+  free-text escape for one newer than this release).
 
-  Nothing about this asks for AWS credentials or stores any: every call goes
-  through the `aws` CLI you already have configured, so SSO, assume-role and
-  MFA keep working exactly as they do in your terminal.
+  Nothing about any of this asks for AWS credentials or stores any: every call
+  goes through the `aws` CLI you already have configured, so SSO, assume-role
+  and MFA keep working exactly as they do in your terminal.
+- Redis connections can use TLS (`rediss://`), from a checkbox on the
+  connection — and automatically for an imported ElastiCache group that has
+  encryption in transit enabled.
+- MongoDB connections can require TLS, with an optional path to a certificate
+  bundle for servers whose authority isn't in the system trust store — which is
+  what DocumentDB needs. Combining TLS with an SSH tunnel additionally needs
+  certificate checking turned off, because no certificate can match the tunnel's
+  local address; the app says so instead of failing with a bare TLS error, and
+  never makes that choice for you.
 
 ### Fixed
 - A private key chosen from the keychain was not saved with the host. The key's
