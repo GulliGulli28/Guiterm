@@ -51,6 +51,50 @@ async fn an_open_port_and_a_closed_one_get_different_answers() {
     );
 }
 
+/// The `nc` branch, run against this platform's own `nc`.
+///
+/// Linux never takes it — it has `timeout`, so the probe uses `bash`'s
+/// `/dev/tcp` — which is precisely why the macOS CI caught what the Linux runs
+/// could not: on a machine without `timeout`, every probe goes through `nc`,
+/// and BSD `nc -z` without `-v` says nothing at all. A closed port was
+/// therefore reported as a firewall, the exact opposite of the truth.
+///
+/// This asserts on the wording *this* machine's `nc` produces, so the same
+/// test tells the truth on both runners.
+#[tokio::test]
+async fn this_platforms_nc_tells_a_refusal_from_a_silence() {
+    let key = ClientKey::generate();
+    let sshd = TestSshd::start("reachability-nc", &key.public);
+    let host = test_host(&sshd, &key, "test-reachability-nc");
+    let host_id = host.id;
+    let mut workspace = Workspace::default();
+    workspace.hosts.push(host);
+
+    let connection = ssh::connect(&workspace, host_id).await.expect("connect should succeed");
+    // The measurement around it is what the script does; the call itself comes
+    // from `nc_command`, so the part that differs between platforms cannot
+    // drift away from what the app really runs.
+    async fn run(connection: &termius_core::ssh::Connection, port: u16) -> Verdict {
+        let command = format!(
+            "s=$(date +%s); m=$({} 2>&1); c=$?; e=$(date +%s); echo GUITERM-PROBE nc $c $((e-s)); echo \"$m\"",
+            reachability::nc_command("127.0.0.1", &port.to_string(), PROBE_TIMEOUT_SECS)
+        );
+        let output = ssh::run_command_capture(connection, &command)
+            .await
+            .expect("la sonde nc doit s'exécuter");
+        reachability::parse_verdict(&output.stdout, &output.stderr)
+    }
+
+    let open = run(&connection, sshd.port).await;
+    assert!(matches!(open, Verdict::Open { .. }), "port qui écoute, obtenu {open:?}");
+
+    let refused = run(&connection, free_port()).await;
+    assert!(
+        matches!(refused, Verdict::Refused { .. }),
+        "un port fermé doit être un refus même quand nc est laconique — obtenu {refused:?}"
+    );
+}
+
 /// A name that resolves nowhere is a DNS problem, not a network one, and the
 /// probe has to say so — the two send you to completely different places.
 #[tokio::test]

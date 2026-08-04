@@ -72,18 +72,34 @@ pub fn validate_host(host: &str) -> Result<(), String> {
 /// [`parse_verdict`] to read. Single quotes are absent on purpose — the whole
 /// thing is wrapped in `sh -c '…'` so it runs under POSIX sh whatever login
 /// shell the target uses (fish included).
+/// The `nc` form the probe uses.
+///
+/// `-v` matters more than it looks: without it, BSD `nc` in `-z` mode says
+/// *nothing at all* — refusal or timeout, same empty output — and macOS has no
+/// `timeout`, so that silent branch is the one every macOS host takes. Shared
+/// with the integration test so it exercises this platform's real `nc` wording
+/// rather than a copy that can drift from it.
+pub fn nc_command(host: &str, port: &str, timeout_secs: u8) -> String {
+    format!("nc -v -w {timeout_secs} -z {host} {port}")
+}
+
 pub fn probe_script(host: &str, port: u16, timeout_secs: u8) -> String {
+    // Built from the shell's own variables, so the one place that knows how to
+    // call `nc` is `nc_command` — including for the test that runs it for real.
+    let nc = nc_command("$h", "$p", timeout_secs);
     let script = format!(
         "h={host}; p={port}; t={timeout_secs}; T=\"\"; \
          if command -v timeout >/dev/null 2>&1; then T=\"timeout $t\"; fi; \
+         s=$(date +%s 2>/dev/null || echo 0); \
          if [ -n \"$T\" ] && command -v bash >/dev/null 2>&1; then \
          m=$($T bash -c \"exec 3<>/dev/tcp/$h/$p\" 2>&1); c=$?; v=bash; \
          elif command -v nc >/dev/null 2>&1; then \
-         m=$(nc -w $t -z $h $p 2>&1); c=$?; v=nc; \
+         m=$({nc} 2>&1); c=$?; v=nc; \
          elif command -v curl >/dev/null 2>&1; then \
          m=$(curl -sS --connect-timeout $t -o /dev/null http://$h:$p/ 2>&1); c=$?; v=curl; \
          else v=notool; c=0; m=\"\"; fi; \
-         echo {MARKER} $v $c; echo \"$m\""
+         e=$(date +%s 2>/dev/null || echo 0); \
+         echo {MARKER} $v $c $((e-s)); echo \"$m\""
     );
     format!("sh -c '{script}'")
 }
@@ -131,6 +147,9 @@ pub fn parse_verdict(stdout: &str, stderr: &str) -> Verdict {
     let mut fields = line.split_whitespace().skip(1);
     let via = fields.next().unwrap_or_default().to_string();
     let code: i32 = fields.next().and_then(|c| c.parse().ok()).unwrap_or(-1);
+    // Seconds the probe took. Absent from an older marker line, and `0` when
+    // the host has no `date` — both fall back to the message-only rules.
+    let elapsed: i64 = fields.next().and_then(|s| s.parse().ok()).unwrap_or(0);
     // Everything after the marker line is the tool's own output.
     let message: String = stdout
         .lines()
@@ -150,7 +169,7 @@ pub fn parse_verdict(stdout: &str, stderr: &str) -> Verdict {
         return Verdict::Filtered { via };
     }
     match via.as_str() {
-        "bash" | "nc" => classify_stream_tool(&via, code, &message),
+        "bash" | "nc" => classify_stream_tool(&via, code, &message, elapsed),
         "curl" => classify_curl(&via, code, &message),
         _ => Verdict::Failed {
             message: if message.is_empty() { line.to_string() } else { message },
@@ -158,21 +177,29 @@ pub fn parse_verdict(stdout: &str, stderr: &str) -> Verdict {
     }
 }
 
-fn classify_stream_tool(via: &str, code: i32, message: &str) -> Verdict {
+fn classify_stream_tool(via: &str, code: i32, message: &str, elapsed: i64) -> Verdict {
     if code == 0 {
         return Verdict::Open { via: via.to_string() };
     }
     if let Some(verdict) = classify_message(via, message) {
         return verdict;
     }
-    // `nc -w` gives up on its own without a word. Silence, at this point, *is*
-    // the answer: nothing came back within the window.
-    if via == "nc" && message.is_empty() {
+    // No explanation from the tool — which is the ordinary case for BSD `nc`,
+    // silent in `-z` mode, and therefore for every probe run from macOS (no
+    // `timeout` there, so the `bash` branch never applies).
+    //
+    // The timing decides it, and it is a better witness than any message: a
+    // refusal is a packet coming back, so it lands instantly, while a drop
+    // costs the whole window by definition. Treating a silent failure as a
+    // silence was wrong exactly the wrong way round — it reported a closed
+    // port on a reachable machine as a firewall.
+    if elapsed >= i64::from(PROBE_TIMEOUT_SECS) - 1 {
         return Verdict::Filtered { via: via.to_string() };
     }
-    Verdict::Failed {
-        message: if message.is_empty() { format!("code de sortie {code}") } else { message.to_string() },
+    if message.is_empty() {
+        return Verdict::Refused { via: via.to_string() };
     }
+    Verdict::Failed { message: message.to_string() }
 }
 
 /// curl says what happened through its exit code, which is more reliable than
@@ -262,8 +289,24 @@ mod tests {
         assert!(script.contains("p=443"));
     }
 
+    /// The timing is what tells a refusal from a silence on a host whose tools
+    /// say nothing — so the script has to measure it, on a `date` that every
+    /// POSIX shell has.
+    #[test]
+    fn the_script_times_the_probe() {
+        let script = probe_script("10.0.4.12", 443, PROBE_TIMEOUT_SECS);
+        assert!(script.contains("date +%s"), "obtenu : {script}");
+        assert!(script.contains("$((e-s))"), "l'écart doit être renvoyé : {script}");
+    }
+
+    /// A probe that came back instantly — the ordinary shape of a failure that
+    /// had an answer.
     fn probe(via: &str, code: i32, message: &str) -> Verdict {
-        parse_verdict(&format!("{MARKER} {via} {code}\n{message}\n"), "")
+        probe_after(via, code, message, 0)
+    }
+
+    fn probe_after(via: &str, code: i32, message: &str, elapsed: i64) -> Verdict {
+        parse_verdict(&format!("{MARKER} {via} {code} {elapsed}\n{message}\n"), "")
     }
 
     #[test]
@@ -286,8 +329,45 @@ mod tests {
         );
         // `timeout` had to kill it: nothing came back for the whole window.
         assert_eq!(probe("bash", 124, ""), Verdict::Filtered { via: "bash".to_string() });
-        // `nc -w` gives up on its own, without a word.
-        assert_eq!(probe("nc", 1, ""), Verdict::Filtered { via: "nc".to_string() });
+        // `nc -w` gives up on its own, without a word — but it took the whole
+        // window to do it, which is what says nothing came back.
+        assert_eq!(
+            probe_after("nc", 1, "", i64::from(PROBE_TIMEOUT_SECS)),
+            Verdict::Filtered { via: "nc".to_string() }
+        );
+    }
+
+    /// The failure the macOS CI found. There is no `timeout` on macOS, so the
+    /// probe falls to `nc` — and BSD `nc -z` says nothing at all, refusal or
+    /// not. Reading that silence as "filtered" reported a closed port on a
+    /// perfectly reachable machine as a firewall: the exact opposite of the
+    /// answer, and the one distinction this feature exists to make.
+    ///
+    /// The timing settles it: a refusal is a packet coming back, so it is
+    /// instant; a drop costs the whole window.
+    #[test]
+    fn a_silent_tool_is_read_by_its_timing_not_by_its_silence() {
+        assert_eq!(
+            probe_after("nc", 1, "", 0),
+            Verdict::Refused { via: "nc".to_string() },
+            "échec immédiat et muet = quelque chose a répondu"
+        );
+        assert_eq!(
+            probe_after("nc", 1, "", i64::from(PROBE_TIMEOUT_SECS) - 1),
+            Verdict::Filtered { via: "nc".to_string() },
+            "une seconde de marge : `date` ne compte qu'en secondes entières"
+        );
+    }
+
+    /// A message always wins over the timing — it is the tool saying what
+    /// happened rather than us inferring it.
+    #[test]
+    fn an_explanation_beats_the_stopwatch() {
+        assert_eq!(
+            probe_after("nc", 1, "nc: connect failed: Connection refused", i64::from(PROBE_TIMEOUT_SECS)),
+            Verdict::Refused { via: "nc".to_string() },
+            "un refus lent reste un refus"
+        );
     }
 
     #[test]
