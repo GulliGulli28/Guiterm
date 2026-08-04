@@ -7,7 +7,7 @@ use crate::state::AppState;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 use termius_core::aws_databases::{self, AwsDatabase};
-use termius_core::aws_inventory::{self, AwsCliError, AwsInstance, AwsProfile};
+use termius_core::aws_inventory::{self, AwsCliError, AwsInstance, AwsProfile, AwsSsoSession};
 use termius_core::model::{
     AuthMethod, EngineConfig, GroupId, Host, HostId, MongoConfig, ServerConfig, SqlConnection,
     SqlEngine, Workspace,
@@ -38,6 +38,13 @@ impl From<AwsCliError> for AwsFailure {
 #[tauri::command]
 pub async fn list_aws_profiles() -> Result<Vec<AwsProfile>, AwsFailure> {
     aws_inventory::list_profiles().await.map_err(Into::into)
+}
+
+/// The `[sso-session]` blocks in `~/.aws/config` — what a reconnection needs
+/// to replay, without asking the user to retype it.
+#[tauri::command]
+pub fn list_aws_sso_sessions() -> Vec<AwsSsoSession> {
+    aws_inventory::list_sso_sessions()
 }
 
 #[tauri::command]

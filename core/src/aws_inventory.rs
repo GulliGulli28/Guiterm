@@ -40,7 +40,16 @@ pub enum AwsCliError {
     /// `aws` isn't installed, or isn't on this process's PATH.
     CliMissing,
     /// It ran and refused: expired SSO session, no credentials, denied.
-    Refused { message: String, hint: Option<String> },
+    Refused {
+        message: String,
+        hint: Option<String>,
+        /// The refusal is an expired login, so reconnecting the session fixes
+        /// it. Typed rather than left for the UI to guess from the message:
+        /// this is what decides whether a "reconnect" button appears, and
+        /// matching on error text in the frontend would silently stop working
+        /// the day AWS rewords one.
+        session_expired: bool,
+    },
     /// It answered something we couldn't read.
     Unreadable { message: String },
 }
@@ -132,8 +141,26 @@ pub fn classify_failure(stderr: &str) -> AwsCliError {
     }
     AwsCliError::Refused {
         hint: proxy_command::hint_for(stderr),
+        session_expired: is_expired_session(stderr),
         message: stderr.trim().to_string(),
     }
+}
+
+/// Whether a refusal is an expired login rather than a lasting problem.
+///
+/// Matched on the *idea* rather than on a list of exact sentences: AWS words
+/// this at least four ways across the CLI, botocore and the service itself
+/// (`ExpiredTokenException`, "Token has expired and refresh failed", "The SSO
+/// session associated with this profile has expired", "security token included
+/// in the request is expired"), and a list of phrases would fall out of date
+/// silently — the button would just stop appearing.
+///
+/// Anything else (denied permissions, no credentials at all) is *not* fixed by
+/// logging in again and must not offer to, which is why "expired" alone isn't
+/// enough to qualify.
+pub fn is_expired_session(stderr: &str) -> bool {
+    let lowered = stderr.to_lowercase();
+    lowered.contains("expired") && (lowered.contains("token") || lowered.contains("sso session"))
 }
 
 /// How long any single `aws` call may take. Generous: an SSO-backed call can
@@ -194,6 +221,69 @@ pub struct AwsProfile {
     pub role_name: Option<String>,
     /// The profile's own default region, used to prefill the region field.
     pub region: Option<String>,
+}
+
+/// An `[sso-session]` block: what a reconnection needs to replay.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AwsSsoSession {
+    pub name: String,
+    pub start_url: String,
+    pub region: String,
+}
+
+/// The `[sso-session]` blocks defined in `~/.aws/config`.
+///
+/// Separate from [`parse_config`]'s profiles because they answer a different
+/// question: a profile says *which* session it logs in through, and this says
+/// *how* to log that session in again.
+pub fn parse_sso_sessions(content: &str) -> Vec<AwsSsoSession> {
+    let mut sessions: Vec<AwsSsoSession> = Vec::new();
+    let mut current: Option<AwsSsoSession> = None;
+
+    for raw in content.lines() {
+        let line = raw.split('#').next().unwrap_or("").split(';').next().unwrap_or("").trim();
+        if line.is_empty() {
+            continue;
+        }
+        if let Some(header) = line.strip_prefix('[').and_then(|l| l.strip_suffix(']')) {
+            if let Some(done) = current.take() {
+                sessions.push(done);
+            }
+            if let Some(name) = header.trim().strip_prefix("sso-session ") {
+                current = Some(AwsSsoSession {
+                    name: name.trim().to_string(),
+                    start_url: String::new(),
+                    region: String::new(),
+                });
+            }
+            continue;
+        }
+        let Some(session) = current.as_mut() else {
+            continue;
+        };
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        match key.trim().to_ascii_lowercase().as_str() {
+            "sso_start_url" => session.start_url = value.trim().to_string(),
+            "sso_region" => session.region = value.trim().to_string(),
+            _ => {}
+        }
+    }
+    if let Some(done) = current.take() {
+        sessions.push(done);
+    }
+    sessions
+}
+
+/// The sessions the CLI knows about, read from `~/.aws/config`.
+pub fn list_sso_sessions() -> Vec<AwsSsoSession> {
+    directories::BaseDirs::new()
+        .map(|dirs| dirs.home_dir().join(".aws").join("config"))
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .map(|content| parse_sso_sessions(&content))
+        .unwrap_or_default()
 }
 
 /// Parses `~/.aws/config`.
@@ -507,11 +597,38 @@ mod tests {
         );
         assert_eq!(classify_failure("aws: command not found"), AwsCliError::CliMissing);
         match classify_failure("An error occurred (ExpiredTokenException) when calling ...") {
-            AwsCliError::Refused { hint, .. } => {
+            AwsCliError::Refused { hint, session_expired, .. } => {
                 assert!(hint.expect("un token expiré a une remédiation").contains("sso login"));
+                assert!(session_expired, "une session expirée doit être reconnaissable comme telle");
             }
             other => panic!("attendu un refus, obtenu {other:?}"),
         }
+    }
+
+    /// Only an expired login may offer to reconnect. Denied permissions and
+    /// missing credentials are not fixed by logging in again, and proposing it
+    /// would send someone round a loop that cannot work.
+    #[test]
+    fn only_an_expired_session_is_flagged_as_reconnectable() {
+        assert!(is_expired_session("An error occurred (ExpiredTokenException)"));
+        assert!(is_expired_session("Error loading SSO Token: Token has expired and refresh failed"), "message alternatif");
+        assert!(!is_expired_session("An error occurred (AccessDenied) when calling DescribeInstances"));
+        assert!(!is_expired_session("Unable to locate credentials"));
+        // Says "expired" and is not a login problem at all: the machine's
+        // clock has drifted, and signing in again fixes nothing. This is the
+        // case that makes the word alone insufficient.
+        assert!(!is_expired_session(
+            "An error occurred (RequestExpired) when calling DescribeInstances: Request has expired."
+        ));
+    }
+
+    #[test]
+    fn reads_the_sso_session_blocks() {
+        let sessions = parse_sso_sessions(CONFIG);
+        assert_eq!(sessions.len(), 1);
+        assert_eq!(sessions[0].name, "ma-boite");
+        assert_eq!(sessions[0].start_url, "https://ma-boite.awsapps.com/start");
+        assert_eq!(sessions[0].region, "eu-west-3");
     }
 
     /// The frontend reads `defaultUsername` off the JSON; a method would have

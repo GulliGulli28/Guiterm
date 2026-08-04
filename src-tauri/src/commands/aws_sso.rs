@@ -38,8 +38,9 @@ pub async fn aws_sso_login(app: AppHandle, session: String) -> Result<(), AwsFai
 pub async fn list_aws_sso_accounts(
     start_url: String,
     region: String,
+    session: String,
 ) -> Result<Vec<SsoAccount>, AwsFailure> {
-    aws_sso::list_accounts(start_url.trim(), region.trim())
+    aws_sso::list_accounts(start_url.trim(), region.trim(), session.trim())
         .await
         .map_err(Into::into)
 }

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "../lib/api";
-import type { AuthMethod, AwsInstance, AwsProfile, GroupId, KeyId, Workspace } from "../lib/types";
+import type { AuthMethod, AwsInstance, AwsProfile, AwsSsoSession, GroupId, KeyId, Workspace } from "../lib/types";
 import { filterAwsInstances, groupProfilesBySession } from "../lib/awsInstances";
 import { IconClose } from "./ui-icons";
 
@@ -10,6 +10,8 @@ interface AwsImportPanelProps {
   onWorkspaceUpdate: (ws: Workspace) => void;
   onClose: () => void;
   onError: (message: string) => void;
+  /** Opens the SSO panel pre-filled to reconnect an expired session. */
+  onReconnectSso: (session: AwsSsoSession) => void;
   /** Opens the SSO setup panel — a form and a browser round trip, rather
    * than a terminal running the `aws configure sso` wizard. */
   onConfigureSso: () => void;
@@ -39,14 +41,16 @@ const inputClass =
  * unreachable" points straight at the SSM agent or the VPC endpoints. They
  * simply can't be selected.
  */
-export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError, onConfigureSso }: AwsImportPanelProps) {
+export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError, onConfigureSso, onReconnectSso }: AwsImportPanelProps) {
   const [profiles, setProfiles] = useState<AwsProfile[] | null>(null);
+  const [ssoSessions, setSsoSessions] = useState<AwsSsoSession[]>([]);
+  useEffect(() => { api.listAwsSsoSessions().then(setSsoSessions).catch(() => {}); }, []);
   const [profile, setProfile] = useState("");
   const [region, setRegion] = useState("eu-west-3");
   const [instances, setInstances] = useState<AwsInstance[] | null>(null);
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
-  const [failure, setFailure] = useState<{ message: string; hint: string | null } | null>(null);
+  const [failure, setFailure] = useState<{ message: string; hint: string | null; sessionExpired: boolean } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [groupTagKey, setGroupTagKey] = useState("");
   const [importing, setImporting] = useState(false);
@@ -71,7 +75,7 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError,
       })
       .catch((e) => {
         setProfiles([]);
-        setFailure({ message: e.message ?? String(e), hint: e.reason?.hint ?? null });
+        setFailure({ message: e.message ?? String(e), hint: e.reason?.hint ?? null, sessionExpired: e.reason?.sessionExpired === true });
       });
   };
   useEffect(loadProfiles, []);
@@ -97,7 +101,7 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError,
         // everything usable", and unreachable ones can't be selected anyway.
         setSelected(new Set(found.filter((i) => i.ssmOnline).map((i) => i.instanceId)));
       })
-      .catch((e) => setFailure({ message: e.message ?? String(e), hint: e.reason?.hint ?? null }))
+      .catch((e) => setFailure({ message: e.message ?? String(e), hint: e.reason?.hint ?? null, sessionExpired: e.reason?.sessionExpired === true }))
       .finally(() => setLoading(false));
   };
 
@@ -203,6 +207,13 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError,
   const selectableVisible = visible.filter((i) => i.ssmOnline).length;
   const allVisibleSelected = selectableVisible > 0 && visible.every((i) => !i.ssmOnline || selected.has(i.instanceId));
 
+  /** The session behind the selected profile, when it has one — what a
+   * reconnection needs to replay without asking anything again. */
+  const expiredSession = (() => {
+    const name = profiles?.find((p) => p.name === profile)?.ssoSession;
+    return name ? ssoSessions.find((session) => session.name === name) ?? null : null;
+  })();
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6" onClick={onClose}>
       <div
@@ -274,6 +285,17 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError,
           <div className="shrink-0 border-b border-rose-900/60 bg-rose-950/40 px-4 py-2.5">
             <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] text-rose-200/90">{failure.message}</pre>
             {failure.hint && <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--c-text-secondary)]">{failure.hint}</p>}
+            {/* Offered only for an expired login — the one failure that
+                reconnecting actually fixes. Denied permissions or absent
+                credentials would send someone round a loop. */}
+            {failure.sessionExpired && expiredSession && (
+              <button
+                onClick={() => onReconnectSso(expiredSession)}
+                className="accent-surface mt-2 rounded-md border px-2.5 py-1 text-xs font-medium"
+              >
+                Reconnecter la session « {expiredSession.name} »
+              </button>
+            )}
           </div>
         )}
 

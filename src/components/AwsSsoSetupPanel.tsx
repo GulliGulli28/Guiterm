@@ -61,7 +61,7 @@ export function AwsSsoSetupPanel({ onClose, onProfilesCreated, initialSession }:
     setStage("loggingIn");
     api.saveAwsSsoSession(name.trim(), startUrl.trim(), region.trim())
       .then(() => api.awsSsoLogin(name.trim()))
-      .then(() => api.listAwsSsoAccounts(startUrl.trim(), region.trim()))
+      .then(() => api.listAwsSsoAccounts(startUrl.trim(), region.trim(), name.trim()))
       .then((found) => {
         setAccounts(found);
         setStage("accounts");

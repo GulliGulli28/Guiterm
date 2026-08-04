@@ -489,6 +489,14 @@ export interface AwsInstance {
   defaultUsername: string;
 }
 
+/** An `[sso-session]` block from `~/.aws/config` — everything a reconnection
+ * needs to replay. */
+export interface AwsSsoSession {
+  name: string;
+  startUrl: string;
+  region: string;
+}
+
 /** One account an SSO session grants access to, with its roles. */
 export interface AwsSsoAccount {
   accountId: string;

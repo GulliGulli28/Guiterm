@@ -70,7 +70,7 @@ export default function App() {
   const [snippetPickerOpen, setSnippetPickerOpen] = useState(false);
   const [awsImportOpen, setAwsImportOpen] = useState(false);
   const [awsDbImportOpen, setAwsDbImportOpen] = useState(false);
-  const [awsSsoOpen, setAwsSsoOpen] = useState(false);
+  const [awsSsoOpen, setAwsSsoOpen] = useState<{ name: string; startUrl: string; region: string } | true | null>(null);
   // Bumped after profiles are written, so an open import panel reloads its
   // list instead of the user having to close and reopen it.
   const [awsProfilesEpoch, setAwsProfilesEpoch] = useState(0);
@@ -462,13 +462,15 @@ export default function App() {
           onClose={() => setAwsImportOpen(false)}
           onError={reportError}
           onConfigureSso={() => setAwsSsoOpen(true)}
+          onReconnectSso={(session) => setAwsSsoOpen(session)}
           key={`aws-import-${awsProfilesEpoch}`}
         />
       )}
       {awsSsoOpen && (
         <AwsSsoSetupPanel
-          onClose={() => setAwsSsoOpen(false)}
+          onClose={() => setAwsSsoOpen(null)}
           onProfilesCreated={() => setAwsProfilesEpoch((n) => n + 1)}
+          initialSession={awsSsoOpen === true ? undefined : awsSsoOpen}
         />
       )}
       {awsDbImportOpen && (
@@ -477,6 +479,8 @@ export default function App() {
           onWorkspaceUpdate={refreshWorkspace}
           onClose={() => setAwsDbImportOpen(false)}
           onError={reportError}
+          onReconnectSso={(session) => setAwsSsoOpen(session)}
+          key={`aws-db-import-${awsProfilesEpoch}`}
         />
       )}
       {snippetPickerOpen && workspace && (

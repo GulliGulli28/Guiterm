@@ -227,25 +227,47 @@ pub async fn login(
 /// mean a second token, invisible to the CLI and expiring on its own schedule.
 /// Reusing the CLI's means one login serves every tool on the machine, which
 /// is the whole point of writing real config instead of keeping our own.
-fn cached_access_token(start_url: &str) -> Option<String> {
-    let dir = sso_cache_dir()?;
-    let entries = std::fs::read_dir(dir).ok()?;
-    for entry in entries.flatten() {
-        let Ok(text) = std::fs::read_to_string(entry.path()) else {
+/// Picks this session's access token out of a set of cache documents.
+///
+/// Most files in that directory are *client registrations* and carry no token
+/// at all — only `clientId`/`clientSecret`. Skipping them is the entire job,
+/// and getting it wrong looks exactly like never having logged in.
+///
+/// Matched on the start URL or the session name, because which one the CLI
+/// writes depends on how the session was configured, and a token found under
+/// the wrong key is a token not found.
+pub fn pick_access_token<'a>(
+    documents: impl IntoIterator<Item = &'a str>,
+    start_url: &str,
+    session: &str,
+) -> Option<String> {
+    for text in documents {
+        let Ok(value) = serde_json::from_str::<serde_json::Value>(text) else {
             continue;
         };
-        let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) else {
+        // `continue`, never `?`: one registration file must not end the
+        // search. It did, which is why a successful login still reported "no
+        // token in cache".
+        let Some(token) = value["accessToken"].as_str() else {
             continue;
         };
-        // Client-registration files live in the same directory and have no
-        // access token at all; the one that does also carries the start URL,
-        // which is what ties it to this session.
-        let token = value["accessToken"].as_str()?.to_string();
-        if value["startUrl"].as_str() == Some(start_url) {
-            return Some(token);
+        let matches = value["startUrl"].as_str() == Some(start_url)
+            || value["sessionName"].as_str() == Some(session);
+        if matches {
+            return Some(token.to_string());
         }
     }
     None
+}
+
+fn cached_access_token(start_url: &str, session: &str) -> Option<String> {
+    let dir = sso_cache_dir()?;
+    let documents: Vec<String> = std::fs::read_dir(dir)
+        .ok()?
+        .flatten()
+        .filter_map(|entry| std::fs::read_to_string(entry.path()).ok())
+        .collect();
+    pick_access_token(documents.iter().map(String::as_str), start_url, session)
 }
 
 /// An account the signed-in user can reach, with the roles available in it.
@@ -295,10 +317,16 @@ pub fn parse_roles(json: &str) -> Result<Vec<String>, AwsCliError> {
 }
 
 /// Lists every account the session grants, each with its roles.
-pub async fn list_accounts(start_url: &str, region: &str) -> Result<Vec<SsoAccount>, AwsCliError> {
-    let token = cached_access_token(start_url).ok_or_else(|| AwsCliError::Refused {
+pub async fn list_accounts(
+    start_url: &str,
+    region: &str,
+    session: &str,
+) -> Result<Vec<SsoAccount>, AwsCliError> {
+    let token = cached_access_token(start_url, session).ok_or_else(|| AwsCliError::Refused {
         message: "Aucun jeton SSO en cache pour cette session.".to_string(),
         hint: Some("Se connecter d'abord — la session n'a jamais été ouverte, ou son jeton a été effacé.".to_string()),
+        // Reconnecting is exactly the fix here.
+        session_expired: true,
     })?;
 
     let listing = run_aws(&[
@@ -396,6 +424,44 @@ mod tests {
         let updated = upsert_section(content, "a", &["x = 9".to_string()]);
         assert!(updated.contains("[b]\nz = 3"));
         assert!(!updated.contains("y = 2"));
+    }
+
+    /// The shape that broke it: the cache directory holds several client
+    /// registrations (no token at all) and one token document, and the
+    /// registrations come first. An early `?` on the missing field ended the
+    /// whole search there — so a login that had just succeeded reported no
+    /// token.
+    #[test]
+    fn finds_the_token_past_the_client_registration_files() {
+        let registration = r#"{"clientId":"a","clientSecret":"b","expiresAt":"2026-01-01T00:00:00Z"}"#;
+        let token = r#"{"accessToken":"le-jeton","startUrl":"https://ma-boite.awsapps.com/start","region":"eu-west-3"}"#;
+        assert_eq!(
+            pick_access_token([registration, registration, token], "https://ma-boite.awsapps.com/start", "ma-boite"),
+            Some("le-jeton".to_string())
+        );
+    }
+
+    /// Which key ties the token to the session depends on how the CLI wrote
+    /// it; a token found under the wrong one is a token not found.
+    #[test]
+    fn matches_on_the_session_name_as_well_as_the_start_url() {
+        let by_session = r#"{"accessToken":"jeton-2","sessionName":"ma-boite"}"#;
+        assert_eq!(
+            pick_access_token([by_session], "https://autre.example/start", "ma-boite"),
+            Some("jeton-2".to_string())
+        );
+    }
+
+    #[test]
+    fn ignores_a_token_belonging_to_another_session() {
+        let other = r#"{"accessToken":"pas-le-mien","startUrl":"https://autre.example/start"}"#;
+        assert_eq!(pick_access_token([other], "https://ma-boite.awsapps.com/start", "ma-boite"), None);
+    }
+
+    #[test]
+    fn survives_an_unparsable_cache_file() {
+        let token = r#"{"accessToken":"ok","startUrl":"https://x/start"}"#;
+        assert_eq!(pick_access_token(["pas du json", token], "https://x/start", "x"), Some("ok".to_string()));
     }
 
     #[test]

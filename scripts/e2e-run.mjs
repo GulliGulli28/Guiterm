@@ -122,7 +122,11 @@ async function runScenarios(browser) {
     async () => (await browser.execute(() => document.getElementById("root")?.childElementCount ?? 0)) > 0,
     {
       timeout: 10_000,
-      timeoutMsg: "#root est resté vide : React n'a pas rendu — CSP trop stricte, script bloqué, ou erreur au montage",
+      timeoutMsg: async () => {
+        const title = await browser.getTitle();
+        const body = await browser.execute(() => document.body.innerHTML.slice(0, 600));
+        return `#root vide. TITRE=${title} BODY=${body}`;
+      },
     },
   );
 

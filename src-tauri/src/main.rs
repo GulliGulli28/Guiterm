@@ -70,6 +70,7 @@ fn main() {
             commands::hosts::save_host,
             commands::proxy::test_proxy_command,
             commands::aws::list_aws_profiles,
+            commands::aws::list_aws_sso_sessions,
             commands::aws::discover_aws_instances,
             commands::aws::import_aws_instances,
             commands::aws::discover_aws_databases,
