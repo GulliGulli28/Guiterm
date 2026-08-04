@@ -88,6 +88,12 @@ This changelog starts 2026-07-21 — for earlier versions, see
   and a network with no route are told apart too. Several sources can be asked
   at once, which is what turns "it fails from here" into "it fails from
   everywhere" — and nothing is installed on any of them.
+- Files can be found on a host without opening a terminal, from an SSH host's
+  menu: by name, or by what's inside them. Each hit shows the path, the line
+  and the matching text — and opens straight in your editor, as any remote edit
+  does, so saving pushes it back. Every search is bounded in depth, in results
+  and in time, and says so when what it gives back is partial: a truncated list
+  presented as a complete one would make "it isn't there" a wrong answer.
 - Environment variables set on a host can be marked secret, one at a time. The
   value then lives in the vault — OS keychain, or the encrypted vault when you
   use one — instead of `workspace.json`, which is where an API token would
