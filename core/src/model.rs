@@ -12,7 +12,47 @@ pub type SqlConnectionId = Uuid;
 #[serde(rename_all = "camelCase")]
 pub struct EnvVar {
     pub key: String,
+    /// Empty on disk when [`Self::secret`] is set — the value then lives in the
+    /// vault, under `{host_id}:env:{key}`.
     pub value: String,
+    /// Keep this value out of `workspace.json` and in the vault instead.
+    ///
+    /// Opt-in per variable rather than for all of them: most are `LANG` or
+    /// `EDITOR`, which nobody wants to unlock a vault for. But `env_vars` was
+    /// the one place left where the app wrote a value the user considers
+    /// sensitive — an API token — in clear next to their hosts.
+    ///
+    /// `#[serde(default)]`, so every `workspace.json` written before this
+    /// existed still reads: those variables are simply not secret.
+    #[serde(default)]
+    pub secret: bool,
+}
+
+/// Separates what a host's env vars keep in `workspace.json` from what has to
+/// go to the vault.
+///
+/// Returns the variables as they should be persisted — secret values blanked —
+/// and the `(name, value)` pairs to store. Split from the storing itself so the
+/// promise that matters ("a secret value never reaches the file") is a pure
+/// function anyone can test, rather than something only observable by reading
+/// the user's real workspace afterwards.
+///
+/// An empty value for a secret variable means *unchanged*: the form never
+/// shows a stored secret, so it cannot send one back, and treating that as
+/// "erase it" would lose the value on every unrelated edit of the host.
+pub fn split_env_secrets(vars: Vec<EnvVar>) -> (Vec<EnvVar>, Vec<(String, String)>) {
+    let mut kept = Vec::with_capacity(vars.len());
+    let mut to_store = Vec::new();
+    for mut var in vars {
+        if var.secret {
+            if !var.value.is_empty() {
+                to_store.push((var.key.clone(), std::mem::take(&mut var.value)));
+            }
+            var.value.clear();
+        }
+        kept.push(var);
+    }
+    (kept, to_store)
 }
 
 // `rename_all` renames *variants* only — it has never touched the fields of a
@@ -765,6 +805,47 @@ mod auth_method_json {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The migration promise: every `workspace.json` written before secret
+    /// variables existed has no `secret` field at all. Reading one must not
+    /// fail — `store::load_resilient` would move the file aside and the user's
+    /// hosts would silently vanish.
+    #[test]
+    fn an_env_var_written_before_secrets_existed_still_reads() {
+        let var: EnvVar = serde_json::from_str(r#"{"key":"EDITOR","value":"vim"}"#).unwrap();
+        assert_eq!(var.value, "vim");
+        assert!(!var.secret, "une variable d'avant n'est pas secrète");
+    }
+
+    /// The promise the whole feature rests on: a value marked secret does not
+    /// reach the struct that gets written to disk. Asserted on the serialised
+    /// JSON rather than on the field, because the file is what leaks.
+    #[test]
+    fn a_secret_value_never_reaches_the_persisted_json() {
+        let (kept, to_store) = split_env_secrets(vec![
+            EnvVar { key: "EDITOR".to_string(), value: "vim".to_string(), secret: false },
+            EnvVar { key: "API_TOKEN".to_string(), value: "sk-tres-secret".to_string(), secret: true },
+        ]);
+        let json = serde_json::to_string(&kept).unwrap();
+        assert!(!json.contains("sk-tres-secret"), "le secret est dans le JSON : {json}");
+        assert!(json.contains("vim"), "une variable ordinaire reste en clair");
+        assert_eq!(to_store, vec![("API_TOKEN".to_string(), "sk-tres-secret".to_string())]);
+    }
+
+    /// An empty value on a secret variable means "unchanged" — the form never
+    /// showed it, so it cannot send it back. Treating it as an erasure would
+    /// wipe the token on every unrelated edit of the host.
+    #[test]
+    fn an_empty_secret_is_left_alone_rather_than_erased() {
+        let (kept, to_store) = split_env_secrets(vec![EnvVar {
+            key: "API_TOKEN".to_string(),
+            value: String::new(),
+            secret: true,
+        }]);
+        assert!(to_store.is_empty(), "rien à réécrire dans le coffre");
+        assert_eq!(kept.len(), 1, "la variable reste déclarée sur l'hôte");
+        assert!(kept[0].secret);
+    }
 
     /// Every `SqlConnection` saved before `EngineConfig` existed is one flat
     /// struct carrying *all* engines' fields at once, with the inapplicable

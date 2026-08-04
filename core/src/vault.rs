@@ -110,6 +110,33 @@ pub fn delete(host_id: HostId, kind: SecretKind) -> anyhow::Result<()> {
     delete_raw(&secret_key(host_id, kind))
 }
 
+/// Key for one host's secret environment variable.
+///
+/// `env:` namespaces it away from the fixed slots (`password`, `passphrase`,
+/// `sql-password`): a variable really called `PASSWORD` still lands on
+/// `{host}:env:PASSWORD`, which can never be the auth password's slot.
+fn env_var_key(host_id: HostId, name: &str) -> String {
+    format!("{host_id}:env:{name}")
+}
+
+/// Stores the value of a secret environment variable.
+///
+/// Goes through the same backend as every other secret — unlike private-key
+/// content, which is vault-only because of the OS keychain's size limits. An
+/// environment variable is small, so keychain mode works and this needs no
+/// master password to be useful.
+pub fn store_env_var(host_id: HostId, name: &str, value: &str) -> anyhow::Result<()> {
+    store_raw(&env_var_key(host_id, name), value)
+}
+
+pub fn load_env_var(host_id: HostId, name: &str) -> anyhow::Result<Option<String>> {
+    load_raw(&env_var_key(host_id, name))
+}
+
+pub fn delete_env_var(host_id: HostId, name: &str) -> anyhow::Result<()> {
+    delete_raw(&env_var_key(host_id, name))
+}
+
 /// Stores the Anthropic API key used by the adaptive-snippet engine (see
 /// `crate::adaptive`) — not tied to any host, so it goes through the same
 /// backend (keychain or master vault) under a namespaced global key rather

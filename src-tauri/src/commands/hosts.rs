@@ -51,6 +51,21 @@ fn persist(workspace: &Workspace) -> Result<(), String> {
 pub fn save_host(state: State<'_, AppState>, input: SaveHostInput) -> Result<Workspace, String> {
     let mut workspace = state.workspace.lock_recover();
 
+    // Captured before the overwrite: what used to be secret decides which
+    // vault entries are now orphans. Read from the stored host rather than
+    // from the form, which only knows the state it is submitting.
+    let previously_secret: Vec<String> = input
+        .id
+        .and_then(|id| workspace.host(id))
+        .map(|host| {
+            host.env_vars
+                .iter()
+                .filter(|var| var.secret)
+                .map(|var| var.key.clone())
+                .collect()
+        })
+        .unwrap_or_default();
+
     let host_id = match input.id {
         Some(id) => {
             if let Some(host) = workspace.hosts.iter_mut().find(|h| h.id == id) {
@@ -93,6 +108,30 @@ pub fn save_host(state: State<'_, AppState>, input: SaveHostInput) -> Result<Wor
             id
         }
     };
+
+    // Secret env values leave the workspace here and go to the vault, so
+    // `persist` below never sees them. Done after the host exists (created or
+    // updated) because the vault key is scoped to its id.
+    if let Some(host) = workspace.hosts.iter_mut().find(|h| h.id == host_id) {
+        let (kept, to_store) = termius_core::model::split_env_secrets(std::mem::take(&mut host.env_vars));
+        host.env_vars = kept;
+        for (name, value) in to_store {
+            // A failure here (locked vault) must not silently drop the value:
+            // the variable would then be declared on the host and resolve to
+            // nothing at session start, which looks like the feature is broken
+            // rather than like the vault is locked.
+            vault::store_env_var(host_id, &name, &value)
+                .map_err(|e| format!("La variable {name} n'a pas pu être mise au coffre : {e}"))?;
+        }
+        // Anything that was a secret and no longer is — renamed, deleted, or
+        // simply unticked — must not leave its value behind in the vault.
+        for name in previously_secret {
+            let still_secret = host.env_vars.iter().any(|v| v.secret && v.key == name);
+            if !still_secret {
+                let _ = vault::delete_env_var(host_id, &name);
+            }
+        }
+    }
 
     // Clean up whichever per-host secret slot no longer applies to the (possibly
     // just-changed) auth method, so e.g. switching Password -> Agent doesn't leave
@@ -267,12 +306,28 @@ pub async fn check_host_status(
 #[tauri::command]
 pub fn delete_host(state: State<'_, AppState>, host_id: HostId) -> Result<Workspace, String> {
     let mut workspace = state.workspace.lock_recover();
+    // Read before the host goes: its secret variables are named on it, and
+    // nothing else records they exist — dropping the host first would leave
+    // them in the vault forever, unreachable and undeletable.
+    let secret_env: Vec<String> = workspace
+        .host(host_id)
+        .map(|host| {
+            host.env_vars
+                .iter()
+                .filter(|var| var.secret)
+                .map(|var| var.key.clone())
+                .collect()
+        })
+        .unwrap_or_default();
     workspace.hosts.retain(|h| h.id != host_id);
     for host in &mut workspace.hosts {
         host.jump_via.retain(|&jid| jid != host_id);
     }
     let _ = vault::delete(host_id, SecretKind::Password);
     let _ = vault::delete(host_id, SecretKind::KeyPassphrase);
+    for name in secret_env {
+        let _ = vault::delete_env_var(host_id, &name);
+    }
     persist(&workspace)?;
     Ok(workspace.clone())
 }

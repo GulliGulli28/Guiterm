@@ -207,6 +207,11 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
   const removeEnvVar = (i: number) => setEnvVars((prev) => prev.filter((_, idx) => idx !== i));
   const setEnvKey = (i: number, key: string) => setEnvVars((prev) => prev.map((v, idx) => idx === i ? { ...v, key } : v));
   const setEnvValue = (i: number, value: string) => setEnvVars((prev) => prev.map((v, idx) => idx === i ? { ...v, value } : v));
+  // Turning a variable secret keeps whatever is typed — it moves to the vault
+  // on save. Turning it back clears it instead of revealing the stored value,
+  // which the form doesn't have and shouldn't ask the backend for.
+  const setEnvSecret = (i: number, secret: boolean) =>
+    setEnvVars((prev) => prev.map((v, idx) => (idx === i ? { ...v, secret, value: secret ? v.value : "" } : v)));
 
   const browseKey = async () => {
     const selected = await open({ title: "Sélectionner une clé privée SSH", multiple: false, directory: false });
@@ -713,23 +718,46 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
         <Field label="Variables d'environnement">
           <div className="space-y-1.5 rounded-md bg-[var(--c-bg3)] p-2">
             {envVars.length === 0 && <p className="py-0.5 text-xs text-[var(--c-text-muted)]">Aucune variable définie</p>}
-            {envVars.map((v, i) => (
-              <div key={i} className="flex gap-1.5">
-                <input
-                  value={v.key}
-                  onChange={(e) => setEnvKey(i, e.target.value)}
-                  placeholder="NOM"
-                  className="w-28 shrink-0 rounded-md bg-[var(--c-bg2)] px-2 py-1.5 font-mono text-xs text-[var(--c-text)] placeholder:font-sans placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
-                />
-                <input
-                  value={v.value}
-                  onChange={(e) => setEnvValue(i, e.target.value)}
-                  placeholder="valeur"
-                  className="min-w-0 flex-1 rounded-md bg-[var(--c-bg2)] px-2 py-1.5 font-mono text-xs text-[var(--c-text)] placeholder:font-sans placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
-                />
-                <button type="button" onClick={() => removeEnvVar(i)} className="shrink-0 px-1.5 text-rose-400 hover:text-rose-200">✕</button>
-              </div>
-            ))}
+            {envVars.map((v, i) => {
+              // A stored secret is never sent back to the form, so an empty
+              // value on an already-saved secret means "unchanged" — the
+              // placeholder has to say that, or it reads as "lost".
+              const storedSecret = v.secret && !v.value && (host?.envVars ?? []).some((s) => s.key === v.key && s.secret);
+              return (
+                <div key={i} className="flex gap-1.5">
+                  <input
+                    value={v.key}
+                    onChange={(e) => setEnvKey(i, e.target.value)}
+                    placeholder="NOM"
+                    className="w-28 shrink-0 rounded-md bg-[var(--c-bg2)] px-2 py-1.5 font-mono text-xs text-[var(--c-text)] placeholder:font-sans placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                  />
+                  <input
+                    value={v.value}
+                    onChange={(e) => setEnvValue(i, e.target.value)}
+                    type={v.secret ? "password" : "text"}
+                    placeholder={storedSecret ? "enregistrée — laisser vide pour conserver" : "valeur"}
+                    className="min-w-0 flex-1 rounded-md bg-[var(--c-bg2)] px-2 py-1.5 font-mono text-xs text-[var(--c-text)] placeholder:font-sans placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setEnvSecret(i, !v.secret)}
+                    title={v.secret
+                      ? "Valeur gardée dans le coffre (trousseau OS ou coffre chiffré) — cliquer pour la remettre en clair dans workspace.json"
+                      : "Garder cette valeur dans le coffre plutôt qu'en clair dans workspace.json"}
+                    className={`shrink-0 rounded-md px-1.5 text-xs transition-colors ${
+                      v.secret ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)]"
+                    }`}
+                  >
+                    {v.secret ? "🔒" : "🔓"}
+                  </button>
+                  <button type="button" onClick={() => removeEnvVar(i)} className="shrink-0 px-1.5 text-rose-400 hover:text-rose-200">✕</button>
+                </div>
+              );
+            })}
+            <p className="pt-0.5 text-[10px] leading-relaxed text-[var(--c-text-faint)]">
+              🔒 met la valeur au coffre au lieu de <span className="font-mono">workspace.json</span> — pour un jeton d'API,
+              pas pour <span className="font-mono">LANG</span>.
+            </p>
             <button type="button" onClick={addEnvVar} className="mt-0.5 w-full rounded-md bg-[var(--c-bg2)]/60 py-1 text-xs text-[var(--c-text-muted)] hover:bg-[var(--c-bg2)] hover:text-[var(--c-text-secondary)]">
               + Ajouter une variable
             </button>

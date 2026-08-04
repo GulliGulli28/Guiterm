@@ -56,7 +56,12 @@ export interface SshAuthPrompt {
 
 export interface EnvVar {
   key: string;
+  /** Empty when `secret` is set and the value is already stored: the form never
+   * shows a stored secret back, so an empty value means "unchanged". */
   value: string;
+  /** Keep the value in the vault instead of `workspace.json`. Optional so a
+   * workspace written before this existed still parses. */
+  secret?: boolean;
 }
 
 /** What kind of target a `Host` describes. `ssh` uses every field with its

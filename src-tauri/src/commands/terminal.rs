@@ -4,6 +4,7 @@ use serde::Serialize;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Emitter, Manager, State};
 use termius_core::model::{HostId, Workspace};
+use termius_core::vault;
 use termius_core::ssh::{self, ShellInput};
 use termius_core::ssh_pool;
 use tokio::sync::mpsc;
@@ -148,12 +149,50 @@ fn is_valid_env_key(key: &str) -> bool {
 /// [`crate::commands::docker::connect_docker_exec`] (Docker exec): both open
 /// a POSIX-ish shell on the other end and drive it the same way.
 pub(crate) fn startup_commands(workspace: &Workspace, host_id: HostId) -> Vec<Vec<u8>> {
+    startup_commands_with(workspace, host_id, &|id, name| {
+        vault::load_env_var(id, name).ok().flatten()
+    })
+}
+
+/// The half of [`startup_commands`] that doesn't touch the vault, so the
+/// behaviour that matters — what happens when a secret can't be read — is
+/// testable without a keychain, and without writing to the developer's real
+/// one.
+fn startup_commands_with(
+    workspace: &Workspace,
+    host_id: HostId,
+    resolve: &dyn Fn(HostId, &str) -> Option<String>,
+) -> Vec<Vec<u8>> {
     let mut cmds = Vec::new();
     if let Some(host) = workspace.host(host_id) {
         for ev in &host.env_vars {
-            if is_valid_env_key(&ev.key) {
-                cmds.push(format!("export {}={}\n", ev.key, shell_quote(&ev.value)).into_bytes());
+            if !is_valid_env_key(&ev.key) {
+                continue;
             }
+            if ev.secret {
+                // A locked vault is the ordinary reason this fails. Saying so
+                // *in the session* beats exporting nothing: a variable that is
+                // declared on the host and silently absent from the shell looks
+                // like the app is broken, and the failure surfaces much later,
+                // as whatever needed the token failing for no visible reason.
+                match resolve(host_id, &ev.key) {
+                    Some(value) => {
+                        cmds.push(format!("export {}={}\n", ev.key, shell_quote(&value)).into_bytes())
+                    }
+                    None => cmds.push(
+                        format!(
+                            "printf '%s\\n' {} >&2\n",
+                            shell_quote(&format!(
+                                "guiterm : {} non exportée — secret illisible (coffre verrouillé ?)",
+                                ev.key
+                            ))
+                        )
+                        .into_bytes(),
+                    ),
+                }
+                continue;
+            }
+            cmds.push(format!("export {}={}\n", ev.key, shell_quote(&ev.value)).into_bytes());
         }
         for &sid in &host.startup_snippets {
             if let Some(snip) = workspace.snippets.iter().find(|s| s.id == sid) {
@@ -428,5 +467,67 @@ mod tests {
     fn shell_quote_neutralises_single_quotes() {
         assert_eq!(shell_quote("plain"), "'plain'");
         assert_eq!(shell_quote("a'b"), r"'a'\''b'");
+    }
+
+    fn workspace_with_env(vars: Vec<termius_core::model::EnvVar>) -> (Workspace, HostId) {
+        let mut host = termius_core::model::Host::new(
+            "test".to_string(),
+            "10.0.0.1".to_string(),
+            "root".to_string(),
+        );
+        host.env_vars = vars;
+        let id = host.id;
+        let mut workspace = Workspace::default();
+        workspace.hosts.push(host);
+        (workspace, id)
+    }
+
+    fn lines(commands: Vec<Vec<u8>>) -> String {
+        commands.into_iter().map(|c| String::from_utf8(c).unwrap()).collect()
+    }
+
+    /// A secret variable's value comes from the vault, never from the host —
+    /// where it isn't, since it never gets written there.
+    #[test]
+    fn a_secret_variable_is_exported_from_the_vault() {
+        let (workspace, id) = workspace_with_env(vec![
+            termius_core::model::EnvVar { key: "EDITOR".to_string(), value: "vim".to_string(), secret: false },
+            termius_core::model::EnvVar { key: "API_TOKEN".to_string(), value: String::new(), secret: true },
+        ]);
+        let out = lines(startup_commands_with(&workspace, id, &|_, name| {
+            (name == "API_TOKEN").then(|| "sk-du-coffre".to_string())
+        }));
+        assert!(out.contains("export EDITOR='vim'"), "obtenu : {out}");
+        assert!(out.contains("export API_TOKEN='sk-du-coffre'"), "obtenu : {out}");
+    }
+
+    /// The case the plan called out: vault locked at session start. Exporting
+    /// nothing silently would surface much later as whatever needed the token
+    /// failing for no visible reason — so the session says it, and says why.
+    #[test]
+    fn an_unreadable_secret_is_announced_instead_of_silently_skipped() {
+        let (workspace, id) = workspace_with_env(vec![termius_core::model::EnvVar {
+            key: "API_TOKEN".to_string(),
+            value: String::new(),
+            secret: true,
+        }]);
+        let out = lines(startup_commands_with(&workspace, id, &|_, _| None));
+        assert!(!out.contains("export API_TOKEN"), "rien ne doit être exporté : {out}");
+        assert!(out.contains("API_TOKEN non exportée"), "obtenu : {out}");
+        assert!(out.contains("coffre"), "la raison probable doit être dite : {out}");
+    }
+
+    /// A stale value left on a secret variable by an older workspace must not
+    /// be used as a fallback: it is exactly the plaintext this feature exists
+    /// to stop trusting.
+    #[test]
+    fn a_leftover_plaintext_value_is_not_used_for_a_secret_variable() {
+        let (workspace, id) = workspace_with_env(vec![termius_core::model::EnvVar {
+            key: "API_TOKEN".to_string(),
+            value: "ancien-en-clair".to_string(),
+            secret: true,
+        }]);
+        let out = lines(startup_commands_with(&workspace, id, &|_, _| None));
+        assert!(!out.contains("ancien-en-clair"), "obtenu : {out}");
     }
 }
