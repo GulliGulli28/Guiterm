@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
-import type { AwsCallerIdentity, AwsProfile, AwsSsoSession, AwsSsoSessionStatus, Workspace } from "../lib/types";
-import { describeState, groupIdentities, roleFromArn } from "../lib/awsIdentities";
+import type { AwsCallerIdentity, AwsProfile, AwsSessionAlert, AwsSsoSession, AwsSsoSessionStatus, Workspace } from "../lib/types";
+import { describeAlert, describeState, groupIdentities, roleFromArn } from "../lib/awsIdentities";
 import { profileLabel } from "../lib/awsInstances";
 import { IconCloud, IconPlus, IconRefresh, IconTrash } from "./ui-icons";
 
@@ -19,6 +19,10 @@ interface AwsIdentitiesPanelProps {
   /** Bumped by the caller whenever the SSO panel has written something, so the
    * listing reflects it without the user pressing anything. */
   refreshToken: number;
+  /** The sessions the sidebar dot is about. Computed once at the App level and
+   * passed down rather than recomputed here — one badge and one line disagreeing
+   * about which session is in trouble would be worse than either alone. */
+  alerts: AwsSessionAlert[];
 }
 
 /** The countdown shown next to a session is only true at the moment it was
@@ -41,7 +45,7 @@ type Check = { kind: "ok"; identity: AwsCallerIdentity } | { kind: "error"; mess
  * credential: the sign-in state comes from the CLI's own token cache, and the
  * identity check from `sts get-caller-identity`.
  */
-export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfiles, onWorkspaceUpdate, refreshToken }: AwsIdentitiesPanelProps) {
+export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfiles, onWorkspaceUpdate, refreshToken, alerts }: AwsIdentitiesPanelProps) {
   const [sessions, setSessions] = useState<AwsSsoSessionStatus[]>([]);
   const [profiles, setProfiles] = useState<AwsProfile[]>([]);
   /** Profile name → hosts that pin it in their proxy command. */
@@ -180,6 +184,7 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
         {groups.map((group) => {
           const status = group.session;
           const badge = status ? describeState(status.state) : null;
+          const alert = status ? alerts.find((a) => a.session === status.name) : undefined;
           const session: AwsSsoSession | null = status
             ? { name: status.name, startUrl: status.startUrl, region: status.region }
             : null;
@@ -212,6 +217,20 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
                   >
                     {badge.label}
                   </p>
+
+                  {/* Not a duplicate of the line above: that one says what the
+                      session *is*, this one says what it costs. "Connectée ·
+                      expire dans 12 min" is only alarming once you know three
+                      machines are riding on it. */}
+                  {alert && (
+                    <p className={`mt-1 rounded-md px-1.5 py-1 text-[11px] leading-relaxed ${
+                      alert.severity.kind === "expired"
+                        ? "bg-rose-950/50 text-rose-200/90"
+                        : "bg-amber-950/40 text-amber-200/90"
+                    }`}>
+                      {describeAlert(alert)}
+                    </p>
+                  )}
 
                   {confirming === `session:${status.name}` && (
                     <div className="mt-1.5 rounded-md bg-rose-950/50 p-2">

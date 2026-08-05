@@ -127,17 +127,7 @@ pub fn import_aws_instances(
 /// hosts happened to pin it.
 #[tauri::command]
 pub fn list_aws_profile_usage(state: State<'_, AppState>) -> HashMap<String, Vec<String>> {
-    let workspace = state.workspace.lock_recover();
-    let mut usage: HashMap<String, Vec<String>> = HashMap::new();
-    for host in &workspace.hosts {
-        let Some(command) = host.proxy_command.as_deref() else {
-            continue;
-        };
-        if let Some(profile) = aws_inventory::profile_in_command(command) {
-            usage.entry(profile.to_string()).or_default().push(host.label.clone());
-        }
-    }
-    usage
+    aws_inventory::hosts_by_profile(&state.workspace.lock_recover())
 }
 
 /// Points every host pinning `from` at `to` instead.

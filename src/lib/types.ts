@@ -556,6 +556,25 @@ export interface AwsSsoSessionStatus {
   state: AwsSsoState;
 }
 
+/** Why a session is worth interrupting someone for.
+ *
+ * Only these two: `renewable` renews itself with no browser, and
+ * `neverLoggedIn` has nothing to lose — see `aws_sso::alerts` for why turning
+ * either into a badge makes the badge worthless. */
+export type AwsAlertSeverity =
+  | { kind: "expiring"; secondsLeft: number }
+  | { kind: "expired" };
+
+/** A session that carries work and is about to stop carrying it, as
+ * `list_aws_session_alerts` reports it. `hosts` is never empty. */
+export interface AwsSessionAlert {
+  session: string;
+  severity: AwsAlertSeverity;
+  /** Labels of the hosts that stop being reachable — a session name is
+   * abstract, a host name is not. */
+  hosts: string[];
+}
+
 /** Who a profile resolves to, from `sts get-caller-identity`. */
 export interface AwsCallerIdentity {
   account: string;

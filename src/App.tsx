@@ -44,6 +44,7 @@ import { useResizablePane } from "./hooks/useResizablePane";
 import { useTabs } from "./hooks/useTabs";
 import { useBroadcast, SPLIT_PANE_ID } from "./hooks/useBroadcast";
 import { useFullscreen } from "./hooks/useFullscreen";
+import { useAwsSessionAlerts } from "./hooks/useAwsSessionAlerts";
 import type { ZoomAction } from "./lib/terminalZoom";
 
 export default function App() {
@@ -92,6 +93,9 @@ export default function App() {
   // closing. Bumping the shared one there would remount the import panels —
   // discarding an instance listing every time someone cancelled the modal.
   const [awsIdentitiesEpoch, setAwsIdentitiesEpoch] = useState(0);
+  // Watched here rather than in the identities panel: a session dying is worth
+  // knowing about while looking at a terminal, and that panel is lazy-loaded.
+  const awsAlerts = useAwsSessionAlerts(awsIdentitiesEpoch);
   const terminalRefs = useRef<Map<string, TerminalTabHandle>>(new Map());
   const { fullscreen, toggleFullscreen } = useFullscreen(reportError);
   // In fullscreen the title bar is hidden — this is it being brought back by
@@ -631,6 +635,7 @@ export default function App() {
             onReconnectSso={(session) => setAwsSsoOpen({ mode: "reconnect", session })}
             onAddAwsProfiles={(session) => setAwsSsoOpen({ mode: "profiles", session })}
             awsRefreshToken={awsIdentitiesEpoch}
+            awsAlerts={awsAlerts}
             onEditSqlConnection={(conn) => { setEditingSqlConnection(conn); setEditingHost(null); setEditingGroup(null); }}
             onOpenFleet={openFleet}
             onError={reportError}

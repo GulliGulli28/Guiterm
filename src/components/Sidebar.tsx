@@ -1,6 +1,7 @@
-import type { AwsSsoSession, Group, GroupId, Host, HostId, KeyAlgorithm, KeyId, PortForwardId, PortForwardKind, SnippetId, SqlConnection, VaultStatus, Workspace } from "../lib/types";
+import type { AwsSessionAlert, AwsSsoSession, Group, GroupId, Host, HostId, KeyAlgorithm, KeyId, PortForwardId, PortForwardKind, SnippetId, SqlConnection, VaultStatus, Workspace } from "../lib/types";
 import type { AppPreferences } from "../lib/preferences";
 import { lazy, Suspense, type ComponentType } from "react";
+import { alertTone, describeAlert } from "../lib/awsIdentities";
 import { HostsPanel } from "./HostsPanel";
 import { IconHosts, IconSnippets, IconTunnels, IconKeychain, IconSettings, IconTransfer, IconShield, IconDatabase, IconFleet, IconCloud } from "./ui-icons";
 import { TabLoadingFallback } from "./TabLoadingFallback";
@@ -63,6 +64,9 @@ interface SidebarProps {
   onAddAwsProfiles: (session: AwsSsoSession) => void;
   /** Bumped whenever that modal wrote something, so the listing catches up. */
   awsRefreshToken: number;
+  /** SSO sessions about to lapse that hosts depend on — polled at the App
+   * level, since the point is to be seen without opening the panel. */
+  awsAlerts: AwsSessionAlert[];
   onEditSqlConnection: (conn: SqlConnection) => void;
   onOpenFleet: () => void;
   onWorkspaceUpdate: (ws: Workspace) => void;
@@ -85,7 +89,8 @@ const TABS: { key: Exclude<SidebarPanelKind, "settings">; label: string; Icon: C
 ];
 
 export function Sidebar(props: SidebarProps) {
-  const { workspace, panel, onPanelChange } = props;
+  const { workspace, panel, onPanelChange, awsAlerts } = props;
+  const tone = alertTone(awsAlerts);
 
   return (
     <aside className="flex min-w-0 flex-1 overflow-hidden">
@@ -93,11 +98,17 @@ export function Sidebar(props: SidebarProps) {
       <nav className="relative flex w-11 shrink-0 flex-col items-center border-r border-[var(--c-border)] bg-[var(--c-bg)] py-2 gap-0.5">
         {TABS.map((t) => {
           const active = panel === t.key;
+          // The dot only ever belongs to the AWS tab, and only when something
+          // that carries work is about to lapse — see `aws_sso::alerts`.
+          const alerting = t.key === "aws" && tone !== null;
           return (
             <button
               key={t.key}
               onClick={() => onPanelChange(t.key)}
-              title={t.label}
+              // The reason goes in the tooltip rather than the badge: a bare
+              // dot says "something", and the hosts are what makes it a
+              // decision.
+              title={alerting ? [t.label, ...awsAlerts.map(describeAlert)].join("\n") : t.label}
               className={`relative flex h-9 w-9 items-center justify-center rounded-lg border transition-all duration-150 ${
                 active
                   ? "accent-surface"
@@ -105,6 +116,13 @@ export function Sidebar(props: SidebarProps) {
               }`}
             >
               <t.Icon size={16} />
+              {alerting && (
+                <span
+                  className={`absolute right-1 top-1 h-2 w-2 rounded-full ring-2 ring-[var(--c-bg)] ${
+                    tone === "danger" ? "bg-rose-500" : "bg-amber-400"
+                  }`}
+                />
+              )}
             </button>
           );
         })}
@@ -209,6 +227,7 @@ export function Sidebar(props: SidebarProps) {
               onAddProfiles={props.onAddAwsProfiles}
               onWorkspaceUpdate={props.onWorkspaceUpdate}
               refreshToken={props.awsRefreshToken}
+              alerts={awsAlerts}
             />
           )}
           {panel === "settings" && (

@@ -53,6 +53,29 @@ pub fn profile_in_command(command: &str) -> Option<&str> {
     None
 }
 
+/// Which hosts depend on each AWS profile, by label.
+///
+/// Shared by everything that has to answer "what breaks if this profile stops
+/// working": the identities panel before offering to delete one, and the expiry
+/// alerts before deciding a session is worth interrupting for.
+pub fn hosts_by_profile(
+    workspace: &crate::model::Workspace,
+) -> std::collections::HashMap<String, Vec<String>> {
+    let mut usage: std::collections::HashMap<String, Vec<String>> = std::collections::HashMap::new();
+    for host in &workspace.hosts {
+        let Some(command) = host.proxy_command.as_deref() else {
+            continue;
+        };
+        if let Some(profile) = profile_in_command(command) {
+            usage
+                .entry(profile.to_string())
+                .or_default()
+                .push(host.label.clone());
+        }
+    }
+    usage
+}
+
 /// Byte ranges of the whitespace-separated tokens of `command`.
 fn token_ranges(command: &str) -> Vec<(usize, usize)> {
     let mut ranges = Vec::new();

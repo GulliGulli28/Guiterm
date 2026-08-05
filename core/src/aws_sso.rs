@@ -643,6 +643,102 @@ pub fn list_status() -> Vec<SsoSessionStatus> {
         .collect()
 }
 
+/// How long before a session lapses it is worth saying so.
+///
+/// Half an hour is the shortest window in which the fix — a browser round trip
+/// — still comfortably fits before the session dies mid-transfer. Warning much
+/// earlier turns the badge into wallpaper, which is the failure mode of every
+/// expiry notice.
+pub const EXPIRY_WARNING_SECS: i64 = 30 * 60;
+
+/// Why a session is worth interrupting someone for.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum AlertSeverity {
+    /// Still valid, but not for much longer.
+    Expiring { seconds_left: i64 },
+    /// Already lapsed, with no refresh token to revive it.
+    Expired,
+}
+
+/// A session that carries work and is about to stop carrying it.
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionAlert {
+    pub session: String,
+    pub severity: AlertSeverity,
+    /// The hosts that stop being reachable, by label — a session is abstract,
+    /// "ARCHIVE-1-DEV va tomber" is not. Never empty: see [`alerts`].
+    pub hosts: Vec<String>,
+}
+
+/// The sessions worth putting a dot on the sidebar for.
+///
+/// Three exclusions, each of which would otherwise produce a badge that cries
+/// wolf:
+///
+/// - [`SsoSessionState::Renewable`] is **not** an alert. The access token has
+///   lapsed but the CLI mints a new one by itself, with no browser — this is
+///   what a working session looks like most of the time, and it was already
+///   mistaken for a failure once (see that variant's own note).
+/// - [`SsoSessionState::NeverLoggedIn`] is not an alert either. Nothing has
+///   lapsed; it is a setup state, and a badge for it would never go away on a
+///   machine with a session configured but deliberately unused.
+/// - A session **nothing depends on** stays quiet. `hosts_by_profile` is the
+///   test of that: an expired session whose profiles no host pins costs the
+///   user nothing today, and interrupting them for it teaches them to ignore
+///   the badge on the day it does matter.
+///
+/// `now` plays no part — the states arrive already resolved from
+/// [`session_state`], which is where the clock is read.
+pub fn alerts(
+    sessions: &[SsoSessionStatus],
+    profiles: &[crate::aws_inventory::AwsProfile],
+    hosts_by_profile: &std::collections::HashMap<String, Vec<String>>,
+    threshold_secs: i64,
+) -> Vec<SessionAlert> {
+    let mut alerts: Vec<SessionAlert> = sessions
+        .iter()
+        .filter_map(|status| {
+            let severity = match &status.state {
+                SsoSessionState::Expired { .. } => AlertSeverity::Expired,
+                SsoSessionState::Valid {
+                    seconds_left: Some(left),
+                    ..
+                } if *left <= threshold_secs => AlertSeverity::Expiring { seconds_left: *left },
+                // A `Valid` with no readable expiry has no countdown to warn
+                // about; the other states are the exclusions above.
+                _ => return None,
+            };
+
+            let mut hosts: Vec<String> = profiles
+                .iter()
+                .filter(|profile| profile.sso_session.as_deref() == Some(status.name.as_str()))
+                .filter_map(|profile| hosts_by_profile.get(&profile.name))
+                .flatten()
+                .cloned()
+                .collect();
+            hosts.sort_unstable();
+            hosts.dedup();
+            if hosts.is_empty() {
+                return None;
+            }
+            Some(SessionAlert {
+                session: status.name.clone(),
+                severity,
+                hosts,
+            })
+        })
+        .collect();
+    // Already-dead before merely-dying, then by how little time is left: the
+    // first line of the tooltip should be the one to act on.
+    alerts.sort_by_key(|alert| match alert.severity {
+        AlertSeverity::Expired => i64::MIN,
+        AlertSeverity::Expiring { seconds_left } => seconds_left,
+    });
+    alerts
+}
+
 /// An account the signed-in user can reach, with the roles available in it.
 #[derive(Debug, Clone, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -1095,5 +1191,150 @@ mod tests {
         .unwrap();
         assert_eq!(expired["kind"], "expired");
         assert_eq!(expired["expiresAt"], "2020-01-01T00:00:00Z");
+    }
+
+    fn status(name: &str, state: SsoSessionState) -> SsoSessionStatus {
+        SsoSessionStatus {
+            name: name.to_string(),
+            start_url: format!("https://{name}.example/start"),
+            region: "eu-west-3".to_string(),
+            state,
+        }
+    }
+
+    fn profile(name: &str, session: &str) -> crate::aws_inventory::AwsProfile {
+        crate::aws_inventory::AwsProfile {
+            name: name.to_string(),
+            sso_session: Some(session.to_string()),
+            account_id: None,
+            role_name: None,
+            region: None,
+        }
+    }
+
+    fn usage(pairs: &[(&str, &[&str])]) -> std::collections::HashMap<String, Vec<String>> {
+        pairs
+            .iter()
+            .map(|(profile, hosts)| {
+                (
+                    (*profile).to_string(),
+                    hosts.iter().map(|h| (*h).to_string()).collect(),
+                )
+            })
+            .collect()
+    }
+
+    /// The two states that must never light up the badge, asserted together
+    /// because they are the whole point of the selector: `Renewable` is what a
+    /// healthy session looks like most of the time, and `NeverLoggedIn` would
+    /// nag forever on a session configured and left alone.
+    #[test]
+    fn a_renewable_or_never_used_session_is_not_an_alert() {
+        let sessions = [
+            status("renouvelable", SsoSessionState::Renewable { expires_at: "2026-08-05T09:00:00Z".to_string() }),
+            status("jamais", SsoSessionState::NeverLoggedIn),
+        ];
+        let profiles = [profile("p-renouvelable", "renouvelable"), profile("p-jamais", "jamais")];
+        let hosts = usage(&[("p-renouvelable", &["ARCHIVE-1"]), ("p-jamais", &["ARCHIVE-2"])]);
+
+        assert_eq!(alerts(&sessions, &profiles, &hosts, EXPIRY_WARNING_SECS), vec![]);
+    }
+
+    #[test]
+    fn an_expired_session_and_one_running_out_both_alert() {
+        let sessions = [
+            status("morte", SsoSessionState::Expired { expires_at: "2026-08-05T07:00:00Z".to_string() }),
+            status("bientot", SsoSessionState::Valid { expires_at: None, seconds_left: Some(300) }),
+        ];
+        let profiles = [profile("p-morte", "morte"), profile("p-bientot", "bientot")];
+        let hosts = usage(&[("p-morte", &["ARCHIVE-1"]), ("p-bientot", &["ARCHIVE-2"])]);
+
+        let found = alerts(&sessions, &profiles, &hosts, EXPIRY_WARNING_SECS);
+        assert_eq!(
+            found,
+            vec![
+                // Already dead sorts first: it is the one to act on.
+                SessionAlert {
+                    session: "morte".to_string(),
+                    severity: AlertSeverity::Expired,
+                    hosts: vec!["ARCHIVE-1".to_string()],
+                },
+                SessionAlert {
+                    session: "bientot".to_string(),
+                    severity: AlertSeverity::Expiring { seconds_left: 300 },
+                    hosts: vec!["ARCHIVE-2".to_string()],
+                },
+            ]
+        );
+    }
+
+    /// The threshold is the difference between a warning and wallpaper: a
+    /// session good for another eight hours has nothing to say.
+    #[test]
+    fn a_session_with_hours_left_stays_quiet_until_it_crosses_the_threshold() {
+        let profiles = [profile("p", "s")];
+        let hosts = usage(&[("p", &["ARCHIVE-1"])]);
+        let at = |left| {
+            alerts(
+                &[status("s", SsoSessionState::Valid { expires_at: None, seconds_left: Some(left) })],
+                &profiles,
+                &hosts,
+                EXPIRY_WARNING_SECS,
+            )
+        };
+
+        assert_eq!(at(8 * 3600), vec![]);
+        assert_eq!(at(EXPIRY_WARNING_SECS + 1), vec![]);
+        assert_eq!(at(EXPIRY_WARNING_SECS).len(), 1, "le seuil lui-même alerte");
+    }
+
+    /// The rule that keeps the badge meaningful: nothing depends on this
+    /// session today, so its expiry costs nothing today.
+    #[test]
+    fn a_session_no_host_depends_on_does_not_alert() {
+        let sessions = [status("orpheline", SsoSessionState::Expired { expires_at: "2026-08-05T07:00:00Z".to_string() })];
+        let profiles = [profile("p-orpheline", "orpheline")];
+
+        // No host at all, then a host pinning some *other* profile.
+        assert_eq!(alerts(&sessions, &profiles, &usage(&[]), EXPIRY_WARNING_SECS), vec![]);
+        assert_eq!(
+            alerts(&sessions, &profiles, &usage(&[("p-ailleurs", &["ARCHIVE-1"])]), EXPIRY_WARNING_SECS),
+            vec![]
+        );
+    }
+
+    /// A session is usually reached through several profiles, and a host can
+    /// only be listed once — otherwise "3 hôtes" counts the same machine twice.
+    #[test]
+    fn hosts_of_every_profile_of_the_session_are_gathered_once() {
+        let sessions = [status("s", SsoSessionState::Expired { expires_at: "2026-08-05T07:00:00Z".to_string() })];
+        let profiles = [profile("prod", "s"), profile("lecture", "s"), profile("autre", "ailleurs")];
+        let hosts = usage(&[
+            ("prod", &["ARCHIVE-1", "ARCHIVE-2"]),
+            ("lecture", &["ARCHIVE-2"]),
+            ("autre", &["PAS-MOI"]),
+        ]);
+
+        assert_eq!(
+            alerts(&sessions, &profiles, &hosts, EXPIRY_WARNING_SECS)[0].hosts,
+            vec!["ARCHIVE-1".to_string(), "ARCHIVE-2".to_string()]
+        );
+    }
+
+    /// Same trap as the state enum above, on the severity this time.
+    #[test]
+    fn the_json_alert_carries_the_camel_cased_fields_the_frontend_reads() {
+        let json = serde_json::to_value(SessionAlert {
+            session: "s".to_string(),
+            severity: AlertSeverity::Expiring { seconds_left: 120 },
+            hosts: vec!["ARCHIVE-1".to_string()],
+        })
+        .unwrap();
+        assert_eq!(json["severity"]["kind"], "expiring");
+        assert_eq!(json["severity"]["secondsLeft"], 120);
+        assert_eq!(
+            serde_json::to_value(AlertSeverity::Expired).unwrap()["kind"],
+            "expired"
+        );
     }
 }

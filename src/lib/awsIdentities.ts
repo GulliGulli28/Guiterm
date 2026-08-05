@@ -1,5 +1,5 @@
 import { assertNever } from "./exhaustive";
-import type { AwsProfile, AwsSsoState, AwsSsoSessionStatus } from "./types";
+import type { AwsProfile, AwsSessionAlert, AwsSsoState, AwsSsoSessionStatus } from "./types";
 
 /**
  * How long a session has left, in the coarsest unit that still says something.
@@ -76,6 +76,40 @@ export function describeState(state: AwsSsoState): StateBadge {
     default:
       return assertNever(state, "état de session SSO");
   }
+}
+
+/**
+ * The one line an alert is worth, naming what actually stops working.
+ *
+ * The hosts are the point: "la session ma-boite expire" is something to
+ * acknowledge and forget, "ARCHIVE-1-DEV et 2 autres vont perdre leur accès"
+ * is a reason to act now. Closed with `assertNever` on the severity, like
+ * `describeState` above.
+ */
+export function describeAlert(alert: AwsSessionAlert): string {
+  const hosts = alert.hosts.slice(0, 2).join(", ");
+  const rest = alert.hosts.length - 2;
+  const affected = rest > 0 ? `${hosts} et ${rest} autre${rest > 1 ? "s" : ""}` : hosts;
+  switch (alert.severity.kind) {
+    case "expired":
+      return `Session ${alert.session} expirée — ${affected} ${alert.hosts.length > 1 ? "sont injoignables" : "est injoignable"}`;
+    case "expiring":
+      return `Session ${alert.session} expire dans ${formatRemaining(alert.severity.secondsLeft)} — ${affected} ${alert.hosts.length > 1 ? "perdront" : "perdra"} leur accès`;
+    default:
+      return assertNever(alert.severity, "gravité d'alerte SSO");
+  }
+}
+
+/**
+ * How alarming the sidebar dot should look.
+ *
+ * One dot for however many sessions are in trouble, so the worst one decides:
+ * a session already dead is a different situation from one with twenty minutes
+ * left, and averaging them would understate the first.
+ */
+export function alertTone(alerts: AwsSessionAlert[]): "warn" | "danger" | null {
+  if (alerts.length === 0) return null;
+  return alerts.some((alert) => alert.severity.kind === "expired") ? "danger" : "warn";
 }
 
 export interface IdentityGroup {

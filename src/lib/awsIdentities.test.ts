@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { describeState, formatRemaining, groupIdentities, roleFromArn } from "./awsIdentities";
-import type { AwsProfile, AwsSsoSessionStatus } from "./types";
+import { alertTone, describeAlert, describeState, formatRemaining, groupIdentities, roleFromArn } from "./awsIdentities";
+import type { AwsProfile, AwsSessionAlert, AwsSsoSessionStatus } from "./types";
 
 const session = (name: string, state: AwsSsoSessionStatus["state"]): AwsSsoSessionStatus => ({
   name,
@@ -104,6 +104,48 @@ describe("groupIdentities", () => {
 
   it("n'affiche pas de rubrique « sans session » vide", () => {
     expect(groupIdentities(sessions, [profile("admin", "ma-boite")]).some((g) => g.session === null)).toBe(false);
+  });
+});
+
+describe("describeAlert", () => {
+  const alert = (severity: AwsSessionAlert["severity"], hosts: string[]): AwsSessionAlert => ({
+    session: "ma-boite",
+    severity,
+    hosts,
+  });
+
+  // The hosts are the whole point of the line: a session name is abstract, a
+  // machine name is a reason to act now.
+  it("nomme les machines qui trinquent, pas seulement la session", () => {
+    const text = describeAlert(alert({ kind: "expiring", secondsLeft: 12 * 60 }, ["ARCHIVE-1-DEV"]));
+    expect(text).toContain("ARCHIVE-1-DEV");
+    expect(text).toContain("12 min");
+  });
+
+  it("abrège au-delà de deux machines plutôt que de déborder", () => {
+    const text = describeAlert(alert({ kind: "expired" }, ["A", "B", "C", "D"]));
+    expect(text).toContain("A, B et 2 autres");
+    expect(text).not.toContain("C");
+  });
+
+  it("distingue une session déjà morte d'une session qui va mourir", () => {
+    expect(describeAlert(alert({ kind: "expired" }, ["A"]))).toContain("expirée");
+    expect(describeAlert(alert({ kind: "expiring", secondsLeft: 60 }, ["A"]))).toContain("expire dans");
+  });
+});
+
+describe("alertTone", () => {
+  it("ne signale rien quand il n'y a rien à signaler", () => {
+    expect(alertTone([])).toBeNull();
+  });
+
+  // One dot for several sessions, so the worst one has to win: averaging a
+  // dead session with one that has twenty minutes left understates the dead one.
+  it("laisse la session la plus atteinte décider de la couleur", () => {
+    const dying: AwsSessionAlert = { session: "a", severity: { kind: "expiring", secondsLeft: 600 }, hosts: ["A"] };
+    const dead: AwsSessionAlert = { session: "b", severity: { kind: "expired" }, hosts: ["B"] };
+    expect(alertTone([dying])).toBe("warn");
+    expect(alertTone([dying, dead])).toBe("danger");
   });
 });
 

@@ -176,6 +176,32 @@ async function runScenarios(browser) {
     throw new Error(`invoke("master_password_status") n'a pas répondu correctement via IPC : ${JSON.stringify(vaultStatus)}`);
   }
 
+  // The SSO expiry badge polls this every minute for the life of the window,
+  // so what has to be proven here is that it *answers* — a command missing
+  // from the `invoke_handler` list rejects, and the hook swallows rejections
+  // by design (a machine with no ~/.aws is the common case, not a failure).
+  // That silence is exactly what would hide an unregistered command, so the
+  // assertion belongs here rather than in the app.
+  //
+  // Read-only and local-file-only: it never shells out to the `aws` CLI. An
+  // empty array is the expected answer on a machine with no AWS setup, and is
+  // a pass — the shape is the contract, not the contents.
+  const alerts = await browser.execute(async () => {
+    try {
+      return await window.__TAURI_INTERNALS__.invoke("list_aws_session_alerts");
+    } catch (e) {
+      return { __error: String(e) };
+    }
+  });
+  if (!Array.isArray(alerts)) {
+    throw new Error(`invoke("list_aws_session_alerts") n'a pas rendu un tableau : ${JSON.stringify(alerts)}`);
+  }
+  for (const alert of alerts) {
+    if (typeof alert?.session !== "string" || !Array.isArray(alert?.hosts) || typeof alert?.severity?.kind !== "string") {
+      throw new Error(`alerte SSO mal formée : ${JSON.stringify(alert)}`);
+    }
+  }
+
   // Open a local terminal (Ctrl+T) and read back real command output — the
   // one path that exercises the `tauri::ipc::Channel`-based terminal-data
   // bridge end to end (PTY read -> `channel.send` -> IPC -> xterm.write ->

@@ -5,8 +5,11 @@
 //! `aws configure sso` wizard.
 
 use crate::commands::aws::AwsFailure;
-use tauri::{AppHandle, Emitter};
+use crate::state::AppState;
+use tauri::{AppHandle, Emitter, State};
+use termius_core::aws_inventory;
 use termius_core::aws_sso::{self, ProfileSpec, SsoAccount, SsoSessionStatus};
+use termius_core::sync_ext::MutexExt;
 
 /// Line of `aws sso login` output, forwarded as it arrives so the panel can
 /// show the verification URL and code while the CLI waits for the browser.
@@ -64,6 +67,31 @@ pub async fn list_aws_account_names() -> std::collections::HashMap<String, Strin
 #[tauri::command]
 pub fn list_aws_sso_status() -> Vec<SsoSessionStatus> {
     aws_sso::list_status()
+}
+
+/// The sessions about to stop working that something actually depends on.
+///
+/// Polled while the app runs, so it reads local files only — `~/.aws/config`
+/// for the sessions and their profiles, the CLI's token cache for their state,
+/// the workspace for what pins them. Deliberately **not**
+/// [`super::aws::list_aws_profiles`], which shells out to `aws configure
+/// list-profiles`: spawning a process every minute to power a badge is not a
+/// trade worth making. The cost is that a profile living only in
+/// `~/.aws/credentials` contributes no alert — it has no `sso_session` either,
+/// so there would be nothing to say about it.
+#[tauri::command]
+pub fn list_aws_session_alerts(state: State<'_, AppState>) -> Vec<aws_sso::SessionAlert> {
+    let profiles = aws_sso::config_path()
+        .and_then(|path| std::fs::read_to_string(path).ok())
+        .map(|content| aws_inventory::parse_config(&content))
+        .unwrap_or_default();
+    let hosts = aws_inventory::hosts_by_profile(&state.workspace.lock_recover());
+    aws_sso::alerts(
+        &aws_sso::list_status(),
+        &profiles,
+        &hosts,
+        aws_sso::EXPIRY_WARNING_SECS,
+    )
 }
 
 /// Removes a profile from `~/.aws/config` *and* `~/.aws/credentials`.
