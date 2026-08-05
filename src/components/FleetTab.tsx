@@ -5,6 +5,7 @@ import { api, onFleetDone, onFleetOutcome } from "../lib/api";
 import { formatRelativeTime } from "../lib/format";
 import { ramColor } from "../lib/facts";
 import { DSL_CONDITION_FIELDS, DSL_FUNCTIONS } from "../lib/operations";
+import { profileInCommand } from "../lib/awsInstances";
 import { SnippetPicker } from "./SnippetPicker";
 import { IconPlay, IconSearch, IconChevronRight, IconChevronDown, IconRefresh, IconSnippets, IconFlash } from "./ui-icons";
 import { useResizablePane } from "../hooks/useResizablePane";
@@ -55,6 +56,10 @@ interface FleetTargetInfo {
   sub: string;
   facts?: HostFacts | null;
   lastFactsAtMs?: number | null;
+  /** The AWS profile this target is reached through, when it is — the
+   * per-account cut, which targeting by tag can't express. Read out of the
+   * host's proxy command; `null` for everything else. */
+  profile?: string | null;
 }
 
 type RowStatus = "pending" | "ok" | "fail" | "error";
@@ -194,6 +199,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
         sub: [groupName(h), h.address].filter(Boolean).join(" · "),
         facts: h.lastFacts,
         lastFactsAtMs: h.lastFactsAtMs,
+        profile: profileInCommand(h.proxyCommand),
       });
     }
     for (const h of dockerHosts) {
@@ -203,6 +209,9 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
           target: { kind: "docker", hostId: h.id, containerId: c.id },
           label: c.name,
           sub: `${h.label} · ${c.image}`,
+          // The host's profile, not the container's: it is how the machine
+          // running Docker is reached, same as `compose_adaptive_for_docker`.
+          profile: profileInCommand(h.proxyCommand),
         });
       }
     }
@@ -215,6 +224,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
             target: { kind: "k8s", hostId: h.id, podName: p.name, containerName },
             label: containerName ? `${p.name} › ${containerName}` : p.name,
             sub: `${h.label} · ${p.namespace}`,
+            profile: profileInCommand(h.proxyCommand),
           });
         }
       }
@@ -287,8 +297,32 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
     if (!q) return allTargets;
-    return allTargets.filter((t) => t.label.toLowerCase().includes(q) || t.sub.toLowerCase().includes(q));
+    return allTargets.filter(
+      (t) =>
+        t.label.toLowerCase().includes(q)
+        || t.sub.toLowerCase().includes(q)
+        || (t.profile?.toLowerCase().includes(q) ?? false),
+    );
   }, [allTargets, filter]);
+
+  /** The distinct AWS profiles present among the targets, for the quick-select
+   * row. Empty on a workspace with no imported host, which is what keeps that
+   * row from appearing at all rather than showing an empty toolbar. */
+  const profiles = useMemo(() => {
+    const found = new Set<string>();
+    for (const t of allTargets) if (t.profile) found.add(t.profile);
+    return [...found].sort();
+  }, [allTargets]);
+
+  /** Selects every target reached through `profile` — the "tous les hôtes du
+   * compte X" cut. Adds to the selection rather than replacing it, so two
+   * accounts can be combined by clicking both. */
+  const selectByProfile = (profile: string) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const t of allTargets) if (t.profile === profile) next.add(t.key);
+      return next;
+    });
 
   // Every currently selected target that's an SSH host — the only kind the
   // adaptive DSL ("Langage" mode) can translate for.
@@ -651,11 +685,30 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
             <input
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
-              placeholder="Filtrer (nom, tag, groupe…)"
+              placeholder="Filtrer (nom, groupe, profil AWS…)"
               className="w-full bg-transparent text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] focus:outline-none"
             />
           </div>
         </div>
+        {/* Only with imported hosts to group: on a workspace of hand-made
+            hosts this row would be an empty toolbar asking a question nobody
+            has. In "Langage" mode the selection is computed from the program's
+            own `target …` lines, so a manual pick here would be overwritten. */}
+        {mode === "command" && profiles.length > 0 && (
+          <div className="flex flex-wrap items-center gap-1 px-3 pb-2">
+            <span className="text-[10px] uppercase tracking-wide text-[var(--c-text-faint)]">Compte</span>
+            {profiles.map((profile) => (
+              <button
+                key={profile}
+                onClick={() => selectByProfile(profile)}
+                title={`Sélectionner tout ce qui est joint via le profil ${profile}`}
+                className="rounded-full border border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-0.5 text-[10px] text-[var(--c-text-secondary)] hover:border-[var(--c-accent)] hover:text-[var(--c-text)]"
+              >
+                {profile}
+              </button>
+            ))}
+          </div>
+        )}
         {(sshHosts.length > 0 || dockerHosts.length > 0 || k8sHosts.length > 0) && (
           <div className="mb-1 space-y-1.5 px-3 pb-1">
             {sshHosts.length > 0 && (

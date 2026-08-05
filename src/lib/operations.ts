@@ -26,6 +26,7 @@ export const DSL_CONDITION_FIELDS: { field: string; example: string }[] = [
   { field: "os", example: "target os: debian" },
   { field: "name", example: "target name: web-  (nom de l'hôte/conteneur/shell, sous-chaîne)" },
   { field: "tag", example: "target tag: production  (correspondance exacte)" },
+  { field: "profile", example: "target profile: prod-admin  (profil AWS, synonyme : account)" },
   { field: "ram", example: "target ram: > 80" },
   { field: "cpu", example: "target cpu: >= 4" },
   { field: "load", example: "target load: > 1.5" },

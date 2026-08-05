@@ -12,6 +12,7 @@ use serde::Deserialize;
 use std::collections::HashMap;
 use tauri::{AppHandle, State};
 use termius_core::adaptive::{self, ComposeResult, ExecutionGroup};
+use termius_core::aws_inventory;
 use termius_core::fleet::FleetTarget;
 use termius_core::model::{HostFacts, HostId, Snippet, SnippetId, Workspace};
 use termius_core::store;
@@ -62,9 +63,14 @@ pub async fn compose_adaptive_for_local(program_text: String, shell: Option<Stri
     };
     let program = adaptive::parse_program(&program_text)?;
     let platform_key = host_facts.as_ref().and_then(|f| f.os_id.clone()).unwrap_or_else(|| "unknown".to_string());
-    // No tags: a local terminal has no `Host` to draw them from — only
-    // `target name` (matched against the shell name) is meaningful here.
-    let ctx = adaptive::HostContext { facts: host_facts.as_ref(), name: &resolved_shell, tags: &[] };
+    // No tags and no profile: a local terminal has no `Host` to draw them from
+    // — only `target name` (matched against the shell name) is meaningful here.
+    let ctx = adaptive::HostContext {
+        facts: host_facts.as_ref(),
+        name: &resolved_shell,
+        tags: &[],
+        profile: None,
+    };
     Ok(adaptive::compose_for_host(&program, &platform_key, ctx))
 }
 
@@ -90,7 +96,15 @@ pub async fn compose_adaptive_for_docker(
     // see `App.tsx`'s `openTab`) so `target name` reads the same way a user
     // already sees the target named elsewhere in the UI.
     let name = format!("{} : {container_id}", host.label);
-    let ctx = adaptive::HostContext { facts: host_facts.as_ref(), name: &name, tags: &host.tags };
+    // The profile is the *host's*, not the container's: it is how the machine
+    // running Docker is reached, which is exactly the cut `target profile:` is
+    // for.
+    let ctx = adaptive::HostContext {
+        facts: host_facts.as_ref(),
+        name: &name,
+        tags: &host.tags,
+        profile: host.proxy_command.as_deref().and_then(aws_inventory::profile_in_command),
+    };
     Ok(adaptive::compose_for_host(&program, &platform_key, ctx))
 }
 
@@ -114,7 +128,12 @@ pub async fn compose_adaptive_for_k8s(
     // `name` mirrors the tab label convention (`${host.label} : ${podName}`,
     // see `App.tsx`'s `openTab`), same spirit as the Docker arm above.
     let name = format!("{} : {pod_name}", host.label);
-    let ctx = adaptive::HostContext { facts: host_facts.as_ref(), name: &name, tags: &host.tags };
+    let ctx = adaptive::HostContext {
+        facts: host_facts.as_ref(),
+        name: &name,
+        tags: &host.tags,
+        profile: host.proxy_command.as_deref().and_then(aws_inventory::profile_in_command),
+    };
     Ok(adaptive::compose_for_host(&program, &platform_key, ctx))
 }
 

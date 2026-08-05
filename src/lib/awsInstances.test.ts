@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { filterAwsInstances, groupProfilesBySession, profileLabel } from "./awsInstances";
+import { filterAwsInstances, groupProfilesBySession, profileInCommand, profileLabel } from "./awsInstances";
 import type { AwsInstance } from "./types";
 
 function instance(overrides: Partial<AwsInstance>): AwsInstance {
@@ -123,5 +123,30 @@ describe("profileLabel", () => {
 
   it("leaves a profile with no account alone", () => {
     expect(profileLabel({ name: "static-old", accountId: null }, {})).toBe("static-old");
+  });
+});
+
+// Mirrors `aws_inventory::profile_in_command`, which stays the authority (it is
+// what `target profile:` is evaluated against). These are the same cases its
+// Rust tests cover, so the two can't drift apart unnoticed.
+describe("profileInCommand", () => {
+  it("reads the form the app writes on an imported host", () => {
+    expect(
+      profileInCommand("aws ssm start-session --profile prod-admin --region eu-west-3 --target %h"),
+    ).toBe("prod-admin");
+  });
+
+  // The command is editable text: the app writes `--profile x`, a person may
+  // well write `--profile=x`.
+  it("reads the equals form a person is likely to write", () => {
+    expect(profileInCommand("aws ssm start-session --profile=prod-admin --target %h")).toBe("prod-admin");
+  });
+
+  it("says nothing rather than guessing when no profile is pinned", () => {
+    expect(profileInCommand("cloudflared access ssh --hostname %h")).toBeNull();
+    expect(profileInCommand(null)).toBeNull();
+    expect(profileInCommand("")).toBeNull();
+    // `--profile` as the last token has no value to take.
+    expect(profileInCommand("aws ssm start-session --profile")).toBeNull();
   });
 });

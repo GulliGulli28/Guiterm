@@ -34,6 +34,30 @@ export function filterAwsInstances(instances: AwsInstance[], query: string): Aws
 }
 
 /**
+ * The `--profile` a proxy command pins, if it pins one.
+ *
+ * An imported host carries its AWS profile inside that command rather than in a
+ * field of its own, so this is the only way to group hosts by account.
+ *
+ * Mirrors `aws_inventory::profile_in_command`, which stays the authority: it is
+ * what `target profile:` is actually evaluated against when a program runs.
+ * This copy exists so the target picker can label and pre-select without a
+ * round trip per host — if the two ever disagree, the Rust one is right.
+ *
+ * Both spellings, because the command is editable text: the app writes
+ * `--profile x`, a person may well write `--profile=x`.
+ */
+export function profileInCommand(command: string | null | undefined): string | null {
+  if (!command) return null;
+  const tokens = command.split(/\s+/).filter(Boolean);
+  for (let i = 0; i < tokens.length; i++) {
+    if (tokens[i].startsWith("--profile=")) return tokens[i].slice("--profile=".length) || null;
+    if (tokens[i] === "--profile") return tokens[i + 1] ?? null;
+  }
+  return null;
+}
+
+/**
  * Groups profiles by their SSO session, for the picker.
  *
  * The session is the unit of *login* — `aws sso login` authenticates a session,

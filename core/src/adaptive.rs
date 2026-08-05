@@ -28,7 +28,7 @@
 //! ```
 //!
 //! - `target <field>: <value>` — a condition *atom*. `field` is one of `os`,
-//!   `name`, `tag`, `ram`, `cpu`, `load`, `uptime`. For `os`, `value` is free
+//!   `name`, `tag`, `profile`, `ram`, `cpu`, `load`, `uptime`. For `os`, `value` is free
 //!   text matched case-insensitively against the host's `HostFacts::os_id`/
 //!   `os_name` (substring). For `name`, `value` is free text matched
 //!   case-insensitively against the target's display name (substring) — an
@@ -37,7 +37,11 @@
 //!   probed for that context) but does match `name`. For `tag`, `value` is
 //!   matched case-insensitively against the target's tags (exact match, not
 //!   substring — an SSH/Docker host's `Host::tags`; always empty, so never
-//!   matching, for a local terminal). For the numeric fields, `value` is an
+//!   matching, for a local terminal). For `profile` (synonym: `account`),
+//!   `value` is matched case-insensitively and exactly against the AWS profile
+//!   the target's proxy command pins — the account-shaped cut, which targeting
+//!   by tag can't express: `target profile: prod-admin`. Never matches a
+//!   target reached without a proxy command. For the numeric fields, `value` is an
 //!   optional comparison operator (`>`, `>=`, `<`, `<=`, `=`; defaults to
 //!   `=`) followed by a number (`ram`/`cpu`/`load`/`uptime` map to
 //!   `mem_used_pct`/`cpus`/`load1`/`uptime_secs` respectively — `uptime`'s
@@ -119,6 +123,9 @@ pub enum Condition {
     Name(String),
     /// Case-insensitive exact match against one of [`HostContext::tags`].
     Tag(String),
+    /// Case-insensitive exact match against [`HostContext::profile`] — the
+    /// AWS profile the target's proxy command pins.
+    Profile(String),
     Ram { op: CmpOp, value: f64 },
     Cpu { op: CmpOp, value: f64 },
     Load { op: CmpOp, value: f64 },
@@ -139,14 +146,21 @@ pub struct HostContext<'a> {
     pub facts: Option<&'a HostFacts>,
     pub name: &'a str,
     pub tags: &'a [String],
+    /// The AWS profile this target is reached through, read out of its proxy
+    /// command (see `aws_inventory::profile_in_command`) rather than stored in
+    /// a field of its own — that command *is* where an imported host carries
+    /// it. `None` for anything not reached through one, which is most targets:
+    /// a local terminal, a hand-made host, a Docker/K8s target on a host with
+    /// no proxy command.
+    pub profile: Option<&'a str>,
 }
 
 impl<'a> HostContext<'a> {
     /// Convenience for callers that only ever have `HostFacts` to offer
-    /// (mainly tests) — `name`/`tags` are left empty, so `Condition::Name`/
-    /// `Condition::Tag` never match.
+    /// (mainly tests) — `name`/`tags`/`profile` are left empty, so
+    /// `Condition::Name`/`Condition::Tag`/`Condition::Profile` never match.
     pub fn facts_only(facts: Option<&'a HostFacts>) -> Self {
-        Self { facts, name: "", tags: &[] }
+        Self { facts, name: "", tags: &[], profile: None }
     }
 }
 
@@ -276,11 +290,15 @@ fn parse_condition(rest: &str) -> Result<Condition, String> {
         "os" => Ok(Condition::Os(value.to_string())),
         "name" => Ok(Condition::Name(value.to_string())),
         "tag" => Ok(Condition::Tag(value.to_string())),
+        // `account` accepted as a synonym: what a person means by "le compte
+        // prod" is the profile that reaches it, and the account *number* is
+        // nowhere on the host to match against.
+        "profile" | "account" => Ok(Condition::Profile(value.to_string())),
         "ram" => parse_numeric_condition(value).map(|(op, value)| Condition::Ram { op, value }),
         "cpu" => parse_numeric_condition(value).map(|(op, value)| Condition::Cpu { op, value }),
         "load" => parse_numeric_condition(value).map(|(op, value)| Condition::Load { op, value }),
         "uptime" => parse_numeric_condition(value).map(|(op, value)| Condition::UptimeDays { op, value }),
-        other => Err(format!("champ de condition inconnu : « {other} » (attendu os, name, tag, ram, cpu, load ou uptime)")),
+        other => Err(format!("champ de condition inconnu : « {other} » (attendu os, name, tag, profile, ram, cpu, load ou uptime)")),
     }
 }
 
@@ -416,6 +434,7 @@ pub fn condition_matches(cond: &Condition, ctx: HostContext) -> bool {
         }
         Condition::Name(text) => ctx.name.to_lowercase().contains(&text.to_lowercase()),
         Condition::Tag(text) => ctx.tags.iter().any(|t| t.eq_ignore_ascii_case(text)),
+        Condition::Profile(text) => ctx.profile.is_some_and(|p| p.eq_ignore_ascii_case(text)),
         Condition::Ram { op, value } => ctx.facts.and_then(|f| f.mem_used_pct).is_some_and(|v| op.matches(v, *value)),
         Condition::Cpu { op, value } => ctx.facts.and_then(|f| f.cpus).is_some_and(|v| op.matches(v as f64, *value)),
         Condition::Load { op, value } => ctx.facts.and_then(|f| f.load1).is_some_and(|v| op.matches(v, *value)),
@@ -530,6 +549,9 @@ pub fn preview(workspace: &Workspace, host_ids: &[HostId], program: &Program) ->
             facts,
             name: host.map(|h| h.label.as_str()).unwrap_or(""),
             tags: host.map(|h| h.tags.as_slice()).unwrap_or(&[]),
+            profile: host
+                .and_then(|h| h.proxy_command.as_deref())
+                .and_then(crate::aws_inventory::profile_in_command),
         };
         let result = compose_for_host(program, &platform_key, ctx);
         groups.entry((result.command, result.note)).or_default().push(id);
@@ -547,13 +569,17 @@ operations. Output ONLY the program text — no explanation, no markdown code fe
 Grammar:\n\
 - A program is one or more blocks separated by a blank line.\n\
 - A block is zero or more condition/option lines, followed by exactly one operation line.\n\
-- Condition line: \"target <field>: <value>\" where <field> is one of: os, name, tag, ram, cpu, load, uptime.\n\
+- Condition line: \"target <field>: <value>\" where <field> is one of: os, name, tag, profile, ram, cpu, load, uptime.\n\
   - For os: <value> is free text matched case-insensitively against the host's OS name or id, \
 e.g. \"target os: debian\".\n\
   - For name: <value> is free text matched case-insensitively against the target's display name \
 (substring), e.g. \"target name: web-\".\n\
   - For tag: <value> is matched case-insensitively against the target's tags (exact match, not \
 substring), e.g. \"target tag: production\".\n\
+  - For profile (synonym: account): <value> is matched case-insensitively and exactly against the \
+AWS profile the target is reached through, e.g. \"target profile: prod-admin\". This is the \
+per-AWS-account cut — use it when the user asks for \"the machines of account X\" or \"everything on \
+the prod account\". It never matches a target that is not reached through an AWS profile.\n\
   - For ram, cpu, load, uptime: <value> is a comparison operator (>, >=, <, <=, =) followed by a \
 number, e.g. \"target ram: > 80\". ram is a percentage, load is the 1-minute load average, uptime is \
 in days.\n\
@@ -1432,9 +1458,9 @@ mod tests {
     #[test]
     fn name_condition_matches_a_case_insensitive_substring() {
         let cond = Condition::Name("Web-".into());
-        let ctx = HostContext { facts: None, name: "web-01", tags: &[] };
+        let ctx = HostContext { facts: None, name: "web-01", tags: &[], profile: None };
         assert!(condition_matches(&cond, ctx));
-        assert!(!condition_matches(&cond, HostContext { facts: None, name: "db-01", tags: &[] }));
+        assert!(!condition_matches(&cond, HostContext { facts: None, name: "db-01", tags: &[], profile: None }));
     }
 
     #[test]
@@ -1443,13 +1469,13 @@ mod tests {
         // `None` (e.g. a local terminal whose shell couldn't be probed) —
         // the name comes from `HostContext::name`, not from `HostFacts`.
         let cond = Condition::Name("wsl".into());
-        assert!(condition_matches(&cond, HostContext { facts: None, name: "wsl", tags: &[] }));
+        assert!(condition_matches(&cond, HostContext { facts: None, name: "wsl", tags: &[], profile: None }));
     }
 
     #[test]
     fn tag_condition_matches_case_insensitively_but_not_by_substring() {
         let tags = vec!["Production".to_string(), "web".to_string()];
-        let ctx = HostContext { facts: None, name: "", tags: &tags };
+        let ctx = HostContext { facts: None, name: "", tags: &tags, profile: None };
         assert!(condition_matches(&Condition::Tag("production".into()), ctx));
         assert!(!condition_matches(&Condition::Tag("prod".into()), ctx));
     }
@@ -1457,7 +1483,81 @@ mod tests {
     #[test]
     fn tag_condition_never_matches_when_the_target_has_no_tags() {
         let cond = Condition::Tag("production".into());
-        assert!(!condition_matches(&cond, HostContext { facts: None, name: "", tags: &[] }));
+        assert!(!condition_matches(&cond, HostContext { facts: None, name: "", tags: &[], profile: None }));
+    }
+
+    // ── profile / account ────────────────────────────────────────────────────
+
+    #[test]
+    fn the_profile_field_parses_under_both_of_its_names() {
+        assert_eq!(parse_condition("profile: prod-admin"), Ok(Condition::Profile("prod-admin".into())));
+        // "le compte prod" is what a person says; it means the profile that
+        // reaches it.
+        assert_eq!(parse_condition("account: prod-admin"), Ok(Condition::Profile("prod-admin".into())));
+    }
+
+    /// The parser is also the validator for what the LLM writes, so an
+    /// invented field has to be refused rather than silently ignored — and the
+    /// message has to list the field that now exists, or nobody discovers it.
+    #[test]
+    fn an_unknown_field_is_still_refused_and_names_the_real_ones() {
+        let error = parse_condition("compte: 1670").unwrap_err();
+        assert!(error.contains("compte"), "l'erreur doit citer le champ fautif : {error}");
+        assert!(error.contains("profile"), "l'erreur doit lister profile : {error}");
+    }
+
+    #[test]
+    fn profile_condition_matches_exactly_and_case_insensitively() {
+        let ctx = HostContext { facts: None, name: "", tags: &[], profile: Some("Prod-Admin") };
+        assert!(condition_matches(&Condition::Profile("prod-admin".into()), ctx));
+        // Exact, like `tag` and unlike `name`: "prod" must not sweep in
+        // "prod-admin" *and* "prod-readonly" when someone meant one of them.
+        assert!(!condition_matches(&Condition::Profile("prod".into()), ctx));
+    }
+
+    /// Most targets are reached without a proxy command — a hand-made host, a
+    /// local terminal. Matching them on an AWS profile they don't have would
+    /// silently widen every account-scoped program.
+    #[test]
+    fn profile_condition_never_matches_a_target_reached_without_one() {
+        let cond = Condition::Profile("prod-admin".into());
+        assert!(!condition_matches(&cond, HostContext { facts: None, name: "", tags: &[], profile: None }));
+    }
+
+    /// The whole point of the item: the profile is read out of the proxy
+    /// command, which is where an imported host actually carries it — nothing
+    /// else on `Host` names an AWS account.
+    #[test]
+    fn preview_reads_the_profile_out_of_each_host_proxy_command() {
+        let mut workspace = Workspace::default();
+        let mut host = |label: &str, proxy: Option<&str>| {
+            let mut h = crate::model::Host::new(label, "i-0123", "ec2-user");
+            h.proxy_command = proxy.map(str::to_string);
+            // Probed, so the operation has a platform to render for — an
+            // unprobed host renders nothing whatever its profile, which would
+            // make this test pass for the wrong reason.
+            h.last_facts = Some(facts_with("ubuntu", 10.0));
+            let id = h.id;
+            workspace.hosts.push(h);
+            id
+        };
+        let prod = host("PROD-1", Some("aws ssm start-session --profile prod-admin --region eu-west-3 --target %h"));
+        let dev = host("DEV-1", Some("aws ssm start-session --profile dev-admin --region eu-west-3 --target %h"));
+        let manual = host("BARE-METAL", None);
+
+        let program = parse_program("target profile: prod-admin\ninstall-package nginx").unwrap();
+        let groups = preview(&workspace, &[prod, dev, manual], &program);
+
+        let installing = groups
+            .iter()
+            .find(|group| group.command.is_some())
+            .expect("le bloc doit s'appliquer à au moins un hôte");
+        assert_eq!(installing.host_ids, vec![prod]);
+        // And the other two land in the "nothing to do" group rather than
+        // being quietly swept in.
+        let idle: Vec<_> = groups.iter().filter(|g| g.command.is_none()).flat_map(|g| g.host_ids.clone()).collect();
+        assert_eq!(idle.len(), 2);
+        assert!(idle.contains(&dev) && idle.contains(&manual));
     }
 
     // ── render_statement (sudo prefix) ──────────────────────────────────────
@@ -1505,7 +1605,7 @@ mod tests {
     #[test]
     fn compose_matches_a_block_by_target_name_alone() {
         let program = parse_program("target name: web-\ninstall-package nginx").unwrap();
-        let ctx = HostContext { facts: None, name: "web-01", tags: &[] };
+        let ctx = HostContext { facts: None, name: "web-01", tags: &[], profile: None };
         let result = compose_for_host(&program, "ubuntu", ctx);
         assert_eq!(result.command.as_deref(), Some("set -e\napt-get install -y nginx"));
     }
@@ -1514,7 +1614,7 @@ mod tests {
     fn compose_matches_a_block_by_target_tag_alone() {
         let program = parse_program("target tag: web\ninstall-package nginx").unwrap();
         let tags = vec!["web".to_string()];
-        let ctx = HostContext { facts: None, name: "", tags: &tags };
+        let ctx = HostContext { facts: None, name: "", tags: &tags, profile: None };
         let result = compose_for_host(&program, "ubuntu", ctx);
         assert_eq!(result.command.as_deref(), Some("set -e\napt-get install -y nginx"));
     }
