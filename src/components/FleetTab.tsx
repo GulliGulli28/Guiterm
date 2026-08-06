@@ -1,5 +1,5 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import type { DockerContainer, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, Host, HostFacts, HostId, K8sPod, RollbackPlan, Snippet, SnippetId, Workspace } from "../lib/types";
+import type { DockerContainer, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, Host, HostDrift, HostFacts, HostId, K8sPod, RollbackPlan, Snippet, SnippetId, Workspace } from "../lib/types";
 import { fleetTargetKey } from "../lib/types";
 import { api, onFleetDone, onFleetOutcome } from "../lib/api";
 import { formatRelativeTime } from "../lib/format";
@@ -7,6 +7,7 @@ import { ramColor } from "../lib/facts";
 import { DSL_CONDITION_FIELDS, DSL_FUNCTIONS } from "../lib/operations";
 import { profileInCommand } from "../lib/awsInstances";
 import { hasSomethingToRun, rollbackAvailability } from "../lib/rollback";
+import { driftedHosts, summarise } from "../lib/drift";
 import { SnippetPicker } from "./SnippetPicker";
 import { IconPlay, IconSearch, IconChevronRight, IconChevronDown, IconRefresh, IconSnippets, IconFlash } from "./ui-icons";
 import { useResizablePane } from "../hooks/useResizablePane";
@@ -298,6 +299,11 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
    * confirmed from this preview. */
   const [rollback, setRollback] = useState<{ run: FleetRun; plan: RollbackPlan } | null>(null);
   const [rollbackLoading, setRollbackLoading] = useState<string | null>(null);
+  /** Last drift check, or `null` when none has been asked for. Read-only on
+   * the hosts — asking changes nothing, which is why it can sit next to the
+   * program without a confirmation step. */
+  const [drift, setDrift] = useState<HostDrift[] | null>(null);
+  const [checkingDrift, setCheckingDrift] = useState(false);
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
@@ -614,6 +620,33 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
     }
     setPreviewGroups(null);
   };
+
+  /** Reads the program as wanted state and reports which hosts have drifted.
+   *
+   * Deliberately on demand: nothing here polls. A desktop app quietly probing
+   * fifty machines in the background is a nuisance to the very network it is
+   * meant to help manage — see `core::drift`. */
+  const runDriftCheck = async () => {
+    const hostIds = selectedSshHostIds();
+    if (hostIds.length === 0 || !programText.trim()) return;
+    setCheckingDrift(true);
+    try {
+      setDrift(await api.checkDrift(hostIds, programText.trim()));
+    } catch (e) {
+      onError(String(e));
+    } finally {
+      setCheckingDrift(false);
+    }
+  };
+
+  /** Hosts the last check found drifted. An unknown verdict is not drift — it
+   * must neither put a host on this list nor take it off. */
+  const driftedHostIds = useMemo(() => driftedHosts(drift ?? []).map((entry) => entry.hostId), [drift]);
+
+  /** Narrows the selection to the drifting hosts, so "corriger" is just the
+   * ordinary run on the ones that need it — no separate repair path. */
+  const selectDriftedHosts = () =>
+    setSelected(new Set(driftedHostIds.map((hostId) => fleetTargetKey({ kind: "ssh", hostId }))));
 
   /** Builds the rollback and shows it. Nothing runs here — the point of the
    * feature is that "annuler ce run" is a decision taken with the list of what
@@ -983,6 +1016,17 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
                     spellCheck={false}
                     className="min-h-[2.5rem] flex-1 resize-y rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-3 py-2 font-mono text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] focus:border-[var(--c-accent)] focus:outline-none"
                   />
+                  {/* Reads the program as wanted state instead of as actions:
+                      same text, opposite direction. Read-only on the hosts —
+                      nothing is changed by asking. */}
+                  <button
+                    onClick={runDriftCheck}
+                    disabled={checkingDrift || selectedSshHostIds().length === 0 || !programText.trim()}
+                    title="Lit ce programme comme un état voulu et dit quels hôtes s'en écartent — ne change rien"
+                    className="flex items-center gap-1.5 self-stretch rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-3 py-2 text-sm text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)] hover:text-[var(--c-text)] disabled:cursor-not-allowed disabled:opacity-40"
+                  >
+                    {checkingDrift ? "…" : "Vérifier l'écart"}
+                  </button>
                   <button
                     onClick={runPreview}
                     disabled={previewing || selectedSshHostIds().length === 0 || !programText.trim()}
@@ -993,6 +1037,80 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
                     {previewing ? "…" : "Prévisualiser"}
                   </button>
                 </div>
+
+                {drift && (
+                  <div className="rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] p-2">
+                    <div className="flex items-center gap-2">
+                      <p className="flex-1 text-[11px] font-medium text-[var(--c-text-secondary)]">
+                        Écart par rapport à l'état décrit
+                      </p>
+                      {driftedHostIds.length > 0 && (
+                        <button
+                          onClick={selectDriftedHosts}
+                          title="Ne garder que les hôtes en écart, pour n'exécuter que sur eux"
+                          className="rounded bg-[var(--c-accent-dim)] px-2 py-0.5 text-[10px] font-medium text-[var(--c-accent-text)] hover:bg-[var(--c-accent)] hover:text-white"
+                        >
+                          Sélectionner les {driftedHostIds.length} hôte(s) en écart
+                        </button>
+                      )}
+                      <button
+                        onClick={() => setDrift(null)}
+                        className="rounded px-1.5 py-0.5 text-[10px] text-[var(--c-text-muted)] hover:bg-white/5"
+                      >
+                        Fermer
+                      </button>
+                    </div>
+                    <div className="mt-1.5 max-h-48 space-y-1 overflow-y-auto">
+                      {drift.map((entry) => {
+                        const drifted = entry.checks.filter((c) => c.verdict.kind === "drifted");
+                        const unknown = entry.checks.filter((c) => c.verdict.kind === "unknown");
+                        const summary = summarise(entry);
+                        return (
+                          <div key={entry.hostId} className="rounded bg-[var(--c-bg3)] px-2 py-1.5">
+                            <div className="flex items-center gap-2">
+                              <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--c-text)]">
+                                {hostById.get(entry.hostId)?.label ?? entry.hostId}
+                              </span>
+                              {summary === "unreachable" ? (
+                                <span className="shrink-0 text-[10px] text-[#ef4444]">injoignable</span>
+                              ) : summary === "drifted" ? (
+                                <span className="shrink-0 text-[10px] text-amber-400">{drifted.length} écart(s)</span>
+                              ) : (
+                                <span className="shrink-0 text-[10px] text-emerald-400">conforme</span>
+                              )}
+                              {/* Shown even on a conforming host: "conforme
+                                  sur 2 lignes, 3 non vérifiables" is a
+                                  different fact from "conforme". */}
+                              {unknown.length > 0 && (
+                                <span className="shrink-0 text-[10px] text-[var(--c-text-faint)]">
+                                  {unknown.length} indéterminé(s)
+                                </span>
+                              )}
+                            </div>
+                            {entry.error && (
+                              <p className="mt-0.5 font-mono text-[10px] text-[#ef4444]/90">{entry.error}</p>
+                            )}
+                            {(drifted.length > 0 || unknown.length > 0) && (
+                              <ul className="mt-1 space-y-0.5">
+                                {drifted.map((c, i) => (
+                                  <li key={`d${i}`} className="font-mono text-[10px] text-amber-300/90">
+                                    ✕ {c.operation}
+                                  </li>
+                                ))}
+                                {unknown.map((c, i) => (
+                                  <li key={`u${i}`} className="text-[10px] text-[var(--c-text-faint)]">
+                                    <span className="font-mono">? {c.operation}</span>
+                                    {c.verdict.kind === "unknown" && ` — ${c.verdict.reason}`}
+                                  </li>
+                                ))}
+                              </ul>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
                 <div className="flex items-center gap-2 rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] p-1.5">
                   <IconFlash size={13} className="ml-1 shrink-0 text-sky-400" />
                   <input

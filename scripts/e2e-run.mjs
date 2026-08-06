@@ -253,6 +253,7 @@ async function runScenarios(browser) {
   await runRemoteSearchScenario(browser);
   await runCertificateFieldScenario(browser);
   await runRollbackScenario(browser);
+  await runDriftScenario(browser);
 
   await mkdir(outDir, { recursive: true });
   const screenshotPath = path.join(outDir, "e2e-smoke.png");
@@ -824,6 +825,52 @@ async function runRemoteSearchScenario(browser) {
     if (close instanceof HTMLElement) close.click();
   });
   console.log("Recherche distante : OK (panneau atteignable depuis le menu d un hôte SSH).");
+}
+
+/**
+ * The drift check reaches the backend and refuses a program it can't parse.
+ *
+ * Run against an *empty* host list on purpose: the answer is then an empty
+ * report, which touches nobody's infrastructure while still proving the whole
+ * command → parser → response path is wired. The parse failure is the half
+ * worth asserting — the check goes through the same strict parser as a run, so
+ * a program that wouldn't execute must not be silently "checked" either.
+ */
+async function runDriftScenario(browser) {
+  const empty = await browser.execute(async () => {
+    try {
+      return { value: await window.__TAURI_INTERNALS__.invoke("check_drift", {
+        hostIds: [],
+        programText: "install-package nginx",
+      }) };
+    } catch (e) {
+      return { __error: String(e) };
+    }
+  });
+  if (empty.__error !== undefined) {
+    throw new Error(`invoke("check_drift") a échoué : ${empty.__error}`);
+  }
+  if (!Array.isArray(empty.value) || empty.value.length !== 0) {
+    throw new Error(`aucun hôte doit donner un rapport vide, reçu : ${JSON.stringify(empty.value)}`);
+  }
+
+  const rejected = await browser.execute(async () => {
+    try {
+      return { __unexpected: await window.__TAURI_INTERNALS__.invoke("check_drift", {
+        hostIds: [],
+        programText: "target inconnu: x\ninstall-package nginx",
+      }) };
+    } catch (e) {
+      return { message: String(e) };
+    }
+  });
+  if (rejected.__unexpected !== undefined) {
+    throw new Error("un programme invalide doit être refusé, pas vérifié");
+  }
+  if (!/inconnu/.test(rejected.message)) {
+    throw new Error(`le refus doit nommer le champ fautif, reçu : ${rejected.message}`);
+  }
+  console.log("Dérive : OK (sonde atteignable, et un programme invalide est refusé).");
 }
 
 /**

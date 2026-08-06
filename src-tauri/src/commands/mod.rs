@@ -4,6 +4,7 @@ pub mod aws_sso;
 pub mod command_history;
 pub mod dialog;
 pub mod docker;
+pub mod drift;
 pub mod export;
 pub mod facts;
 pub mod fleet;

@@ -6,6 +6,7 @@ pub mod command_history;
 pub mod crypto;
 pub mod docker;
 pub mod docker_pane;
+pub mod drift;
 pub mod export;
 pub mod facts;
 pub mod fleet;

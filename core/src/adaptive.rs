@@ -336,7 +336,9 @@ pub fn render_program(program: &Program) -> String {
         .join("\n\n")
 }
 
-fn render_operation(op: &Operation) -> String {
+/// One operation as its DSL line — used to label a drift check with the text
+/// the user actually wrote.
+pub fn render_operation(op: &Operation) -> String {
     let name = function_name(op);
     match op {
         Operation::UpdatePackages | Operation::Reboot => name.to_string(),
@@ -394,6 +396,175 @@ fn render_condition(cond: &Condition) -> String {
         Condition::Load { op, value } => numeric("load", op, value),
         Condition::UptimeDays { op, value } => numeric("uptime", op, value),
     }
+}
+
+// ─── Observing (configuration drift) ─────────────────────────────────────
+
+/// Whether an operation's effect can be *observed*, and how.
+///
+/// The third face of the closed operation list, next to rendering it
+/// ([`render_command`]) and undoing it ([`inverse`]): "how do I tell whether
+/// this has already been applied here". A program then reads as a description
+/// of wanted state — `install-package nginx` asserts nginx is installed — which
+/// is what lets the same text both describe a fleet and repair it.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Assertion {
+    /// A POSIX `sh` condition that exits 0 when the wanted state already
+    /// holds. Read-only, and never needs privileges — a check that has to be
+    /// root to answer would report a false drift on the hosts where it can't.
+    Check(String),
+    /// The operation asserts nothing persistent, on any platform. Restarting a
+    /// service or updating packages leaves no state to compare against later.
+    NothingToAssert,
+    /// Meaningful in principle, but not observable here — carries why, because
+    /// "indéterminé" without a reason is indistinguishable from a bug.
+    Unobservable { reason: &'static str },
+}
+
+/// How to check that `op` has already been applied on `platform_key`.
+///
+/// **A total `match`, like [`inverse`].** A function added to the DSL now has
+/// to declare all three of its faces — write, undo, observe — or the crate
+/// stops compiling.
+///
+/// POSIX only: the probe is composed into one `sh` script, exactly like
+/// [`crate::facts::PROBE`], so a Windows target reports as unobservable rather
+/// than being handed shell it can't run.
+pub fn check_command(op: &Operation, platform_key: &str) -> Assertion {
+    /// Windows shells never see this probe — same gate as `facts::PROBE`.
+    const NOT_POSIX: &str = "la sonde d'écart est POSIX ; cette plateforme n'est pas couverte";
+    const NO_FAMILY: &str = "famille de paquets/services inconnue pour cette plateforme";
+    const NEEDS_ROOT: &str =
+        "l'état du pare-feu n'est pas lisible sans privilèges — un verdict serait faux";
+
+    let negate = |check: String| format!("! {{ {check}; }}");
+
+    match op {
+        // Nothing persistent to compare, whatever the platform.
+        Operation::UpdatePackages
+        | Operation::Reboot
+        | Operation::RestartService { .. }
+        | Operation::ServiceLogs { .. } => Assertion::NothingToAssert,
+
+        // Deliberately not attempted: `ufw status` / `firewall-cmd --query-port`
+        // need root, and a check that fails for lack of rights would be
+        // reported as a drift that isn't one.
+        Operation::OpenPort { .. } | Operation::ClosePort { .. } => {
+            Assertion::Unobservable { reason: NEEDS_ROOT }
+        }
+
+        Operation::InstallPackage { name } | Operation::RemovePackage { name } => {
+            let Some(check) = package_installed_check(platform_key, name) else {
+                return Assertion::Unobservable {
+                    reason: if os_family(platform_key) == Some("posix") { NO_FAMILY } else { NOT_POSIX },
+                };
+            };
+            Assertion::Check(match op {
+                Operation::InstallPackage { .. } => check,
+                _ => negate(check),
+            })
+        }
+
+        Operation::StartService { name } | Operation::StopService { name } => {
+            let Some(check) = service_running_check(platform_key, name) else {
+                return Assertion::Unobservable {
+                    reason: if os_family(platform_key) == Some("posix") { NO_FAMILY } else { NOT_POSIX },
+                };
+            };
+            Assertion::Check(match op {
+                Operation::StartService { .. } => check,
+                _ => negate(check),
+            })
+        }
+
+        Operation::EnableService { name } | Operation::DisableService { name } => {
+            let Some(check) = service_enabled_check(platform_key, name) else {
+                return Assertion::Unobservable {
+                    reason: if os_family(platform_key) == Some("posix") { NO_FAMILY } else { NOT_POSIX },
+                };
+            };
+            Assertion::Check(match op {
+                Operation::EnableService { .. } => check,
+                _ => negate(check),
+            })
+        }
+
+        Operation::CreateDirectory { path } | Operation::RemoveDirectory { path } => {
+            if os_family(platform_key) != Some("posix") {
+                return Assertion::Unobservable { reason: NOT_POSIX };
+            }
+            if !is_safe_path(path) {
+                return Assertion::Unobservable { reason: "chemin non interpolable sans risque" };
+            }
+            let check = format!("[ -d '{path}' ]");
+            Assertion::Check(match op {
+                Operation::CreateDirectory { .. } => check,
+                _ => negate(check),
+            })
+        }
+
+        Operation::CreateUser { name } | Operation::RemoveUser { name } => {
+            if os_family(platform_key) != Some("posix") {
+                return Assertion::Unobservable { reason: NOT_POSIX };
+            }
+            if !is_safe_token(name) {
+                return Assertion::Unobservable { reason: "nom non interpolable sans risque" };
+            }
+            let check = format!("id -u {name} >/dev/null 2>&1");
+            Assertion::Check(match op {
+                Operation::CreateUser { .. } => check,
+                _ => negate(check),
+            })
+        }
+
+        Operation::SetHostname { name } => {
+            if os_family(platform_key) != Some("posix") {
+                return Assertion::Unobservable { reason: NOT_POSIX };
+            }
+            if !is_safe_token(name) {
+                return Assertion::Unobservable { reason: "nom non interpolable sans risque" };
+            }
+            Assertion::Check(format!("[ \"$(hostname 2>/dev/null)\" = '{name}' ]"))
+        }
+    }
+}
+
+fn package_installed_check(platform_key: &str, name: &str) -> Option<String> {
+    if !is_safe_token(name) {
+        return None;
+    }
+    Some(match package_family(platform_key)? {
+        // `dpkg -s` exits 0 for a *removed-but-configured* package too, which
+        // would report a package the user removed as still installed.
+        "apt" => format!("dpkg-query -W -f='${{Status}}' {name} 2>/dev/null | grep -q 'ok installed'"),
+        "dnf" | "zypper" => format!("rpm -q {name} >/dev/null 2>&1"),
+        "apk" => format!("apk info -e {name} >/dev/null 2>&1"),
+        "pacman" => format!("pacman -Q {name} >/dev/null 2>&1"),
+        _ => return None,
+    })
+}
+
+fn service_running_check(platform_key: &str, name: &str) -> Option<String> {
+    if !is_safe_token(name) {
+        return None;
+    }
+    Some(match service_family(platform_key)? {
+        "systemd" => format!("systemctl is-active --quiet {name}"),
+        "openrc" => format!("rc-service {name} status >/dev/null 2>&1"),
+        _ => return None,
+    })
+}
+
+fn service_enabled_check(platform_key: &str, name: &str) -> Option<String> {
+    if !is_safe_token(name) {
+        return None;
+    }
+    Some(match service_family(platform_key)? {
+        "systemd" => format!("systemctl is-enabled --quiet {name}"),
+        // No `rc-update is-enabled`; the runlevel listing is the only answer.
+        "openrc" => format!("rc-update show default 2>/dev/null | grep -q '^ *{name}'"),
+        _ => return None,
+    })
 }
 
 /// One operation of a run that a rollback will *not* undo, with its reason.

@@ -890,6 +890,30 @@ export interface FleetRun {
   programText?: string | null;
 }
 
+/** What one drift check found. Three cases, never two: "we couldn't look" is
+ * not "it's fine", and folding the two together would report a fleet as
+ * compliant because nobody could actually check. */
+export type DriftVerdict =
+  | { kind: "matches" }
+  | { kind: "drifted" }
+  | { kind: "unknown"; reason: string };
+
+/** One line of the wanted state, and the host's answer to it. */
+export interface DriftCheck {
+  /** The DSL line as written (`install-package nginx`) — what the user
+   * recognises, not the shell it became. */
+  operation: string;
+  verdict: DriftVerdict;
+}
+
+/** One host's answer to the whole described state. */
+export interface HostDrift {
+  hostId: HostId;
+  checks: DriftCheck[];
+  /** Set when the host couldn't be reached or the probe failed outright. */
+  error?: string | null;
+}
+
 /** One operation a rollback will not put back, and why. */
 export interface UnreversedOperation {
   /** The DSL function name, as it was written. */
