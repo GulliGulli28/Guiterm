@@ -101,6 +101,22 @@ This changelog starts 2026-07-21 — for earlier versions, see
   secret back, so leaving the field empty keeps it; and when a secret can't be
   read as the session opens (locked vault), the session says which variable and
   why, instead of quietly starting without it.
+- An SSO session about to lapse says so, instead of waiting to be looked at.
+  A dot appears on the AWS identities tab, and a line in the panel names the
+  hosts that are about to lose their access — the typical failure is finding
+  the session dead in the middle of a transfer. Only sessions something depends
+  on raise it: one no host reaches through costs nothing today, and being
+  interrupted for it is what teaches you to ignore the dot on the day it
+  matters. A session whose hourly token merely needs renewing is never flagged
+  — the CLI renews that one by itself.
+- Fleet operations can target an AWS account. Targeting by EC2 tag already
+  worked; what no tag can express is "every host of account X", which is the
+  real cut when you manage several. The adaptive language gains
+  `target profile: prod-admin` (`account` works too), and the target picker a
+  row of account chips that select everything reached through one — click two
+  to combine them. The match is exact, so `prod` doesn't sweep in both
+  `prod-admin` and `prod-readonly`, and a host reached without an AWS profile
+  never matches.
 - Redis connections can use TLS (`rediss://`), from a checkbox on the
   connection — and automatically for an imported ElastiCache group that has
   encryption in transit enabled.
