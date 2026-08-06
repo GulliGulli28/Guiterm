@@ -85,6 +85,12 @@ le détail est dans le CHANGELOG et dans l'historique git.
   le DSL modifie, et les conditions du DSL sont des sélecteurs d'hôtes, pas un
   état voulu. Il a fallu écrire `adaptive::check_command`, troisième `match`
   total sur `Operation` à côté du rendu shell et de la table d'inverses.
+- **Import d'inventaire Ansible** — `core/src/ansible_inventory.rs`,
+  `AnsibleImportPanel.tsx` (2026-08-06). Apparie sur le **nom d'inventaire**
+  via le nouveau `Host::source`, pas sur l'adresse (que l'inventaire édite
+  justement quand une machine bouge). `aws_inventory::apply_import` n'a
+  **pas** été factorisé avec : les hôtes EC2 existants ne portent pas de
+  provenance, les faire apparier dessus les dupliquerait tous.
 
 ---
 
@@ -117,31 +123,29 @@ par variante, pas par champ optionnel de plus (voir `docs/dev-history.md`).
 parsing de la sortie du plugin (« Port 5432 opened ») et une machine à états du
 tunnel testable sans réseau.
 
-### 2. Inventaire dynamique au-delà d'AWS — **M**
+### 2. Inventaire Azure / GCP — **S/M**
 
-**Valeur.** La moitié difficile est faite : `aws_inventory::apply_import`
-(2026-08-04) sait créer-ou-rafraîchir sans dupliquer, en ne touchant qu'à ce
-que la source possède. Reste à brancher d'autres sources : inventaire Ansible
-(un fichier, aucune API), puis Azure/GCP par leur CLI, sur le modèle de
-`aws_inventory.rs`.
+**Valeur.** Reste des sources d'inventaire ce qui n'a pas été fait avec Ansible
+le 2026-08-06 : les VM Azure et GCP, par leur CLI, sur le modèle
+d'`aws_inventory.rs`.
 
-**Levier.** `apply_import` (à généraliser : il est aujourd'hui typé sur
-l'identifiant d'instance EC2), et `commands/known_hosts.rs:100`
-(`import_ssh_config_hosts`) comme précédent d'import de fichier.
+**Levier — le vrai travail est fait.** `Host::source` et
+`ansible_inventory::apply_import` posent le motif : un réimport apparie sur
+`(kind, id)` et ne rafraîchit que ce que la source possède. Une source de plus
+= un parseur de sortie CLI + une variante de `kind`, pas une refonte.
 
-**À écrire.** Backend : un trait ou une fonction commune « source →
-sélections », l'inventaire Ansible en premier (INI et YAML). Frontend : le
-panneau d'import généralisé — il est aujourd'hui écrit pour EC2
-(`AwsImportPanel.tsx`).
+**À écrire.** Backend : `az vm list` / `gcloud compute instances list --format
+json`, chacun vers les mêmes sélections. Frontend : un panneau par source, sur
+le modèle d'`AnsibleImportPanel.tsx` (**ne pas** généraliser `AwsImportPanel`,
+qui porte profil/région/SSM — voir ce panneau-là pour le raisonnement).
 
-**Pièges.** L'appariement d'une machine dépend de la source : l'identifiant
-d'instance pour EC2, quoi pour Ansible ? Le nom d'hôte de l'inventaire, qui
-peut changer. Trancher explicitement plutôt que de reproduire la règle d'EC2
-par réflexe — un mauvais appariement crée des doublons ou écrase le mauvais
-hôte.
+**Pièges.** L'appariement, encore : pour Azure/GCP l'identifiant de ressource
+est immuable et globalement unique, donc c'est lui — pas le nom, pas l'adresse.
+Et comme pour AWS, ces CLI sont déjà authentifiées chez l'utilisateur : ne
+jamais demander ni stocker d'identifiant cloud.
 
-**Preuve.** Les tests de `apply_import` sont déjà là et couvrent le
-non-doublonnage ; en ajouter pour chaque parseur de source.
+**Preuve.** Tests de parsing sur des sorties réelles ; le non-doublonnage est
+déjà couvert par les tests d'`apply_import`.
 
 ---
 

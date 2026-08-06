@@ -158,6 +158,27 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
   Checks run only when you ask, and every check a host needs travels in one
   command: nothing polls your fleet in the background.
+- Hosts can be imported from an Ansible inventory, from Hosts → Add → Import an
+  Ansible inventory. Both syntaxes are read — the INI-ish one and the YAML one —
+  and which is which is decided from the file's content, since inventories are
+  routinely called `hosts` or `prod` with no extension. `ansible_host`,
+  `ansible_user` and `ansible_port` are picked up, with the same precedence
+  Ansible itself applies: a value on the host's own line wins over its group's.
+  Groups become tags, so `target tag: webservers` reaches them in fleet
+  operations straight away. A line standing for many machines
+  (`web[01:50].example.com`) is expanded, zero-padding included.
+
+  Re-importing a changed inventory refreshes what it already created rather
+  than adding a second copy of everything — matched on the inventory name, not
+  on the address, because the address is exactly what an inventory edits when a
+  machine moves. Your own edits survive: the label, the login, the folder and
+  the credentials are yours, and a re-import only updates what the inventory
+  owns. Renaming an entry in the inventory does create a new host, which is
+  said here rather than left to be discovered.
+
+  Anything the parser won't guess at — an alphabetic range, say — is listed
+  with the reason instead of quietly dropped: a file that half-imported must
+  not look complete.
 - Redis connections can use TLS (`rediss://`), from a checkbox on the
   connection — and automatically for an imported ElastiCache group that has
   encryption in transit enabled.
