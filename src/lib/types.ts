@@ -884,6 +884,28 @@ export interface FleetRun {
   /** Set only for an adaptive run — the actual command dispatched to each
    * host, grouped by platform. Absent/null for a classic run. */
   perHostCommands?: Record<HostId, string> | null;
+  /** The DSL program this run came from — what makes it undoable. Absent for a
+   * free-command run and for anything recorded before rollback existed;
+   * `perHostCommands` can't stand in for it, being rendered shell. */
+  programText?: string | null;
+}
+
+/** One operation a rollback will not put back, and why. */
+export interface UnreversedOperation {
+  /** The DSL function name, as it was written. */
+  function: string;
+  reason: string;
+}
+
+/** What undoing a past run would do, before anything is undone. */
+export interface RollbackPlan {
+  /** The inverse program in DSL form — operations, not shell, because that is
+   * what tells someone at a glance whether "annuler" means what they think. */
+  programText: string;
+  groups: ExecutionGroup[];
+  /** Never hidden: a partial rollback shown as a complete one is worse than
+   * no rollback at all. */
+  unreversed: UnreversedOperation[];
 }
 
 /** One platform group's compiled plan — see `core::adaptive::PlatformGroup`. */

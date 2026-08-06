@@ -1,11 +1,12 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import type { DockerContainer, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, Host, HostFacts, HostId, K8sPod, Snippet, SnippetId, Workspace } from "../lib/types";
+import type { DockerContainer, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, Host, HostFacts, HostId, K8sPod, RollbackPlan, Snippet, SnippetId, Workspace } from "../lib/types";
 import { fleetTargetKey } from "../lib/types";
 import { api, onFleetDone, onFleetOutcome } from "../lib/api";
 import { formatRelativeTime } from "../lib/format";
 import { ramColor } from "../lib/facts";
 import { DSL_CONDITION_FIELDS, DSL_FUNCTIONS } from "../lib/operations";
 import { profileInCommand } from "../lib/awsInstances";
+import { hasSomethingToRun, rollbackAvailability } from "../lib/rollback";
 import { SnippetPicker } from "./SnippetPicker";
 import { IconPlay, IconSearch, IconChevronRight, IconChevronDown, IconRefresh, IconSnippets, IconFlash } from "./ui-icons";
 import { useResizablePane } from "../hooks/useResizablePane";
@@ -293,6 +294,10 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
   const [view, setView] = useState<"run" | "history">("run");
   const [history, setHistory] = useState<FleetRun[]>([]);
   const [expandedRuns, setExpandedRuns] = useState<Set<string>>(new Set());
+  /** The rollback being reviewed, if any — nothing is undone until it is
+   * confirmed from this preview. */
+  const [rollback, setRollback] = useState<{ run: FleetRun; plan: RollbackPlan } | null>(null);
+  const [rollbackLoading, setRollbackLoading] = useState<string | null>(null);
 
   const filtered = useMemo(() => {
     const q = filter.trim().toLowerCase();
@@ -598,6 +603,9 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
         runId,
         programText.trim(),
         runnable.map((g) => ({ hostIds: g.hostIds, command: g.command })),
+        // The DSL, kept with the run so it can be undone later. The commands
+        // above are rendered shell, which can't be inverted.
+        programText.trim() || null,
       );
     } catch (e) {
       onError(String(e));
@@ -605,6 +613,55 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
       if (runIdRef.current === runId) setRunning(false);
     }
     setPreviewGroups(null);
+  };
+
+  /** Builds the rollback and shows it. Nothing runs here — the point of the
+   * feature is that "annuler ce run" is a decision taken with the list of what
+   * will and won't be undone in front of you. */
+  const reviewRollback = async (run: FleetRun) => {
+    setRollbackLoading(run.id);
+    try {
+      setRollback({ run, plan: await api.previewRollback(run.id) });
+    } catch (e) {
+      onError(String(e));
+    } finally {
+      setRollbackLoading((current) => (current === run.id ? null : current));
+    }
+  };
+
+  /** Runs the reviewed rollback through the ordinary adaptive path, so it is
+   * itself recorded as a run — an undo nobody can see afterwards would be a
+   * gap in the very audit trail this feature is part of. */
+  const executeRollback = async () => {
+    if (!rollback || running) return;
+    const runnable = rollback.plan.groups.filter((g): g is typeof g & { command: string } => g.command != null);
+    if (runnable.length === 0) return;
+    const targets: FleetTarget[] = runnable.flatMap((g) => g.hostIds.map((hostId) => ({ kind: "ssh" as const, hostId })));
+    const runId = crypto.randomUUID();
+    runIdRef.current = runId;
+    setRunTargets(targets);
+    setResults(new Map());
+    setPending(new Set(targets.map(fleetTargetKey)));
+    setExpanded(new Set());
+    setRunning(true);
+    setView("run");
+    const plan = rollback.plan;
+    const intent = `Annulation de : ${rollback.run.command}`;
+    setRollback(null);
+    try {
+      await api.runAdaptivePlan(
+        runId,
+        intent,
+        runnable.map((g) => ({ hostIds: g.hostIds, command: g.command })),
+        // The rollback's own program, so a rollback can itself be rolled back.
+        plan.programText,
+      );
+      setHistory(await api.getFleetHistory());
+    } catch (e) {
+      onError(String(e));
+    } finally {
+      if (runIdRef.current === runId) setRunning(false);
+    }
   };
 
   const openSaveDialog = () => {
@@ -1065,6 +1122,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
                 {history.map((hrun) => {
                   const counts = countOutcomes(hrun.outcomes);
                   const isOpen = expandedRuns.has(hrun.id);
+                  const undoable = rollbackAvailability(hrun);
                   return (
                     <li key={hrun.id} className="border-b border-[var(--c-border)]">
                       <div
@@ -1084,6 +1142,20 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
                         </div>
                         <span className="shrink-0 text-xs text-[#22c55e]">✓{counts.ok}</span>
                         <span className="shrink-0 text-xs text-[#ef4444]">✕{counts.fail}</span>
+                        {/* Disabled rather than hidden, with the reason on
+                            hover: "why can't I undo this one" is a question
+                            worth answering where it is asked. */}
+                        <button
+                          disabled={!undoable.enabled || rollbackLoading === hrun.id}
+                          title={undoable.reason}
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            void reviewRollback(hrun);
+                          }}
+                          className="shrink-0 rounded bg-[var(--c-bg3)] px-2 py-0.5 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)] disabled:cursor-not-allowed disabled:opacity-40"
+                        >
+                          {rollbackLoading === hrun.id ? "…" : "Annuler"}
+                        </button>
                         <button
                           onClick={(e) => {
                             e.stopPropagation();
@@ -1232,6 +1304,90 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
               </button>
               <button onClick={() => setShowSaveDialog(false)} className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5">
                 Annuler
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {rollback && (
+        <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 pt-[10vh]" onClick={() => setRollback(null)}>
+          <div className="flex max-h-[75vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]" onClick={(e) => e.stopPropagation()}>
+            <div className="border-b border-[var(--c-border)] px-4 py-3">
+              <p className="text-sm font-medium text-[var(--c-text)]">Annuler ce run</p>
+              <p className="mt-0.5 truncate font-mono text-[11px] text-[var(--c-text-muted)]" title={rollback.run.command}>
+                {rollback.run.command}
+              </p>
+            </div>
+
+            <div className="min-h-0 flex-1 space-y-3 overflow-y-auto px-4 py-3">
+              {/* What will NOT be undone comes first, and in red: read after
+                  the plan it would look like a footnote, when it is the thing
+                  that decides whether running this is a good idea at all. */}
+              {rollback.plan.unreversed.length > 0 && (
+                <div className="rounded-md border border-rose-900/60 bg-rose-950/40 p-2.5">
+                  <p className="text-[11px] font-medium text-rose-200">
+                    Ce que cette annulation ne remettra pas en état :
+                  </p>
+                  <ul className="mt-1.5 space-y-1">
+                    {rollback.plan.unreversed.map((u, i) => (
+                      <li key={`${u.function}-${i}`} className="text-[11px] leading-relaxed text-rose-200/90">
+                        <span className="font-mono">{u.function}</span> — {u.reason}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              {!hasSomethingToRun(rollback.plan) ? (
+                <p className="rounded-md bg-[var(--c-bg3)] p-2.5 text-[11px] leading-relaxed text-[var(--c-text-secondary)]">
+                  Rien à exécuter : aucune opération de ce run n'a d'inverse applicable sur ces hôtes.
+                </p>
+              ) : (
+                <>
+                  <div>
+                    <p className="mb-1 text-[11px] font-medium text-[var(--c-text-secondary)]">
+                      Programme d'annulation
+                    </p>
+                    <pre className="overflow-x-auto rounded-md bg-[var(--c-bg3)] p-2.5 font-mono text-[11px] leading-relaxed text-[var(--c-text)]">
+                      {rollback.plan.programText}
+                    </pre>
+                  </div>
+                  <div>
+                    <p className="mb-1 text-[11px] font-medium text-[var(--c-text-secondary)]">
+                      Ce qui sera réellement exécuté
+                    </p>
+                    <div className="space-y-1.5">
+                      {rollback.plan.groups.map((group, i) => (
+                        <div key={i} className="rounded-md bg-[var(--c-bg3)] p-2">
+                          <p className="text-[10px] text-[var(--c-text-muted)]">
+                            {group.hostIds.length} hôte(s) : {group.hostIds.map((id) => hostById.get(id)?.label ?? id).join(", ")}
+                          </p>
+                          {group.command != null ? (
+                            <pre className="mt-1 overflow-x-auto font-mono text-[11px] text-[var(--c-text)]">{group.command}</pre>
+                          ) : (
+                            <p className="mt-1 text-[11px] italic text-[var(--c-text-faint)]">
+                              {group.note ?? "rien à exécuter sur ces hôtes"}
+                            </p>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="flex gap-1.5 border-t border-[var(--c-border)] px-4 py-3">
+              <button
+                onClick={executeRollback}
+                disabled={running || !hasSomethingToRun(rollback.plan)}
+                className="accent-surface flex-1 rounded-md border py-1.5 text-xs font-medium disabled:opacity-40"
+              >
+                Exécuter l'annulation
+              </button>
+              <button onClick={() => setRollback(null)} className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5">
+                Fermer
               </button>
             </div>
           </div>

@@ -84,6 +84,7 @@ fn main() {
             commands::aws_sso::save_aws_sso_profiles,
             commands::aws_sso::list_aws_account_names,
             commands::aws_sso::list_aws_sso_status,
+            commands::adaptive::preview_rollback,
             commands::aws_sso::list_aws_session_alerts,
             commands::aws_sso::delete_aws_profile,
             commands::aws_sso::delete_aws_sso_session,

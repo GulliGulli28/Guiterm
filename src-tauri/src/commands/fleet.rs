@@ -61,6 +61,9 @@ fn for_history(o: &HostOutcome) -> HostOutcome {
 /// literal command for a classic run, the natural-language intent for an
 /// adaptive one); `per_host_commands` is `Some` only for the latter, so the
 /// history can also show exactly what ran on each host.
+/// `program_text` is the DSL source of an adaptive run, kept so the run can be
+/// undone later — see [`termius_core::fleet_history::FleetRun::program_text`]
+/// for why neither of the other two fields can stand in for it.
 pub(crate) async fn execute_and_record(
     app: &AppHandle,
     state: &AppState,
@@ -68,12 +71,35 @@ pub(crate) async fn execute_and_record(
     commands: HashMap<FleetTarget, String>,
     summary_command: String,
     per_host_commands: Option<HashMap<HostId, String>>,
+    program_text: Option<String>,
 ) -> Result<(), String> {
     let started_at_ms = now_ms();
     // Snapshot the workspace so the run sees a consistent view even if the user
     // edits hosts while it's in flight.
     let workspace = Arc::new(state.workspace.lock_recover().clone());
     let targets: Vec<FleetTarget> = commands.keys().cloned().collect();
+
+    // Captured *before* the run, from facts already collected: after
+    // `set-hostname` the old name is gone, so there would be nothing left to
+    // restore. Only recorded for a run that can be undone at all.
+    let previous_hostnames = program_text.as_ref().map(|_| {
+        targets
+            .iter()
+            .filter_map(|target| match target {
+                FleetTarget::Ssh { host_id } => Some(*host_id),
+                _ => None,
+            })
+            .filter_map(|host_id| {
+                let hostname = workspace
+                    .host(host_id)?
+                    .last_facts
+                    .as_ref()?
+                    .hostname
+                    .clone()?;
+                Some((host_id, hostname))
+            })
+            .collect::<HashMap<HostId, String>>()
+    });
     let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<HostOutcome>();
     tokio::spawn(fleet::run_on_hosts(workspace, commands, fleet::DEFAULT_CONCURRENCY, tx));
 
@@ -93,6 +119,8 @@ pub(crate) async fn execute_and_record(
         targets,
         outcomes: collected,
         per_host_commands,
+        program_text,
+        previous_hostnames,
     };
     {
         let mut history = state.fleet_history.lock_recover();
@@ -119,7 +147,10 @@ pub async fn run_fleet_command(
     command: String,
 ) -> Result<(), String> {
     let commands = fleet::uniform_commands(&targets, &command);
-    execute_and_record(&app, &state, run_id, commands, command, None).await
+    // No program text: a free command is arbitrary shell, which is precisely
+    // what cannot be inverted. The history marks the run as un-undoable rather
+    // than offering a button that would guess.
+    execute_and_record(&app, &state, run_id, commands, command, None, None).await
 }
 
 /// Returns the persisted fleet run history, newest first.

@@ -232,6 +232,217 @@ fn function_name(op: &Operation) -> &'static str {
     }
 }
 
+// ─── Undoing (scoped rollback) ───────────────────────────────────────────
+
+/// What undoing one operation would take.
+///
+/// Three cases, not two, and conflating the middle one with either neighbour
+/// is the mistake this enum exists to prevent: an operation that *changed
+/// nothing* has nothing to undo, which is a completely different thing from
+/// one whose effect cannot be undone. Warning about `service-logs` would teach
+/// the user to skim past the warning that matters, on `remove-user`.
+#[derive(Debug, Clone, PartialEq)]
+pub enum Reversibility {
+    /// Run this to put the target back as it was.
+    Inverse(Operation),
+    /// The operation is read-only or leaves no persistent state, so a rollback
+    /// simply skips it — silently, because there is nothing to report.
+    NothingToUndo,
+    /// The effect is real and cannot be undone from what we know. Carries the
+    /// reason, because "cannot be undone" without a why reads as a limitation
+    /// of the app rather than of the world.
+    Irreversible { reason: &'static str },
+}
+
+/// The inverse of one operation, or why there isn't one.
+///
+/// **A total `match` on purpose.** Adding a function to the DSL without
+/// deciding what undoing it means becomes a compile error here — the same
+/// guarantee `assertNever` gives the frontend, and the reason a scoped
+/// rollback can be trusted at all: the operation list is closed, so this table
+/// is exhaustive by construction rather than by vigilance.
+///
+/// `previous_hostname` is the one piece of captured before-state a rollback
+/// carries (see [`invert_program`]); everything else here is decidable from
+/// the operation alone.
+pub fn inverse(op: &Operation, previous_hostname: Option<&str>) -> Reversibility {
+    use Operation::*;
+    match op {
+        InstallPackage { name } => Reversibility::Inverse(RemovePackage { name: name.clone() }),
+        // The package comes back, its version does not: nothing here recorded
+        // which one was removed. Said out loud rather than pretended away.
+        RemovePackage { name } => Reversibility::Inverse(InstallPackage { name: name.clone() }),
+        StartService { name } => Reversibility::Inverse(StopService { name: name.clone() }),
+        StopService { name } => Reversibility::Inverse(StartService { name: name.clone() }),
+        EnableService { name } => Reversibility::Inverse(DisableService { name: name.clone() }),
+        DisableService { name } => Reversibility::Inverse(EnableService { name: name.clone() }),
+        CreateDirectory { path } => Reversibility::Inverse(RemoveDirectory { path: path.clone() }),
+        CreateUser { name } => Reversibility::Inverse(RemoveUser { name: name.clone() }),
+        OpenPort { port } => Reversibility::Inverse(ClosePort { port: port.clone() }),
+        ClosePort { port } => Reversibility::Inverse(OpenPort { port: port.clone() }),
+        // Only invertible because the hostname was collected before the run —
+        // without that snapshot there is nothing to put back.
+        SetHostname { .. } => match previous_hostname {
+            Some(previous) => Reversibility::Inverse(SetHostname { name: previous.to_string() }),
+            None => Reversibility::Irreversible {
+                reason: "le nom d'hôte précédent n'a pas été relevé avant ce run",
+            },
+        },
+
+        // Read-only, and a reboot leaves no configuration behind: skipping
+        // them is correct, not a compromise.
+        ServiceLogs { .. } => Reversibility::NothingToUndo,
+        Reboot => Reversibility::NothingToUndo,
+
+        UpdatePackages => Reversibility::Irreversible {
+            reason: "revenir aux versions précédentes n'est pas exprimable dans ce langage",
+        },
+        RestartService { .. } => Reversibility::Irreversible {
+            reason: "« dé-redémarrer » un service ne veut rien dire",
+        },
+        RemoveDirectory { .. } => Reversibility::Irreversible {
+            reason: "le contenu du dossier est perdu, le recréer vide ne le restaure pas",
+        },
+        RemoveUser { .. } => Reversibility::Irreversible {
+            reason: "le compte, son dossier personnel et ses groupes sont perdus",
+        },
+    }
+}
+
+/// Writes a program back out as DSL text.
+///
+/// The inverse of [`parse_program`], and it exists for the rollback: showing
+/// someone the shell their rollback will run answers "what will this do" much
+/// worse than showing them `remove-package nginx`. Round-trips through the
+/// parser, which is what [`a_rendered_program_parses_back_to_itself`] pins
+/// down — text this produces has to be text the user could have typed, or the
+/// preview would be showing something the engine wouldn't accept.
+pub fn render_program(program: &Program) -> String {
+    program
+        .iter()
+        .map(|statement| {
+            let mut lines: Vec<String> = statement
+                .conditions
+                .iter()
+                .map(|expr| format!("target {}", render_condition_expr(expr)))
+                .collect();
+            if statement.sudo {
+                lines.push("sudo: true".to_string());
+            }
+            lines.push(render_operation(&statement.operation));
+            lines.join("\n")
+        })
+        .collect::<Vec<_>>()
+        .join("\n\n")
+}
+
+fn render_operation(op: &Operation) -> String {
+    let name = function_name(op);
+    match op {
+        Operation::UpdatePackages | Operation::Reboot => name.to_string(),
+        Operation::InstallPackage { name: arg }
+        | Operation::RemovePackage { name: arg }
+        | Operation::StartService { name: arg }
+        | Operation::StopService { name: arg }
+        | Operation::RestartService { name: arg }
+        | Operation::EnableService { name: arg }
+        | Operation::DisableService { name: arg }
+        | Operation::ServiceLogs { name: arg }
+        | Operation::CreateUser { name: arg }
+        | Operation::RemoveUser { name: arg }
+        | Operation::SetHostname { name: arg } => format!("{name} {arg}"),
+        Operation::CreateDirectory { path } | Operation::RemoveDirectory { path } => {
+            format!("{name} {path}")
+        }
+        Operation::OpenPort { port } | Operation::ClosePort { port } => format!("{name} {port}"),
+    }
+}
+
+/// Renders one condition line's expression. `&&` binds tighter than `||`, and
+/// the parser has no parentheses — so the tree this came from is always
+/// writable without them.
+fn render_condition_expr(expr: &ConditionExpr) -> String {
+    match expr {
+        ConditionExpr::Atom(cond) => render_condition(cond),
+        ConditionExpr::And(lhs, rhs) => {
+            format!("{} && target {}", render_condition_expr(lhs), render_condition_expr(rhs))
+        }
+        ConditionExpr::Or(lhs, rhs) => {
+            format!("{} || target {}", render_condition_expr(lhs), render_condition_expr(rhs))
+        }
+    }
+}
+
+fn render_condition(cond: &Condition) -> String {
+    let numeric = |field: &str, op: &CmpOp, value: &f64| {
+        let symbol = match op {
+            CmpOp::Gt => ">",
+            CmpOp::Gte => ">=",
+            CmpOp::Lt => "<",
+            CmpOp::Lte => "<=",
+            CmpOp::Eq => "=",
+        };
+        format!("{field}: {symbol} {value}")
+    };
+    match cond {
+        Condition::Os(text) => format!("os: {text}"),
+        Condition::Name(text) => format!("name: {text}"),
+        Condition::Tag(text) => format!("tag: {text}"),
+        Condition::Profile(text) => format!("profile: {text}"),
+        Condition::Ram { op, value } => numeric("ram", op, value),
+        Condition::Cpu { op, value } => numeric("cpu", op, value),
+        Condition::Load { op, value } => numeric("load", op, value),
+        Condition::UptimeDays { op, value } => numeric("uptime", op, value),
+    }
+}
+
+/// One operation of a run that a rollback will *not* undo, with its reason.
+#[derive(Debug, Clone, PartialEq)]
+pub struct Unreversed {
+    /// The DSL function name, as the user wrote it.
+    pub function: String,
+    pub reason: &'static str,
+}
+
+/// A run's rollback: the program to run, and what it will leave behind.
+#[derive(Debug, Clone, PartialEq, Default)]
+pub struct InverseProgram {
+    pub program: Program,
+    /// Everything the rollback can't put back. Presented before it runs — a
+    /// partial rollback shown as a complete one is worse than none at all.
+    pub unreversed: Vec<Unreversed>,
+}
+
+/// Builds the rollback of `program`.
+///
+/// **Reverse order**, which is not cosmetic: a program that creates a
+/// directory and then a user inside it has to remove the user before the
+/// directory, or the second half fails on a target that is already half
+/// undone. Undoing is a stack, not a set.
+///
+/// Conditions and `sudo` ride along unchanged: the inverse of "on Debian
+/// hosts, with sudo, install nginx" is "on Debian hosts, with sudo, remove
+/// nginx" — dropping the condition would widen the rollback to hosts the
+/// original never touched, which is the worst thing a rollback can do.
+pub fn invert_program(program: &Program, previous_hostname: Option<&str>) -> InverseProgram {
+    let mut inverted = InverseProgram::default();
+    for statement in program.iter().rev() {
+        match inverse(&statement.operation, previous_hostname) {
+            Reversibility::Inverse(operation) => inverted.program.push(Statement {
+                conditions: statement.conditions.clone(),
+                sudo: statement.sudo,
+                operation,
+            }),
+            Reversibility::NothingToUndo => {}
+            Reversibility::Irreversible { reason } => inverted.unreversed.push(Unreversed {
+                function: function_name(&statement.operation).to_string(),
+                reason,
+            }),
+        }
+    }
+    inverted
+}
+
 // ─── Parsing ─────────────────────────────────────────────────────────────
 
 fn split_blocks(text: &str) -> Vec<String> {
@@ -1484,6 +1695,140 @@ mod tests {
     fn tag_condition_never_matches_when_the_target_has_no_tags() {
         let cond = Condition::Tag("production".into());
         assert!(!condition_matches(&cond, HostContext { facts: None, name: "", tags: &[], profile: None }));
+    }
+
+    // ── rollback (table d'inverses) ──────────────────────────────────────────
+
+    /// Every operation the DSL has, one assertion each.
+    ///
+    /// Exhaustive on purpose rather than "a few representative ones": this
+    /// table is the whole trustworthiness of the rollback, and a variant with
+    /// the wrong inverse would silently do the opposite of what the user asked
+    /// on real machines. The compiler forces `inverse` itself to cover every
+    /// variant; this forces someone to have *thought* about each one.
+    #[test]
+    fn every_operation_has_a_decided_reversibility() {
+        use Operation::*;
+        let pkg = |n: &str| n.to_string();
+
+        let cases: Vec<(Operation, Reversibility)> = vec![
+            (InstallPackage { name: pkg("nginx") }, Reversibility::Inverse(RemovePackage { name: pkg("nginx") })),
+            (RemovePackage { name: pkg("nginx") }, Reversibility::Inverse(InstallPackage { name: pkg("nginx") })),
+            (StartService { name: pkg("nginx") }, Reversibility::Inverse(StopService { name: pkg("nginx") })),
+            (StopService { name: pkg("nginx") }, Reversibility::Inverse(StartService { name: pkg("nginx") })),
+            (EnableService { name: pkg("nginx") }, Reversibility::Inverse(DisableService { name: pkg("nginx") })),
+            (DisableService { name: pkg("nginx") }, Reversibility::Inverse(EnableService { name: pkg("nginx") })),
+            (CreateDirectory { path: pkg("/srv/app") }, Reversibility::Inverse(RemoveDirectory { path: pkg("/srv/app") })),
+            (CreateUser { name: pkg("deploy") }, Reversibility::Inverse(RemoveUser { name: pkg("deploy") })),
+            (OpenPort { port: pkg("443") }, Reversibility::Inverse(ClosePort { port: pkg("443") })),
+            (ClosePort { port: pkg("443") }, Reversibility::Inverse(OpenPort { port: pkg("443") })),
+            // Changed nothing — skipped in silence, never warned about.
+            (ServiceLogs { name: pkg("nginx") }, Reversibility::NothingToUndo),
+            (Reboot, Reversibility::NothingToUndo),
+        ];
+        for (operation, expected) in cases {
+            assert_eq!(inverse(&operation, None), expected, "inverse de {operation:?}");
+        }
+
+        // The four whose effect is real and unrecoverable. Asserted as a group
+        // because what matters is the category, and each carries its own why.
+        for operation in [
+            UpdatePackages,
+            RestartService { name: pkg("nginx") },
+            RemoveDirectory { path: pkg("/srv/app") },
+            RemoveUser { name: pkg("deploy") },
+        ] {
+            match inverse(&operation, None) {
+                Reversibility::Irreversible { reason } => {
+                    assert!(!reason.is_empty(), "{operation:?} doit dire pourquoi");
+                }
+                other => panic!("{operation:?} devrait être irréversible, obtenu {other:?}"),
+            }
+        }
+    }
+
+    /// The rollback preview shows DSL, not shell — so what `render_program`
+    /// writes has to be text the parser accepts, and that produces the same
+    /// program. Anything else and the preview would show something the engine
+    /// wouldn't run.
+    #[test]
+    fn a_rendered_program_parses_back_to_itself() {
+        let source = "target os: debian && target ram: > 80\ntarget tag: production\nsudo: true\n\
+                      install-package nginx\n\n\
+                      target profile: prod-admin || target name: web-\ncreate-directory /srv/app\n\n\
+                      update-packages\n\nopen-port 443\n\nreboot";
+        let program = parse_program(source).unwrap();
+
+        let rendered = render_program(&program);
+        let reparsed = parse_program(&rendered)
+            .unwrap_or_else(|e| panic!("le texte rendu doit se reparser ({e}) :\n{rendered}"));
+        assert_eq!(reparsed, program, "rendu :\n{rendered}");
+    }
+
+    /// The one operation that depends on captured before-state. Without the
+    /// snapshot it must refuse rather than invent a hostname.
+    #[test]
+    fn set_hostname_is_reversible_only_with_the_previous_name() {
+        let operation = Operation::SetHostname { name: "web-02".into() };
+        assert_eq!(
+            inverse(&operation, Some("web-01")),
+            Reversibility::Inverse(Operation::SetHostname { name: "web-01".into() })
+        );
+        assert!(matches!(inverse(&operation, None), Reversibility::Irreversible { .. }));
+    }
+
+    /// Undoing is a stack: the user was created *inside* the directory, so it
+    /// has to go before the directory does. Undo them in program order and the
+    /// second half fails on a target already half undone.
+    #[test]
+    fn a_rollback_undoes_in_reverse_order() {
+        let program = parse_program(
+            "create-directory /srv/app\n\ncreate-user deploy\n\ninstall-package nginx",
+        )
+        .unwrap();
+        let inverted = invert_program(&program, None);
+
+        let functions: Vec<&'static str> =
+            inverted.program.iter().map(|s| function_name(&s.operation)).collect();
+        assert_eq!(functions, vec!["remove-package", "remove-user", "remove-directory"]);
+        assert!(inverted.unreversed.is_empty());
+    }
+
+    /// The rollback must not reach hosts the original run never touched, so
+    /// the conditions come along untouched — and `sudo` with them, since a
+    /// rollback needs the same rights the change did.
+    #[test]
+    fn a_rollback_keeps_the_conditions_and_the_sudo_of_what_it_undoes() {
+        let program = parse_program("target os: debian\nsudo: true\ninstall-package nginx").unwrap();
+        let inverted = invert_program(&program, None);
+
+        assert_eq!(inverted.program.len(), 1);
+        assert!(inverted.program[0].sudo, "un rollback a besoin des mêmes droits");
+        assert_eq!(inverted.program[0].conditions, program[0].conditions);
+    }
+
+    /// What can't be undone has to come back named, so the UI can say it
+    /// before running anything. Silently dropping it would present a partial
+    /// rollback as a complete one.
+    #[test]
+    fn what_cannot_be_undone_is_reported_rather_than_dropped() {
+        let program = parse_program(
+            "install-package nginx\n\nupdate-packages\n\nremove-user ancien\n\nservice-logs nginx",
+        )
+        .unwrap();
+        let inverted = invert_program(&program, None);
+
+        // Only the install is undoable; `service-logs` vanishes without a word.
+        let functions: Vec<&'static str> =
+            inverted.program.iter().map(|s| function_name(&s.operation)).collect();
+        assert_eq!(functions, vec!["remove-package"]);
+
+        let reported: Vec<&str> = inverted.unreversed.iter().map(|u| u.function.as_str()).collect();
+        assert_eq!(reported, vec!["remove-user", "update-packages"]);
+        assert!(
+            inverted.unreversed.iter().all(|u| !u.reason.is_empty()),
+            "chaque irréversible doit porter sa raison"
+        );
     }
 
     // ── profile / account ────────────────────────────────────────────────────

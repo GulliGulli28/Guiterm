@@ -252,6 +252,7 @@ async function runScenarios(browser) {
   await runReachabilityScenario(browser);
   await runRemoteSearchScenario(browser);
   await runCertificateFieldScenario(browser);
+  await runRollbackScenario(browser);
 
   await mkdir(outDir, { recursive: true });
   const screenshotPath = path.join(outDir, "e2e-smoke.png");
@@ -823,6 +824,42 @@ async function runRemoteSearchScenario(browser) {
     if (close instanceof HTMLElement) close.click();
   });
   console.log("Recherche distante : OK (panneau atteignable depuis le menu d un hôte SSH).");
+}
+
+/**
+ * A run that carries no DSL program is refused a rollback, by the backend
+ * itself — not just greyed out in the UI.
+ *
+ * The refusal is the contract worth pinning down: the alternative to failing
+ * here is inferring operations back out of rendered shell, which would undo
+ * *something* on real machines and possibly not what the user asked. A
+ * disabled button proves nothing on its own — a future refactor could re-enable
+ * it — so this asserts the command rejects.
+ *
+ * Uses a run id that cannot exist: an absent run and a run with no program are
+ * both "nothing to undo here", and neither may answer with a plan. Touches no
+ * infrastructure and mutates nothing.
+ */
+async function runRollbackScenario(browser) {
+  const refused = await browser.execute(async () => {
+    try {
+      const plan = await window.__TAURI_INTERNALS__.invoke("preview_rollback", {
+        runId: "00000000-0000-4000-8000-000000000000",
+      });
+      return { __unexpected: plan };
+    } catch (e) {
+      return { message: String(e) };
+    }
+  });
+  if (refused.__unexpected !== undefined) {
+    throw new Error(
+      `preview_rollback a rendu un plan pour un run inexistant : ${JSON.stringify(refused.__unexpected)}`,
+    );
+  }
+  if (!refused.message) {
+    throw new Error("preview_rollback a échoué sans message exploitable");
+  }
+  console.log("Rollback : OK (un run sans programme enregistré est refusé côté backend).");
 }
 
 /**

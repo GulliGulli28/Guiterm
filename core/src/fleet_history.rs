@@ -36,6 +36,30 @@ pub struct FleetRun {
     /// already ran the same `command`.
     #[serde(default)]
     pub per_host_commands: Option<HashMap<HostId, String>>,
+    /// The DSL program this run came from, verbatim — what makes the run
+    /// undoable.
+    ///
+    /// Neither of the fields above can stand in for it: `command` is the
+    /// user's French intent and `per_host_commands` is rendered shell, and
+    /// shell cannot be inverted — turning `apt-get install -y nginx` back into
+    /// an *operation* means parsing every platform's package manager, which is
+    /// exactly the job the DSL exists to avoid.
+    ///
+    /// `None` for a classic (free-command) run and for every run recorded
+    /// before this field existed. Both are un-undoable, and the UI says so
+    /// rather than offering a button that would do nothing.
+    #[serde(default)]
+    pub program_text: Option<String>,
+    /// Each target's hostname as collected *before* the run, for the one
+    /// operation whose inverse can't be derived from the operation alone
+    /// (`set-hostname` — see `adaptive::inverse`).
+    ///
+    /// Deliberately not a general before-state snapshot: capturing file
+    /// contents or package versions is a different machine, and a rollback
+    /// that pretends to restore more than it can is worse than one that is
+    /// honest about its scope.
+    #[serde(default)]
+    pub previous_hostnames: Option<HashMap<HostId, String>>,
 }
 
 /// Pre-`FleetTarget` on-disk shape (every run was SSH-only) — kept only to
@@ -89,6 +113,11 @@ mod legacy {
                 targets: r.host_ids.into_iter().map(|host_id| FleetTarget::Ssh { host_id }).collect(),
                 outcomes: r.outcomes.into_iter().map(Into::into).collect(),
                 per_host_commands: r.per_host_commands,
+                // A run recorded before rollback existed: nothing said which
+                // operations it performed, and guessing from the rendered
+                // shell is exactly what the DSL exists to make unnecessary.
+                program_text: None,
+                previous_hostnames: None,
             }
         }
     }
@@ -168,6 +197,10 @@ mod legacy_snake_case_target {
                 targets: r.targets.into_iter().map(Into::into).collect(),
                 outcomes: r.outcomes.into_iter().map(Into::into).collect(),
                 per_host_commands: r.per_host_commands,
+                // Same as the older shape above: pre-dates rollback, so there
+                // is nothing to undo it from.
+                program_text: None,
+                previous_hostnames: None,
             }
         }
     }
@@ -238,6 +271,8 @@ mod tests {
             targets: vec![FleetTarget::Ssh { host_id: Uuid::new_v4() }],
             outcomes: Vec::new(),
             per_host_commands: None,
+            program_text: None,
+            previous_hostnames: None,
         }
     }
 
@@ -314,5 +349,49 @@ mod tests {
         assert_eq!(history[0].outcomes.len(), 1);
         assert_eq!(history[0].outcomes[0].target, FleetTarget::Ssh { host_id });
         assert_eq!(history[0].outcomes[0].stdout, "up 1 day");
+    }
+
+    /// A history file written before rollback existed has to keep loading —
+    /// this file holds the user's audit trail, and refusing it would empty the
+    /// history panel on upgrade. The runs come back un-undoable, which is the
+    /// honest answer: nothing recorded what operations they performed.
+    #[test]
+    fn a_history_written_before_rollback_still_loads_as_un_undoable() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("fleet_history.json");
+        let host_id = Uuid::new_v4();
+        let json = format!(
+            r#"[{{"id":"{}","startedAtMs":1700000000000,"command":"installer nginx","targets":[{{"kind":"ssh","hostId":"{host_id}"}}],"outcomes":[],"perHostCommands":{{"{host_id}":"apt-get install -y nginx"}}}}]"#,
+            Uuid::new_v4(),
+        );
+        std::fs::write(&path, json).unwrap();
+
+        let history = load_from(&path).unwrap();
+        assert_eq!(history.len(), 1, "l'historique existant ne doit pas disparaître");
+        assert_eq!(history[0].program_text, None);
+        assert_eq!(history[0].previous_hostnames, None);
+        // The rendered shell survives — it is still worth showing, just not
+        // enough to invert.
+        assert!(history[0].per_host_commands.is_some());
+    }
+
+    /// And a run recorded now carries what a rollback needs.
+    #[test]
+    fn a_recorded_program_survives_a_save_and_reload() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("fleet_history.json");
+        let host_id = Uuid::new_v4();
+        let mut run = sample_run("installer nginx");
+        run.targets = vec![FleetTarget::Ssh { host_id }];
+        run.program_text = Some("install-package nginx".to_string());
+        run.previous_hostnames = Some(HashMap::from([(host_id, "web-01".to_string())]));
+        save_to(&path, &[run]).unwrap();
+
+        let history = load_from(&path).unwrap();
+        assert_eq!(history[0].program_text.as_deref(), Some("install-package nginx"));
+        assert_eq!(
+            history[0].previous_hostnames.as_ref().and_then(|m| m.get(&host_id)).map(String::as_str),
+            Some("web-01")
+        );
     }
 }

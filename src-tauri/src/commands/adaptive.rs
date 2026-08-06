@@ -8,7 +8,7 @@
 //! manual input goes through before it's ever shown to the user.
 use crate::commands::fleet::execute_and_record;
 use crate::state::AppState;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use tauri::{AppHandle, State};
 use termius_core::adaptive::{self, ComposeResult, ExecutionGroup};
@@ -40,6 +40,89 @@ pub fn preview_adaptive_program(
     let workspace = state.workspace.lock_recover();
     let program = adaptive::parse_program(&program_text)?;
     Ok(adaptive::preview(&workspace, &host_ids, &program))
+}
+
+/// What undoing a past run would do, before anything is undone.
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RollbackPlan {
+    /// The inverse program in DSL form, shown so the user reads *operations*
+    /// rather than a wall of shell — and can tell at a glance that "annuler"
+    /// means what they think.
+    pub program_text: String,
+    /// The same grouping a forward run gets, so the same review UI applies.
+    pub groups: Vec<ExecutionGroup>,
+    /// Everything this rollback will **not** put back, each with its reason.
+    /// Never hidden: a partial rollback presented as a complete one is worse
+    /// than no rollback at all.
+    pub unreversed: Vec<UnreversedOperation>,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UnreversedOperation {
+    pub function: String,
+    pub reason: String,
+}
+
+/// Builds the rollback of a recorded run, without running anything.
+///
+/// Fails rather than guesses when the run carries no DSL program: a classic
+/// free-command run, or one recorded before rollback existed. Inferring the
+/// operations back from the rendered shell is the one thing this must not do —
+/// see [`termius_core::fleet_history::FleetRun::program_text`].
+///
+/// Evaluated against each host's *current* facts, not the run's: the rollback
+/// runs now, and a host that changed platform since should get the command its
+/// platform speaks today.
+#[tauri::command]
+pub fn preview_rollback(state: State<'_, AppState>, run_id: uuid::Uuid) -> Result<RollbackPlan, String> {
+    let (program_text, targets, previous_hostnames) = {
+        let history = state.fleet_history.lock_recover();
+        let run = history
+            .iter()
+            .find(|run| run.id == run_id)
+            .ok_or_else(|| "ce run n'est plus dans l'historique".to_string())?;
+        let program_text = run.program_text.clone().ok_or_else(|| {
+            "ce run n'a pas été enregistré avec son programme : impossible de savoir \
+             quelles opérations il a effectuées, donc de les annuler"
+                .to_string()
+        })?;
+        (program_text, run.targets.clone(), run.previous_hostnames.clone())
+    };
+
+    // Rollback is SSH-only for the same reason the forward adaptive run is
+    // (see `preview_adaptive_program`): the per-host evaluation needs
+    // persisted facts, which only SSH hosts carry.
+    let host_ids: Vec<HostId> = targets
+        .iter()
+        .filter_map(|target| match target {
+            FleetTarget::Ssh { host_id } => Some(*host_id),
+            _ => None,
+        })
+        .collect();
+
+    let program = adaptive::parse_program(&program_text)?;
+    // One hostname for the whole run: `set-hostname` on a fleet sets the same
+    // name everywhere, so per-host restoration would be restoring a name the
+    // program never set. Any captured name will do, and none means the
+    // operation reports itself as irreversible.
+    let previous_hostname = previous_hostnames
+        .as_ref()
+        .and_then(|names| host_ids.iter().find_map(|id| names.get(id)))
+        .cloned();
+    let inverted = adaptive::invert_program(&program, previous_hostname.as_deref());
+
+    let workspace = state.workspace.lock_recover();
+    Ok(RollbackPlan {
+        program_text: adaptive::render_program(&inverted.program),
+        groups: adaptive::preview(&workspace, &host_ids, &inverted.program),
+        unreversed: inverted
+            .unreversed
+            .into_iter()
+            .map(|u| UnreversedOperation { function: u.function, reason: u.reason.to_string() })
+            .collect(),
+    })
 }
 
 /// Translates `program_text` for a **local terminal** tab's shell — a
@@ -157,6 +240,10 @@ pub async fn run_adaptive_plan(
     run_id: String,
     intent: String,
     groups: Vec<GroupCommand>,
+    // `program_text` is the DSL source the preview came from, recorded with the
+    // run so it can be undone later — the commands in `groups` are rendered
+    // shell, and shell can't be inverted.
+    program_text: Option<String>,
 ) -> Result<(), String> {
     let mut per_host: HashMap<HostId, String> = HashMap::new();
     for group in &groups {
@@ -173,7 +260,7 @@ pub async fn run_adaptive_plan(
     // shape `FleetRun`/the frontend's per-platform breakdown already expect.
     let commands: HashMap<FleetTarget, String> =
         per_host.iter().map(|(&host_id, cmd)| (FleetTarget::Ssh { host_id }, cmd.clone())).collect();
-    execute_and_record(&app, &state, run_id, commands, intent, Some(per_host)).await
+    execute_and_record(&app, &state, run_id, commands, intent, Some(per_host), program_text).await
 }
 
 /// Creates (`snippet_id: None`) or updates an adaptive snippet — `command`
