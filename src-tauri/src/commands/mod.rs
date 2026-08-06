@@ -11,6 +11,7 @@ pub mod fleet;
 pub mod forward;
 pub mod hosts;
 pub mod interactive_auth;
+pub mod inventory;
 pub mod k8s;
 pub mod keys;
 pub mod known_hosts;

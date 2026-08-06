@@ -23,6 +23,7 @@ const FleetTab = lazy(() => import("./components/FleetTab").then((m) => ({ defau
 import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, loadPreferences, savePreferences } from "./lib/preferences";
 import { SplitPane } from "./components/SplitPane";
 import { AwsImportPanel } from "./components/AwsImportPanel";
+import { AnsibleImportPanel } from "./components/AnsibleImportPanel";
 import { ReachabilityPanel } from "./components/ReachabilityPanel";
 import { RemoteSearchPanel } from "./components/RemoteSearchPanel";
 import { AwsDatabaseImportPanel } from "./components/AwsDatabaseImportPanel";
@@ -72,6 +73,7 @@ export default function App() {
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [snippetPickerOpen, setSnippetPickerOpen] = useState(false);
   const [awsImportOpen, setAwsImportOpen] = useState(false);
+  const [ansibleImportOpen, setAnsibleImportOpen] = useState(false);
   /** Open state of the reachability panel. `sourceId` is the host it was
    * opened from — `null` when opened from the palette, which is the "does *my*
    * machine reach it" case and needs no host at all. */
@@ -507,6 +509,14 @@ export default function App() {
           key={`aws-import-${awsProfilesEpoch}`}
         />
       )}
+      {ansibleImportOpen && (
+        <AnsibleImportPanel
+          workspace={workspace}
+          onWorkspaceUpdate={refreshWorkspace}
+          onClose={() => setAnsibleImportOpen(false)}
+          onError={reportError}
+        />
+      )}
       {awsSsoOpen && (
         <AwsSsoSetupPanel
           onClose={() => { setAwsSsoOpen(null); setAwsIdentitiesEpoch((n) => n + 1); }}
@@ -607,6 +617,7 @@ export default function App() {
             onEditHost={(host) => { setEditingHost(host); setEditingGroup(null); setEditingSqlConnection(null); }}
             onNewGroup={() => { setEditingGroup({ id: null, name: "", parentId: null, icon: null, color: null }); setEditingHost(null); setEditingSqlConnection(null); }}
             onImportAws={() => setAwsImportOpen(true)}
+            onImportAnsible={() => setAnsibleImportOpen(true)}
             onProbeReachability={(host) => setReachabilityOpen({ sourceId: host.id })}
             onSearchFiles={(host) => setSearchHost(host)}
             onNewHostInGroup={(groupId) => { setEditingHost("new"); setNewHostDefaultGroupId(groupId); setEditingGroup(null); setEditingSqlConnection(null); }}

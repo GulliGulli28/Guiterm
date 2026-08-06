@@ -258,6 +258,16 @@ pub struct Host {
     /// show how stale it is.
     #[serde(default)]
     pub last_facts_at_ms: Option<u64>,
+    /// Where this host was imported from, when it was imported at all.
+    ///
+    /// Recorded so a re-import refreshes the host instead of adding a second
+    /// copy — see [`crate::ansible_inventory`] for why the inventory *name* is
+    /// the identity rather than the address. `None` for a host made by hand,
+    /// and for every EC2 import, which matches on its address instead (that
+    /// path predates this field, and changing it would duplicate every
+    /// instance already in a user's workspace).
+    #[serde(default)]
+    pub source: Option<crate::ansible_inventory::HostSource>,
 }
 
 impl Host {
@@ -284,6 +294,7 @@ impl Host {
             icon: None,
             keepalive_interval_secs: None,
             agent_forward: false,
+            source: None,
             last_facts: None,
             last_facts_at_ms: None,
         }
@@ -804,6 +815,33 @@ mod auth_method_json {
                 cert_path: None,
             }
         );
+    }
+
+    /// A host written before imports recorded their provenance has no
+    /// `source`. Same stakes as every other field added to this struct: a
+    /// `workspace.json` that fails to parse makes an existing user's hosts
+    /// disappear.
+    #[test]
+    fn a_host_written_before_provenance_still_loads() {
+        let json = r#"{"id":"11111111-2222-3333-4444-555555555555","label":"web","address":"10.0.0.1","port":22,"username":"ubuntu","auth":"agent","groupId":null,"jumpVia":[],"tags":[],"startupSnippets":[],"envVars":[]}"#;
+        let host: Host = serde_json::from_str(json).expect("les anciens hôtes doivent rester lisibles");
+        assert_eq!(host.source, None);
+        assert_eq!(host.label, "web");
+    }
+
+    /// And a host imported now round-trips its provenance — without it a
+    /// re-import would add a second copy of every machine.
+    #[test]
+    fn provenance_survives_a_round_trip_in_camel_case() {
+        let mut host = Host::new("web", "10.0.0.1", "ubuntu");
+        host.source = Some(crate::ansible_inventory::HostSource::ansible("web1.example.com"));
+
+        let json = serde_json::to_value(&host).unwrap();
+        assert_eq!(json["source"]["kind"], "ansible");
+        assert_eq!(json["source"]["id"], "web1.example.com");
+
+        let back: Host = serde_json::from_value(json).unwrap();
+        assert_eq!(back.source, host.source);
     }
 
     /// Every `workspace.json` written before certificates existed has no

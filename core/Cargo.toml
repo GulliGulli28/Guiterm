@@ -15,6 +15,16 @@ tracing-appender = "0.2"
 russh-sftp.workspace = true
 serde.workspace = true
 serde_json.workspace = true
+# `ansible_inventory`: real inventories come in both the INI-ish and the YAML
+# syntax, and hand-rolling the second is not a reasonable idea.
+#
+# This crate is marked deprecated upstream. Taken anyway because `kube-client`
+# already pulls it into this workspace's dependency graph — so it is compiled
+# either way, and a security fix would concern us through `kube` regardless.
+# The parsing surface is kept to `from_str` + `Value` walking (see
+# `ansible_inventory::parse_yaml`), so swapping it for a maintained parser
+# stays a contained change rather than a rewrite.
+serde_yaml = "0.9"
 keyring.workspace = true
 directories.workspace = true
 anyhow.workspace = true

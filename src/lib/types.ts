@@ -122,6 +122,19 @@ export interface Host {
   lastFacts?: HostFacts | null;
   /** Unix epoch milliseconds of `lastFacts`'s collection. */
   lastFactsAtMs?: number | null;
+  /** Where this host was imported from, when it was. Recorded so a re-import
+   * refreshes it instead of adding a copy — matched on `id`, which for an
+   * Ansible import is the inventory name rather than the address (the address
+   * is exactly what an inventory edits when a machine moves). Absent for a
+   * host made by hand, and for EC2 imports, which match on their address. */
+  source?: HostSource | null;
+}
+
+/** Provenance of an imported host. Not a union: an unknown `kind` read from a
+ * newer or older `workspace.json` must stay readable rather than break it. */
+export interface HostSource {
+  kind: string;
+  id: string;
 }
 
 export interface DockerContainer {
@@ -888,6 +901,42 @@ export interface FleetRun {
    * free-command run and for anything recorded before rollback existed;
    * `perHostCommands` can't stand in for it, being rendered shell. */
   programText?: string | null;
+}
+
+/** One host as an Ansible inventory describes it. */
+export interface InventoryHost {
+  /** The inventory name — the identity a re-import matches on. Not necessarily
+   * reachable: `ansible_host` overrides it. */
+  name: string;
+  address: string;
+  username: string | null;
+  port: number | null;
+  /** Every group it belongs to, parents included. Imported as tags, so
+   * `target tag: webservers` reaches them straight away. */
+  groups: string[];
+}
+
+/** An entry the parser deliberately didn't import, with the reason — listed
+ * rather than dropped, so a half-imported file doesn't look complete. */
+export interface SkippedInventoryEntry {
+  entry: string;
+  reason: string;
+}
+
+export interface Inventory {
+  hosts: InventoryHost[];
+  skipped: SkippedInventoryEntry[];
+}
+
+/** One host ticked in the import panel. */
+export interface InventorySelection {
+  name: string;
+  label: string;
+  address: string;
+  username: string;
+  port: number;
+  groupId: GroupId | null;
+  tags: string[];
 }
 
 /** What one drift check found. Three cases, never two: "we couldn't look" is

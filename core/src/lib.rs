@@ -1,4 +1,5 @@
 pub mod adaptive;
+pub mod ansible_inventory;
 pub mod aws_databases;
 pub mod aws_inventory;
 pub mod aws_sso;

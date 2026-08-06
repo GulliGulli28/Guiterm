@@ -254,6 +254,7 @@ async function runScenarios(browser) {
   await runCertificateFieldScenario(browser);
   await runRollbackScenario(browser);
   await runDriftScenario(browser);
+  await runAnsibleImportScenario(browser);
 
   await mkdir(outDir, { recursive: true });
   const screenshotPath = path.join(outDir, "e2e-smoke.png");
@@ -825,6 +826,71 @@ async function runRemoteSearchScenario(browser) {
     if (close instanceof HTMLElement) close.click();
   });
   console.log("Recherche distante : OK (panneau atteignable depuis le menu d un hôte SSH).");
+}
+
+/**
+ * The Ansible import panel opens from the Add menu, and its parser really runs.
+ *
+ * Stops before importing anything: creating hosts would write to the
+ * developer's own workspace, which this suite never does. What it covers is
+ * the entry point existing and the read command answering — the parsing itself
+ * is pinned by unit tests, and the non-duplicating import by
+ * `ansible_inventory`'s own tests.
+ *
+ * The read is asked for a path that doesn't exist, so the assertion is on the
+ * *refusal*: a missing file must come back as an error naming the path, not as
+ * an empty inventory that would look like a file with no hosts in it.
+ */
+async function runAnsibleImportScenario(browser) {
+  await browser.execute(() => {
+    const tab = Array.from(document.querySelectorAll("button"))
+      .find((b) => (b.getAttribute("title") || "") === "Hôtes");
+    if (tab instanceof HTMLElement) tab.click();
+  });
+  // Matched on a prefix, not on equality: the label carries a trailing
+  // ellipsis ("Ajouter…"), and an exact match silently found nothing — the
+  // scenario then "passed" while proving none of what it exists to prove.
+  // A missing entry point is the failure this whole scenario is about, so it
+  // throws rather than degrading to a backend-only check.
+  const openedMenu = await browser.execute(() => {
+    const add = Array.from(document.querySelectorAll("button"))
+      .find((b) => (b.textContent || "").trim().startsWith("Ajouter"));
+    if (!(add instanceof HTMLElement)) return false;
+    add.click();
+    return true;
+  });
+  if (!openedMenu) throw new Error("bouton « Ajouter… » introuvable dans le panneau Hôtes");
+
+  const clicked = await browser.execute(() => {
+    const entry = Array.from(document.querySelectorAll("button"))
+      .find((b) => b.textContent?.trim() === "Importer un inventaire Ansible");
+    if (!(entry instanceof HTMLElement)) return false;
+    entry.click();
+    return true;
+  });
+  if (!clicked) throw new Error("entrée « Importer un inventaire Ansible » absente du menu Ajouter");
+
+  await browser.waitUntil(async () => await browser.execute(() =>
+    Array.from(document.querySelectorAll("p")).some((el) => el.textContent?.trim() === "Importer un inventaire Ansible")
+  ), { timeout: 5_000, timeoutMsg: "le panneau d import d inventaire ne s est pas ouvert" });
+  await closeDialogTitled(browser, "Importer un inventaire Ansible");
+
+  const missing = await browser.execute(async () => {
+    try {
+      return { __unexpected: await window.__TAURI_INTERNALS__.invoke("read_ansible_inventory", {
+        path: "/nowhere/at/all/inventory.yml",
+      }) };
+    } catch (e) {
+      return { message: String(e) };
+    }
+  });
+  if (missing.__unexpected !== undefined) {
+    throw new Error("un fichier absent doit être refusé, pas rendu comme un inventaire vide");
+  }
+  if (!/inventory\.yml/.test(missing.message)) {
+    throw new Error(`l erreur doit nommer le fichier, reçu : ${missing.message}`);
+  }
+  console.log("Import Ansible : OK (panneau atteignable, lecture d un fichier absent refusée en nommant le chemin).");
 }
 
 /**
