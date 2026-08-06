@@ -26,7 +26,22 @@ export interface CustomIcon {
  * during the handshake, relayed by the `ssh-auth-prompt` event (see
  * `onSshAuthPrompt`). A stored password, if any, answers the first hidden
  * prompt automatically so only the second factor has to be typed. */
-export type AuthMethod = "password" | "agent" | "keyboardInteractive" | { privateKey: { path: string; keyId: KeyId | null } };
+export type AuthMethod =
+  | "password"
+  | "agent"
+  | "keyboardInteractive"
+  | {
+      privateKey: {
+        path: string;
+        keyId: KeyId | null;
+        /** An OpenSSH certificate presented alongside the key, for servers that
+         * trust a CA rather than listing keys. A *path*, re-read at every
+         * connection: certificates from a CA live hours by design, so whatever
+         * refreshes the file just works. `null` when the key authenticates on
+         * its own, which is the ordinary case. */
+        certPath: string | null;
+      };
+    };
 
 /** One question from the server during a keyboard-interactive exchange.
  * Mirrors `core::interactive_auth::PromptField`. */

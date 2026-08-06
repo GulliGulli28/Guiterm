@@ -98,6 +98,7 @@ fn main() {
             commands::hosts::add_private_key,
             commands::hosts::delete_private_key,
             commands::hosts::rename_private_key,
+            commands::keys::suggest_certificate_path,
             commands::keys::generate_private_key,
             commands::keys::get_public_key,
             commands::keys::deploy_public_key,

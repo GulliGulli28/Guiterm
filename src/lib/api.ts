@@ -65,6 +65,11 @@ export const api = {
   testProxyCommand: (command: string, address: string, port: number, username: string) =>
     invoke<ProxyProbe>("test_proxy_command", { command, address, port, username }),
 
+  /** The `<clé>-cert.pub` next to a private key, when that file exists — what
+   * the host form offers as a prefill. `null` rather than a guess otherwise. */
+  suggestCertificatePath: (keyPath: string) =>
+    invoke<string | null>("suggest_certificate_path", { keyPath }),
+
   listAwsProfiles: () => invoke<AwsProfile[]>("list_aws_profiles"),
   listAwsSsoSessions: () => invoke<AwsSsoSession[]>("list_aws_sso_sessions"),
   /** Account id → name, for profile labels. Best effort: a session whose

@@ -251,6 +251,7 @@ async function runScenarios(browser) {
   await runAwsIdentitiesPanelScenario(browser);
   await runReachabilityScenario(browser);
   await runRemoteSearchScenario(browser);
+  await runCertificateFieldScenario(browser);
 
   await mkdir(outDir, { recursive: true });
   const screenshotPath = path.join(outDir, "e2e-smoke.png");
@@ -822,6 +823,90 @@ async function runRemoteSearchScenario(browser) {
     if (close instanceof HTMLElement) close.click();
   });
   console.log("Recherche distante : OK (panneau atteignable depuis le menu d un hôte SSH).");
+}
+
+/**
+ * The certificate field exists under "Clé privée", and its prefill really
+ * reaches the backend.
+ *
+ * Nothing is saved: the form is opened for a *new* host and cancelled, so the
+ * developer's workspace is untouched. What this covers is the half the Rust
+ * tests can't — that the field is rendered at all, and only for the key method
+ * — plus one real `invoke` of `suggest_certificate_path`, which is the wiring
+ * that a unit test would have to mock away.
+ *
+ * The authentication itself is proved against a real `sshd` with a real CA in
+ * `core/tests/ssh_integration.rs`; there is no way to prove it from here
+ * without an infrastructure of someone's own.
+ */
+async function runCertificateFieldScenario(browser) {
+  await browser.execute(() => {
+    const tab = Array.from(document.querySelectorAll("button"))
+      .find((b) => (b.getAttribute("title") || "") === "Hôtes");
+    if (tab instanceof HTMLElement) tab.click();
+  });
+  const opened = await browser.execute(() => {
+    const button = Array.from(document.querySelectorAll("button"))
+      .find((b) => (b.getAttribute("title") || "").startsWith("Nouvel hôte") || b.textContent?.trim() === "Nouvel hôte");
+    if (!(button instanceof HTMLElement)) return false;
+    button.click();
+    return true;
+  });
+  if (!opened) {
+    console.log("Certificat SSH : ignoré (bouton « Nouvel hôte » introuvable).");
+    return;
+  }
+
+  await browser.waitUntil(async () => await browser.execute(() =>
+    document.querySelector('select') !== null
+  ), { timeout: 5_000, timeoutMsg: "le formulaire d hôte ne s est pas ouvert" });
+
+  // Switch the auth method to "Clé privée" through React's own event, not by
+  // assigning `.value` — a direct assignment updates the DOM without telling
+  // React, so the field below would never appear and the scenario would fail
+  // for a reason that has nothing to do with the feature.
+  const switched = await browser.execute(() => {
+    const select = Array.from(document.querySelectorAll("select"))
+      .find((s) => Array.from(s.options).some((o) => o.value === "privateKey"));
+    if (!(select instanceof HTMLSelectElement)) return false;
+    const setter = Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set;
+    setter?.call(select, "privateKey");
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  });
+  if (!switched) throw new Error("aucun sélecteur de méthode d authentification ne propose « privateKey »");
+
+  await browser.waitUntil(async () => await browser.execute(() =>
+    Array.from(document.querySelectorAll("input"))
+      .some((i) => (i.getAttribute("placeholder") || "").includes("-cert.pub"))
+  ), {
+    timeout: 5_000,
+    timeoutMsg: "le champ Certificat n apparaît pas sous la méthode « Clé privée »",
+  });
+
+  // The prefill's backend call, exercised for real. A path with no certificate
+  // beside it must answer `null` rather than inventing one — that is the whole
+  // contract, and an unregistered command would reject here instead.
+  const suggestion = await browser.execute(async () => {
+    try {
+      return {
+        value: await window.__TAURI_INTERNALS__.invoke("suggest_certificate_path", {
+          keyPath: "/nowhere/at/all/id_ed25519",
+        }),
+      };
+    } catch (e) {
+      return { __error: String(e) };
+    }
+  });
+  if (!suggestion || suggestion.__error !== undefined) {
+    throw new Error(`invoke("suggest_certificate_path") a échoué : ${JSON.stringify(suggestion)}`);
+  }
+  if (suggestion.value !== null) {
+    throw new Error(`une clé sans certificat à côté doit donner null, reçu : ${JSON.stringify(suggestion.value)}`);
+  }
+
+  await clickButtonByText(browser, "Annuler");
+  console.log("Certificat SSH : OK (champ présent sous « Clé privée », suggestion interrogée pour de vrai).");
 }
 
 /**

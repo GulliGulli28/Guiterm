@@ -76,6 +76,19 @@ pub enum AuthMethod {
         /// rather than under the host's ID.
         #[serde(default, alias = "key_id")]
         key_id: Option<KeyId>,
+        /// An OpenSSH certificate to present alongside the key, for servers
+        /// that trust a CA instead of listing keys (`TrustedUserCAKeys`).
+        ///
+        /// A **path**, deliberately, where the key itself may be stored by
+        /// content: a CA signs certificates that live hours, which is the whole
+        /// point of using one. Snapshotting the bytes would mean re-importing
+        /// every morning, whereas re-reading the file each connection means
+        /// whatever refreshes it — `ssh-keygen`, a vault agent, a login script
+        /// — just works with no action here.
+        ///
+        /// `None` is the ordinary case: the key authenticates on its own.
+        #[serde(default, alias = "cert_path")]
+        cert_path: Option<String>,
     },
     Agent,
     /// Keyboard-interactive (RFC 4256) — how servers drive MFA/OTP. The server
@@ -756,6 +769,7 @@ mod auth_method_json {
         let auth = AuthMethod::PrivateKey {
             path: "/home/u/.ssh/id_ed25519".to_string(),
             key_id: Some(KeyId::nil()),
+            cert_path: None,
         };
         let json = serde_json::to_value(&auth).unwrap();
         assert!(
@@ -784,8 +798,41 @@ mod auth_method_json {
         let parsed: AuthMethod = serde_json::from_str(json).unwrap();
         assert_eq!(
             parsed,
-            AuthMethod::PrivateKey { path: "/home/u/.ssh/id_ed25519".to_string(), key_id: None }
+            AuthMethod::PrivateKey {
+                path: "/home/u/.ssh/id_ed25519".to_string(),
+                key_id: None,
+                cert_path: None,
+            }
         );
+    }
+
+    /// Every `workspace.json` written before certificates existed has no
+    /// `certPath`. Without the `default` it wouldn't parse at all — and a
+    /// workspace that fails to load makes every host of every existing user
+    /// disappear, which is the worst failure this file can produce.
+    #[test]
+    fn a_workspace_written_before_certificates_still_loads() {
+        let json = r#"{"privateKey":{"path":"/home/u/.ssh/id_ed25519","keyId":null}}"#;
+        let parsed: AuthMethod = serde_json::from_str(json).expect("les anciens fichiers doivent rester lisibles");
+        match parsed {
+            AuthMethod::PrivateKey { cert_path, .. } => assert_eq!(cert_path, None),
+            other => panic!("variante inattendue : {other:?}"),
+        }
+    }
+
+    /// And the frontend spells it `certPath`, like every other field it sends.
+    #[test]
+    fn reads_and_writes_the_camel_cased_cert_path() {
+        let json = r#"{"privateKey":{"path":"/k","keyId":null,"certPath":"/k-cert.pub"}}"#;
+        let parsed: AuthMethod = serde_json::from_str(json).expect("doit se désérialiser");
+        match &parsed {
+            AuthMethod::PrivateKey { cert_path, .. } => {
+                assert_eq!(cert_path.as_deref(), Some("/k-cert.pub"));
+            }
+            other => panic!("variante inattendue : {other:?}"),
+        }
+        let back = serde_json::to_value(&parsed).unwrap();
+        assert_eq!(back["privateKey"]["certPath"], "/k-cert.pub");
     }
 
     /// The other variants are plain strings on the wire; renaming fields must

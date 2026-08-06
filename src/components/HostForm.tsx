@@ -7,6 +7,7 @@ import { HostIcon } from "./icons";
 import { IconPicker } from "./IconPicker";
 import { GroupTreePicker } from "./GroupTreePicker";
 import { HOST_KINDS } from "../lib/hostKinds";
+import { assertNever } from "../lib/exhaustive";
 
 interface HostFormProps {
   workspace: Workspace;
@@ -118,11 +119,30 @@ const PROXY_COMMAND_EXAMPLES: { label: string; hint: string; command: string }[]
 
 type AuthKind = "agent" | "password" | "privateKey" | "keyboardInteractive";
 
+/**
+ * Which radio/dropdown entry an existing host's auth corresponds to.
+ *
+ * Closed with `assertNever` rather than falling through to `"privateKey"`,
+ * which is what it used to do: a method added to the union without a case here
+ * would have been silently rendered as a private key, and the form would then
+ * have *saved* it as one — turning a display gap into data loss. `tsc` now
+ * refuses instead. Same shape of hole that shipped MongoDB unreachable.
+ */
 function authKindOf(auth: AuthMethod): AuthKind {
-  if (auth === "password") return "password";
-  if (auth === "agent") return "agent";
-  if (auth === "keyboardInteractive") return "keyboardInteractive";
-  return "privateKey";
+  if (typeof auth === "object") {
+    if ("privateKey" in auth) return "privateKey";
+    return assertNever(auth, "méthode d'authentification");
+  }
+  switch (auth) {
+    case "password":
+      return "password";
+    case "agent":
+      return "agent";
+    case "keyboardInteractive":
+      return "keyboardInteractive";
+    default:
+      return assertNever(auth, "méthode d'authentification");
+  }
 }
 
 function jumpChoices(workspace: Workspace, editingId: HostId | null, chain: HostId[]): Host[] {
@@ -140,6 +160,10 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
   const initialKeyAuth = host && typeof host.auth === "object" && "privateKey" in host.auth ? host.auth.privateKey : null;
   const [keyPath, setKeyPath] = useState(initialKeyAuth?.path ?? "");
   const [keyId, setKeyId] = useState<KeyId | null>(initialKeyAuth?.keyId ?? null);
+  const [certPath, setCertPath] = useState(initialKeyAuth?.certPath ?? "");
+  /** Set when the conventional `<clé>-cert.pub` was found on disk and offered,
+   * so the hint can say the field was filled in rather than typed. */
+  const [certSuggested, setCertSuggested] = useState(false);
   const [secret, setSecret] = useState("");
   const [dockerViaHostId, setDockerViaHostId] = useState<HostId | "">(host?.dockerViaHostId ?? "");
   const [jumpVia, setJumpVia] = useState<HostId[]>(host?.jumpVia ?? []);
@@ -218,6 +242,8 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
     if (!selected || typeof selected !== "string") return;
     setKeyPath(selected);
 
+    void offerCertificateFor(selected);
+
     const existing = workspace.keychain.find((k) => k.path === selected);
     if (existing) {
       setKeyId(existing.id);
@@ -243,8 +269,29 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
 
   const pickKeychainKey = (kid: string) => {
     const k = workspace.keychain.find((k) => k.id === kid);
-    if (k) { setKeyPath(k.path); setKeyId(k.id); }
+    if (k) { setKeyPath(k.path); setKeyId(k.id); void offerCertificateFor(k.path); }
     else { setKeyId(null); }
+  };
+
+  /** Fills the certificate field when `<clé>-cert.pub` is really there.
+   *
+   * Never overwrites something already typed: the convention is a good guess,
+   * not a better answer than what the user chose. Silent on failure — this is
+   * a convenience, and a machine with no certificate is the ordinary case, not
+   * an error to report. */
+  const offerCertificateFor = async (path: string) => {
+    if (certPath.trim()) return;
+    try {
+      const found = await api.suggestCertificatePath(path);
+      if (found) { setCertPath(found); setCertSuggested(true); }
+    } catch (_e) { /* rien à dire : aucun certificat n'est le cas normal */ }
+  };
+
+  const browseCertificate = async () => {
+    const selected = await open({ title: "Sélectionner un certificat SSH", multiple: false, directory: false });
+    if (!selected || typeof selected !== "string") return;
+    setCertPath(selected);
+    setCertSuggested(false);
   };
 
   const addJump = (id: string) => { if (id) setJumpVia((prev) => [...prev, id]); };
@@ -318,7 +365,7 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
     const auth: AuthMethod = kind === "rdp"
       ? "password"
       : authKind === "privateKey"
-        ? { privateKey: { path: keyPath.trim(), keyId } }
+        ? { privateKey: { path: keyPath.trim(), keyId, certPath: certPath.trim() || null } }
         // "agent" | "password" | "keyboardInteractive" map to themselves.
         : authKind;
     const keepaliveNum = Number(keepalive);
@@ -580,6 +627,32 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
                   </div>
                 </div>
               )}
+            </Field>
+            {/* An addition to the key, not a replacement for it: the private
+                key still signs, the certificate is what a CA-trusting server
+                checks. Left empty on servers that list keys, which is most. */}
+            <Field label="Certificat (optionnel)">
+              <div className="flex gap-1.5">
+                <input
+                  value={certPath}
+                  onChange={(e) => { setCertPath(e.target.value); setCertSuggested(false); }}
+                  className={`${inputClass} flex-1 font-mono`}
+                  placeholder="~/.ssh/id_ed25519-cert.pub"
+                />
+                <button
+                  type="button"
+                  onClick={browseCertificate}
+                  title="Parcourir le système de fichiers"
+                  className="shrink-0 rounded-md bg-[var(--c-bg3)] px-2.5 py-2 text-sm text-[var(--c-text-secondary)] hover:bg-white/5"
+                >
+                  📂
+                </button>
+              </div>
+              <p className="mt-1 text-[10px] leading-relaxed text-[var(--c-text-muted)]">
+                {certSuggested
+                  ? "🔎 Trouvé à côté de la clé. Relu à chaque connexion, donc un certificat renouvelé est pris en compte sans rien retoucher ici."
+                  : "Pour les serveurs qui font confiance à une autorité (CA) au lieu de lister les clés. À laisser vide sinon."}
+              </p>
             </Field>
           </>
         )}

@@ -31,6 +31,22 @@ pub struct TestSshd {
 
 impl TestSshd {
     pub fn start(name: &str, client_pubkey_path: &Path) -> Self {
+        Self::start_inner(name, Some(client_pubkey_path), None)
+    }
+
+    /// An `sshd` that trusts a CA instead of listing keys, with an **empty**
+    /// `authorized_keys`.
+    ///
+    /// The emptiness is the whole point, and is easy to get wrong: leave the
+    /// client's public key in there and the connection succeeds on the key
+    /// alone, so a certificate test would pass just as well with the
+    /// certificate code deleted. This is the only configuration in which
+    /// authenticating proves the certificate was used.
+    pub fn start_trusting_ca(name: &str, ca_pubkey_path: &Path) -> Self {
+        Self::start_inner(name, None, Some(ca_pubkey_path))
+    }
+
+    fn start_inner(name: &str, client_pubkey_path: Option<&Path>, ca_pubkey_path: Option<&Path>) -> Self {
         let dir =
             std::env::temp_dir().join(format!("guiterm-test-{name}-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -44,7 +60,19 @@ impl TestSshd {
         );
 
         let authorized_keys = dir.join("authorized_keys");
-        std::fs::copy(client_pubkey_path, &authorized_keys).unwrap();
+        match client_pubkey_path {
+            Some(path) => std::fs::copy(path, &authorized_keys).map(|_| ()).unwrap(),
+            // Created empty rather than left absent: sshd is happy either way,
+            // but an existing empty file makes "no key is trusted here"
+            // explicit to anyone reading the temp directory during a failure.
+            None => std::fs::write(&authorized_keys, "").unwrap(),
+        }
+
+        let trusted_ca = ca_pubkey_path.map(|path| {
+            let dest = dir.join("trusted_ca.pub");
+            std::fs::copy(path, &dest).unwrap();
+            dest
+        });
 
         // The port can still be taken between being reported free and `sshd`
         // binding it — by something outside this process, which no bookkeeping
@@ -64,6 +92,9 @@ impl TestSshd {
                 authorized_keys.display(),
             )
             .unwrap();
+            if let Some(ca) = &trusted_ca {
+                writeln!(config, "TrustedUserCAKeys {}", ca.display()).unwrap();
+            }
 
             let mut child = Command::new("/usr/sbin/sshd")
                 .args(["-f"])
@@ -203,6 +234,62 @@ pub fn test_host(sshd: &TestSshd, key: &ClientKey, label: &str) -> termius_core:
     host.auth = termius_core::model::AuthMethod::PrivateKey {
         path: key.private.to_string_lossy().to_string(),
         key_id: None,
+        cert_path: None,
     };
     host
+}
+
+/// A throwaway SSH certificate authority, for the `TrustedUserCAKeys` tests.
+pub struct TestCa {
+    dir: PathBuf,
+    private: PathBuf,
+    pub public: PathBuf,
+}
+
+impl TestCa {
+    pub fn generate() -> Self {
+        let dir = std::env::temp_dir().join(format!("guiterm-test-ca-{}", uuid::Uuid::new_v4()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let private = dir.join("ca");
+        run_ok(
+            Command::new("ssh-keygen")
+                .args(["-t", "ed25519", "-f"])
+                .arg(&private)
+                .args(["-N", "", "-C", "guiterm-test-ca"]),
+        );
+        let public = dir.join("ca.pub");
+        Self { dir, private, public }
+    }
+
+    /// Signs `key`, returning the path of the certificate `ssh-keygen` writes.
+    ///
+    /// `validity` is `ssh-keygen -V` syntax: `"+1h"` for a usable certificate,
+    /// an explicit past window like `"20200101000000:20200102000000"` for one
+    /// that has already expired.
+    ///
+    /// The principal is the current user, because that is the account the test
+    /// logs into — a certificate signed for anyone else is refused by sshd,
+    /// which would make an expiry test pass for the wrong reason.
+    pub fn sign(&self, key: &ClientKey, validity: &str) -> PathBuf {
+        run_ok(
+            Command::new("ssh-keygen")
+                .arg("-s")
+                .arg(&self.private)
+                .args(["-I", "guiterm-test"])
+                .args(["-n", &current_username()])
+                .args(["-V", validity])
+                .arg(&key.public),
+        );
+        // `ssh-keygen -s` writes `<pubkey minus .pub>-cert.pub`.
+        key.private.with_file_name(format!(
+            "{}-cert.pub",
+            key.private.file_name().unwrap().to_string_lossy()
+        ))
+    }
+}
+
+impl Drop for TestCa {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_dir_all(&self.dir);
+    }
 }

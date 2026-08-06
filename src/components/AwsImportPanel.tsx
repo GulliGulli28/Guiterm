@@ -146,6 +146,10 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError,
       privateKey: {
         path: fromKeychain?.path ?? keyPath.trim(),
         keyId: keyId || null,
+        // Not offered for a batch import: a certificate is per-key and
+        // short-lived, and one applied to a whole account's instances would be
+        // wrong for most of them. Set it per host afterwards if a CA is in play.
+        certPath: null,
       },
     };
   };

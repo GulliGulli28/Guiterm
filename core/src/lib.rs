@@ -34,6 +34,7 @@ pub mod sftp;
 pub mod shell;
 pub mod sql;
 pub mod ssh;
+pub mod ssh_cert;
 pub mod ssh_config;
 pub mod ssh_pool;
 pub mod store;

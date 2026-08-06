@@ -233,7 +233,7 @@ async fn authenticate(
                 .authenticate_password(host.username.clone(), password)
                 .await?
         }
-        AuthMethod::PrivateKey { path, key_id } => {
+        AuthMethod::PrivateKey { path, key_id, cert_path } => {
             let lookup_id = key_id.unwrap_or(host.id);
             let passphrase = vault::load(lookup_id, SecretKind::KeyPassphrase)?;
             // Prefer embedded key content over reading the file from disk: it lives
@@ -258,13 +258,29 @@ async fn authenticate(
                 load_secret_key(path, passphrase.as_deref())
                     .map_err(|e| anyhow::anyhow!("could not load private key '{path}': {e}"))?
             };
-            let hash_alg = handle.best_supported_rsa_hash().await?.flatten();
-            handle
-                .authenticate_publickey(
-                    host.username.clone(),
-                    PrivateKeyWithHashAlg::new(Arc::new(key), hash_alg),
-                )
-                .await?
+            // A certificate replaces the *offer*, not the key: the private key
+            // still signs, the certificate is what the server checks against
+            // its CA. So this branches on presentation only, after the key has
+            // been loaded exactly as it would be without one.
+            if let Some(cert_path) = cert_path.as_deref().map(str::trim).filter(|p| !p.is_empty()) {
+                // Read and checked before the attempt: an expired certificate
+                // is refused by the server as a bare "Permission denied", which
+                // is the one thing the user must not be left with — see
+                // `ssh_cert`'s module docs.
+                let cert = crate::ssh_cert::load(std::path::Path::new(cert_path))
+                    .map_err(|problem| anyhow::anyhow!("{}", problem.message()))?;
+                handle
+                    .authenticate_openssh_cert(host.username.clone(), Arc::new(key), cert)
+                    .await?
+            } else {
+                let hash_alg = handle.best_supported_rsa_hash().await?.flatten();
+                handle
+                    .authenticate_publickey(
+                        host.username.clone(),
+                        PrivateKeyWithHashAlg::new(Arc::new(key), hash_alg),
+                    )
+                    .await?
+            }
         }
         AuthMethod::Agent => return authenticate_with_agent(handle, host).await,
         AuthMethod::KeyboardInteractive => {

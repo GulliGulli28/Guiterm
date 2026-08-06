@@ -3,7 +3,7 @@
 //! actually negotiate SSH, authenticate and run a command over the wire.
 mod common;
 
-use common::{ClientKey, TestSshd, test_host};
+use common::{ClientKey, TestCa, TestSshd, test_host};
 use std::net::TcpListener;
 use termius_core::model::{AuthMethod, Workspace};
 use termius_core::ssh;
@@ -85,6 +85,7 @@ async fn wrong_key_is_rejected() {
     host.auth = AuthMethod::PrivateKey {
         path: wrong_key.private.to_string_lossy().to_string(),
         key_id: None,
+        cert_path: None,
     };
     let host_id = host.id;
 
@@ -99,6 +100,117 @@ async fn wrong_key_is_rejected() {
         err.to_string().to_lowercase().contains("auth"),
         "unexpected error: {err}"
     );
+}
+
+/// The case the whole feature exists for: a server that lists no key at all
+/// and trusts a CA instead.
+///
+/// `authorized_keys` is empty here (see `TestSshd::start_trusting_ca`), so this
+/// connection is impossible without the certificate — delete the certificate
+/// branch in `ssh::authenticate` and this fails, which is what makes it a proof
+/// rather than a demonstration.
+#[tokio::test]
+async fn a_certificate_signed_by_a_trusted_ca_authenticates() {
+    let key = ClientKey::generate();
+    let ca = TestCa::generate();
+    let cert = ca.sign(&key, "+1h");
+    let sshd = TestSshd::start_trusting_ca("ca-trusted", &ca.public);
+
+    let mut host = test_host(&sshd, &key, "test-cert");
+    host.auth = AuthMethod::PrivateKey {
+        path: key.private.to_string_lossy().to_string(),
+        key_id: None,
+        cert_path: Some(cert.to_string_lossy().to_string()),
+    };
+    let host_id = host.id;
+    let mut workspace = Workspace::default();
+    workspace.hosts.push(host);
+
+    assert_eq!(run_command(&workspace, host_id, "echo certifie").await.trim(), "certifie");
+}
+
+/// Same server, same key, no certificate offered — proves the previous test
+/// isn't passing through some other route. Without this, an `authorized_keys`
+/// that wasn't actually empty would go unnoticed and the certificate test would
+/// be vacuous.
+#[tokio::test]
+async fn the_same_key_without_its_certificate_is_refused() {
+    let key = ClientKey::generate();
+    let ca = TestCa::generate();
+    let sshd = TestSshd::start_trusting_ca("ca-no-cert", &ca.public);
+
+    let mut host = test_host(&sshd, &key, "test-no-cert");
+    host.auth = AuthMethod::PrivateKey {
+        path: key.private.to_string_lossy().to_string(),
+        key_id: None,
+        cert_path: None,
+    };
+    let host_id = host.id;
+    let mut workspace = Workspace::default();
+    workspace.hosts.push(host);
+
+    assert!(
+        ssh::connect(&workspace, host_id).await.is_err(),
+        "la clé seule ne doit pas ouvrir un serveur qui ne fait confiance qu'à la CA"
+    );
+}
+
+/// An expired certificate must fail with *our* diagnosis, not the server's
+/// `Permission denied`. Certificates are short-lived by design, so this is the
+/// failure a user meets routinely — and the one where a generic message costs
+/// the most time.
+#[tokio::test]
+async fn an_expired_certificate_says_so_instead_of_permission_denied() {
+    let key = ClientKey::generate();
+    let ca = TestCa::generate();
+    let cert = ca.sign(&key, "20200101000000:20200102000000");
+    let sshd = TestSshd::start_trusting_ca("ca-expired", &ca.public);
+
+    let mut host = test_host(&sshd, &key, "test-expired-cert");
+    host.auth = AuthMethod::PrivateKey {
+        path: key.private.to_string_lossy().to_string(),
+        key_id: None,
+        cert_path: Some(cert.to_string_lossy().to_string()),
+    };
+    let host_id = host.id;
+    let mut workspace = Workspace::default();
+    workspace.hosts.push(host);
+
+    let err = match ssh::connect(&workspace, host_id).await {
+        Ok(_) => panic!("un certificat expiré ne doit pas authentifier"),
+        Err(err) => err.to_string(),
+    };
+    assert!(err.contains("expiré"), "message attendu sur l'expiration, reçu : {err}");
+    assert!(
+        !err.to_lowercase().contains("permission denied"),
+        "l'erreur du serveur ne doit pas remplacer la nôtre : {err}"
+    );
+}
+
+/// A path pointing at nothing is the everyday accident here: certificates get
+/// replaced, and a refresh that failed leaves the field pointing at a file that
+/// no longer exists.
+#[tokio::test]
+async fn a_missing_certificate_file_is_named_rather_than_ignored() {
+    let key = ClientKey::generate();
+    let ca = TestCa::generate();
+    let sshd = TestSshd::start_trusting_ca("ca-missing", &ca.public);
+
+    let mut host = test_host(&sshd, &key, "test-missing-cert");
+    host.auth = AuthMethod::PrivateKey {
+        path: key.private.to_string_lossy().to_string(),
+        key_id: None,
+        cert_path: Some("/nowhere/at/all-cert.pub".to_string()),
+    };
+    let host_id = host.id;
+    let mut workspace = Workspace::default();
+    workspace.hosts.push(host);
+
+    let err = match ssh::connect(&workspace, host_id).await {
+        Ok(_) => panic!("un certificat introuvable ne doit pas retomber silencieusement sur la clé"),
+        Err(err) => err.to_string(),
+    };
+    assert!(err.contains("introuvable"), "message attendu, reçu : {err}");
 }
 
 #[tokio::test]

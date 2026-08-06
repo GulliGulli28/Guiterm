@@ -23,6 +23,21 @@ fn resolve_key_content(key: &PrivateKey) -> Result<String, String> {
     }
 }
 
+/// The certificate sitting next to `key_path`, if there is one.
+///
+/// `ssh-keygen -s` writes `<clé>-cert.pub` beside the key it signs and OpenSSH
+/// picks it up from there unprompted, so on a machine already set up for a CA
+/// the answer is nearly always the right one — which is the difference between
+/// a field the user has to know to look for and one already filled in.
+///
+/// `None` when that file isn't there: offering a path to a file that doesn't
+/// exist would look like something was found when nothing was.
+#[tauri::command]
+pub fn suggest_certificate_path(key_path: String) -> Option<String> {
+    termius_core::ssh_cert::existing_conventional_cert_path(&key_path)
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
 #[tauri::command]
 pub fn generate_private_key(
     state: State<'_, AppState>,
