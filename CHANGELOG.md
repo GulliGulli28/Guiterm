@@ -141,6 +141,23 @@ This changelog starts 2026-07-21 — for earlier versions, see
   undoable — nothing recorded which operations they performed, and guessing
   that back from the shell they ran is exactly what would undo the wrong thing.
   Their button says so instead of disappearing.
+- Fleet operations can tell you which hosts have drifted from a state you
+  describe, without changing anything. Write the same adaptive program you
+  would run — `install-package nginx` now also reads as "nginx should be
+  installed" — and press "Vérifier l'écart": each host comes back compliant,
+  drifted (with the lines that don't hold), or undetermined. The hosts that
+  drifted can then be selected in one click, so repairing is just running what
+  you already wrote — and undoing it is the rollback above.
+
+  Undetermined is a real answer, never rounded to "fine": some operations leave
+  no state to compare (updating packages, rebooting), some platforms the probe
+  doesn't speak, and reading the firewall would need privileges we don't ask
+  for — a check that failed for lack of rights would report drift that isn't
+  there. A line whose answer doesn't come back counts as undetermined too,
+  rather than sending you to repair a machine nobody could look at.
+
+  Checks run only when you ask, and every check a host needs travels in one
+  command: nothing polls your fleet in the background.
 - Redis connections can use TLS (`rediss://`), from a checkbox on the
   connection — and automatically for an imported ElastiCache group that has
   encryption in transit enabled.

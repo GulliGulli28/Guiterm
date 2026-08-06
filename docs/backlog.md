@@ -39,16 +39,20 @@ CHANGELOG.
 
 ## Ordre proposé, et pourquoi
 
-Trois vagues. La première existait pour une raison précise : des items courts
-touchant des zones déjà chaudes (AWS, flotte, exécution distante), qui se
-livrent vite et rapportent tout de suite. **Elle est terminée** — voir
-« Déjà livré » plus bas. La deuxième regroupe ce qui demande une vraie décision
-de conception. La troisième est le pivot « plan de contrôle d'infra » — chaque
-item y dépend des deux autres pour avoir du sens, et c'est là que le produit se
-différencie vraiment.
+Trois vagues à l'origine. La première (items courts sur des zones déjà chaudes)
+et l'essentiel de la troisième — le pivot « plan de contrôle » — sont
+terminées ; voir « Déjà livré ». Il reste deux items de la vague 2 et le
+journal d'activité.
 
 Rien n'oblige à suivre cet ordre : les items sont indépendants sauf mention
 explicite de dépendance.
+
+**Et une leçon, vérifiée quatre fois de suite : les « leviers » de ce fichier
+sont optimistes.** Le rollback ne dépendait pas de la vue d'activité ; la
+dérive n'avait aucune de ses deux « moitiés déjà là » ; la vue d'activité ne
+fusionne pas trois silos comparables. Chaque fois, la surprise était du même
+côté — plus de travail qu'annoncé, ou un prérequis inexistant. **Rouvrir le
+code avant de s'engager sur une taille.**
 
 ---
 
@@ -75,6 +79,12 @@ le détail est dans le CHANGELOG et dans l'historique git.
   (2026-08-06). **Sa dépendance annoncée envers la vue d'activité n'existait
   pas** : `fleet_history` portait déjà le run à annuler. Ce qui manquait
   vraiment était le texte du programme DSL, désormais enregistré sur le run.
+- **Dérive de configuration** — `core/src/drift.rs`, bouton « Vérifier
+  l'écart » en mode Langage (2026-08-06). **Ses deux « moitiés déjà là »
+  n'existaient pas non plus** : la sonde de `facts.rs` ne relève rien de ce que
+  le DSL modifie, et les conditions du DSL sont des sélecteurs d'hôtes, pas un
+  état voulu. Il a fallu écrire `adaptive::check_command`, troisième `match`
+  total sur `Operation` à côté du rendu shell et de la table d'inverses.
 
 ---
 
@@ -137,9 +147,9 @@ non-doublonnage ; en ajouter pour chaque parseur de source.
 
 ## Vague 3 — le pivot « plan de contrôle » (structurantes)
 
-La boucle du pivot est : exécuter sur une flotte (fait), voir ce qui s'écarte
-(la dérive), revenir en arrière (le rollback, fait le 2026-08-06). Il manque
-donc le milieu — plus un journal pour lire tout ça dans le temps.
+**La boucle est fermée depuis le 2026-08-06** : exécuter sur une flotte,
+voir ce qui s'en écarte, revenir en arrière. Il ne reste que le journal qui
+permettrait de lire tout ça dans le temps.
 
 ### 3. Vue d'activité unifiée — **L**
 
@@ -148,8 +158,18 @@ donc le milieu — plus un journal pour lire tout ça dans le temps.
 quand », filtrable et exportable, est la brique d'audit qui manque au
 positionnement infra.
 
-**Levier.** Les trois existent et persistent déjà (`fleet_history.json` via
-`secure_file`, cap 50 runs).
+**Levier — revérifié le 2026-08-06, et bien plus mince qu'annoncé.** Un seul
+des trois silos porte des événements datés : `fleet_history` (`FleetRun` avec
+`startedAtMs`, cibles, résultats). `command_history` est un `Vec<String>` dans
+deux fichiers globaux, **sans horodatage ni hôte** — c'est la donnée de
+l'autocomplétion ghost-text, que le module qualifie lui-même de « behavioral/
+derived ». Les enregistrements de session sont des fichiers asciicast écrits là
+où l'utilisateur a choisi, **indexés nulle part**.
+
+Cet item ne commence donc pas par une vue : il commence par **donner un
+horodatage et un hôte à `command_history`** (dont le format est déjà sur les
+disques des utilisateurs — migration ascendante obligatoire) et par **indexer
+les enregistrements**. À chiffrer en conséquence.
 
 **À écrire.** Backend : un modèle d'événement commun et un lecteur qui fusionne
 les trois sources sans les fusionner sur disque (les formats existants restent
@@ -158,30 +178,6 @@ compatibles). Frontend : un onglet avec filtres (hôte, période, type) et expor
 **Pièges.** Ne pas transformer ça en base de données. Le cap à 50 runs existe
 pour une raison ; une fusion qui charge tout en mémoire vieillira mal.
 Décider tôt de la rétention.
-
-### 4. Dérive de configuration — **L**
-
-**Valeur.** Décrire un état voulu dans le DSL adaptatif, vérifier
-périodiquement quels hôtes s'en écartent. C'est ce qui fait passer de
-« exécuter sur une flotte » à « maintenir une flotte » — le vrai
-différenciateur du pivot.
-
-**Levier.** Les deux moitiés existent : le langage de conditions
-(`core/src/adaptive.rs`) et la collecte de facts (`core/src/facts.rs`, avec
-`Host::last_facts` persistées).
-
-**À écrire.** Backend : un « état voulu » persisté, une comparaison
-facts↔attendu qui rend un écart typé, et une planification (au lancement ? à la
-demande ? périodique ?). Frontend : une vue d'écarts, et l'action « corriger »
-qui réutilise le rendu shell existant du DSL.
-
-**Pièges.** La planification est le piège : une app de bureau qui interroge
-cinquante machines en tâche de fond devient une nuisance réseau. Commencer par
-« à la demande, sur une sélection », mesurer, et ne rendre périodique que si ça
-tient.
-
-**Dépendance.** Se lit beaucoup mieux si (3) existe : une dérive détectée sans
-historique ne dit pas depuis quand.
 
 ---
 
