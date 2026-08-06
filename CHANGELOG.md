@@ -127,6 +127,20 @@ This changelog starts 2026-07-21 — for earlier versions, see
   expired (and for how long), not valid yet (a clock that disagrees with the
   one that signed it, which is a different fix), missing, or a public key given
   where a certificate was meant.
+- A fleet run written in the adaptive language can be undone, from the history:
+  "Annuler" shows what the rollback would do before it does anything — the undo
+  program in the same language you wrote, the commands each host would actually
+  run, and, first and in red, everything it will **not** put back. Undoing
+  happens in reverse order, keeping the original's conditions and `sudo`, so it
+  reaches exactly the hosts the run reached and no others. Some operations have
+  no inverse and say so rather than being quietly skipped: updating packages,
+  restarting a service, removing a directory or a user. The rollback is itself
+  recorded as a run, so it can be undone in turn.
+
+  Runs made with a free command, and runs from before this release, aren't
+  undoable — nothing recorded which operations they performed, and guessing
+  that back from the shell they ran is exactly what would undo the wrong thing.
+  Their button says so instead of disappearing.
 - Redis connections can use TLS (`rediss://`), from a checkbox on the
   connection — and automatically for an imported ElastiCache group that has
   encryption in transit enabled.

@@ -68,38 +68,19 @@ le détail est dans le CHANGELOG et dans l'historique git.
   pastille sur l'onglet Identités AWS (2026-08-05).
 - **Cible de flotte par compte / profil AWS** — condition `target profile:`
   du DSL, pastilles « Compte » dans `FleetTab.tsx` (2026-08-05).
+- **Auth par certificat SSH** — `core/src/ssh_cert.rs`, champ sous « Clé
+  privée », prouvé contre un vrai sshd avec CA locale (2026-08-06).
+- **Rollback scopé** — `adaptive::inverse` (match total sur `Operation`),
+  `preview_rollback`, bouton « Annuler » dans l'historique de flotte
+  (2026-08-06). **Sa dépendance annoncée envers la vue d'activité n'existait
+  pas** : `fleet_history` portait déjà le run à annuler. Ce qui manquait
+  vraiment était le texte du programme DSL, désormais enregistré sur le run.
 
 ---
 
 ## Vague 2 — tranches moyennes, une vraie décision de conception chacune
 
-### 1. Auth par certificat SSH — **M**
-
-**Valeur.** Lacune *protocole*, pas confort : les environnements à CA SSH
-(certificats courts signés par une autorité) sont aujourd'hui inaccessibles,
-comme l'étaient les serveurs MFA avant `interactive_auth.rs`.
-
-**Levier.** **Vérifié le 2026-08-04** : `russh` 0.61.2 expose
-`client::Handle::authenticate_openssh_cert` — ce n'est donc pas un chantier de
-fork, contrairement à ce que le backlog supposait.
-
-**À écrire.** Backend : une variante `AuthMethod::Certificate { key, cert }`
-(`core/src/model.rs`), sa branche dans `ssh::authenticate`, et la lecture du
-`.pub`/`-cert.pub` à côté de la clé — la convention OpenSSH est de le déduire
-du nom, donc le proposer par défaut et le laisser modifiable. Frontend :
-`HostForm.tsx`, et le trousseau (`KeychainPanel.tsx`) qui doit pouvoir stocker
-un certificat à côté de sa clé.
-
-**Pièges.** `AuthMethod` est une union discriminée côté TS : ajouter une
-variante sans son rendu doit devenir une erreur `tsc` (`assertNever`). Et un
-certificat expiré échoue avec un message serveur peu clair — prévoir la
-remédiation, comme pour les sessions SSO (`proxy_command::hint_for`).
-
-**Preuve.** Test d'intégration contre le `sshd` de `core/tests/`, configuré
-avec une CA locale : c'est le seul moyen de prouver l'auth par certificat, et
-`ssh_integration.rs` sait déjà démarrer un vrai sshd.
-
-### 2. Tunnel SSM sans bastion — **M/L**
+### 1. Tunnel SSM sans bastion — **M/L**
 
 **Valeur.** Aujourd'hui une base RDS/ElastiCache importée doit pointer vers un
 hôte SSH existant (`tunnel_host_id`) pour être jointe : il faut donc entretenir
@@ -126,7 +107,7 @@ par variante, pas par champ optionnel de plus (voir `docs/dev-history.md`).
 parsing de la sortie du plugin (« Port 5432 opened ») et une machine à états du
 tunnel testable sans réseau.
 
-### 3. Inventaire dynamique au-delà d'AWS — **M**
+### 2. Inventaire dynamique au-delà d'AWS — **M**
 
 **Valeur.** La moitié difficile est faite : `aws_inventory::apply_import`
 (2026-08-04) sait créer-ou-rafraîchir sans dupliquer, en ne touchant qu'à ce
@@ -156,11 +137,11 @@ non-doublonnage ; en ajouter pour chaque parseur de source.
 
 ## Vague 3 — le pivot « plan de contrôle » (structurantes)
 
-Ces trois-là forment un ensemble : un journal pour voir ce qui s'est passé, une
-dérive pour voir ce qui ne va plus, un rollback pour revenir. Livrées seules,
-chacune vaut nettement moins.
+La boucle du pivot est : exécuter sur une flotte (fait), voir ce qui s'écarte
+(la dérive), revenir en arrière (le rollback, fait le 2026-08-06). Il manque
+donc le milieu — plus un journal pour lire tout ça dans le temps.
 
-### 4. Vue d'activité unifiée — **L**
+### 3. Vue d'activité unifiée — **L**
 
 **Valeur.** `core/src/fleet_history.rs`, `core/src/command_history.rs` et
 `core/src/session_record.rs` sont trois silos. Un journal « qui a fait quoi, où,
@@ -178,7 +159,7 @@ compatibles). Frontend : un onglet avec filtres (hôte, période, type) et expor
 pour une raison ; une fusion qui charge tout en mémoire vieillira mal.
 Décider tôt de la rétention.
 
-### 5. Dérive de configuration — **L**
+### 4. Dérive de configuration — **L**
 
 **Valeur.** Décrire un état voulu dans le DSL adaptatif, vérifier
 périodiquement quels hôtes s'en écartent. C'est ce qui fait passer de
@@ -199,30 +180,8 @@ cinquante machines en tâche de fond devient une nuisance réseau. Commencer par
 « à la demande, sur une sélection », mesurer, et ne rendre périodique que si ça
 tient.
 
-**Dépendance.** Se lit beaucoup mieux si (4) existe : une dérive détectée sans
+**Dépendance.** Se lit beaucoup mieux si (3) existe : une dérive détectée sans
 historique ne dit pas depuis quand.
-
-### 6. Rollback scopé — **L**
-
-**Valeur.** La seule pièce identifiée du pivot jamais faite. **Scopé aux seules
-opérations réversibles** (fichiers, paquets), pas un undo universel — c'est la
-décision qui rend l'item réalisable.
-
-**Levier.** Les huit fonctions du DSL (`install-package`, `start-service`…)
-sont une liste fermée et testée : on peut décider pour chacune si elle a un
-inverse, et lequel.
-
-**À écrire.** Backend : l'inverse par fonction et par plateforme (table
-déterministe, comme le rendu shell), et la capture de l'état d'avant pour ce
-qui n'a pas d'inverse naturel (contenu de fichier). Frontend : dans
-l'historique de flotte, un bouton « annuler ce run » qui montre **ce qu'il fera**
-avant de le faire.
-
-**Pièges.** Ce qui n'est pas réversible doit être dit comme tel dans l'UI,
-pas silencieusement ignoré — un rollback partiel présenté comme complet est
-pire que pas de rollback.
-
-**Dépendance.** (4) pour retrouver le run à annuler.
 
 ---
 
