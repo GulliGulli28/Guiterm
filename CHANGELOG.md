@@ -117,6 +117,16 @@ This changelog starts 2026-07-21 — for earlier versions, see
   to combine them. The match is exact, so `prod` doesn't sweep in both
   `prod-admin` and `prod-readonly`, and a host reached without an AWS profile
   never matches.
+- Servers that trust a certificate authority instead of listing keys can now be
+  reached. A host using a private key takes an optional certificate alongside
+  it — filled in for you when the usual `<key>-cert.pub` sits next to the key.
+  It's held as a path and re-read at every connection, because certificates
+  from a CA are short-lived by design: whatever renews the file is enough, with
+  nothing to redo here. When one won't work, the app says which of the possible
+  reasons it is instead of relaying the server's single `Permission denied` —
+  expired (and for how long), not valid yet (a clock that disagrees with the
+  one that signed it, which is a different fix), missing, or a public key given
+  where a certificate was meant.
 - Redis connections can use TLS (`rediss://`), from a checkbox on the
   connection — and automatically for an imported ElastiCache group that has
   encryption in transit enabled.
