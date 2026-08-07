@@ -27,6 +27,12 @@ use std::time::Instant;
 pub struct SessionRecorder {
     writer: std::io::BufWriter<std::fs::File>,
     started: Instant,
+    /// Where this is being written — kept so stopping can close the matching
+    /// entry in [`crate::session_index`] without the caller having to hand the
+    /// path back. The stop command only knows a terminal session id, and
+    /// trusting the frontend to return the same path it passed at start would
+    /// make the index silently wrong the day it didn't.
+    path: std::path::PathBuf,
 }
 
 impl SessionRecorder {
@@ -52,7 +58,12 @@ impl SessionRecorder {
         });
         writeln!(writer, "{header}")?;
         writer.flush()?;
-        Ok(Self { writer, started: Instant::now() })
+        Ok(Self { writer, started: Instant::now(), path: path.to_path_buf() })
+    }
+
+    /// The file being written.
+    pub fn path(&self) -> &Path {
+        &self.path
     }
 
     /// Appends one output chunk.

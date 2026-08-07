@@ -76,6 +76,8 @@ pub(crate) fn finish_recording(app: &AppHandle, session_id: &str) {
 /// the current size — see `termius_core::session_record::SessionRecorder`.
 /// Recording is per session and opt-in: nothing is ever written to disk
 /// unless this is called.
+/// `host` is the label being recorded, or `None` for the local terminal —
+/// carried only so the recording can be found again in the activity journal.
 #[tauri::command]
 pub fn start_session_recording(
     state: State<'_, AppState>,
@@ -83,6 +85,7 @@ pub fn start_session_recording(
     path: String,
     cols: u16,
     rows: u16,
+    host: Option<String>,
 ) -> Result<(), String> {
     let slot = state
         .recorders
@@ -97,6 +100,13 @@ pub fn start_session_recording(
     let recorder = termius_core::session_record::SessionRecorder::create(std::path::Path::new(&path), cols, rows)
         .map_err(|e| format!("impossible de créer « {path} » : {e}"))?;
     *guard = Some(recorder);
+    // Indexed after the recorder exists, and never allowed to fail the call:
+    // the recording is the user's, the index is our convenience. Losing the
+    // journal entry is a worse outcome than nothing only if it takes the
+    // recording with it, which this makes impossible.
+    if let Err(e) = termius_core::session_index::record_started(&path, termius_core::command_history::now_ms(), host) {
+        eprintln!("impossible d'indexer l'enregistrement « {path} » : {e}");
+    }
     Ok(())
 }
 
@@ -108,7 +118,17 @@ pub fn stop_session_recording(state: State<'_, AppState>, session_id: String) ->
     let slot = state.recorders.lock_recover().get(&session_id).cloned();
     let recorder = slot.and_then(|s| s.lock_recover().take());
     match recorder {
-        Some(recorder) => recorder.finish().map_err(|e| format!("échec de l'écriture finale : {e}")),
+        Some(recorder) => {
+            // Read before `finish` consumes the recorder, and closed after the
+            // final write succeeds: an entry marked as cleanly stopped when the
+            // tail never reached disk would be the one lie this index tells.
+            let path = recorder.path().to_string_lossy().into_owned();
+            recorder.finish().map_err(|e| format!("échec de l'écriture finale : {e}"))?;
+            if let Err(e) = termius_core::session_index::record_stopped(&path, termius_core::command_history::now_ms()) {
+                eprintln!("impossible de clôturer l'enregistrement « {path} » dans l'index : {e}");
+            }
+            Ok(())
+        }
         None => Err("cette session n'était pas en cours d'enregistrement".to_string()),
     }
 }

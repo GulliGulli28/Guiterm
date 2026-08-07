@@ -2,6 +2,7 @@ import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react"
 import { check as checkForUpdate } from "@tauri-apps/plugin-updater";
 import { api, onSshAuthPrompt } from "./lib/api";
 import type { AwsSsoSession, GroupId, Host, HostId, SqlConnection, SshAuthPrompt, TabMeta, VaultStatus, Workspace } from "./lib/types";
+import { isHostBoundTab } from "./lib/types";
 import { Sidebar, type SidebarPanelKind } from "./components/Sidebar";
 import { HostForm } from "./components/HostForm";
 import { TabBar } from "./components/TabBar";
@@ -20,6 +21,7 @@ import { TabLoadingFallback } from "./components/TabLoadingFallback";
 const TransferTab = lazy(() => import("./components/TransferTab").then((m) => ({ default: m.TransferTab })));
 const RdpTab = lazy(() => import("./components/RdpTab").then((m) => ({ default: m.RdpTab })));
 const FleetTab = lazy(() => import("./components/FleetTab").then((m) => ({ default: m.FleetTab })));
+const ActivityTab = lazy(() => import("./components/ActivityTab").then((m) => ({ default: m.ActivityTab })));
 import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, loadPreferences, savePreferences } from "./lib/preferences";
 import { SplitPane } from "./components/SplitPane";
 import { AwsImportPanel } from "./components/AwsImportPanel";
@@ -277,7 +279,7 @@ export default function App() {
   const {
     tabs, setTabs, activeTabId, setActiveTabId,
     pendingCloseTabId, setPendingCloseTabId,
-    openTab, openLocalTerminal, openFleet, openSql, reconnectTab,
+    openTab, openLocalTerminal, openFleet, openActivity, openSql, reconnectTab,
     closeTab, requestCloseTab,
     runSnippet, runAdaptiveSnippet, exportActiveScrollback,
     activeTabRecording, startActiveRecording, stopActiveRecording,
@@ -384,6 +386,11 @@ export default function App() {
       label: "Opérations de flotte — exécuter sur plusieurs hôtes…",
       run: () => openFleet(),
     },
+    {
+      id: "activity.open",
+      label: "Activité — qui a fait quoi, où, quand…",
+      run: () => openActivity(),
+    },
   ] : [];
 
   const notifyLongCommand = useCallback((command: string, durationMs: number, where: string) => {
@@ -469,12 +476,12 @@ export default function App() {
 
   const showRightPanel = !!(editingHost || editingGroup || editingSqlConnection);
   const activeTab = tabs.find((t) => t.id === activeTabId);
-  const activeHostId = activeTab && activeTab.kind !== "local-terminal" && activeTab.kind !== "fleet" && activeTab.kind !== "sql" ? activeTab.hostId : null;
+  const activeHostId = activeTab && isHostBoundTab(activeTab) ? activeTab.hostId : null;
 
   // Resolves a tab to its host's group color tag (if the host, its group, and a
   // color are all set), so TabBar can show a small dot without knowing about hosts/groups.
   const tabColor = (tab: TabMeta): string | undefined => {
-    if (tab.kind === "local-terminal" || tab.kind === "fleet" || tab.kind === "sql") return undefined;
+    if (!isHostBoundTab(tab)) return undefined;
     const host = workspace.hosts.find((h) => h.id === tab.hostId);
     const group = host?.groupId ? workspace.groups.find((g) => g.id === host.groupId) : null;
     const accent = group?.color as UiAccent | undefined;
@@ -729,6 +736,19 @@ export default function App() {
                       <div key={tab.id} className={isActive ? "absolute inset-0 flex flex-col" : "hidden"}>
                         <Suspense fallback={<TabLoadingFallback />}>
                           <FleetTab workspace={workspace} onError={reportError} onWorkspaceUpdate={refreshWorkspace} />
+                        </Suspense>
+                      </div>
+                    );
+                  }
+                  if (tab.kind === "activity") {
+                    return (
+                      <div key={tab.id} className={isActive ? "absolute inset-0 flex flex-col" : "hidden"}>
+                        <Suspense fallback={<TabLoadingFallback />}>
+                          <ActivityTab
+                            workspace={workspace}
+                            onError={reportError}
+                            onExported={(message) => pushNotification("success", message)}
+                          />
                         </Suspense>
                       </div>
                     );

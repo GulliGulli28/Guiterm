@@ -256,6 +256,7 @@ async function runScenarios(browser) {
   await runDriftScenario(browser);
   await runAnsibleImportScenario(browser);
   await runSsmTunnelScenario(browser);
+  await runActivityScenario(browser);
 
   await mkdir(outDir, { recursive: true });
   const screenshotPath = path.join(outDir, "e2e-smoke.png");
@@ -1058,6 +1059,98 @@ async function runCertificateFieldScenario(browser) {
 
   await clickButtonByText(browser, "Annuler");
   console.log("Certificat SSH : OK (champ présent sous « Clé privée », suggestion interrogée pour de vrai).");
+}
+
+/**
+ * The activity journal, opened from the palette and read for real.
+ *
+ * This scenario runs *after* the local-terminal one above, which submits an
+ * `echo E2E_CHANNEL_…` — so by the time we get here the command history has a
+ * freshly timestamped entry, and finding it proves the whole chain: terminal →
+ * `append_local_history` → the migrated on-disk format → `list_activity` →
+ * the tab. That ordering is load-bearing; moving this call earlier makes the
+ * assertion vacuous rather than failing, which is the worse outcome.
+ */
+async function runActivityScenario(browser) {
+  await browser.keys(["Control", "k"]);
+  for (const ch of "activit") await browser.keys(ch);
+  await browser.keys("Enter");
+
+  await browser.waitUntil(async () => await browser.execute(() =>
+    Array.from(document.querySelectorAll("h2")).some((h) => h.textContent?.trim() === "Activité")
+  ), { timeout: 10_000, timeoutMsg: "l onglet Activité ne s est pas ouvert depuis la palette" });
+
+  // The command this very run typed into the local terminal, read back
+  // through the journal — not a fixture, and not a command that could have
+  // been on this machine already.
+  try {
+    await browser.waitUntil(async () => await browser.execute(() =>
+      document.body.innerText.includes("E2E_CHANNEL_")
+    ), {
+      timeout: 10_000,
+      timeoutMsg: "la commande saisie plus tôt dans ce test n apparaît pas dans le journal d activité",
+    });
+  } catch (e) {
+    // The wait alone can't say whether the backend returned nothing, returned
+    // events the tab failed to render, or rejected outright — print all three
+    // so a CI failure is diagnosable without reproducing locally.
+    const probe = await browser.execute(async () => {
+      try {
+        const events = await window.__TAURI_INTERNALS__.invoke("list_activity", { filter: {} });
+        return { count: events.length, first: events.slice(0, 3) };
+      } catch (err) {
+        return { __error: String(err) };
+      }
+    });
+    console.log("list_activity a répondu :", JSON.stringify(probe));
+    const rendered = await browser.execute(() => {
+      const heading = Array.from(document.querySelectorAll("h2")).find((h) => h.textContent?.trim() === "Activité");
+      const panel = heading?.closest("div.flex.h-full");
+      return {
+        headingFound: !!heading,
+        panelHidden: panel?.parentElement?.className ?? "<pas de parent>",
+        bodyStart: document.body.innerText.slice(0, 300),
+        panelText: (panel?.textContent ?? "").slice(0, 300),
+      };
+    });
+    console.log("état du rendu :", JSON.stringify(rendered));
+    throw e;
+  }
+
+  // The export path, exercised without a file dialog (which WebDriver can't
+  // drive): the command is what the button calls, and an unregistered one
+  // rejects here. Written to the OS temp dir, and the count is what proves it
+  // exported the *filtered* set rather than an empty one.
+  const exported = await browser.execute(async () => {
+    try {
+      const path = `${window.navigator.userAgent.includes("Windows") ? "C:\\\\Windows\\\\Temp" : "/tmp"}/guiterm-e2e-activity.csv`;
+      return { count: await window.__TAURI_INTERNALS__.invoke("export_activity", { path, format: "csv" }) };
+    } catch (e) {
+      return { __error: String(e) };
+    }
+  });
+  if (!exported || exported.__error !== undefined) {
+    throw new Error(`invoke("export_activity") a échoué : ${JSON.stringify(exported)}`);
+  }
+  if (typeof exported.count !== "number" || exported.count < 1) {
+    throw new Error(`l export doit compter au moins l évènement qu on vient de lire, reçu : ${JSON.stringify(exported)}`);
+  }
+
+  // An unknown format must be refused rather than writing something wrong to
+  // a path the user chose.
+  const refused = await browser.execute(async () => {
+    try {
+      await window.__TAURI_INTERNALS__.invoke("export_activity", { path: "/tmp/nope", format: "xlsx" });
+      return { accepted: true };
+    } catch (e) {
+      return { rejected: String(e) };
+    }
+  });
+  if (refused?.accepted) {
+    throw new Error("un format d export inconnu a été accepté");
+  }
+
+  console.log("Activité : OK (onglet ouvert depuis la palette, commande de ce test retrouvée, export réel).");
 }
 
 /**

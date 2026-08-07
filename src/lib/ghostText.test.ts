@@ -161,6 +161,24 @@ describe("createGhostTextController", () => {
     expect(env.suggestions.at(-1)).toBeNull();
   });
 
+  it("still records submitted commands when suggestions are disabled", async () => {
+    // Recording used to sit behind the same switch as the display. That made a
+    // preference named "suggestions" quietly decide whether the command
+    // history — and therefore the activity journal, which reads it — got
+    // written at all. Turning off a typing aid must not turn off an audit
+    // trail, exactly as `onCommandSubmitted` (the long-command watcher) is
+    // already outside that switch.
+    const env = makeEnv({ history: [], enabled: false });
+    const ctrl = createGhostTextController(env.deps);
+    await flush();
+
+    type(ctrl, "git status");
+    ctrl.handleOnData("\r");
+
+    expect(env.appendHistory).toHaveBeenCalledWith("git status");
+    expect(env.suggestions.at(-1) ?? null).toBeNull();
+  });
+
   it("returns no suggestion when the terminal's .xterm-rows isn't mounted yet (metrics unmeasurable)", async () => {
     const env = makeEnv({ history: ["git status"], hasRows: false, term: makeFakeTerm({ cursorX: 5 }) });
     const ctrl = createGhostTextController(env.deps);

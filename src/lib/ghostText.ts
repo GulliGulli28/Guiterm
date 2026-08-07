@@ -119,15 +119,22 @@ export function createGhostTextController(deps: GhostTextDeps): GhostTextControl
       // Shadowing the line happens even when suggestions are switched off:
       // `onCommandSubmitted` feeds the long-command watcher, which has nothing
       // to do with ghost text and must not silently stop working because of a
-      // cosmetic preference. Only the suggestion side below is gated.
+      // cosmetic preference. Only the *display* side below is gated.
       const { next, submitted } = applyInput(buffer, data);
       buffer = next;
       for (const cmd of submitted) onCommandSubmitted?.(cmd);
-      if (!isEnabled()) return;
+      // Recording is on the same footing, and used not to be: it sat behind
+      // `isEnabled()`, so turning off a typing aid also turned off the command
+      // history — and, once the activity journal started reading that history,
+      // silently emptied the journal too. Nothing named "suggestions" should
+      // decide whether an audit trail gets written. Keeping the in-memory copy
+      // current costs nothing either, and means re-enabling suggestions
+      // mid-session finds an up-to-date list.
       for (const cmd of submitted) {
         history = [...history.filter((entry) => entry !== cmd), cmd];
         appendHistory(cmd).catch(() => {});
       }
+      if (!isEnabled()) return;
       // Hide immediately on empty/desynced buffers (no real cursor position
       // needed for that); showing a suggestion still waits for the real echo.
       if (next.desynced || next.text.length === 0) setSuggestion(null);

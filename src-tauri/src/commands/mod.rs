@@ -1,3 +1,4 @@
+pub mod activity;
 pub mod adaptive;
 pub mod aws;
 pub mod aws_sso;

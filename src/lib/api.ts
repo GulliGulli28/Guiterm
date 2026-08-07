@@ -1,6 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AuthMethod, AwsCallerIdentity, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSessionAlert, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, AwsSsoSessionStatus, CollectionInfo, ColumnInfo, CollectFactsResult, ComposeResult, DbTunnel, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostDrift, HostId, HostKind, ImportSelection, Inventory, InventorySelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, ReachabilityOutcome, RedisKeyDetail, RemoteSearchMode, RemoteSearchOutcome, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, RollbackPlan, ScanPage, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SshAuthPrompt, SshConfigHost, SsmProbe, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
+import type { ActivityEvent, ActivityFilter, AuthMethod, AwsCallerIdentity, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSessionAlert, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, AwsSsoSessionStatus, CollectionInfo, ColumnInfo, CollectFactsResult, ComposeResult, DbTunnel, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostDrift, HostId, HostKind, ImportSelection, Inventory, InventorySelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, ReachabilityOutcome, RedisKeyDetail, RemoteSearchMode, RemoteSearchOutcome, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, RollbackPlan, ScanPage, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SshAuthPrompt, SshConfigHost, SsmProbe, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
 
 /** Mirrors the 12-byte little-endian header `commands::rdp_view::connect_rdp_view`
  * writes ahead of each frame's raw RGBA8 pixels (see its doc comment for why
@@ -344,8 +344,10 @@ export const api = {
    * still holds, this records every byte as it arrives, with timing, and
    * survives both scrollback overflow and a crash. Only output is recorded,
    * never keystrokes — see `termius_core::session_record`. */
-  startSessionRecording: (sessionId: string, path: string, cols: number, rows: number) =>
-    invoke<void>("start_session_recording", { sessionId, path, cols, rows }),
+  /** `host` is the label being recorded, `null` for the local terminal — kept
+   * only so the recording is findable again in the activity journal. */
+  startSessionRecording: (sessionId: string, path: string, cols: number, rows: number, host: string | null) =>
+    invoke<void>("start_session_recording", { sessionId, path, cols, rows, host }),
   stopSessionRecording: (sessionId: string) => invoke<void>("stop_session_recording", { sessionId }),
   recordingSessionIds: () => invoke<string[]>("recording_session_ids"),
   resizeTerminal: (sessionId: string, cols: number, rows: number) => invoke<void>("resize_terminal", { sessionId, cols, rows }),
@@ -364,7 +366,19 @@ export const api = {
   getLocalHistory: () => invoke<string[]>("get_local_history"),
   appendLocalHistory: (command: string) => invoke<void>("append_local_history", { command }),
   getSshHistory: () => invoke<string[]>("get_ssh_history"),
-  appendSshHistory: (command: string) => invoke<void>("append_ssh_history", { command }),
+  /** `host` is the label the command ran on, recorded for the activity
+   * journal. Ghost-text never sees it — `getSshHistory` still returns plain
+   * strings, which is what kept the suggestion engine untouched. */
+  appendSshHistory: (command: string, host: string | null = null) =>
+    invoke<void>("append_ssh_history", { command, host }),
+
+  /** The merged activity timeline, most recent first. An omitted filter means
+   * everything. */
+  listActivity: (filter?: ActivityFilter) => invoke<ActivityEvent[]>("list_activity", { filter }),
+  /** Writes the *filtered* timeline to `path`. Returns how many events were
+   * written. */
+  exportActivity: (path: string, format: "csv" | "json", filter?: ActivityFilter) =>
+    invoke<number>("export_activity", { path, format, filter }),
 
   openPane: (source: PaneSource) => invoke<PaneOpened>("open_pane", { source }),
   closePane: (paneId: string) => invoke<void>("close_pane", { paneId }),

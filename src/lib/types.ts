@@ -846,7 +846,51 @@ export type TabMeta =
     }
   | { id: string; kind: "local-terminal"; label: string; initialCommand?: string; shell?: string | null; status?: "connected" | "placeholder" }
   | { id: string; kind: "fleet"; label: string; status?: "connected" | "placeholder" }
+  | { id: string; kind: "activity"; label: string; status?: "connected" | "placeholder" }
   | { id: string; kind: "sql"; label: string; sqlConnectionId: SqlConnectionId; status?: "connected" | "placeholder" };
+
+/** Tabs bound to a saved host — the ones carrying a `hostId`.
+ *
+ * Written as the list of kinds that *have* a host, not as negations of the
+ * ones that don't. Three call sites used to spell
+ * `kind !== "local-terminal" && kind !== "fleet" && kind !== "sql"`, so every
+ * new global tab meant finding all three and adding a fourth negation — miss
+ * one and it reads `tab.hostId` off a tab that has none. This way a new global
+ * tab needs no change here at all. */
+export function isHostBoundTab(tab: TabMeta): tab is Extract<TabMeta, { hostId: HostId }> {
+  return tab.kind === "terminal" || tab.kind === "transfer" || tab.kind === "rdp-view";
+}
+
+/** Which trail an activity event came from. Mirrors
+ * `termius_core::activity::ActivityKind`. */
+export type ActivityKind = "fleetRun" | "command" | "recording";
+
+/** One entry in the unified activity timeline. Mirrors
+ * `termius_core::activity::ActivityEvent` — a flat shape on purpose: the
+ * table, the filters and the export all want the same columns. */
+export interface ActivityEvent {
+  kind: ActivityKind;
+  /** Unix epoch milliseconds. `null` for command entries migrated from the
+   * format that predates timestamps — they genuinely have no date, and the UI
+   * says "date inconnue" rather than placing them at the epoch. */
+  atMs: number | null;
+  summary: string;
+  target: string;
+  hostIds: HostId[];
+  detail: string;
+  /** A failed fleet run, or a recording whose file has gone. */
+  failed: boolean;
+}
+
+/** What to include in the timeline. Every field optional: an omitted filter is
+ * "everything", which is what the tab opens on. */
+export interface ActivityFilter {
+  kinds?: ActivityKind[];
+  sinceMs?: number | null;
+  untilMs?: number | null;
+  hostId?: HostId | null;
+  search?: string | null;
+}
 
 /** A single fleet run target — an SSH host, a specific Docker exec
  * container, a specific K8s exec pod/container, or the local machine.

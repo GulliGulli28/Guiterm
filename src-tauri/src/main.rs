@@ -152,6 +152,8 @@ fn main() {
             commands::terminal::write_local_terminal,
             commands::terminal::resize_local_terminal,
             commands::terminal::close_local_terminal,
+            commands::activity::list_activity,
+            commands::activity::export_activity,
             commands::command_history::get_local_history,
             commands::command_history::append_local_history,
             commands::command_history::get_ssh_history,

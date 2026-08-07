@@ -1,3 +1,4 @@
+pub mod activity;
 pub mod adaptive;
 pub mod ansible_inventory;
 pub mod aws_databases;
@@ -32,6 +33,7 @@ pub mod remote_edit;
 pub mod remote_search;
 pub mod remote_shell_pane;
 pub mod secure_file;
+pub mod session_index;
 pub mod session_record;
 pub mod sftp;
 pub mod shell;

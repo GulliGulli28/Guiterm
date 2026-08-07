@@ -3,6 +3,7 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { api } from "../lib/api";
 import { runOnTerminalHandle } from "../lib/runOnTerminalHandle";
 import type { Host, HostId, SqlConnection, TabMeta, Workspace } from "../lib/types";
+import { isHostBoundTab } from "../lib/types";
 import type { AppPreferences } from "../lib/preferences";
 import type { NotificationKind } from "../lib/notifications";
 import { loadTabs, saveTabs } from "../lib/tabPersistence";
@@ -52,35 +53,55 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
   // Only one Fleet tab makes sense at a time (it isn't host-scoped like a
   // terminal/transfer tab) — focus the existing one instead of piling up
   // duplicates when opened repeatedly from the toolbar button.
+  //
+  // **The id is minted and the tab activated outside the `setTabs` updater**,
+  // like `openTab`/`openLocalTerminal` above. These three used to do both
+  // *inside* it, which is a side effect in a function React treats as pure:
+  // StrictMode invokes it twice, so `nextTabId++` ran twice and
+  // `setActiveTabId` was called with an id that wasn't the one kept in state.
+  // The tab appeared in the bar and stayed hidden, because `isActive` was
+  // false for every tab. Only visible in dev builds (StrictMode is a
+  // development-only behaviour), which is why it survived until an E2E
+  // scenario opened one of these tabs from the palette.
   const openFleet = useCallback(() => {
-    setTabs((prev) => {
-      const existing = prev.find((t) => t.kind === "fleet");
-      if (existing) {
-        setActiveTabId(existing.id);
-        return prev;
-      }
-      const id = `tab-${nextTabId++}`;
-      setActiveTabId(id);
-      return [...prev, { id, kind: "fleet", label: "Opérations de flotte" }];
-    });
-  }, []);
+    const existing = tabs.find((t) => t.kind === "fleet");
+    if (existing) {
+      setActiveTabId(existing.id);
+      return;
+    }
+    const id = `tab-${nextTabId++}`;
+    setTabs((prev) => [...prev, { id, kind: "fleet", label: "Opérations de flotte" }]);
+    setActiveTabId(id);
+  }, [tabs]);
+
+  /** Same single-tab rule as `openFleet`, for the same reason: the journal is
+   * global, not scoped to anything, so a second one would show the same thing
+   * twice. */
+  const openActivity = useCallback(() => {
+    const existing = tabs.find((t) => t.kind === "activity");
+    if (existing) {
+      setActiveTabId(existing.id);
+      return;
+    }
+    const id = `tab-${nextTabId++}`;
+    setTabs((prev) => [...prev, { id, kind: "activity", label: "Activité" }]);
+    setActiveTabId(id);
+  }, [tabs]);
 
   // One tab per SQL connection — reopening an already-open connection just
   // focuses it, same idea as `openFleet`'s single-tab dedup (there, a global
   // singleton; here, keyed per connection so different connections can each
   // have their own tab).
   const openSql = useCallback((conn: SqlConnection) => {
-    setTabs((prev) => {
-      const existing = prev.find((t) => t.kind === "sql" && t.sqlConnectionId === conn.id);
-      if (existing) {
-        setActiveTabId(existing.id);
-        return prev;
-      }
-      const id = `tab-${nextTabId++}`;
-      setActiveTabId(id);
-      return [...prev, { id, kind: "sql", label: conn.label, sqlConnectionId: conn.id }];
-    });
-  }, []);
+    const existing = tabs.find((t) => t.kind === "sql" && t.sqlConnectionId === conn.id);
+    if (existing) {
+      setActiveTabId(existing.id);
+      return;
+    }
+    const id = `tab-${nextTabId++}`;
+    setTabs((prev) => [...prev, { id, kind: "sql", label: conn.label, sqlConnectionId: conn.id }]);
+    setActiveTabId(id);
+  }, [tabs]);
 
   const reconnectTab = useCallback((id: string) => {
     setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, status: "connected" } : t)));
@@ -288,12 +309,18 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
       filters: [{ name: "Enregistrement asciicast", extensions: ["cast"] }],
     }).catch(() => null);
     if (!path) return;
+    // The host's own label, not the tab's: a second tab on the same host is
+    // labelled "web-01 (2)", and the activity journal would then list two
+    // hosts that don't exist. `null` for a local terminal, which the journal
+    // renders as "cette machine".
+    const tab = tabs.find((t) => t.id === activeTabId);
+    const host = tab && isHostBoundTab(tab) ? (workspace?.hosts.find((h) => h.id === tab.hostId)?.label ?? null) : null;
     try {
-      await api.startSessionRecording(target.sessionId, path, target.cols, target.rows);
+      await api.startSessionRecording(target.sessionId, path, target.cols, target.rows, host);
       refreshRecordings();
       pushNotification("success", `Enregistrement en cours vers ${path}`);
     } catch (e) { reportError(String(e)); }
-  }, [activeTabId, tabs, terminalRefs, pushNotification, reportError, refreshRecordings]);
+  }, [activeTabId, tabs, workspace, terminalRefs, pushNotification, reportError, refreshRecordings]);
 
   const stopActiveRecording = useCallback(async () => {
     if (!activeTabId) return;
@@ -309,7 +336,7 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
   return {
     tabs, setTabs, activeTabId, setActiveTabId,
     pendingCloseTabId, setPendingCloseTabId,
-    openTab, openLocalTerminal, openFleet, openSql, reconnectTab,
+    openTab, openLocalTerminal, openFleet, openActivity, openSql, reconnectTab,
     closeTab, requestCloseTab,
     activeTabRecording, startActiveRecording, stopActiveRecording,
     runSnippet, runAdaptiveSnippet, exportActiveScrollback,

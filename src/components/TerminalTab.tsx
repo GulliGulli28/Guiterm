@@ -190,7 +190,10 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
         if (id) api.writeTerminal(id, new TextEncoder().encode(data));
       },
       getHistory: api.getSshHistory,
-      appendHistory: api.appendSshHistory,
+      // The host travels with the command purely for the activity journal —
+      // ghost-text still reads back a plain list of strings, which is what
+      // kept its own code and tests untouched by that feature.
+      appendHistory: (command) => api.appendSshHistory(command, host.label),
       setSuggestion,
       onCommandSubmitted: (command) => longCommand.submit(command, Date.now()),
     });

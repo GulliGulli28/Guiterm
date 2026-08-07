@@ -97,10 +97,13 @@ pub struct AppState {
     pub mongo_sessions: Mutex<HashMap<String, MongoSession>>,
     /// One cancellation flag per in-flight `upload_file`/`download_file` transfer, keyed by transfer id.
     pub transfers: Mutex<HashMap<String, Arc<AtomicBool>>>,
-    /// Command history for local-terminal ghost-text suggestions, most recent last.
-    pub local_history: Mutex<Vec<String>>,
-    /// Command history for SSH-terminal ghost-text suggestions, shared across all hosts, most recent last.
-    pub ssh_history: Mutex<Vec<String>>,
+    /// Command history for local-terminal ghost-text suggestions, most recent
+    /// last. Entries carry a timestamp for the activity journal; ghost-text
+    /// only ever sees `command_history::commands(...)`.
+    pub local_history: Mutex<Vec<termius_core::command_history::CommandEntry>>,
+    /// Same, for SSH terminals — one list shared across all hosts (each entry
+    /// records the host of its most recent use).
+    pub ssh_history: Mutex<Vec<termius_core::command_history::CommandEntry>>,
     /// Past fleet runs (audit trail), newest first — persisted to `fleet_history.json`.
     pub fleet_history: Mutex<Vec<termius_core::fleet_history::FleetRun>>,
     /// In-flight keyboard-interactive (MFA) prompts, keyed by the id sent to
