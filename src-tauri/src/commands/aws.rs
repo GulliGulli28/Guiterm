@@ -12,7 +12,7 @@ use termius_core::aws_inventory::{
     self, AwsCliError, AwsImportSelection, AwsInstance, AwsProfile, AwsSsoSession, CallerIdentity,
 };
 use termius_core::model::{
-    AuthMethod, EngineConfig, HostId, MongoConfig, ServerConfig, SqlConnection, SqlEngine,
+    AuthMethod, DbTunnel, EngineConfig, MongoConfig, ServerConfig, SqlConnection, SqlEngine,
     Workspace,
 };
 use termius_core::store;
@@ -179,16 +179,17 @@ pub async fn discover_aws_databases(
 
 /// Creates SQL connections from discovered databases.
 ///
-/// `tunnel_host_id` applies to all of them: a managed database normally lives
-/// in a private subnet with no route from this machine, so the realistic shape
-/// is "reach it through a host I already have" — usually an EC2 instance
-/// imported by `import_aws_instances`. `None` stays possible for the
+/// `tunnel` applies to all of them: a managed database normally lives in a
+/// private subnet with no route from this machine, so the realistic shape is
+/// "reach it through something I already have" — an EC2 instance imported by
+/// `import_aws_instances` (`SshHost`), or that same instance without needing
+/// an SSH server on it at all (`Ssm`). `Direct` stays possible for the
 /// publicly-reachable case.
 #[tauri::command]
 pub fn import_aws_databases(
     state: State<'_, AppState>,
     selections: Vec<AwsDatabaseSelection>,
-    tunnel_host_id: Option<HostId>,
+    tunnel: DbTunnel,
     password: Option<String>,
 ) -> Result<Workspace, String> {
     let mut workspace = state.workspace.lock_recover();
@@ -206,7 +207,7 @@ pub fn import_aws_databases(
                     selection.address, selection.port
                 ),
                 username: selection.username,
-                tunnel_host_id,
+                tunnel: tunnel.clone(),
                 tls: selection.tls,
                 tls_ca_file: None,
                 // Never set here: see `MongoConfig::tls_insecure`. An import
@@ -216,7 +217,7 @@ pub fn import_aws_databases(
             }),
             engine => {
                 let server = ServerConfig {
-                    tunnel_host_id,
+                    tunnel: tunnel.clone(),
                     address: selection.address,
                     port: selection.port,
                     username: selection.username,

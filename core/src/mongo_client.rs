@@ -41,9 +41,8 @@
 //! "Données" tab (empty filter) and the "Requête" tab (user-typed filter),
 //! exactly like `core::sql::execute_query` backs both SQL's "Data" and
 //! "Query" tabs.
-use crate::model::{EngineConfig, PortForward, PortForwardKind, SqlConnection, Workspace};
-use crate::port_forward::{self, ActiveForward};
-use crate::ssh_pool::{self, SshLease};
+use crate::db_tunnel::{self, OpenTunnel};
+use crate::model::{EngineConfig, SqlConnection, Workspace};
 use crate::vault::{self, SecretKind};
 use bson::{Bson, Document};
 use futures_util::TryStreamExt;
@@ -69,7 +68,7 @@ pub struct MongoHandle(mongodb::Client);
 /// has no `close()`/`shutdown()` of its own to await; dropping it is enough.
 pub struct MongoSession {
     client: mongodb::Client,
-    tunnel: Option<(SshLease, ActiveForward)>,
+    tunnel: OpenTunnel,
 }
 
 impl MongoSession {
@@ -78,9 +77,7 @@ impl MongoSession {
     }
 
     pub async fn close(self) -> anyhow::Result<()> {
-        if let Some((connection, active)) = self.tunnel {
-            active.stop(&connection).await;
-        }
+        db_tunnel::close(self.tunnel).await;
         Ok(())
     }
 }
@@ -120,63 +117,52 @@ pub async fn connect(workspace: &Workspace, conn: &SqlConnection) -> anyhow::Res
     let raw_uri = mongo.connection_string.clone();
     let password = vault::load(conn.id, SecretKind::SqlPassword)?;
 
-    let (uri, tunnel) = match mongo.tunnel_host_id {
-        None => match url::Url::parse(&raw_uri) {
+    let (uri, tunnel) = if mongo.tunnel.is_direct() {
+        match url::Url::parse(&raw_uri) {
             Ok(mut url) => {
                 inject_credentials(&mut url, &mongo.username, password.as_deref());
-                (url.to_string(), None)
+                (url.to_string(), OpenTunnel::None)
             }
             // Doesn't parse as a standard URL — most likely a comma-joined
             // multi-host string (the one shape this doesn't accept, see this
             // module's doc comment). Used as-is only if there's no
             // credential to inject; otherwise there's no safe place to put
             // it without risking corrupting a string we can't parse.
-            Err(_) if mongo.username.is_empty() => (raw_uri, None),
+            Err(_) if mongo.username.is_empty() => (raw_uri, OpenTunnel::None),
             Err(_) => anyhow::bail!(
                 "impossible d'insérer les identifiants dans cette chaîne de connexion (format non reconnu) — inclure le nom d'utilisateur et le mot de passe directement dedans"
             ),
-        },
-        Some(host_id) => {
-            let mut url = url::Url::parse(&raw_uri)
-                .map_err(|_| anyhow::anyhow!("tunnel SSH : une chaîne de connexion mono-hôte est attendue (mongodb://hôte:port/...)"))?;
-            if url.scheme() != "mongodb" {
-                anyhow::bail!("le tunnel SSH ne s'applique qu'aux chaînes mongodb:// mono-hôte, pas mongodb+srv:// ni une liste d'hôtes");
-            }
-            let dest_host = url.host_str().ok_or_else(|| anyhow::anyhow!("hôte manquant dans la chaîne de connexion"))?.to_string();
-            let dest_port = url.port().unwrap_or(27017);
-
-            let connection = ssh_pool::acquire(workspace, host_id).await?;
-            let forward = PortForward {
-                id: uuid::Uuid::new_v4(),
-                host_id,
-                kind: PortForwardKind::Local,
-                bind_address: "127.0.0.1".to_string(),
-                bind_port: 0,
-                dest_address: dest_host,
-                dest_port,
-            };
-            let active = port_forward::start(connection.connection(), forward).await?;
-            let bound = active
-                .bound_addr()
-                .ok_or_else(|| anyhow::anyhow!("le tunnel SSH n'a pas pu s'ouvrir"))?;
-
-            url.set_host(Some("127.0.0.1")).map_err(|_| anyhow::anyhow!("adresse de tunnel invalide"))?;
-            url.set_port(Some(bound.port())).map_err(|_| anyhow::anyhow!("port de tunnel invalide"))?;
-            inject_credentials(&mut url, &mongo.username, password.as_deref());
-            (url.to_string(), Some((connection, active)))
         }
+    } else {
+        // The single-host restriction is a property of forwarding one TCP
+        // port, not of SSH — so it applies to an SSM tunnel identically, and
+        // the message says "tunnel" rather than naming a mechanism.
+        let mut url = url::Url::parse(&raw_uri)
+            .map_err(|_| anyhow::anyhow!("tunnel : une chaîne de connexion mono-hôte est attendue (mongodb://hôte:port/...)"))?;
+        if url.scheme() != "mongodb" {
+            anyhow::bail!("un tunnel ne s'applique qu'aux chaînes mongodb:// mono-hôte, pas mongodb+srv:// ni une liste d'hôtes");
+        }
+        let dest_host = url.host_str().ok_or_else(|| anyhow::anyhow!("hôte manquant dans la chaîne de connexion"))?.to_string();
+        let dest_port = url.port().unwrap_or(27017);
+
+        let dialled = db_tunnel::open(workspace, &mongo.tunnel, &dest_host, dest_port).await?;
+        url.set_host(Some(&dialled.host)).map_err(|_| anyhow::anyhow!("adresse de tunnel invalide"))?;
+        url.set_port(Some(dialled.port)).map_err(|_| anyhow::anyhow!("port de tunnel invalide"))?;
+        inject_credentials(&mut url, &mongo.username, password.as_deref());
+        (url.to_string(), dialled.tunnel)
     };
 
     // Refused up front rather than left to fail as an opaque TLS error: the
     // driver would dial `127.0.0.1` and reject a certificate issued for the
     // real endpoint, and "certificate not valid for name" says nothing about
     // the tunnel being the cause. See `MongoConfig::tls_insecure`.
-    if mongo.tls && tunnel.is_some() && !mongo.tls_insecure {
-        if let Some((connection, active)) = tunnel {
-            active.stop(&connection).await;
-        }
+    //
+    // This bites hardest on DocumentDB, which is TLS-only *and* never
+    // publicly reachable — i.e. exactly the deployment an SSM tunnel is for.
+    if mongo.tls && !mongo.tunnel.is_direct() && !mongo.tls_insecure {
+        db_tunnel::close(tunnel).await;
         anyhow::bail!(
-            "TLS à travers un tunnel SSH : le certificat du serveur ne peut pas correspondre à \
+            "TLS à travers un tunnel : le certificat du serveur ne peut pas correspondre à \
              127.0.0.1, l'adresse locale du tunnel. Cocher « ne pas vérifier le certificat » sur \
              cette connexion, ou se connecter sans tunnel."
         );
@@ -192,7 +178,8 @@ pub async fn connect(workspace: &Workspace, conn: &SqlConnection) -> anyhow::Res
             // Through a tunnel the URI now says `127.0.0.1`, which no server
             // certificate will ever carry — the name the certificate is issued
             // for is the one on the far side of the forward. Host *identity*
-            // here is established by SSH (we chose the host, and the forward
+            // here is established by the tunnel itself (by SSH, or by IAM and
+            // the SSM agent: either way we chose the far end and the forward
             // goes where we told it), so what TLS still has to prove is the
             // certificate chain, which stays verified. Only the name check is
             // dropped, and only when tunnelling.
@@ -211,10 +198,10 @@ pub async fn connect(workspace: &Workspace, conn: &SqlConnection) -> anyhow::Res
             // The client never came up — nothing to close, but the tunnel
             // (if any) is already live and must still be torn down here,
             // since there's no `MongoSession` for the caller to `close()`.
-            if let Some((connection, active)) = tunnel {
-                active.stop(&connection).await;
-            }
-            return Err(e.into());
+            // Asked what really failed first: see `sql::connect`.
+            let explained = tunnel.explain_failure(&e.to_string()).await;
+            db_tunnel::close(tunnel).await;
+            return Err(anyhow::anyhow!(explained));
         }
     };
 

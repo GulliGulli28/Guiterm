@@ -37,7 +37,7 @@ async fn main() -> anyhow::Result<()> {
     let conn = SqlConnection::new(
         "sql_wsl_smoke (temporary)",
         termius_core::model::EngineConfig::Postgres(termius_core::model::ServerConfig {
-            tunnel_host_id: Some(host.id),
+            tunnel: termius_core::model::DbTunnel::SshHost { host_id: host.id },
             address: "127.0.0.1".to_string(),
             port: 5432,
             username: "postgres".to_string(),

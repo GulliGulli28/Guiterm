@@ -1,3 +1,5 @@
+import { assertNever } from "./exhaustive";
+
 export type HostId = string;
 export type GroupId = string;
 export type SnippetId = string;
@@ -265,15 +267,36 @@ export function sqlEngineLabel(engine: SqlEngine): string {
  * directly reachable from this machine — `null`/absent connects directly
  * (`address`/`port` for MySQL/PostgreSQL/Redis, a local file for SQLite, a
  * full URI in `connectionString` for MongoDB). */
+/** How a database connection reaches its server when this machine can't dial
+ * it directly. Mirrors `core::model::DbTunnel` — a discriminated union rather
+ * than a set of optional fields, so "through an SSH host *and* through SSM"
+ * has no spelling. Narrow on `kind`, and close the dispatch with `assertNever`
+ * so a fourth mode can't be added without deciding how it renders. */
+export type DbTunnel =
+  | { kind: "direct" }
+  /** Through an ephemeral SSH local port forward via that saved host — for a
+   * database only reachable from there (bound to loopback server-side, a
+   * private subnet…), not necessarily "the database runs on that host". */
+  | { kind: "sshHost"; hostId: HostId }
+  /** Through AWS Session Manager port forwarding. Removes the *bastion*, not
+   * the relay: `target` is still an SSM-registered instance the traffic goes
+   * through, but it needs no sshd, no key, and no inbound port. */
+  | { kind: "ssm"; target: string; profile?: string | null; region?: string | null };
+
+/** The tunnel an older `workspace.json` spelled as `tunnelHostId`, for the one
+ * place that still has to read it. The backend migrates on load (see
+ * `core::model::ServerConfigWire`), so this only appears on data that never
+ * went through it. */
+export const DIRECT_TUNNEL: DbTunnel = { kind: "direct" };
+
 /** How to reach a database server that speaks a discrete
  * address/port/credentials protocol — MySQL, PostgreSQL and Redis all do.
  * Mirrors `core::model::ServerConfig`. */
 export interface SqlServerConfig {
-  /** Unset: connect directly to `address`/`port`. Set: reach them through an
-   * ephemeral SSH local port forward via that saved host first — for a
-   * database only reachable from there (bound to loopback server-side, a
-   * private subnet…), not necessarily "the database runs on that host". */
-  tunnelHostId?: HostId | null;
+  /** How to get to `address`/`port` at all. Absent on connections saved before
+   * this field existed — the backend migrates those, so an absent value here
+   * means the same thing as `{ kind: "direct" }`. */
+  tunnel?: DbTunnel | null;
   address: string;
   port: number;
   /** For `redis`, an optional Redis 6+ ACL username — empty means legacy
@@ -312,8 +335,9 @@ export type SqlEngineConfig =
       /** Unset: `path` is a local file. Set: `path` lives on that saved host
        * instead, fetched over SFTP into a local temp copy when the connection
        * is opened and written back on a clean close — deliberately separate
-       * from `tunnelHostId` (an SSH *tunnel to a TCP port* and an SFTP *file
-       * fetch* are genuinely different things). */
+       * from `tunnel` (a *tunnel to a TCP port* and an SFTP *file fetch* are
+       * genuinely different things). It is also why SQLite has no `tunnel`:
+       * there is no port to forward. */
       sqliteHostId?: HostId | null;
     }
   | {
@@ -328,8 +352,10 @@ export type SqlEngineConfig =
       username: string;
       /** Only honored for a plain single-host `mongodb://host:port/...`
        * string — rejected for `mongodb+srv://` or a multi-host string
-       * (neither can be tunnelled through one TCP forward). */
-      tunnelHostId?: HostId | null;
+       * (neither can be tunnelled through one TCP forward). That restriction
+       * comes from forwarding a single port, so it applies to every
+       * non-`direct` kind alike. */
+      tunnel?: DbTunnel | null;
       /** Require TLS — DocumentDB accepts nothing else. */
       tls?: boolean;
       /** PEM bundle to verify the server against, when the system trust store
@@ -351,12 +377,50 @@ export type SqlConnection = {
   tags: string[];
 } & SqlEngineConfig;
 
+/** How this connection reaches its server, for the engines that dial a port.
+ * `null` for SQLite, which has no port to forward. Mirrors
+ * `EngineConfig::tunnel`. */
+export function sqlConnectionTunnel(conn: SqlConnection): DbTunnel {
+  return (conn.engine === "sqlite" ? null : conn.tunnel) ?? DIRECT_TUNNEL;
+}
+
 /** The saved host this connection reaches through, whichever way it does so —
- * an SSH tunnel for the server engines and MongoDB, an SFTP file fetch for
- * SQLite. Mirrors `EngineConfig::via_host_id`, so callers that just want to
- * show "via <host>" don't each have to narrow on `engine` themselves. */
+ * a tunnel for the server engines and MongoDB, an SFTP file fetch for SQLite.
+ * Mirrors `EngineConfig::via_host_id`, so callers that just want to show
+ * "via <host>" don't each have to narrow on `engine` themselves.
+ *
+ * `null` for an SSM tunnel, which goes through no saved host at all — a
+ * caller describing *every* way a connection is reached wants
+ * `sqlConnectionTunnel` instead. */
 export function sqlConnectionViaHostId(conn: SqlConnection): HostId | null {
-  return (conn.engine === "sqlite" ? conn.sqliteHostId : conn.tunnelHostId) ?? null;
+  if (conn.engine === "sqlite") return conn.sqliteHostId ?? null;
+  const tunnel = sqlConnectionTunnel(conn);
+  return tunnel.kind === "sshHost" ? tunnel.hostId : null;
+}
+
+/** What the connections list shows after the address: what this connection
+ * goes *through*, or `null` when it goes straight there.
+ *
+ * Exists because `sqlConnectionViaHostId` can only name a saved host, so an
+ * SSM tunnel rendered as no tunnel at all — a connection that visibly goes
+ * through AWS looking identical to a direct one. Closed on `assertNever`, so a
+ * fourth tunnel kind can't be added without deciding how it reads here. */
+export function sqlConnectionVia(conn: SqlConnection, hosts: Host[]): string | null {
+  const hostLabel = (id: HostId) => hosts.find((h) => h.id === id)?.label ?? "hôte inconnu";
+  // "sur" for SQLite: the file lives there, it isn't tunnelled through it.
+  if (conn.engine === "sqlite") return conn.sqliteHostId ? `sur ${hostLabel(conn.sqliteHostId)}` : null;
+
+  const tunnel = sqlConnectionTunnel(conn);
+  switch (tunnel.kind) {
+    case "direct":
+      return null;
+    case "sshHost":
+      return `via ${hostLabel(tunnel.hostId)}`;
+    case "ssm":
+      return `via SSM ${tunnel.target}`;
+    default:
+      return assertNever(tunnel, "tunnel de connexion SQL");
+  }
 }
 
 /** One-line "where does this point at" summary, for the connections list. */
@@ -504,6 +568,18 @@ export interface VaultStatus {
 export type ProxyProbe =
   | { kind: "reached"; banner: string }
   | { kind: "silent" }
+  | { kind: "failed"; message: string; hint: string | null };
+
+/** Outcome of trying an SSM tunnel out, from `test_ssm_tunnel`. Mirrors
+ * `core::ssm_tunnel::SsmProbe`.
+ *
+ * Three outcomes, not two, because the middle one is a real state worth
+ * separating: `opened` means AWS let us in (CLI, credentials, IAM and the SSM
+ * agent all fine) but the instance can't reach the database — a wrong endpoint
+ * or a security group, not a credential to go re-check. */
+export type SsmProbe =
+  | { kind: "reached"; localPort: number }
+  | { kind: "opened"; localPort: number; detail: string }
   | { kind: "failed"; message: string; hint: string | null };
 
 /** One EC2 instance as `discover_aws_instances` reports it. `ssmOnline` is

@@ -255,6 +255,7 @@ async function runScenarios(browser) {
   await runRollbackScenario(browser);
   await runDriftScenario(browser);
   await runAnsibleImportScenario(browser);
+  await runSsmTunnelScenario(browser);
 
   await mkdir(outDir, { recursive: true });
   const screenshotPath = path.join(outDir, "e2e-smoke.png");
@@ -1057,6 +1058,85 @@ async function runCertificateFieldScenario(browser) {
 
   await clickButtonByText(browser, "Annuler");
   console.log("Certificat SSH : OK (champ présent sous « Clé privée », suggestion interrogée pour de vrai).");
+}
+
+/**
+ * The SSM tunnel mode, from the connection form down to the real command.
+ *
+ * Two halves, because the feature has failed in both places before in this
+ * repo: that the mode is *reachable* (a backend nobody can select is the
+ * MongoDB failure — see `docs/dev-history.md`), and that its command is
+ * registered and answers the documented shape.
+ *
+ * The probe uses an instance id that cannot exist, so the outcome is always
+ * `failed`. That is the assertion: a *typed* failure means the whole path ran
+ * — command registered, spec built, `aws` launched or reported missing,
+ * output classified. An unregistered command rejects instead, which is what
+ * this catches. Nothing is written and no real instance is contacted.
+ */
+async function runSsmTunnelScenario(browser) {
+  await browser.execute(() => {
+    const tab = Array.from(document.querySelectorAll("button"))
+      .find((b) => (b.getAttribute("title") || "").toLowerCase().includes("base"));
+    if (tab instanceof HTMLElement) tab.click();
+  });
+  const opened = await browser.execute(() => {
+    const button = Array.from(document.querySelectorAll("button"))
+      .find((b) => b.textContent?.trim() === "Ajouter une connexion");
+    if (!(button instanceof HTMLElement)) return false;
+    button.click();
+    return true;
+  });
+  if (!opened) {
+    console.log("Tunnel SSM : ignoré (bouton « Ajouter une connexion » introuvable).");
+    return;
+  }
+
+  await browser.waitUntil(async () => await browser.execute(() =>
+    Array.from(document.querySelectorAll("select")).some((s) => Array.from(s.options).some((o) => o.value === "ssm"))
+  ), { timeout: 5_000, timeoutMsg: "le formulaire de connexion n offre pas le mode « ssm »" });
+
+  // Through React's own event, not by assigning `.value`: a direct assignment
+  // updates the DOM without telling React, so the SSM fields would never
+  // appear and this would fail for a reason unrelated to the feature (same
+  // trap as `runCertificateFieldScenario`).
+  await browser.execute(() => {
+    const select = Array.from(document.querySelectorAll("select"))
+      .find((s) => Array.from(s.options).some((o) => o.value === "ssm"));
+    if (!(select instanceof HTMLSelectElement)) return;
+    Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype, "value")?.set?.call(select, "ssm");
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+  });
+
+  await browser.waitUntil(async () => await browser.execute(() =>
+    Array.from(document.querySelectorAll("input")).some((i) => (i.getAttribute("placeholder") || "").includes("Instance SSM"))
+  ), {
+    timeout: 5_000,
+    timeoutMsg: "choisir « Tunnel AWS SSM » n affiche pas le champ d instance — le mode est inatteignable",
+  });
+
+  const probe = await browser.execute(async () => {
+    try {
+      return { value: await window.__TAURI_INTERNALS__.invoke("test_ssm_tunnel", {
+        target: "i-00000000000000000",
+        profile: null,
+        region: null,
+        address: "127.0.0.1",
+        port: 5432,
+      }) };
+    } catch (e) {
+      return { __error: String(e) };
+    }
+  });
+  if (!probe || probe.__error !== undefined) {
+    throw new Error(`invoke("test_ssm_tunnel") a échoué : ${JSON.stringify(probe)}`);
+  }
+  if (probe.value?.kind !== "failed" || typeof probe.value.message !== "string") {
+    throw new Error(`une instance inexistante doit rendre un échec typé, reçu : ${JSON.stringify(probe.value)}`);
+  }
+
+  await clickButtonByText(browser, "Annuler");
+  console.log("Tunnel SSM : OK (mode sélectionnable, champs affichés, test_ssm_tunnel répond un échec typé).");
 }
 
 /**

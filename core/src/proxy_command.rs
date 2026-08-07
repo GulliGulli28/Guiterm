@@ -292,7 +292,10 @@ pub enum ProxyProbe {
 /// A fixed list rather than a search: these are the paths the official
 /// installers use, they have not moved, and probing anything wider would mean
 /// walking the disk on every connection.
-fn installed_plugin_dirs() -> Vec<PathBuf> {
+///
+/// Shared with [`crate::ssm_tunnel`], which launches the same CLI and so meets
+/// the same "installed but invisible to a running app" problem.
+pub fn installed_plugin_dirs() -> Vec<PathBuf> {
     let mut candidates: Vec<PathBuf> = Vec::new();
     if cfg!(windows) {
         for variable in ["ProgramFiles", "ProgramFiles(x86)", "LOCALAPPDATA"] {

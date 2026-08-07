@@ -1,4 +1,4 @@
-import { sqlConnectionTarget, sqlConnectionViaHostId, sqlEngineLabel, type SqlConnection, type Workspace } from "../lib/types";
+import { sqlConnectionTarget, sqlConnectionVia, sqlEngineLabel, type SqlConnection, type Workspace } from "../lib/types";
 import { IconDatabase, IconPlus, IconEdit, IconFlash, IconDownload } from "./ui-icons";
 
 interface SqlConnectionsPanelProps {
@@ -29,11 +29,10 @@ export function SqlConnectionsPanel({ workspace, onConnect, onNewConnection, onE
           <IconDownload size={12} /> Importer depuis AWS
         </button>
         {workspace.sqlConnections.map((conn) => {
-          const viaHostId = sqlConnectionViaHostId(conn);
-          const viaHost = viaHostId ? workspace.hosts.find((h) => h.id === viaHostId) : null;
-          // "sur" for SQLite (the file lives there), "via" for everything else
-          // (the connection is tunnelled through it) — see `sqlConnectionViaHostId`.
-          const viaPreposition = conn.engine === "sqlite" ? "sur" : "via";
+          // Carries its own preposition ("sur" for a SQLite file that lives
+          // there, "via" for anything tunnelled) and covers SSM, which has no
+          // saved host to name — see `sqlConnectionVia`.
+          const via = sqlConnectionVia(conn, workspace.hosts);
           return (
             <div key={conn.id} className="rounded-xl border border-transparent bg-[var(--c-bg3)] p-2.5 transition-all hover:border-white/15">
               <div className="flex items-center gap-2">
@@ -43,7 +42,7 @@ export function SqlConnectionsPanel({ workspace, onConnect, onNewConnection, onE
               <p className="mt-0.5 truncate pl-[22px] text-[10px] text-[var(--c-text-muted)]">
                 {sqlEngineLabel(conn.engine)} ·{" "}
                 <span className="font-mono">{sqlConnectionTarget(conn)}</span>
-                {viaHost && <> · {viaPreposition} {viaHost.label}</>}
+                {via && <> · {via}</>}
               </p>
               <div className="mt-2 flex gap-1">
                 <button

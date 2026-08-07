@@ -1,7 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
-import type { AwsDatabase, AwsProfile, AwsSsoSession, HostId, Workspace } from "../lib/types";
+import type { AwsDatabase, AwsProfile, AwsSsoSession, DbTunnel, Workspace } from "../lib/types";
+import { DIRECT_TUNNEL } from "../lib/types";
 import { groupProfilesBySession, profileLabel } from "../lib/awsInstances";
+import { DbTunnelPicker } from "./DbTunnelPicker";
 import { IconClose } from "./ui-icons";
 import { RegionSelect } from "./RegionSelect";
 
@@ -50,7 +52,7 @@ export function AwsDatabaseImportPanel({ workspace, onWorkspaceUpdate, onClose, 
   const [loading, setLoading] = useState(false);
   const [failure, setFailure] = useState<{ message: string; hint: string | null; sessionExpired: boolean } | null>(null);
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [tunnelHostId, setTunnelHostId] = useState<HostId | "">("");
+  const [tunnel, setTunnel] = useState<DbTunnel>(DIRECT_TUNNEL);
   const [password, setPassword] = useState("");
   const [importing, setImporting] = useState(false);
 
@@ -103,7 +105,7 @@ export function AwsDatabaseImportPanel({ workspace, onWorkspaceUpdate, onClose, 
         initialDatabase: database.initialDatabase,
         tls: database.tls,
       })),
-      tunnelHostId || null,
+      tunnel,
       password || null,
     )
       .then((ws) => { onWorkspaceUpdate(ws); onClose(); })
@@ -112,6 +114,14 @@ export function AwsDatabaseImportPanel({ workspace, onWorkspaceUpdate, onClose, 
   };
 
   const importableCount = (databases ?? []).filter(importable).length;
+
+  /** What the "Tester" button dials: the first selected database. One import
+   * applies one tunnel to every selection, and they sit in the same VPC — so
+   * proving the instance reaches one of them is the answer for all of them. */
+  const probeTarget = (() => {
+    const first = (databases ?? []).find((d) => selected.has(key(d)));
+    return first ? { address: first.address, port: first.port } : null;
+  })();
 
   /** The session behind the selected profile, when it has one — what a
    * reconnection needs to replay without asking anything again. */
@@ -264,22 +274,20 @@ export function AwsDatabaseImportPanel({ workspace, onWorkspaceUpdate, onClose, 
 
         {selected.size > 0 && (
           <div className="shrink-0 space-y-1.5 border-t border-[var(--c-border)] px-4 py-2.5">
-            <div className="flex items-center gap-2">
-              <span className="w-24 shrink-0 text-xs font-medium text-[var(--c-text-muted)]">Tunnel SSH</span>
-              <select
-                value={tunnelHostId}
-                onChange={(e) => setTunnelHostId(e.target.value as HostId | "")}
-                className="flex-1 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text)] focus:outline-none"
-              >
-                <option value="">Connexion directe (aucun tunnel)</option>
-                {workspace.hosts.filter((h) => (h.kind ?? "ssh") === "ssh").map((host) => (
-                  <option key={host.id} value={host.id}>{host.label}</option>
-                ))}
-              </select>
-            </div>
-            <p className="pl-26 text-[10px] leading-relaxed text-[var(--c-text-faint)]">
+            {/* Keyed on profile/region so changing either re-seeds the SSM
+                fields with the account the user is actually browsing. */}
+            <DbTunnelPicker
+              key={`${profile}|${region}`}
+              workspace={workspace}
+              value={tunnel}
+              onChange={setTunnel}
+              ssmDefaults={{ profile, region }}
+              probeTarget={probeTarget}
+            />
+            <p className="text-[10px] leading-relaxed text-[var(--c-text-faint)]">
               Une base managée est presque toujours dans un sous-réseau privé, sans route depuis cette
-              machine : choisis l'hôte par lequel la joindre — typiquement une instance EC2 importée.
+              machine : choisis par quoi la joindre — une instance EC2 importée (tunnel SSH), ou cette
+              même instance sans y installer de serveur SSH (tunnel SSM).
             </p>
             <div className="flex items-center gap-2">
               <span className="w-24 shrink-0 text-xs font-medium text-[var(--c-text-muted)]">Mot de passe</span>

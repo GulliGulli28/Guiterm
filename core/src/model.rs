@@ -414,29 +414,85 @@ where
     Ok(Option::<T>::deserialize(deserializer)?.unwrap_or_default())
 }
 
+/// How a database connection reaches its server when this machine can't dial
+/// it directly.
+///
+/// **A sum type rather than more optional fields.** This used to be a single
+/// `tunnel_host_id: Option<HostId>`; adding SSM beside it as another
+/// `Option<String>` would make "tunnelled through an SSH host *and* through
+/// SSM" representable, and every dial site would then have to decide what that
+/// combination means. Here it has no spelling at all — the same reasoning that
+/// produced [`EngineConfig`] itself, and the same one recorded in
+/// `docs/backlog.md` for this feature.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum DbTunnel {
+    /// Dial the server's own address from this machine.
+    #[default]
+    Direct,
+    /// Open an SSH connection to a saved host first, and reach the server
+    /// through an ephemeral local port forward (see `crate::db_tunnel::open`)
+    /// — for a database only reachable *from* that host (bound to loopback
+    /// server-side, sitting in a private subnet it can route to), not
+    /// necessarily "the database runs on that host".
+    SshHost { host_id: HostId },
+    /// Reach the server through AWS Session Manager's port forwarding, with no
+    /// SSH server anywhere in the path.
+    ///
+    /// **This removes the bastion, not the relay.** `target` is still an
+    /// instance registered with SSM and the traffic still goes through it —
+    /// but it needs no sshd, no key of ours, and no inbound port open, which
+    /// is the entire difference and what the form has to say plainly. See
+    /// [`crate::ssm_tunnel`].
+    Ssm {
+        /// The SSM-registered instance the session runs through: an EC2
+        /// instance id (`i-…`) or a managed instance (`mi-…`).
+        target: String,
+        /// `--profile`, when the CLI's default isn't the right account.
+        #[serde(default)]
+        profile: Option<String>,
+        /// `--region`, when the profile doesn't already pin one.
+        #[serde(default)]
+        region: Option<String>,
+    },
+}
+
+impl DbTunnel {
+    pub fn is_direct(&self) -> bool {
+        matches!(self, DbTunnel::Direct)
+    }
+
+    /// The saved host this reaches through, when it reaches through one at
+    /// all. `None` for `Ssm` as well as `Direct`: an SSM target is an AWS
+    /// instance id, not a `Host` in this workspace.
+    pub fn host_id(&self) -> Option<HostId> {
+        match self {
+            DbTunnel::SshHost { host_id } => Some(*host_id),
+            DbTunnel::Direct | DbTunnel::Ssm { .. } => None,
+        }
+    }
+}
+
 /// How to reach a database server that speaks a discrete
 /// address/port/credentials protocol — MySQL, PostgreSQL and Redis all do.
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
+///
+/// Read from and written as [`ServerConfigWire`], which is what carries the
+/// backward compatibility with the `tunnelHostId` field this struct used to
+/// have — see that type.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(from = "ServerConfigWire", into = "ServerConfigWire")]
 pub struct ServerConfig {
-    /// `None`: connect directly to `address`/`port`. `Some(host_id)`: open an
-    /// SSH connection to that saved host first and reach `address`/`port`
-    /// through an ephemeral local port forward (see
-    /// `crate::sql::connect`/`crate::redis_client::connect`) — for a database
-    /// that's only reachable from that host (bound to loopback server-side, a
-    /// private subnet, etc.), not necessarily "the database runs on that host".
-    #[serde(default)]
-    pub tunnel_host_id: Option<HostId>,
-    /// Reachable directly from this machine when `tunnel_host_id` is `None`,
-    /// or reachable *from* `tunnel_host_id` otherwise (often `127.0.0.1`, for
-    /// a database bound to loopback on that host).
-    #[serde(default, deserialize_with = "null_to_default")]
+    /// How to get to `address`/`port` at all.
+    pub tunnel: DbTunnel,
+    /// Reachable directly from this machine when `tunnel` is
+    /// [`DbTunnel::Direct`], or reachable *from the far end of the tunnel*
+    /// otherwise (often `127.0.0.1` for a database bound to loopback on an
+    /// SSH host; the provider endpoint for an SSM tunnel, which resolves it
+    /// from inside the VPC).
     pub address: String,
-    #[serde(default, deserialize_with = "null_to_default")]
     pub port: u16,
     /// An optional Redis 6+ ACL username for `SqlEngine::Redis` — empty means
     /// legacy `requirepass`-only auth, still the common case.
-    #[serde(default, deserialize_with = "null_to_default")]
     pub username: String,
     /// MySQL/PostgreSQL: initial database to connect to. Required in practice
     /// for PostgreSQL (a connection always targets exactly one database, and
@@ -445,7 +501,6 @@ pub struct ServerConfig {
     /// query). `Redis`: the numbered database index (0–15 by default), stored
     /// as a string, e.g. `Some("0")` — `None`/empty defaults to `0` at
     /// connect time.
-    #[serde(default)]
     pub database: Option<String>,
     /// Encrypt the connection to this server.
     ///
@@ -457,8 +512,82 @@ pub struct ServerConfig {
     ///
     /// Set automatically when importing an ElastiCache group that has
     /// encryption in transit enabled.
-    #[serde(default)]
     pub tls: bool,
+}
+
+/// [`ServerConfig`]'s on-disk shape, which has to read two generations of it.
+///
+/// Every `workspace.json` written before [`DbTunnel`] existed spells the
+/// tunnel as `"tunnelHostId": "<uuid>"` (or an explicit `null`). Those files
+/// are on users' disks, and `store::load_resilient` moves aside a
+/// `workspace.json` it can't parse — so failing to read one doesn't degrade,
+/// it makes every saved connection disappear. Both spellings are therefore
+/// accepted, `tunnel` winning when both are present.
+///
+/// **`tunnelHostId` is still *written*** for [`DbTunnel::SshHost`], on top of
+/// the new field. It costs one duplicated uuid and buys a safe downgrade: a
+/// user who rolls back to an older build keeps their tunnelled connections
+/// instead of silently getting direct dials to an address that isn't
+/// reachable. Nothing equivalent is possible for `Ssm`, which an older build
+/// has no way to honour.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerConfigWire {
+    #[serde(default, skip_serializing_if = "DbTunnel::is_direct")]
+    tunnel: DbTunnel,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    tunnel_host_id: Option<HostId>,
+    #[serde(default, deserialize_with = "null_to_default")]
+    address: String,
+    #[serde(default, deserialize_with = "null_to_default")]
+    port: u16,
+    #[serde(default, deserialize_with = "null_to_default")]
+    username: String,
+    #[serde(default)]
+    database: Option<String>,
+    #[serde(default)]
+    tls: bool,
+}
+
+impl From<ServerConfigWire> for ServerConfig {
+    fn from(wire: ServerConfigWire) -> Self {
+        Self {
+            tunnel: resolve_tunnel(wire.tunnel, wire.tunnel_host_id),
+            address: wire.address,
+            port: wire.port,
+            username: wire.username,
+            database: wire.database,
+            tls: wire.tls,
+        }
+    }
+}
+
+impl From<ServerConfig> for ServerConfigWire {
+    fn from(config: ServerConfig) -> Self {
+        Self {
+            tunnel_host_id: config.tunnel.host_id(),
+            tunnel: config.tunnel,
+            address: config.address,
+            port: config.port,
+            username: config.username,
+            database: config.database,
+            tls: config.tls,
+        }
+    }
+}
+
+/// Picks between the two generations of tunnel spelling on disk.
+///
+/// A file written by a current build carries `tunnel`; one written before
+/// [`DbTunnel`] existed carries only `tunnelHostId`; one written by a current
+/// build with an SSH tunnel carries *both*, deliberately (see
+/// [`ServerConfigWire`]). `tunnel` therefore wins whenever it says anything,
+/// and the legacy field is only consulted when it doesn't.
+fn resolve_tunnel(tunnel: DbTunnel, legacy_host_id: Option<HostId>) -> DbTunnel {
+    match (tunnel, legacy_host_id) {
+        (DbTunnel::Direct, Some(host_id)) => DbTunnel::SshHost { host_id },
+        (tunnel, _) => tunnel,
+    }
 }
 
 /// How to reach a SQLite database — an embedded single-file engine with no
@@ -474,10 +603,11 @@ pub struct SqliteConfig {
     pub path: String,
     /// `None`: `path` is a local file. `Some(host_id)`: `path` lives on that
     /// saved host instead — deliberately a separate field from
-    /// [`ServerConfig::tunnel_host_id`] rather than reusing it, since the two
-    /// mean genuinely different things (an SSH *tunnel to a TCP port* vs. an
-    /// SFTP *file fetch*, with no persistent connection kept open for the
-    /// latter beyond what's needed to write the file back on close).
+    /// [`ServerConfig::tunnel`] rather than reusing it, since the two mean
+    /// genuinely different things (a *tunnel to a TCP port* vs. an SFTP *file
+    /// fetch*, with no persistent connection kept open for the latter beyond
+    /// what's needed to write the file back on close). It is also why SQLite
+    /// has no [`DbTunnel`]: there is no port to forward.
     #[serde(default)]
     pub sqlite_host_id: Option<HostId>,
 }
@@ -486,29 +616,27 @@ pub struct SqliteConfig {
 /// address/port pair can't describe one: a replica set is a *set* of hosts,
 /// and `mongodb+srv://` has no discrete port at all (the driver resolves
 /// members via DNS SRV).
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
-#[serde(rename_all = "camelCase")]
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(from = "MongoConfigWire", into = "MongoConfigWire")]
 pub struct MongoConfig {
     /// A full `mongodb://`/`mongodb+srv://` connection string.
-    #[serde(default, deserialize_with = "null_to_default")]
     pub connection_string: String,
     /// Injected into `connection_string` at connect time (with the password
     /// pulled from the vault, same as every other engine) if the string
     /// doesn't already carry its own credentials — left empty if it already
     /// does, or the deployment needs none.
-    #[serde(default, deserialize_with = "null_to_default")]
     pub username: String,
     /// Only honored for a plain single-host `mongodb://host:port/...`
-    /// `connection_string` — `crate::mongo_client::connect` rejects it
-    /// outright for `mongodb+srv://` or a comma-joined multi-host string,
-    /// since neither can be transparently tunnelled through one TCP forward
-    /// (SRV does its own multi-host discovery; a replica set's driver-side
-    /// failover assumes it can reach every member directly).
-    #[serde(default)]
-    pub tunnel_host_id: Option<HostId>,
+    /// `connection_string` — `crate::mongo_client::connect` rejects anything
+    /// else outright, for `mongodb+srv://` or a comma-joined multi-host
+    /// string, since neither can be transparently tunnelled through one TCP
+    /// forward (SRV does its own multi-host discovery; a replica set's
+    /// driver-side failover assumes it can reach every member directly). That
+    /// restriction is a property of the single forwarded port, not of SSH, so
+    /// it applies to [`DbTunnel::Ssm`] identically.
+    pub tunnel: DbTunnel,
     /// Require TLS. DocumentDB accepts nothing else by default, and a plain
     /// `mongodb://` dial to it hangs rather than failing.
-    #[serde(default)]
     pub tls: bool,
     /// A PEM bundle to verify the server against, when the system trust store
     /// isn't enough.
@@ -520,24 +648,71 @@ pub struct MongoConfig {
     /// download `global-bundle.pem` from AWS and point here. Deliberately a
     /// path rather than a bundle shipped inside the app, which would make
     /// Guiterm responsible for keeping a certificate store current.
-    #[serde(default)]
     pub tls_ca_file: Option<String>,
     /// Connect over TLS without verifying the server's certificate.
     ///
-    /// Exists for one situation, and is off unless asked for. Through an SSH
-    /// tunnel the driver dials `127.0.0.1`, which no server certificate
-    /// carries — the name it was issued for is on the far side of the
-    /// forward. The Rust driver has no "skip the *name* check only" option
-    /// (unlike `mongosh --tlsAllowInvalidHostnames`), so the only way through
-    /// is to skip verification entirely.
+    /// Exists for one situation, and is off unless asked for. Through a tunnel
+    /// the driver dials `127.0.0.1`, which no server certificate carries — the
+    /// name it was issued for is on the far side of the forward. The Rust
+    /// driver has no "skip the *name* check only" option (unlike `mongosh
+    /// --tlsAllowInvalidHostnames`), so the only way through is to skip
+    /// verification entirely.
     ///
     /// What that costs is bounded but real: the tunnel's far end is already
-    /// chosen and authenticated by SSH, and the leg from there to the database
-    /// stays inside the provider's network — but a certificate is no longer
-    /// proof of anything on that leg. Which is why nothing sets this on the
-    /// user's behalf.
-    #[serde(default)]
+    /// chosen and authenticated (by SSH, or by IAM and the SSM agent) and the
+    /// leg from there to the database stays inside the provider's network —
+    /// but a certificate is no longer proof of anything on that leg. Which is
+    /// why nothing sets this on the user's behalf.
     pub tls_insecure: bool,
+}
+
+/// [`MongoConfig`]'s on-disk shape. Same two-generation job as
+/// [`ServerConfigWire`], for MongoDB's own `tunnelHostId` — which was a
+/// separate field from the server engines' one and so needs its own migration.
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct MongoConfigWire {
+    #[serde(default, deserialize_with = "null_to_default")]
+    connection_string: String,
+    #[serde(default, deserialize_with = "null_to_default")]
+    username: String,
+    #[serde(default, skip_serializing_if = "DbTunnel::is_direct")]
+    tunnel: DbTunnel,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    tunnel_host_id: Option<HostId>,
+    #[serde(default)]
+    tls: bool,
+    #[serde(default)]
+    tls_ca_file: Option<String>,
+    #[serde(default)]
+    tls_insecure: bool,
+}
+
+impl From<MongoConfigWire> for MongoConfig {
+    fn from(wire: MongoConfigWire) -> Self {
+        Self {
+            connection_string: wire.connection_string,
+            username: wire.username,
+            tunnel: resolve_tunnel(wire.tunnel, wire.tunnel_host_id),
+            tls: wire.tls,
+            tls_ca_file: wire.tls_ca_file,
+            tls_insecure: wire.tls_insecure,
+        }
+    }
+}
+
+impl From<MongoConfig> for MongoConfigWire {
+    fn from(config: MongoConfig) -> Self {
+        Self {
+            connection_string: config.connection_string,
+            username: config.username,
+            tunnel_host_id: config.tunnel.host_id(),
+            tunnel: config.tunnel,
+            tls: config.tls,
+            tls_ca_file: config.tls_ca_file,
+            tls_insecure: config.tls_insecure,
+        }
+    }
 }
 
 /// Everything a [`SqlConnection`] needs to dial its engine, as a sum type so
@@ -603,11 +778,24 @@ impl EngineConfig {
     /// so — an SSH tunnel for the server engines and MongoDB, an SFTP fetch
     /// for SQLite (see [`SqliteConfig::sqlite_host_id`]). Used by the UI to
     /// show "via <host>" without caring which mechanism is involved.
+    ///
+    /// `None` for an SSM tunnel, which goes through no saved host at all —
+    /// callers that need to describe *every* way a connection is reached want
+    /// [`Self::tunnel`] instead.
     pub fn via_host_id(&self) -> Option<HostId> {
         match self {
-            EngineConfig::Mysql(c) | EngineConfig::Postgres(c) | EngineConfig::Redis(c) => c.tunnel_host_id,
             EngineConfig::Sqlite(c) => c.sqlite_host_id,
-            EngineConfig::Mongodb(c) => c.tunnel_host_id,
+            other => other.tunnel().and_then(DbTunnel::host_id),
+        }
+    }
+
+    /// How this connection reaches its server, for the engines that dial a
+    /// port. `None` for SQLite, which has no port to forward.
+    pub fn tunnel(&self) -> Option<&DbTunnel> {
+        match self {
+            EngineConfig::Mysql(c) | EngineConfig::Postgres(c) | EngineConfig::Redis(c) => Some(&c.tunnel),
+            EngineConfig::Mongodb(c) => Some(&c.tunnel),
+            EngineConfig::Sqlite(_) => None,
         }
     }
 
@@ -971,7 +1159,131 @@ mod tests {
         assert_eq!(server.port, 5432);
         assert_eq!(server.username, "app");
         assert_eq!(server.database.as_deref(), Some("shop"));
-        assert!(server.tunnel_host_id.is_some(), "the tunnel host must survive the migration");
+        assert_eq!(
+            server.tunnel,
+            DbTunnel::SshHost { host_id: Uuid::parse_str("6f1a9d2e-0000-4000-8000-000000000002").unwrap() },
+            "the legacy tunnelHostId must migrate into a DbTunnel, not be dropped"
+        );
+    }
+
+    /// The second generation of that same migration: `tunnelHostId` becoming
+    /// [`DbTunnel`]. Written as literal JSON for the same reason as the test
+    /// above — a Rust roundtrip would happily agree with itself about a shape
+    /// no user's disk actually holds.
+    #[test]
+    fn legacy_tunnel_host_id_migrates_to_a_db_tunnel() {
+        let host_id = Uuid::parse_str("6f1a9d2e-0000-4000-8000-000000000002").unwrap();
+
+        // A pre-DbTunnel file: only the legacy field.
+        let legacy = r#"{"engine":"mysql","tunnelHostId":"6f1a9d2e-0000-4000-8000-000000000002","address":"127.0.0.1","port":3306}"#;
+        let EngineConfig::Mysql(server) = serde_json::from_str::<EngineConfig>(legacy).expect("legacy shape must load") else {
+            panic!("expected MySQL");
+        };
+        assert_eq!(server.tunnel, DbTunnel::SshHost { host_id });
+
+        // An explicit `null`, which is what a direct connection was written as.
+        let direct = r#"{"engine":"mysql","tunnelHostId":null,"address":"db","port":3306}"#;
+        let EngineConfig::Mysql(server) = serde_json::from_str::<EngineConfig>(direct).expect("null must load") else {
+            panic!("expected MySQL");
+        };
+        assert_eq!(server.tunnel, DbTunnel::Direct);
+
+        // Both present — written by a current build for a downgrade's benefit.
+        // `tunnel` wins; the two never disagree, but the rule has to be fixed.
+        let both = r#"{"engine":"mysql","tunnel":{"kind":"sshHost","hostId":"6f1a9d2e-0000-4000-8000-000000000002"},"tunnelHostId":"6f1a9d2e-0000-4000-8000-000000000002","address":"127.0.0.1","port":3306}"#;
+        let EngineConfig::Mysql(server) = serde_json::from_str::<EngineConfig>(both).expect("both spellings must load") else {
+            panic!("expected MySQL");
+        };
+        assert_eq!(server.tunnel, DbTunnel::SshHost { host_id });
+    }
+
+    /// The casing of an internally-tagged enum's *struct variant fields* — the
+    /// trap this project has hit six times, and which `rename_all` alone does
+    /// not fix (`rename_all_fields` does). Asserted against hand-written JSON
+    /// keys rather than a roundtrip, which is the only thing that proves the
+    /// on-disk spelling.
+    #[test]
+    fn ssm_tunnel_field_names_are_camel_case_on_disk() {
+        let config = EngineConfig::Postgres(ServerConfig {
+            tunnel: DbTunnel::Ssm {
+                target: "i-0abc123".to_string(),
+                profile: Some("prod".to_string()),
+                region: Some("eu-west-1".to_string()),
+            },
+            address: "db.eu-west-1.rds.amazonaws.com".to_string(),
+            port: 5432,
+            ..Default::default()
+        });
+
+        let json: serde_json::Value = serde_json::to_value(&config).expect("serialisable");
+        assert_eq!(json["tunnel"]["kind"], "ssm");
+        assert_eq!(json["tunnel"]["target"], "i-0abc123");
+        assert_eq!(json["tunnel"]["profile"], "prod");
+        assert_eq!(json["tunnel"]["region"], "eu-west-1");
+        assert!(
+            json.get("tunnelHostId").is_none(),
+            "an SSM tunnel has no host to write into the legacy field: {json}"
+        );
+
+        let back: EngineConfig = serde_json::from_value(json).expect("must read back");
+        assert_eq!(back.tunnel(), config.tunnel());
+    }
+
+    /// An SSH tunnel is written in *both* spellings, so rolling back to a
+    /// build that predates [`DbTunnel`] keeps dialling through the tunnel
+    /// instead of silently going direct to an address that isn't reachable.
+    /// A direct connection writes neither, keeping the file as small as before.
+    #[test]
+    fn ssh_tunnel_is_written_in_both_spellings_and_direct_in_neither() {
+        let host_id = Uuid::parse_str("6f1a9d2e-0000-4000-8000-000000000002").unwrap();
+        let tunnelled = EngineConfig::Redis(ServerConfig {
+            tunnel: DbTunnel::SshHost { host_id },
+            address: "127.0.0.1".to_string(),
+            port: 6379,
+            ..Default::default()
+        });
+
+        let json: serde_json::Value = serde_json::to_value(&tunnelled).expect("serialisable");
+        assert_eq!(json["tunnel"]["kind"], "sshHost");
+        assert_eq!(json["tunnel"]["hostId"], host_id.to_string());
+        assert_eq!(
+            json["tunnelHostId"], host_id.to_string(),
+            "the legacy field stays written so a downgrade keeps the tunnel"
+        );
+
+        let direct = EngineConfig::Redis(ServerConfig { address: "cache".to_string(), port: 6379, ..Default::default() });
+        let json: serde_json::Value = serde_json::to_value(&direct).expect("serialisable");
+        assert!(json.get("tunnel").is_none(), "a direct connection writes no tunnel: {json}");
+        assert!(json.get("tunnelHostId").is_none(), "nor the legacy field: {json}");
+    }
+
+    /// MongoDB carried its own `tunnelHostId`, separate from the server
+    /// engines' one, so it needs its own migration — and a DocumentDB
+    /// connection is exactly the case this feature exists for.
+    #[test]
+    fn legacy_mongo_tunnel_host_id_migrates_too() {
+        let legacy = r#"{
+            "id": "6f1a9d2e-0000-4000-8000-000000000009",
+            "label": "docdb",
+            "engine": "mongodb",
+            "connectionString": "mongodb://cluster.eu-west-1.docdb.amazonaws.com:27017/",
+            "username": "app",
+            "tunnelHostId": "6f1a9d2e-0000-4000-8000-000000000002",
+            "tls": true,
+            "groupId": null,
+            "tags": []
+        }"#;
+
+        let conn: SqlConnection = serde_json::from_str(legacy).expect("legacy MongoDB shape must load");
+        let EngineConfig::Mongodb(mongo) = &conn.config else {
+            panic!("expected a MongoDB config, got {:?}", conn.config);
+        };
+        assert_eq!(
+            mongo.tunnel,
+            DbTunnel::SshHost { host_id: Uuid::parse_str("6f1a9d2e-0000-4000-8000-000000000002").unwrap() }
+        );
+        assert!(mongo.tls);
+        assert_eq!(conn.config.via_host_id(), mongo.tunnel.host_id());
     }
 
     /// Same as above for SQLite, whose legacy rows carry `address: ""` /

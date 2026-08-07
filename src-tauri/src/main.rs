@@ -69,6 +69,7 @@ fn main() {
             commands::hosts::get_workspace,
             commands::hosts::save_host,
             commands::proxy::test_proxy_command,
+            commands::proxy::test_ssm_tunnel,
             commands::aws::list_aws_profiles,
             commands::aws::list_aws_sso_sessions,
             commands::aws::check_aws_identity,

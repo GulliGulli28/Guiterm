@@ -42,10 +42,9 @@
 //! this module's SSH-tunnel path specifically (a certificate issued for the
 //! real hostname would never match `127.0.0.1`, the tunnel's local endpoint).
 //! Revisit as a cross-engine addition later if it's ever needed, not here.
-use crate::model::{EngineConfig, PortForward, PortForwardKind, SqlConnection, Workspace};
-use crate::port_forward::{self, ActiveForward};
+use crate::db_tunnel::{self, OpenTunnel};
+use crate::model::{EngineConfig, SqlConnection, Workspace};
 use crate::sql::hex_encode;
-use crate::ssh_pool::{self, SshLease};
 use crate::vault::{self, SecretKind};
 use serde::Serialize;
 
@@ -73,7 +72,7 @@ pub struct RedisSession {
     /// changed without reconnecting (unlike MySQL's `USE`, Redis has no
     /// per-command database override).
     pub database: u8,
-    tunnel: Option<(SshLease, ActiveForward)>,
+    tunnel: OpenTunnel,
 }
 
 impl RedisSession {
@@ -82,9 +81,7 @@ impl RedisSession {
     }
 
     pub async fn close(self) -> anyhow::Result<()> {
-        if let Some((connection, active)) = self.tunnel {
-            active.stop(&connection).await;
-        }
+        db_tunnel::close(self.tunnel).await;
         Ok(())
     }
 }
@@ -110,31 +107,12 @@ pub async fn connect(workspace: &Workspace, conn: &SqlConnection) -> anyhow::Res
 
     let password = vault::load(conn.id, SecretKind::SqlPassword)?;
 
-    let (dial_host, dial_port, tunnel) = match server.tunnel_host_id {
-        None => (server.address.clone(), server.port, None),
-        Some(host_id) => {
-            let connection = ssh_pool::acquire(workspace, host_id).await?;
-            let forward = PortForward {
-                id: uuid::Uuid::new_v4(),
-                host_id,
-                kind: PortForwardKind::Local,
-                bind_address: "127.0.0.1".to_string(),
-                bind_port: 0,
-                dest_address: server.address.clone(),
-                dest_port: server.port,
-            };
-            let active = port_forward::start(connection.connection(), forward).await?;
-            let bound = active
-                .bound_addr()
-                .ok_or_else(|| anyhow::anyhow!("le tunnel SSH n'a pas pu s'ouvrir"))?;
-            ("127.0.0.1".to_string(), bound.port(), Some((connection, active)))
-        }
-    };
+    let dialled = db_tunnel::open(workspace, &server.tunnel, &server.address, server.port).await?;
 
     let url = build_url(
         server.tls,
-        &dial_host,
-        dial_port,
+        &dialled.host,
+        dialled.port,
         &server.username,
         password.as_deref(),
         database,
@@ -152,14 +130,14 @@ pub async fn connect(workspace: &Workspace, conn: &SqlConnection) -> anyhow::Res
             // The manager never came up — nothing to close, but the tunnel
             // (if any) is already live and must still be torn down here,
             // since there's no `RedisSession` for the caller to `close()`.
-            if let Some((connection, active)) = tunnel {
-                active.stop(&connection).await;
-            }
-            return Err(e.into());
+            // Asked what really failed first: see `sql::connect`.
+            let explained = dialled.tunnel.explain_failure(&e.to_string()).await;
+            db_tunnel::close(dialled.tunnel).await;
+            return Err(anyhow::anyhow!(explained));
         }
     };
 
-    Ok(RedisSession { manager, database, tunnel })
+    Ok(RedisSession { manager, database, tunnel: dialled.tunnel })
 }
 
 /// Builds the URL handed to `redis::Client::open`.

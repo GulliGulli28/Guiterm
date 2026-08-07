@@ -1,6 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { AuthMethod, AwsCallerIdentity, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSessionAlert, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, AwsSsoSessionStatus, CollectionInfo, ColumnInfo, CollectFactsResult, ComposeResult, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostDrift, HostId, HostKind, ImportSelection, Inventory, InventorySelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, ReachabilityOutcome, RedisKeyDetail, RemoteSearchMode, RemoteSearchOutcome, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, RollbackPlan, ScanPage, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SshAuthPrompt, SshConfigHost, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
+import type { AuthMethod, AwsCallerIdentity, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSessionAlert, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, AwsSsoSessionStatus, CollectionInfo, ColumnInfo, CollectFactsResult, ComposeResult, DbTunnel, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostDrift, HostId, HostKind, ImportSelection, Inventory, InventorySelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, ReachabilityOutcome, RedisKeyDetail, RemoteSearchMode, RemoteSearchOutcome, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, RollbackPlan, ScanPage, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SshAuthPrompt, SshConfigHost, SsmProbe, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
 
 /** Mirrors the 12-byte little-endian header `commands::rdp_view::connect_rdp_view`
  * writes ahead of each frame's raw RGBA8 pixels (see its doc comment for why
@@ -65,6 +65,18 @@ export const api = {
   testProxyCommand: (command: string, address: string, port: number, username: string) =>
     invoke<ProxyProbe>("test_proxy_command", { command, address, port, username }),
 
+  /** Opens an SSM tunnel to `address`/`port` through `target`, tries one
+   * connection through it, and tears it down. Sends no credential to the
+   * database — a bare TCP connect, so it can be run against production
+   * without showing up as a failed login. */
+  testSsmTunnel: (
+    target: string,
+    profile: string | null,
+    region: string | null,
+    address: string,
+    port: number,
+  ) => invoke<SsmProbe>("test_ssm_tunnel", { target, profile, region, address, port }),
+
   /** The `<clé>-cert.pub` next to a private key, when that file exists — what
    * the host form offers as a prefill. `null` rather than a guess otherwise. */
   suggestCertificatePath: (keyPath: string) =>
@@ -113,8 +125,10 @@ export const api = {
     invoke<Workspace>("reassign_aws_profile", { from, to }),
   discoverAwsDatabases: (profile: string, region: string) =>
     invoke<AwsDatabase[]>("discover_aws_databases", { profile, region }),
-  importAwsDatabases: (selections: AwsDatabaseSelection[], tunnelHostId: HostId | null, password: string | null) =>
-    invoke<Workspace>("import_aws_databases", { selections, tunnelHostId, password }),
+  /** `tunnel` applies to every selection: a managed database normally sits in
+   * a private subnet with no route from this machine. */
+  importAwsDatabases: (selections: AwsDatabaseSelection[], tunnel: DbTunnel, password: string | null) =>
+    invoke<Workspace>("import_aws_databases", { selections, tunnel, password }),
   checkHostStatus: (hostId: HostId) => invoke<boolean>("check_host_status", { hostId }),
 
   saveGroup: (input: { id: GroupId | null; name: string; parentId: GroupId | null; icon: string | null; color: string | null }) => invoke<Workspace>("save_group", { input }),

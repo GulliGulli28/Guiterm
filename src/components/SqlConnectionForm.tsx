@@ -1,7 +1,9 @@
 import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { HostId, SqlConnection, SqlConnectionId, SqlEngine, SqlEngineConfig, Workspace } from "../lib/types";
+import type { DbTunnel, HostId, SqlConnection, SqlConnectionId, SqlEngine, SqlEngineConfig, Workspace } from "../lib/types";
+import { DIRECT_TUNNEL, sqlConnectionTunnel } from "../lib/types";
 import { IconTrash } from "./ui-icons";
+import { DbTunnelPicker, type ProbeTarget } from "./DbTunnelPicker";
 import { SqliteRemoteFilePicker } from "./SqliteRemoteFilePicker";
 
 /** What the form submits: the identity/grouping fields plus exactly the
@@ -36,12 +38,24 @@ const SQLITE_FILTERS = [{ name: "SQLite", extensions: ["sqlite", "sqlite3", "db"
  * discovery) or a comma-joined multi-host string can't, see
  * `core::mongo_client::connect`'s doc comment for why. */
 function isTunnelableMongoUri(uri: string): boolean {
+  return mongoProbeTarget(uri) !== null;
+}
+
+/** The host/port a MongoDB URI points at, when it points at exactly one — the
+ * same single-host restriction `isTunnelableMongoUri` expresses, but returning
+ * what the "Tester" button needs to dial rather than a boolean. `null` for
+ * `mongodb+srv://` and multi-host strings, which no single TCP forward can
+ * carry (see `core::mongo_client::connect`). */
+function mongoProbeTarget(uri: string): ProbeTarget | null {
   const trimmed = uri.trim();
-  if (!trimmed.startsWith("mongodb://")) return false;
+  if (!trimmed.startsWith("mongodb://")) return null;
   const afterScheme = trimmed.slice("mongodb://".length);
   const hostPart = afterScheme.split("@").pop() ?? afterScheme;
   const hostOnly = hostPart.split(/[/?]/)[0];
-  return hostOnly.length > 0 && !hostOnly.includes(",");
+  if (!hostOnly || hostOnly.includes(",")) return null;
+  const [address, port] = hostOnly.split(":");
+  if (!address) return null;
+  return { address, port: port ? Number(port) : 27017 };
 }
 
 /** Right-panel form for creating/editing a SQL connection — same slot and
@@ -60,7 +74,10 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
 
   const [label, setLabel] = useState(connection?.label ?? "");
   const [engine, setEngine] = useState<SqlEngine>(connection?.engine ?? "mysql");
-  const [tunnelHostId, setTunnelHostId] = useState(existingServer?.tunnelHostId ?? existingMongo?.tunnelHostId ?? "");
+  // One tunnel for the whole form, shared by the server engines and MongoDB:
+  // switching engine mid-edit keeps it, exactly like every other flat field
+  // here.
+  const [tunnel, setTunnel] = useState<DbTunnel>(connection ? sqlConnectionTunnel(connection) : DIRECT_TUNNEL);
   const [tls, setTls] = useState(existingServer?.tls ?? false);
   const [mongoTls, setMongoTls] = useState(existingMongo?.tls ?? false);
   const [mongoCaFile, setMongoCaFile] = useState(existingMongo?.tlsCaFile ?? "");
@@ -132,7 +149,7 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
         engine: "mongodb",
         connectionString: connectionString.trim(),
         username: username.trim(),
-        tunnelHostId: tunnelHostId || null,
+        tunnel,
         tls: mongoTls,
         tlsCaFile: mongoCaFile.trim() || null,
         tlsInsecure: mongoInsecure,
@@ -155,7 +172,7 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
       // Narrowed by the two early returns above: `sqlite`/`mongodb` are
       // already handled, so only the TCP-dialled engines reach here.
       engine,
-      tunnelHostId: tunnelHostId || null,
+      tunnel,
       address: address.trim(),
       port: p,
       username: username.trim(),
@@ -239,15 +256,12 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
             </div>
 
             <div className="space-y-1">
-              <span className="text-xs font-medium text-[var(--c-text-secondary)]">Tunnel</span>
-              <select value={tunnelHostId} onChange={(e) => setTunnelHostId(e.target.value)} className={selectClass}>
-                <option value="">Connexion directe (pas de tunnel)</option>
-                {workspace.hosts
-                  .filter((h) => (h.kind ?? "ssh") === "ssh")
-                  .map((h) => (
-                    <option key={h.id} value={h.id}>Tunnel SSH via {h.label}</option>
-                  ))}
-              </select>
+              <DbTunnelPicker
+                workspace={workspace}
+                value={tunnel}
+                onChange={setTunnel}
+                probeTarget={mongoProbeTarget(connectionString)}
+              />
               <label className="flex items-center gap-2">
                 <input type="checkbox" checked={mongoTls} onChange={(e) => setMongoTls(e.target.checked)} className="h-4 w-4 accent-[var(--c-accent)]" />
                 <span className="text-xs text-[var(--c-text-secondary)]">
@@ -268,16 +282,17 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
                     <span className="text-xs text-[var(--c-text-secondary)]">
                       Ne pas vérifier le certificat
                       <span className="ml-1 text-[var(--c-text-faint)]">
-                        — nécessaire pour combiner TLS et tunnel SSH : le certificat du serveur ne peut
-                        pas correspondre à l'adresse locale du tunnel.
+                        — nécessaire pour combiner TLS et un tunnel : le certificat du serveur ne peut
+                        pas correspondre à l'adresse locale du tunnel. Le cas typique est DocumentDB,
+                        qui n'accepte que TLS et n'est jamais joignable publiquement.
                       </span>
                     </span>
                   </label>
                 </>
               )}
-              {tunnelHostId && !isTunnelableMongoUri(connectionString) && (
+              {tunnel.kind !== "direct" && !isTunnelableMongoUri(connectionString) && (
                 <p className="px-0.5 text-[11px] leading-relaxed text-amber-400">
-                  Le tunnel SSH ne fonctionne qu'avec une chaîne mongodb:// mono-hôte — mongodb+srv:// ou une
+                  Un tunnel ne fonctionne qu'avec une chaîne mongodb:// mono-hôte — mongodb+srv:// ou une
                   liste d'hôtes séparés par des virgules ne peut pas passer par un tunnel TCP unique. La
                   connexion échouera tant que ce tunnel est sélectionné avec cette chaîne.
                 </p>
@@ -307,23 +322,12 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
           </>
         ) : (
           <>
-            <div className="space-y-1">
-              <span className="text-xs font-medium text-[var(--c-text-secondary)]">Tunnel</span>
-              <select value={tunnelHostId} onChange={(e) => setTunnelHostId(e.target.value)} className={selectClass}>
-                <option value="">Connexion directe (pas de tunnel)</option>
-                {workspace.hosts
-                  .filter((h) => (h.kind ?? "ssh") === "ssh")
-                  .map((h) => (
-                    <option key={h.id} value={h.id}>Tunnel SSH via {h.label}</option>
-                  ))}
-              </select>
-              {tunnelHostId && (
-                <p className="px-0.5 text-[11px] leading-relaxed text-[var(--c-text-muted)]">
-                  L'adresse ci-dessous doit être joignable <em>depuis</em> cet hôte — souvent
-                  127.0.0.1 si la base n'écoute qu'en local sur le serveur.
-                </p>
-              )}
-            </div>
+            <DbTunnelPicker
+              workspace={workspace}
+              value={tunnel}
+              onChange={setTunnel}
+              probeTarget={address.trim() && Number.isInteger(Number(port)) ? { address: address.trim(), port: Number(port) } : null}
+            />
 
             <div className="flex gap-1.5">
               <div className="min-w-0 flex-1 space-y-1">

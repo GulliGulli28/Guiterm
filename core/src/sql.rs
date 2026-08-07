@@ -78,8 +78,8 @@
 //!   session is closed cleanly — an app crash/kill between `connect` and
 //!   `close` loses them (same accepted tradeoff `SqlSession`'s doc comment
 //!   already states for the MySQL/PostgreSQL tunnel case).
-use crate::model::{EngineConfig, PortForward, PortForwardKind, SqlConnection, SqlEngine, Workspace};
-use crate::port_forward::{self, ActiveForward};
+use crate::db_tunnel::{self, OpenTunnel};
+use crate::model::{EngineConfig, SqlConnection, SqlEngine, Workspace};
 use crate::sftp::SftpClient;
 use crate::ssh_pool::{self, SshLease};
 use crate::vault::{self, SecretKind};
@@ -207,7 +207,7 @@ pub struct SqlSession {
     /// for `Sqlite` (always `Some("main")`).
     pub database: Option<String>,
     dial: DialTarget,
-    tunnel: Option<(SshLease, ActiveForward)>,
+    tunnel: OpenTunnel,
     sqlite_remote: Option<SqliteRemote>,
 }
 
@@ -236,9 +236,7 @@ impl SqlSession {
     ///    locally.
     pub async fn close(self) -> anyhow::Result<()> {
         self.pool.close().await;
-        if let Some((connection, active)) = self.tunnel {
-            active.stop(&connection).await;
-        }
+        db_tunnel::close(self.tunnel).await;
         if let Some(remote) = self.sqlite_remote {
             if !local_copy_changed(&remote).await {
                 let _ = tokio::fs::remove_file(&remote.local_path).await;
@@ -440,30 +438,11 @@ pub async fn connect(workspace: &Workspace, conn: &SqlConnection) -> anyhow::Res
     let engine = conn.engine();
     let password = vault::load(conn.id, SecretKind::SqlPassword)?;
 
-    let (dial_host, dial_port, tunnel) = match server.tunnel_host_id {
-        None => (server.address.clone(), server.port, None),
-        Some(host_id) => {
-            let connection = ssh_pool::acquire(workspace, host_id).await?;
-            let forward = PortForward {
-                id: uuid::Uuid::new_v4(),
-                host_id,
-                kind: PortForwardKind::Local,
-                bind_address: "127.0.0.1".to_string(),
-                bind_port: 0,
-                dest_address: server.address.clone(),
-                dest_port: server.port,
-            };
-            let active = port_forward::start(connection.connection(), forward).await?;
-            let bound = active
-                .bound_addr()
-                .ok_or_else(|| anyhow::anyhow!("le tunnel SSH n'a pas pu s'ouvrir"))?;
-            ("127.0.0.1".to_string(), bound.port(), Some((connection, active)))
-        }
-    };
+    let dialled = db_tunnel::open(workspace, &server.tunnel, &server.address, server.port).await?;
 
     let requested_database = server.database.clone().filter(|d| !d.is_empty());
     let bootstrap_database = requested_database.clone().or_else(|| (engine == SqlEngine::Postgres).then(|| POSTGRES_BOOTSTRAP_DATABASE.to_string()));
-    let dial = DialTarget { engine, host: dial_host, port: dial_port, username: server.username.clone(), password };
+    let dial = DialTarget { engine, host: dialled.host, port: dialled.port, username: server.username.clone(), password };
 
     let pool = match open_database(&dial, bootstrap_database.as_deref().unwrap_or_default()).await {
         Ok(pool) => pool,
@@ -471,12 +450,17 @@ pub async fn connect(workspace: &Workspace, conn: &SqlConnection) -> anyhow::Res
             // The pool never opened — nothing to close, but the tunnel (if
             // any) is already live and must still be torn down here, since
             // there's no `SqlSession` for the caller to call `close()` on.
-            if let Some((connection, active)) = tunnel {
-                active.stop(&connection).await;
-            }
-            return Err(e);
+            //
+            // Asked *before* tearing it down: for SSM the helper is a separate
+            // process that can have died on its own, and "the tunnel went
+            // down" and "the database refused" are the same connection error
+            // from here.
+            let explained = dialled.tunnel.explain_failure(&e.to_string()).await;
+            db_tunnel::close(dialled.tunnel).await;
+            return Err(anyhow::anyhow!(explained));
         }
     };
+    let tunnel = dialled.tunnel;
 
     Ok(SqlSession { pool, database: requested_database, dial, tunnel, sqlite_remote: None })
 }
@@ -595,7 +579,9 @@ async fn connect_sqlite(workspace: &Workspace, conn: &SqlConnection) -> anyhow::
         pool: SqlPool::Sqlite(pool),
         database: Some(SQLITE_MAIN_SCHEMA.to_string()),
         dial,
-        tunnel: None,
+        // SQLite reaches a remote file over SFTP, never a forwarded port —
+        // see `SqliteConfig::sqlite_host_id`.
+        tunnel: OpenTunnel::None,
         sqlite_remote,
     })
 }
