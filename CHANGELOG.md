@@ -184,10 +184,30 @@ This changelog starts 2026-07-21 — for earlier versions, see
   encryption in transit enabled.
 - MongoDB connections can require TLS, with an optional path to a certificate
   bundle for servers whose authority isn't in the system trust store — which is
-  what DocumentDB needs. Combining TLS with an SSH tunnel additionally needs
+  what DocumentDB needs. Combining TLS with a tunnel additionally needs
   certificate checking turned off, because no certificate can match the tunnel's
   local address; the app says so instead of failing with a bare TLS error, and
   never makes that choice for you.
+- A database connection can reach its server through AWS Session Manager
+  instead of an SSH host, from the Tunnel picker on the connection form and in
+  the AWS database import. Reaching a managed database no longer means keeping
+  a bastion alive for it: the traffic still goes through an instance, but that
+  instance needs no SSH server, no key of yours and no inbound port open — only
+  the SSM agent and the IAM permission. Available for MySQL, PostgreSQL, Redis
+  and MongoDB alike, which is what DocumentDB clusters wanted.
+
+  A "Test the tunnel" button next to it opens a real session, tries one
+  connection through it and closes it again, separating three answers rather
+  than two: the tunnel reached the database, or it opened but the instance
+  can't reach the database (a wrong endpoint or a security group — not
+  credentials to go and re-check), or it never opened, with the CLI's own error
+  and what to do about it. It sends nothing to the database, so it won't appear
+  in its logs as a failed login.
+
+  A connection that goes through a tunnel now says which one in the connections
+  list, including for SSM. And when a tunnel dies under a live connection, the
+  error says the tunnel went down rather than blaming the database for
+  refusing.
 
 ### Fixed
 - A private key chosen from the keychain was not saved with the host. The key's

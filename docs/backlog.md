@@ -41,18 +41,25 @@ CHANGELOG.
 
 Trois vagues à l'origine. La première (items courts sur des zones déjà chaudes)
 et l'essentiel de la troisième — le pivot « plan de contrôle » — sont
-terminées ; voir « Déjà livré ». Il reste deux items de la vague 2 et le
-journal d'activité.
+terminées ; voir « Déjà livré ». Il reste un item de la vague 2 et le journal
+d'activité.
 
 Rien n'oblige à suivre cet ordre : les items sont indépendants sauf mention
 explicite de dépendance.
 
-**Et une leçon, vérifiée quatre fois de suite : les « leviers » de ce fichier
+**Et une leçon, vérifiée cinq fois de suite : les « leviers » de ce fichier
 sont optimistes.** Le rollback ne dépendait pas de la vue d'activité ; la
 dérive n'avait aucune de ses deux « moitiés déjà là » ; la vue d'activité ne
-fusionne pas trois silos comparables. Chaque fois, la surprise était du même
-côté — plus de travail qu'annoncé, ou un prérequis inexistant. **Rouvrir le
-code avant de s'engager sur une taille.**
+fusionne pas trois silos comparables ; le tunnel SSM ne pouvait rien réutiliser
+de `proxy_command::spawn`, qui rend un flux d'octets là où il fallait un port.
+Chaque fois, la surprise était du même côté — plus de travail qu'annoncé, ou un
+prérequis inexistant. **Rouvrir le code avant de s'engager sur une taille.**
+
+Le corollaire, découvert sur ce même item : la surprise peut aussi être du
+travail **déjà fait et non listé**. Le bloc de tunnel SSH existait en trois
+copies, ce que le backlog ne disait nulle part — le trouver a changé la forme
+de l'item (un module partagé plutôt qu'un quatrième site de dial). Lire les
+appelants, pas seulement le module cité comme levier.
 
 ---
 
@@ -91,39 +98,25 @@ le détail est dans le CHANGELOG et dans l'historique git.
   justement quand une machine bouge). `aws_inventory::apply_import` n'a
   **pas** été factorisé avec : les hôtes EC2 existants ne portent pas de
   provenance, les faire apparier dessus les dupliquerait tous.
+- **Tunnel SSM sans bastion** — `core/src/ssm_tunnel.rs`, `core/src/db_tunnel.rs`,
+  `DbTunnelPicker.tsx` (2026-08-07). **Le levier annoncé était à moitié faux** :
+  `proxy_command::spawn` rend un transport stdio pour `connect_stream`, pas un
+  port TCP local — rien de réutilisable côté cycle de vie, seulement le fix PATH
+  du plugin, le drainage stderr borné et la table de `hint_for`. En revanche
+  **du travail non prévu était déjà là** : le bloc de tunnel SSH existait en
+  trois copies (`sql`/`redis_client`/`mongo_client`), donc ajouter un mode en
+  aurait fait six — d'où `db_tunnel::open`/`close`. `tunnel_host_id` est devenu
+  l'union `DbTunnel`, avec migration ascendante par `ServerConfigWire`/
+  `MongoConfigWire` et double écriture pour rendre un downgrade sûr. Le tunnel
+  reste éphémère par connexion, jamais dans le panneau Tunnels. **Non prouvé
+  contre un vrai couple EC2-SSM + base managée** — couvert par le parsing, une
+  machine à états pilotée par un faux helper, et la migration du format.
 
 ---
 
 ## Vague 2 — tranches moyennes, une vraie décision de conception chacune
 
-### 1. Tunnel SSM sans bastion — **M/L**
-
-**Valeur.** Aujourd'hui une base RDS/ElastiCache importée doit pointer vers un
-hôte SSH existant (`tunnel_host_id`) pour être jointe : il faut donc entretenir
-un bastion. `AWS-StartPortForwardingSession` ouvre le port directement.
-
-**Levier.** `proxy_command::spawn` sait déjà lancer et surveiller un helper (y
-compris le PATH du plugin Session Manager, corrigé le 2026-08-04) ;
-`core/src/port_forward.rs` et le tunnel SQL savent déjà consommer un port
-local.
-
-**À écrire.** Backend : un module de cycle de vie du process SSM (démarrage,
-attente du port réellement ouvert, arrêt, mort inattendue) et un
-`SqlConnection` qui puisse référencer « tunnel SSM vers l'instance i-… » au
-lieu d'un hôte SSH. Frontend : `SqlConnectionForm`, et le panneau d'import de
-bases qui propose ce mode quand la base n'est pas publiquement joignable.
-
-**Pièges.** Le vrai travail est le cycle de vie, pas l'appel : un process qui
-meurt en silence laisse une connexion SQL qui pend. Prévoir la détection et un
-message qui distingue « le tunnel est tombé » de « la base refuse ».
-`EngineConfig` est une union discriminée — ajouter un mode de tunnel se fait
-par variante, pas par champ optionnel de plus (voir `docs/dev-history.md`).
-
-**Preuve.** Difficile sans compte AWS : viser des tests unitaires sur le
-parsing de la sortie du plugin (« Port 5432 opened ») et une machine à états du
-tunnel testable sans réseau.
-
-### 2. Inventaire Azure / GCP — **S/M**
+### 1. Inventaire Azure / GCP — **S/M**
 
 **Valeur.** Reste des sources d'inventaire ce qui n'a pas été fait avec Ansible
 le 2026-08-06 : les VM Azure et GCP, par leur CLI, sur le modèle
@@ -155,7 +148,7 @@ déjà couvert par les tests d'`apply_import`.
 voir ce qui s'en écarte, revenir en arrière. Il ne reste que le journal qui
 permettrait de lire tout ça dans le temps.
 
-### 3. Vue d'activité unifiée — **L**
+### 2. Vue d'activité unifiée — **L**
 
 **Valeur.** `core/src/fleet_history.rs`, `core/src/command_history.rs` et
 `core/src/session_record.rs` sont trois silos. Un journal « qui a fait quoi, où,
