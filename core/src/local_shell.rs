@@ -53,6 +53,23 @@ pub(crate) fn one_shot_command(shell: &str, script: &str) -> std::process::Comma
             cmd.args(["-c", script]);
         }
     }
+    // No console window on Windows.
+    //
+    // This was the one spawn site in the repo without it, and the omission was
+    // visible: every local fleet run, facts probe and network diagnostic
+    // flashed a PowerShell window on screen — several per run, since each
+    // target is its own process. `proxy_command`, `aws_sso`, `ssm_tunnel`,
+    // `aws_inventory` and `cloud_cli` all set it; this is the choke point for
+    // "Terminal local", so setting it here covers every caller at once.
+    //
+    // The *interactive* local terminal is unaffected: it goes through a pty
+    // and is drawn by xterm, never by a console of its own.
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        const CREATE_NO_WINDOW: u32 = 0x0800_0000;
+        cmd.creation_flags(CREATE_NO_WINDOW);
+    }
     cmd
 }
 
