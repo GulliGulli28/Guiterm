@@ -37,13 +37,12 @@ CHANGELOG.
   « aucun », l'item n'est pas fini. Et le garde-fou ajouté doit être cassé une
   fois pour vérifier qu'il échoue vraiment.
 
-## État : les trois vagues sont vides
+## État
 
-Les trois vagues prévues le 2026-08-04 sont terminées (2026-08-10). **Ce
-fichier ne contient donc plus d'item à prendre** — seulement ce qui a été livré,
-et ce qui a été écarté volontairement. Le prochain chantier reste à décider ;
-d'ici là, la section « Écarté volontairement » en bas est ce qu'il ne faut pas
-reproposer sans raison neuve.
+Les trois vagues prévues le 2026-08-04 sont terminées (2026-08-10). Le chantier
+en cours depuis est **l'onglet de diagnostic réseau**, ci-dessous. En dehors de
+lui, ce fichier ne contient plus d'item à prendre — et la section « Écarté
+volontairement » en bas reste ce qu'il ne faut pas reproposer sans raison neuve.
 
 Deux dettes connues, à traiter au premier usage réel plutôt qu'à planifier :
 l'import Azure/GCP et le tunnel SSM n'ont jamais tourné contre une vraie
@@ -69,6 +68,68 @@ Et une troisième forme, découverte sur Azure/GCP : le levier peut être exact
 qui ne marche que parce qu'`aws` est un `.exe`. La question à poser n'est pas
 « ce module est-il un bon modèle » mais « laquelle de ses pièces repose sur une
 propriété que ma source n'a pas ».
+
+---
+
+## En cours — Onglet de diagnostic réseau — **L**
+
+Demandé le 2026-08-10. Un onglet qui lance des diagnostics réseau (TCP, DNS,
+HTTP, ping, traceroute) sur une sélection d'hôtes, avec un résultat par hôte.
+Décisions déjà prises avec l'utilisateur : **les deux sens** (depuis les hôtes
+vers une cible saisie, et depuis cette machine vers chaque hôte) par un
+sélecteur ; le panneau de joignabilité existant est **absorbé** plutôt que
+gardé en parallèle ; les quatre familles d'outils sont voulues.
+
+**Levier — réel cette fois, et vérifié le 2026-08-10.** `probe_reachability`
+prend déjà un `Vec<FleetTarget>`, exécute en parallèle et rend un résultat par
+hôte ; `fleet::run_on_hosts` accepte une `HashMap<FleetTarget, String>`, donc
+une commande par cible ; `FleetTarget` couvre SSH, Docker, K8s et le local ;
+`reachability::validate_host` est la liste blanche anti-injection, obligatoire
+puisqu'on interpole une adresse saisie dans un script lancé sur une flotte.
+
+**Trois découvertes qui changent la forme de l'item :**
+
+- **Les deux sens ne partagent pas le chemin d'exécution.** `run_on_hosts` est
+  clé par `FleetTarget` ; en mode « vers les hôtes » tout tourne sur `Local`,
+  donc dix hôtes donneraient dix fois la même clé et une seule entrée. Ce sens
+  est N exécutions locales avec son propre runner. Scripts et parseurs communs,
+  exécution non.
+- **Le batch de `probe_reachability` ne se transpose pas.** Il est en batch
+  parce que la sonde est bornée à 5 s, ce que son doc comment dit explicitement.
+  Un `traceroute` prend des dizaines de secondes : il faut du streaming par
+  évènement, comme un run de flotte.
+- **Windows n'est pas reportable à la tranche 2.** `default_local_shell()` rend
+  `powershell.exe`, donc dès que « Terminal local » est une *source* — le cas
+  « est-ce que moi je joins ça », que la palette expose déjà — le script POSIX
+  ne s'exécute pas. Corollaire : la sonde de joignabilité actuelle est
+  probablement déjà cassée sur ce chemin sous Windows. `is_windows_native_shell`
+  existe déjà pour faire la distinction.
+
+### Tranche 1 (en cours) — le socle qui marche partout
+
+Sens « depuis les hôtes », outils TCP + DNS + HTTP, en POSIX **et** en
+PowerShell pour la cible locale. Absorbe `ReachabilityPanel`, qui est supprimé.
+
+Backend : `core/src/netdiag.rs` (catalogue, scripts par saveur, parseurs purs),
+`src-tauri/src/commands/netdiag.rs` (streamé). L'outil TCP **délègue** à
+`reachability::probe_script`/`parse_verdict` — pas de seconde implémentation.
+Frontend : `src/hooks/useFleetTargets.ts` (les ~95 lignes de listing live
+Docker/K8s extraites de `FleetTab.tsx`, qui s'en sert ensuite — sinon c'est une
+deuxième copie), `src/components/NetDiagTab.tsx`, `src/lib/netdiag.ts` + test,
+nouveau `kind: "netdiag"` dans `useTabs`/`types.ts`/`App.tsx`/`TabBar.tsx`,
+suppression de `ReachabilityPanel.tsx` et réaffectation de ses points d'entrée,
+raccourci `netdiag.open`.
+
+### Tranche 2 — les outils coûteux et le second sens
+
+Ping et traceroute (souvent absents ou sans privilèges, notamment en conteneur :
+rendre `Unavailable { tool }`, jamais un faux échec), et le sens « vers les
+hôtes » avec son runner local et sa famille de parseurs Windows.
+
+**Pièges.** L'adresse saisie passe par `validate_host`, jamais autre chose. Un
+diagnostic ne s'enregistre pas dans `fleet_history` : il pose une question et ne
+change rien, et noyer les vrais runs sous des diagnostics abîmerait le seul
+travail de l'historique (c'est déjà la règle de `probe_reachability`).
 
 ---
 
