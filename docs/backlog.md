@@ -1,7 +1,7 @@
 # Backlog — plan d'implémentation
 
-Écrit le 2026-08-04, après la livraison de l'onglet Identités AWS ; vague 1
-retirée le 2026-08-05, une fois ses cinq items livrés. Chaque levier cité a été
+Écrit le 2026-08-04, après la livraison de l'onglet Identités AWS ; vidé de ses
+items le 2026-08-10, les trois vagues étant terminées. Chaque levier cité a été
 vérifié dans le code à sa date d'écriture, pas retrouvé de mémoire — c'est le
 seul contenu de ce fichier qui vieillit mal, donc **revérifier un levier avant
 de démarrer l'item**.
@@ -37,17 +37,19 @@ CHANGELOG.
   « aucun », l'item n'est pas fini. Et le garde-fou ajouté doit être cassé une
   fois pour vérifier qu'il échoue vraiment.
 
-## Ordre proposé, et pourquoi
+## État : les trois vagues sont vides
 
-Trois vagues à l'origine. La première (items courts sur des zones déjà chaudes)
-et l'essentiel de la troisième — le pivot « plan de contrôle » — sont
-terminées ; voir « Déjà livré ». Il reste un item de la vague 2 et le journal
-d'activité.
+Les trois vagues prévues le 2026-08-04 sont terminées (2026-08-10). **Ce
+fichier ne contient donc plus d'item à prendre** — seulement ce qui a été livré,
+et ce qui a été écarté volontairement. Le prochain chantier reste à décider ;
+d'ici là, la section « Écarté volontairement » en bas est ce qu'il ne faut pas
+reproposer sans raison neuve.
 
-Rien n'oblige à suivre cet ordre : les items sont indépendants sauf mention
-explicite de dépendance.
+Deux dettes connues, à traiter au premier usage réel plutôt qu'à planifier :
+l'import Azure/GCP et le tunnel SSM n'ont jamais tourné contre une vraie
+infrastructure (détail sous chaque item de « Déjà livré »).
 
-**Et une leçon, vérifiée cinq fois de suite : les « leviers » de ce fichier
+**Et une leçon, vérifiée six fois de suite : les « leviers » de ce fichier
 sont optimistes.** Le rollback ne dépendait pas de la vue d'activité ; la
 dérive n'avait aucune de ses deux « moitiés déjà là » ; la vue d'activité ne
 fusionne pas trois silos comparables ; le tunnel SSM ne pouvait rien réutiliser
@@ -55,11 +57,18 @@ de `proxy_command::spawn`, qui rend un flux d'octets là où il fallait un port.
 Chaque fois, la surprise était du même côté — plus de travail qu'annoncé, ou un
 prérequis inexistant. **Rouvrir le code avant de s'engager sur une taille.**
 
-Le corollaire, découvert sur ce même item : la surprise peut aussi être du
+Le corollaire, découvert sur le tunnel SSM : la surprise peut aussi être du
 travail **déjà fait et non listé**. Le bloc de tunnel SSH existait en trois
 copies, ce que le backlog ne disait nulle part — le trouver a changé la forme
 de l'item (un module partagé plutôt qu'un quatrième site de dial). Lire les
 appelants, pas seulement le module cité comme levier.
+
+Et une troisième forme, découverte sur Azure/GCP : le levier peut être exact
+**et le module donné en modèle avoir précisément la pièce non réutilisable**.
+`aws_inventory` était le bon modèle sur toute la ligne sauf son lanceur de CLI,
+qui ne marche que parce qu'`aws` est un `.exe`. La question à poser n'est pas
+« ce module est-il un bon modèle » mais « laquelle de ses pièces repose sur une
+propriété que ma source n'a pas ».
 
 ---
 
@@ -111,70 +120,52 @@ le détail est dans le CHANGELOG et dans l'historique git.
   reste éphémère par connexion, jamais dans le panneau Tunnels. **Non prouvé
   contre un vrai couple EC2-SSM + base managée** — couvert par le parsing, une
   machine à états pilotée par un faux helper, et la migration du format.
+- **Vue d'activité unifiée** — `core/src/activity.rs`, `core/src/session_index.rs`,
+  `ActivityTab.tsx` (2026-08-07). **Le levier annoncé était le plus mince des
+  cinq** : un seul des trois silos portait des évènements datés, donc l'item a
+  commencé par horodater `command_history` (migration ascendante : les entrées
+  d'avant n'ont pas de date véridique, `atMs` reste `null` et l'interface écrit
+  « date inconnue » plutôt que d'inventer celle de la migration) et par indexer
+  les enregistrements, référencés nulle part. Fusion **à la lecture seulement** :
+  chaque source garde son format, son plafond et son écrivain, donc pas de
+  quatrième fichier à migrer le jour où l'une bouge. Deux défauts trouvés en
+  route, hors périmètre : l'écriture de l'historique était derrière le réglage
+  « suggestions » du ghost-text, et `openFleet`/`openSql`/`openActivity`
+  appelaient `setActiveTabId` dans l'updater de `setTabs` (effet de bord dans
+  une fonction que React rejoue en StrictMode — invisible en release, sorti par
+  le scénario E2E).
+- **Inventaire Azure / GCP** — `core/src/{cloud_cli,cloud_inventory,azure_inventory,
+  gcp_inventory,azure_auth}.rs`, `AzureImportPanel.tsx`, `GcpImportPanel.tsx`,
+  `CloudProviderPicker.tsx` (2026-08-10). **Le levier annoncé était réel** pour
+  une fois — `HostSource` était déjà un `{kind, id}` en chaînes libres — mais
+  **le module cité comme modèle avait justement la pièce non copiable** :
+  `aws_inventory::run_aws` fait `Command::new("aws")`, ce qui marche parce
+  qu'`aws.exe` existe. `az` et `gcloud` sont des shims `.cmd` sur Windows, donc
+  le même appel échoue en `NotFound` chez quelqu'un dont la CLI est
+  parfaitement installée. Vérifié empiriquement avant d'écrire : `az.cmd`
+  marche, `az` non, et Rust gère lui-même l'invocation batch — d'où
+  `candidate_programs`, testé, cassé une fois pour vérifier qu'il échoue. Idem
+  pour le cwd : `az.cmd` lancé depuis ce dépôt en UNC fait écrire à `cmd.exe`
+  « chemins UNC non pris en charge » sur stderr, ce que `proxy_command::
+  helper_working_dir` résolvait déjà. `apply_import` **est** mutualisé entre
+  Azure et GCP (contrairement à AWS/Ansible) : aucun hôte ne porte encore
+  `kind: "azure"`/`"gcp"`, donc rien à ne pas casser, et les deux apparient
+  vraiment sur un identifiant de ressource immuable. `HostSource` a été déplacé
+  d'`ansible_inventory` vers `model.rs`, où sa doc le situait déjà à tort.
+  **Trois bugs de casse serde attrapés par les tests en cours d'écriture**,
+  dont `networkIP`/`natIP` chez GCP (l'API capitalise l'acronyme, donc
+  `rename_all = "camelCase"` rendait toutes les instances sans adresse, sans
+  la moindre erreur). Connexion Azure depuis l'app en prime, sur le modèle
+  d'`aws_sso::login` — une session expirée renvoyait vers un `az login` à
+  taper ailleurs.
 
----
-
-## Vague 2 — tranches moyennes, une vraie décision de conception chacune
-
-### 1. Inventaire Azure / GCP — **S/M**
-
-**Valeur.** Reste des sources d'inventaire ce qui n'a pas été fait avec Ansible
-le 2026-08-06 : les VM Azure et GCP, par leur CLI, sur le modèle
-d'`aws_inventory.rs`.
-
-**Levier — le vrai travail est fait.** `Host::source` et
-`ansible_inventory::apply_import` posent le motif : un réimport apparie sur
-`(kind, id)` et ne rafraîchit que ce que la source possède. Une source de plus
-= un parseur de sortie CLI + une variante de `kind`, pas une refonte.
-
-**À écrire.** Backend : `az vm list` / `gcloud compute instances list --format
-json`, chacun vers les mêmes sélections. Frontend : un panneau par source, sur
-le modèle d'`AnsibleImportPanel.tsx` (**ne pas** généraliser `AwsImportPanel`,
-qui porte profil/région/SSM — voir ce panneau-là pour le raisonnement).
-
-**Pièges.** L'appariement, encore : pour Azure/GCP l'identifiant de ressource
-est immuable et globalement unique, donc c'est lui — pas le nom, pas l'adresse.
-Et comme pour AWS, ces CLI sont déjà authentifiées chez l'utilisateur : ne
-jamais demander ni stocker d'identifiant cloud.
-
-**Preuve.** Tests de parsing sur des sorties réelles ; le non-doublonnage est
-déjà couvert par les tests d'`apply_import`.
-
----
-
-## Vague 3 — le pivot « plan de contrôle » (structurantes)
-
-**La boucle est fermée depuis le 2026-08-06** : exécuter sur une flotte,
-voir ce qui s'en écarte, revenir en arrière. Il ne reste que le journal qui
-permettrait de lire tout ça dans le temps.
-
-### 2. Vue d'activité unifiée — **L**
-
-**Valeur.** `core/src/fleet_history.rs`, `core/src/command_history.rs` et
-`core/src/session_record.rs` sont trois silos. Un journal « qui a fait quoi, où,
-quand », filtrable et exportable, est la brique d'audit qui manque au
-positionnement infra.
-
-**Levier — revérifié le 2026-08-06, et bien plus mince qu'annoncé.** Un seul
-des trois silos porte des événements datés : `fleet_history` (`FleetRun` avec
-`startedAtMs`, cibles, résultats). `command_history` est un `Vec<String>` dans
-deux fichiers globaux, **sans horodatage ni hôte** — c'est la donnée de
-l'autocomplétion ghost-text, que le module qualifie lui-même de « behavioral/
-derived ». Les enregistrements de session sont des fichiers asciicast écrits là
-où l'utilisateur a choisi, **indexés nulle part**.
-
-Cet item ne commence donc pas par une vue : il commence par **donner un
-horodatage et un hôte à `command_history`** (dont le format est déjà sur les
-disques des utilisateurs — migration ascendante obligatoire) et par **indexer
-les enregistrements**. À chiffrer en conséquence.
-
-**À écrire.** Backend : un modèle d'événement commun et un lecteur qui fusionne
-les trois sources sans les fusionner sur disque (les formats existants restent
-compatibles). Frontend : un onglet avec filtres (hôte, période, type) et export.
-
-**Pièges.** Ne pas transformer ça en base de données. Le cap à 50 runs existe
-pour une raison ; une fusion qui charge tout en mémoire vieillira mal.
-Décider tôt de la rétention.
+  **Prouvé** : parsing sur sorties réelles, non-doublonnage au réimport,
+  commandes enregistrées et erreurs typées en E2E (`list_azure_subscriptions`
+  a répondu, `list_gcp_projects` a échoué en `cliMissing`), clippy Windows.
+  **Non prouvé** : aucun import contre une vraie flotte — la session Azure de
+  la machine de dev avait expiré et `gcloud` n'y est pas installé — et la
+  connexion Azure interactive, qui demande une vraie authentification
+  navigateur. À reprendre au premier import réel.
 
 ---
 

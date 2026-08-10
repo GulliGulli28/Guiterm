@@ -208,6 +208,53 @@ This changelog starts 2026-07-21 — for earlier versions, see
   list, including for SSM. And when a tunnel dies under a live connection, the
   error says the tunnel went down rather than blaming the database for
   refusing.
+- An Activity tab, answering "who did what, where, when" across the three
+  trails the app already kept but could only be read separately: fleet runs,
+  commands typed in a terminal, and session recordings. Filter by kind, by
+  host, by period, or search the command text, then export what's on screen to
+  CSV or JSON.
+
+  The three sources keep their own files, their own caps and their own writers
+  — nothing is merged on disk, so nothing has to be migrated the day one of
+  them changes, and retention stays what each already applied. Command history
+  gained a timestamp and a host to make this possible: entries written before
+  that read as "date inconnue" rather than being given the date of the upgrade,
+  and they sort last instead of being hidden by a period filter, because "we
+  don't know when" and "nothing happened then" are different answers. A
+  recording whose file has been moved or deleted is reported as missing rather
+  than dropped from the list.
+- Azure VMs and Google Cloud instances can be imported as hosts, alongside EC2,
+  from Hosts → Add → Import from the cloud. Pick a subscription or a project,
+  search by name, address, region, OS or tag, tick what you want. Addresses,
+  location, power state and tags are filled in — plus the administrator login
+  on Azure, which records one; GCP doesn't, so the batch login applies there.
+  Labels and network tags both become tags, so `target tag: prod` reaches the
+  imported fleet straight away.
+
+  Re-importing refreshes what the provider owns — the address and the tags —
+  and never touches what you decided: the label, the login, the port, the group
+  and the credentials survive. Machines are matched on the provider's own
+  resource identifier (the ARM id on Azure, the numeric instance id on GCP),
+  which survives a rename, a restart and a change of address, so re-importing
+  an account doesn't append a second copy of every machine.
+
+  As with EC2, nothing asks for a cloud credential or stores one: every call
+  goes through the `az` / `gcloud` CLI you already have configured, so your
+  tenant, your MFA and your SSO keep working exactly as they do in your
+  terminal.
+- An Azure session that has expired can be renewed from inside the app, rather
+  than being told to go and run `az login` in a terminal somewhere else. The
+  error offers to sign in; the panel shows what the CLI prints while it waits,
+  which is where the verification URL and, in device-code mode, the code
+  itself appear. The tenant comes pre-filled from Azure's own error message,
+  so there is no GUID to copy out of it.
+
+  The same panel reaches a subscription in another directory, from "Add a
+  subscription / switch account" — with a "sign out first" option, because
+  `az login` otherwise reuses the cached account and you land on the same
+  subscriptions again. Sign-in is the CLI's own: the token goes to `~/.azure`
+  exactly as it would from a terminal, so your other tools see the same
+  session, and this app still holds no credential of its own.
 
 ### Fixed
 - A private key chosen from the keychain was not saved with the host. The key's
