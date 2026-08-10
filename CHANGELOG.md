@@ -255,6 +255,20 @@ This changelog starts 2026-07-21 — for earlier versions, see
   subscriptions again. Sign-in is the CLI's own: the token goes to `~/.azure`
   exactly as it would from a terminal, so your other tools see the same
   session, and this app still holds no credential of its own.
+- Fourteen more keyboard shortcuts, all rebindable in Settings alongside the
+  existing ones. `Ctrl` `1`…`8` go straight to a tab and `Ctrl` `9` to the last
+  one, the way browsers do — until now the only way across was `Ctrl` `Tab`,
+  one tab at a time. `Ctrl` `Shift` `E` reconnects the active tab, `Ctrl`
+  `Shift` `S` starts or stops recording the session, `Ctrl` `Shift` `X` exports
+  its scrollback, `Ctrl` `Shift` `B` turns broadcasting on and off, `Ctrl`
+  `Shift` `N` opens a new host, and `Ctrl` `Shift` `O` / `A` / `Q` open fleet
+  operations, activity and databases. All of them work from inside a terminal,
+  which is where you are when you want them.
+
+  On a French keyboard the number row needs `Shift` just to produce a digit, so
+  `Ctrl` `1` used to be impossible to type. The digit shortcuts now read the
+  physical key: `Ctrl` `1`, `Ctrl` `Shift` `1` and `Ctrl` `&` are the same
+  shortcut, whichever layout you use.
 
 ### Fixed
 - A private key chosen from the keychain was not saved with the host. The key's
