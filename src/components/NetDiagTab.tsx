@@ -69,7 +69,9 @@ export function NetDiagTab({ workspace, onError, initialSourceId }: NetDiagTabPr
   const [pingOn, setPingOn] = useState(false);
   const [tracerouteOn, setTracerouteOn] = useState(false);
 
-  const [results, setResults] = useState<Map<string, { verdict: DiagVerdict; durationMs: number }>>(new Map());
+  const [results, setResults] = useState<Map<string, { verdict: DiagVerdict; durationMs: number; raw: string }>>(new Map());
+  /** Cells whose raw output is unfolded, by `row|tool` key. */
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
   const [ranTools, setRanTools] = useState<DiagTool[]>([]);
   const [ranRows, setRanRows] = useState<{ key: string; label: string; sub: string }[]>([]);
   const runIdRef = useRef<string | null>(null);
@@ -80,7 +82,10 @@ export function NetDiagTab({ workspace, onError, initialSourceId }: NetDiagTabPr
     if (dnsOn) list.push({ kind: "dns" });
     if (httpOn) list.push({ kind: "http", secure: httpSecure, port: null, path: httpPath.trim() });
     if (pingOn) list.push({ kind: "ping", count: 4 });
-    if (tracerouteOn) list.push({ kind: "traceroute", maxHops: 15 });
+    // 30 hops, the traditional default. 15 was too short for anything on the
+    // public internet — a trace would stop before arriving and read as a
+    // failure, which is exactly the confusion this tab exists to remove.
+    if (tracerouteOn) list.push({ kind: "traceroute", maxHops: 30 });
     return list;
   }, [tcpOn, tcpPort, dnsOn, httpOn, httpSecure, httpPath, pingOn, tracerouteOn]);
 
@@ -104,6 +109,7 @@ export function NetDiagTab({ workspace, onError, initialSourceId }: NetDiagTabPr
         next.set(`${diagRowKey(outcome.row)}|${diagToolKey(outcome.tool)}`, {
           verdict: outcome.verdict,
           durationMs: outcome.durationMs,
+          raw: outcome.raw,
         });
         return next;
       });
@@ -155,6 +161,7 @@ export function NetDiagTab({ workspace, onError, initialSourceId }: NetDiagTabPr
     const runId = crypto.randomUUID();
     runIdRef.current = runId;
     setResults(new Map());
+    setExpanded(new Set());
     setRanTools(tools);
     setRunning(true);
 
@@ -369,15 +376,36 @@ export function NetDiagTab({ workspace, onError, initialSourceId }: NetDiagTabPr
                         );
                       }
                       const described = describeVerdict(cell.verdict);
+                      const cellKey = `${info.key}|${diagToolKey(tool)}`;
+                      const isOpen = expanded.has(cellKey);
                       return (
-                        <td key={diagToolKey(tool)} className="px-2 py-1.5">
-                          <span
-                            title={described.detail}
-                            className={`inline-block rounded px-1.5 py-0.5 ${TONE_CLASS[described.tone]}`}
+                        <td key={diagToolKey(tool)} className="align-top px-2 py-1.5">
+                          <button
+                            onClick={() => setExpanded((prev) => {
+                              const next = new Set(prev);
+                              if (next.has(cellKey)) next.delete(cellKey);
+                              else next.add(cellKey);
+                              return next;
+                            })}
+                            // The verdict is a summary; the tool's own output
+                            // is what someone reads line by line — a hop list,
+                            // above all. Disabled rather than hidden when
+                            // there is nothing to show, so the affordance is
+                            // consistent across the grid.
+                            disabled={!cell.raw}
+                            title={cell.raw ? `${described.detail}\n\n(cliquer pour la sortie complète)` : described.detail}
+                            className={`inline-block rounded px-1.5 py-0.5 text-left ${TONE_CLASS[described.tone]} ${
+                              cell.raw ? "cursor-pointer hover:brightness-125" : "cursor-default"
+                            }`}
                           >
                             {described.label}
-                          </span>
+                          </button>
                           <span className="ml-1.5 text-[10px] text-[var(--c-text-faint)]">{cell.durationMs} ms</span>
+                          {isOpen && cell.raw && (
+                            <pre className="mt-1 max-h-64 max-w-[32rem] overflow-auto whitespace-pre rounded bg-[var(--c-bg)] p-2 font-mono text-[10px] leading-relaxed text-[var(--c-text-secondary)]">
+                              {cell.raw}
+                            </pre>
+                          )}
                         </td>
                       );
                     })}

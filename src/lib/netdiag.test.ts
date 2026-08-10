@@ -27,6 +27,18 @@ describe("describeVerdict", () => {
     expect(describeVerdict({ kind: "silent", summary: "x" }).tone).toBe("bad");
   });
 
+  /** The bug found in use: a traceroute ending in asterisks was reported as a
+   * silence, in red, next to an HTTPS 301 in green — a contradiction the app
+   * invented. Most of the internet drops traceroute probes, so that outcome
+   * settles nothing and must not read as a failure. */
+  it("ne peint pas un traceroute non abouti comme une panne", () => {
+    const inconclusive = describeVerdict({ kind: "inconclusive", summary: "limite de 30 sauts atteinte" });
+    expect(inconclusive.tone).toBe("unknown");
+    expect(inconclusive.tone).not.toBe("bad");
+    expect(inconclusive.detail).toContain("ne veut pas dire que la destination est injoignable");
+    expect(inconclusive.detail).toContain("autres colonnes");
+  });
+
   it("sépare le DNS du réseau", () => {
     expect(describeVerdict({ kind: "unknownHost" }).detail).toContain("DNS");
     expect(describeVerdict({ kind: "unreachable" }).detail).toContain("route");

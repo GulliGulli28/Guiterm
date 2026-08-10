@@ -49,6 +49,11 @@ pub struct NetdiagOutcome {
     pub tool: DiagTool,
     pub verdict: DiagVerdict,
     pub duration_ms: u64,
+    /// What the tool itself printed, so a cell can be unfolded.
+    ///
+    /// Traceroute is why: a hop count summarises the one output people want to
+    /// read line by line. Empty when there was nothing to show.
+    pub raw: String,
 }
 
 const OUTCOME_EVENT: &str = "netdiag-outcome";
@@ -120,6 +125,7 @@ pub async fn run_netdiag(
                         },
                         None => netdiag::parse(&tool, flavour, &outcome.stdout, &outcome.stderr),
                     };
+                    let raw = netdiag::body_of(&outcome.stdout, &outcome.stderr);
                     let _ = app.emit(
                         OUTCOME_EVENT,
                         NetdiagOutcome {
@@ -128,6 +134,7 @@ pub async fn run_netdiag(
                             tool: tool.clone(),
                             verdict,
                             duration_ms: outcome.duration_ms,
+                            raw,
                         },
                     );
                 }
@@ -199,6 +206,7 @@ pub async fn run_netdiag_to_hosts(
                         tool: tool.clone(),
                         verdict: DiagVerdict::Failed { message: why.clone() },
                         duration_ms: 0,
+                        raw: String::new(),
                     },
                 );
             }
@@ -223,14 +231,23 @@ pub async fn run_netdiag_to_hosts(
                     .await;
                     let duration_ms = started.elapsed().as_millis() as u64;
 
-                    let verdict = match outcome {
-                        Ok(Ok(run)) => netdiag::parse(&tool, flavour, &run.stdout, &run.stderr),
-                        Ok(Err(e)) => DiagVerdict::Failed {
-                            message: format!("Exécution locale impossible : {e}"),
-                        },
-                        Err(e) => DiagVerdict::Failed {
-                            message: format!("Tâche locale interrompue : {e}"),
-                        },
+                    let (verdict, raw) = match outcome {
+                        Ok(Ok(run)) => (
+                            netdiag::parse(&tool, flavour, &run.stdout, &run.stderr),
+                            netdiag::body_of(&run.stdout, &run.stderr),
+                        ),
+                        Ok(Err(e)) => (
+                            DiagVerdict::Failed {
+                                message: format!("Exécution locale impossible : {e}"),
+                            },
+                            String::new(),
+                        ),
+                        Err(e) => (
+                            DiagVerdict::Failed {
+                                message: format!("Tâche locale interrompue : {e}"),
+                            },
+                            String::new(),
+                        ),
                     };
                     let _ = app.emit(
                         OUTCOME_EVENT,
@@ -240,6 +257,7 @@ pub async fn run_netdiag_to_hosts(
                             tool,
                             verdict,
                             duration_ms,
+                            raw,
                         },
                     );
                 }));

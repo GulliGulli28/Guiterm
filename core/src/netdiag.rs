@@ -148,6 +148,14 @@ pub enum DiagVerdict {
     /// Nothing answered at all: dropped on the way — firewall, security group,
     /// missing route.
     Silent { summary: String },
+    /// The tool ran and produced something, but it doesn't settle the question.
+    ///
+    /// Exists for traceroute, where it is the *normal* outcome: most routers
+    /// and firewalls on the public internet drop traceroute probes, so a trace
+    /// that ends in asterisks says nothing about whether the destination is
+    /// reachable — and reporting that as a silence, in red, next to an HTTP 301
+    /// in green is a contradiction the app invented rather than observed.
+    Inconclusive { summary: String },
     /// The name doesn't resolve from that target, which is a different problem
     /// from the network entirely.
     UnknownHost,
@@ -459,7 +467,39 @@ pub fn parse(tool: &DiagTool, flavour: Flavour, stdout: &str, stderr: &str) -> D
         DiagTool::Dns => parse_dns(&reported),
         DiagTool::Http { .. } => parse_http(&reported),
         DiagTool::Ping { .. } => parse_ping(&reported),
-        DiagTool::Traceroute { .. } => parse_traceroute(&reported),
+        DiagTool::Traceroute { max_hops } => parse_traceroute(&reported, *max_hops),
+    }
+}
+
+/// Everything the tool itself printed, marker line excluded.
+///
+/// What the UI unfolds under a cell. Traceroute is the reason it exists — a
+/// hop count is a summary of the one output people actually want to read line
+/// by line — but every tool benefits from being inspectable rather than
+/// reduced to a verdict.
+pub fn body_of(stdout: &str, stderr: &str) -> String {
+    let body = match stdout.lines().position(|l| l.trim_start().starts_with(MARKER)) {
+        Some(index) => stdout.lines().skip(index + 1).collect::<Vec<_>>().join("\n"),
+        // No marker: the script never got that far, so its raw output is all
+        // there is — and that is exactly when it matters most.
+        None => stdout.to_string(),
+    };
+    let combined = match (body.trim(), stderr.trim()) {
+        (b, "") => b.to_string(),
+        ("", e) => e.to_string(),
+        (b, e) => format!("{b}\n{e}"),
+    };
+    // Capped: a traceroute is thirty lines, but a tool that goes wrong can
+    // print megabytes, and this travels through an event to the webview.
+    const MAX: usize = 8_000;
+    if combined.len() > MAX {
+        let mut cut = MAX;
+        while cut > 0 && !combined.is_char_boundary(cut) {
+            cut -= 1;
+        }
+        format!("{}\n… (sortie tronquée)", &combined[..cut])
+    } else {
+        combined
     }
 }
 
@@ -577,7 +617,7 @@ fn ping_average_ms(body: &str) -> Option<f64> {
 ///
 /// The full output stays available — the point of the summary is that a column
 /// can't hold thirty hops, not that the hops don't matter.
-fn parse_traceroute(reported: &Reported) -> DiagVerdict {
+fn parse_traceroute(reported: &Reported, max_hops: u8) -> DiagVerdict {
     let lowered = reported.body.to_lowercase();
     if lowered.contains("unknown host")
         || lowered.contains("name or service not known")
@@ -600,11 +640,21 @@ fn parse_traceroute(reported: &Reported) -> DiagVerdict {
             },
         };
     }
-    // A trace that ends in a run of timeouts never arrived. Saying "12 hops"
-    // there would read as success — the useful fact is that it stopped.
+    // A trace ending in timeouts did not arrive — but that is **not** a
+    // verdict about the destination. Most routers and firewalls on the public
+    // internet drop traceroute probes, so this is the ordinary outcome for a
+    // host that answers HTTPS perfectly well. Calling it a silence put a red
+    // cell next to a green one and invented a contradiction.
+    //
+    // Whether the hop limit was reached is the part that *is* informative: it
+    // separates "the path went dark" from "we simply stopped counting".
     if traceroute_ends_in_silence(&reported.body) {
-        return DiagVerdict::Silent {
-            summary: format!("{hops} sauts, puis silence"),
+        return DiagVerdict::Inconclusive {
+            summary: if hops >= u32::from(max_hops) {
+                format!("limite de {max_hops} sauts atteinte")
+            } else {
+                format!("{hops} sauts, puis plus de réponse")
+            },
         };
     }
     DiagVerdict::Ok { summary: format!("{hops} sauts") }
@@ -1191,17 +1241,33 @@ mod tests {
         }
     }
 
-    /// A trace that dies in timeouts never arrived. Reporting "5 sauts" there
-    /// would read as success — the useful fact is that it stopped.
+    /// A trace that dies in timeouts did not arrive — but it says nothing
+    /// about the destination, because most of the internet drops traceroute
+    /// probes. **This is the bug found in use**: reported as a silence, it put
+    /// a red cell next to an HTTPS 301 in green and invented a contradiction.
     #[test]
-    fn a_trace_that_ends_in_timeouts_is_a_silence() {
+    fn a_trace_that_ends_in_timeouts_is_inconclusive_not_a_silence() {
         let body = "\x201  192.168.1.1  0.412 ms  0.389 ms  0.371 ms\n\
                     \x202  10.0.0.1  8.112 ms  8.090 ms  8.070 ms\n\
                     \x203  * * *\n\
                     \x204  * * *";
-        match parse(&traceroute(), Flavour::Posix, &marker("traceroute", 0, body), "") {
-            DiagVerdict::Silent { summary } => assert_eq!(summary, "4 sauts, puis silence"),
-            other => panic!("attendu Silent, obtenu {other:?}"),
+        match parse(&DiagTool::Traceroute { max_hops: 30 }, Flavour::Posix, &marker("traceroute", 0, body), "") {
+            DiagVerdict::Inconclusive { summary } => assert_eq!(summary, "4 sauts, puis plus de réponse"),
+            other => panic!("attendu Inconclusive, obtenu {other:?}"),
+        }
+    }
+
+    /// The other half of the same bug: with a low hop limit, a public
+    /// destination is simply further away than we counted. "Puis silence" read
+    /// as a failure; "limite atteinte" says what actually happened.
+    #[test]
+    fn stopping_at_the_hop_limit_says_so() {
+        let body: String = (1..=15)
+            .map(|hop| format!("{hop:2}  * * *\n"))
+            .collect();
+        match parse(&DiagTool::Traceroute { max_hops: 15 }, Flavour::Posix, &marker("traceroute", 0, &body), "") {
+            DiagVerdict::Inconclusive { summary } => assert_eq!(summary, "limite de 15 sauts atteinte"),
+            other => panic!("attendu Inconclusive, obtenu {other:?}"),
         }
     }
 
@@ -1232,6 +1298,33 @@ mod tests {
             DiagVerdict::Ok { summary } => assert_eq!(summary, "2 sauts"),
             other => panic!("attendu Ok, obtenu {other:?}"),
         }
+    }
+
+    /// The hop lines have to survive to the UI: a hop count is a summary of
+    /// the one output people actually want to read line by line.
+    #[test]
+    fn the_raw_output_is_kept_for_the_details_panel() {
+        let body = "\x201  192.168.1.1  0.412 ms\n\x202  10.0.0.1  8.112 ms";
+        let raw = body_of(&marker("traceroute", 0, body), "");
+        assert!(raw.contains("192.168.1.1"));
+        assert!(raw.contains("10.0.0.1"));
+        assert!(!raw.contains(MARKER), "la ligne de marqueur est un détail interne");
+    }
+
+    /// When the script never reached the marker, its raw output is all there
+    /// is — and that is exactly when someone needs to read it.
+    #[test]
+    fn the_raw_output_survives_a_missing_marker() {
+        assert!(body_of("", "sh: traceroute: not found").contains("not found"));
+        assert!(body_of("sortie brute", "").contains("sortie brute"));
+    }
+
+    #[test]
+    fn a_huge_output_is_truncated_rather_than_shipped_whole() {
+        let huge = "x".repeat(50_000);
+        let raw = body_of(&marker("traceroute", 0, &huge), "");
+        assert!(raw.len() < 9_000, "longueur {}", raw.len());
+        assert!(raw.ends_with("(sortie tronquée)"));
     }
 
     #[test]

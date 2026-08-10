@@ -41,6 +41,15 @@ export function describeVerdict(verdict: DiagVerdict): DescribedVerdict {
         tone: "bad",
         detail: `${verdict.summary} — rien n'a répondu : paquet jeté en route (pare-feu, security group, route manquante).`,
       };
+    case "inconclusive":
+      return {
+        label: verdict.summary,
+        tone: "unknown",
+        detail:
+          `${verdict.summary} — la trace n'est pas allée au bout, ce qui ne veut pas dire que la ` +
+          "destination est injoignable : la plupart des routeurs et pare-feux ne répondent pas aux " +
+          "sondes traceroute. Fiez-vous aux autres colonnes pour la joignabilité.",
+      };
     case "unknownHost":
       return {
         label: "nom inconnu",

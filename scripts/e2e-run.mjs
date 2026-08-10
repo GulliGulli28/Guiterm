@@ -1455,17 +1455,19 @@ async function runNetDiagScenario(browser) {
   if (!started) throw new Error("bouton « Lancer sur … » introuvable ou désactivé");
 
   // TCP and DNS are both on by default, so two cells must fill in. Each
-  // rendered verdict carries its explanation as a `title` — waiting on that is
-  // waiting on `describeVerdict` having run over a real backend answer.
+  // rendered verdict is a button carrying its explanation as a `title` —
+  // waiting on that is waiting on `describeVerdict` having run over a real
+  // backend answer. (It was a `span` until the cells became unfoldable; the
+  // scenario caught the change, which is the point of asserting on the DOM.)
   await browser.waitUntil(async () => (await browser.execute(() =>
-    document.querySelectorAll("table td span[title]").length
+    document.querySelectorAll("table td button[title]").length
   )) >= 2, {
     timeout: 60_000,
     timeoutMsg: "aucun verdict de diagnostic — la sonde n atteint pas le backend",
   });
 
   const verdicts = await browser.execute(() =>
-    Array.from(document.querySelectorAll("table td span[title]"), (el) => el.textContent?.trim()),
+    Array.from(document.querySelectorAll("table td button[title]"), (el) => el.textContent?.trim()),
   );
   console.log(`Diagnostic réseau : OK (palette → onglet → sonde réelle locale, verdicts : ${verdicts.join(" | ")}).`);
 

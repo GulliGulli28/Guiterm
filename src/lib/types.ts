@@ -1051,6 +1051,9 @@ export type DiagVerdict =
   | { kind: "ok"; summary: string }
   | { kind: "refused"; summary: string }
   | { kind: "silent"; summary: string }
+  /** The tool ran but doesn't settle the question — traceroute's normal
+   * outcome, since most of the internet drops its probes. */
+  | { kind: "inconclusive"; summary: string }
   | { kind: "unknownHost" }
   | { kind: "unreachable" }
   | { kind: "unavailable"; tool: string }
@@ -1073,6 +1076,8 @@ export interface NetdiagOutcome {
   tool: DiagTool;
   verdict: DiagVerdict;
   durationMs: number;
+  /** What the tool printed, so a cell can be unfolded. Traceroute is why. */
+  raw: string;
 }
 
 /** One host as an Ansible inventory describes it. */
