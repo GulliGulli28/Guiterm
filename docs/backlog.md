@@ -105,20 +105,24 @@ puisqu'on interpole une adresse saisie dans un script lancé sur une flotte.
   probablement déjà cassée sur ce chemin sous Windows. `is_windows_native_shell`
   existe déjà pour faire la distinction.
 
-### Tranche 1 (en cours) — le socle qui marche partout
+### Tranche 1 — **livrée le 2026-08-10**
 
 Sens « depuis les hôtes », outils TCP + DNS + HTTP, en POSIX **et** en
-PowerShell pour la cible locale. Absorbe `ReachabilityPanel`, qui est supprimé.
+PowerShell pour la cible locale. `ReachabilityPanel` supprimé, absorbé par
+l'onglet ; ses deux points d'entrée (menu d'un hôte, palette) ouvrent l'onglet
+avec la bonne source présélectionnée — le menu d'un hôte a toujours voulu dire
+« sonder *depuis* cet hôte », la palette « est-ce que *moi* je joins ça ».
 
-Backend : `core/src/netdiag.rs` (catalogue, scripts par saveur, parseurs purs),
-`src-tauri/src/commands/netdiag.rs` (streamé). L'outil TCP **délègue** à
-`reachability::probe_script`/`parse_verdict` — pas de seconde implémentation.
-Frontend : `src/hooks/useFleetTargets.ts` (les ~95 lignes de listing live
-Docker/K8s extraites de `FleetTab.tsx`, qui s'en sert ensuite — sinon c'est une
-deuxième copie), `src/components/NetDiagTab.tsx`, `src/lib/netdiag.ts` + test,
-nouveau `kind: "netdiag"` dans `useTabs`/`types.ts`/`App.tsx`/`TabBar.tsx`,
-suppression de `ReachabilityPanel.tsx` et réaffectation de ses points d'entrée,
-raccourci `netdiag.open`.
+Livré comme prévu, plus le raccourci `netdiag.open` (`Ctrl+Shift+D`).
+`useFleetTargets` est bien une extraction de `FleetTab`, pas une copie.
+**Prouvé** : 25 tests de parsage sur sorties réelles (`getent`, `dig`,
+`nslookup`, `curl`, dont le séparateur décimal virgule d'un curl français, qui
+rendrait sinon toute requête instantanée), tentatives d'injection refusées sur
+l'adresse **et** sur le chemin HTTP, et un scénario E2E qui diagnostique
+127.0.0.1 depuis la machine locale — il a rendu « connexion refusée » et
+« 127.0.0.1 », donc les deux parseurs ont tourné contre de vrais outils. Sous
+WSL il exerce la saveur POSIX, sous Windows la saveur PowerShell.
+**Non prouvé** : aucun diagnostic contre une vraie flotte distante.
 
 ### Tranche 2 — les outils coûteux et le second sens
 
