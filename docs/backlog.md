@@ -39,14 +39,14 @@ CHANGELOG.
 
 ## État
 
-Les trois vagues prévues le 2026-08-04 sont terminées (2026-08-10). Le chantier
-en cours depuis est **l'onglet de diagnostic réseau**, ci-dessous. En dehors de
-lui, ce fichier ne contient plus d'item à prendre — et la section « Écarté
+Les trois vagues prévues le 2026-08-04 sont terminées, et l'onglet de diagnostic
+réseau demandé après elles l'est aussi — ses deux tranches (2026-08-10).
+**Ce fichier ne contient donc plus d'item à prendre** ; la section « Écarté
 volontairement » en bas reste ce qu'il ne faut pas reproposer sans raison neuve.
 
-Deux dettes connues, à traiter au premier usage réel plutôt qu'à planifier :
-l'import Azure/GCP et le tunnel SSM n'ont jamais tourné contre une vraie
-infrastructure (détail sous chaque item de « Déjà livré »).
+Trois dettes connues, à traiter au premier usage réel plutôt qu'à planifier :
+l'import Azure/GCP, le tunnel SSM et le diagnostic réseau n'ont jamais tourné
+contre une vraie infrastructure distante (détail sous chaque item).
 
 **Et une leçon, vérifiée six fois de suite : les « leviers » de ce fichier
 sont optimistes.** Le rollback ne dépendait pas de la vue d'activité ; la
@@ -71,7 +71,7 @@ propriété que ma source n'a pas ».
 
 ---
 
-## En cours — Onglet de diagnostic réseau — **L**
+## Livré — Onglet de diagnostic réseau — **L**
 
 Demandé le 2026-08-10. Un onglet qui lance des diagnostics réseau (TCP, DNS,
 HTTP, ping, traceroute) sur une sélection d'hôtes, avec un résultat par hôte.
@@ -124,11 +124,28 @@ l'adresse **et** sur le chemin HTTP, et un scénario E2E qui diagnostique
 WSL il exerce la saveur POSIX, sous Windows la saveur PowerShell.
 **Non prouvé** : aucun diagnostic contre une vraie flotte distante.
 
-### Tranche 2 — les outils coûteux et le second sens
+### Tranche 2 — **livrée le 2026-08-10**
 
-Ping et traceroute (souvent absents ou sans privilèges, notamment en conteneur :
-rendre `Unavailable { tool }`, jamais un faux échec), et le sens « vers les
-hôtes » avec son runner local et sa famille de parseurs Windows.
+Ping et traceroute, décochés par défaut (une grille qui les activerait
+accueillerait l'utilisateur avec une colonne d'« outil absent »), et le sens
+« vers les hôtes ».
+
+Confirmé en l'écrivant : ce sens **n'est pas** le moteur de flotte, pour la
+raison notée d'avance — `run_on_hosts` est clé par `FleetTarget`, dix sondes
+locales s'effondreraient en une entrée. C'est son propre runner borné.
+L'évènement a gagné une union `DiagRow` : une ligne de la grille est une source
+dans un sens, un hôte diagnostiqué dans l'autre.
+
+Deux pièges de lecture, fixés par des tests : un `ping` sort en code 1 sur une
+perte **partielle** comme totale, donc le verdict se lit sur la ligne de
+statistiques et pas sur le code — un lien qui marche mal est exactement ce
+qu'on cherche avec ping ; et un traceroute qui finit en étoiles n'est jamais
+arrivé, alors qu'annoncer « 12 sauts » se lirait comme un succès (seuil à deux
+sauts muets consécutifs, un seul au milieu étant normal). Sorties réelles
+couvertes en anglais **et** en français, dont le `ping.exe` francophone de
+Windows dont aucun marqueur anglais ne correspond.
+
+**Non prouvé** : aucun diagnostic contre une vraie flotte distante.
 
 **Pièges.** L'adresse saisie passe par `validate_host`, jamais autre chose. Un
 diagnostic ne s'enregistre pas dans `fleet_history` : il pose une question et ne
