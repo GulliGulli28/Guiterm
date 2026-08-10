@@ -334,6 +334,20 @@ export function IconBroadcast({ size = 16, className }: P) {
   );
 }
 
+/** Network diagnostics: a radar sweep. Deliberately not `IconBroadcast`'s
+ * symmetric waves — broadcasting sends the same thing everywhere, diagnosing
+ * asks and listens back, and the two buttons sit in the same bar. */
+export function IconNetDiag({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <circle cx="8" cy="8" r="6" stroke="currentColor" strokeWidth="1.15" />
+      <circle cx="8" cy="8" r="2.6" stroke="currentColor" strokeWidth="1.15" />
+      <circle cx="8" cy="8" r="1" fill="currentColor" />
+      <path d="M8 8L12.4 4.4" stroke="currentColor" strokeWidth="1.15" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function IconServerStack({ size = 16, className }: P) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>

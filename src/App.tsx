@@ -619,6 +619,8 @@ export default function App() {
           onToggleBroadcast={toggleBroadcastMode}
           onToggleFullscreen={toggleFullscreen}
           onReorder={setTabs}
+          onOpenNetDiag={() => openNetdiag(null)}
+          netDiagActive={tabs.some((t) => t.id === activeTabId && t.kind === "netdiag")}
           tabColor={tabColor}
         />
       )}
