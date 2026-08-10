@@ -3,7 +3,7 @@ import type { AppPreferences } from "../lib/preferences";
 import { lazy, Suspense, type ComponentType } from "react";
 import { alertTone, describeAlert } from "../lib/awsIdentities";
 import { HostsPanel } from "./HostsPanel";
-import { IconHosts, IconSnippets, IconTunnels, IconKeychain, IconSettings, IconTransfer, IconShield, IconDatabase, IconFleet, IconCloud } from "./ui-icons";
+import { IconHosts, IconSnippets, IconTunnels, IconKeychain, IconSettings, IconTransfer, IconShield, IconDatabase, IconFleet, IconCloud, IconNetDiag } from "./ui-icons";
 import { TabLoadingFallback } from "./TabLoadingFallback";
 
 // Lazy-loaded: "Hôtes" is the default panel shown on launch (stays eager),
@@ -70,6 +70,9 @@ interface SidebarProps {
   awsAlerts: AwsSessionAlert[];
   onEditSqlConnection: (conn: SqlConnection) => void;
   onOpenFleet: () => void;
+  /** Opens the network diagnostics tab. Lives in this strip rather than the
+   * tab bar, where it went unnoticed. */
+  onOpenNetDiag: () => void;
   onWorkspaceUpdate: (ws: Workspace) => void;
   onError: (message: string) => void;
   preferences: AppPreferences;
@@ -127,12 +130,23 @@ export function Sidebar(props: SidebarProps) {
             </button>
           );
         })}
+        {/* These two open a tab in the main area rather than switching the
+            sidebar panel — their content is a grid that needs the width. They
+            live here anyway because this strip is where people look for "what
+            can this app do", and a button hidden in the tab bar wasn't found. */}
         <button
           onClick={props.onOpenFleet}
           title="Opérations de flotte — exécuter une commande sur plusieurs hôtes à la fois"
           className="relative flex h-9 w-9 items-center justify-center rounded-lg border border-transparent text-[var(--c-text-faint)] transition-all duration-150 hover:bg-white/5 hover:text-[var(--c-text-secondary)]"
         >
           <IconFleet size={16} />
+        </button>
+        <button
+          onClick={props.onOpenNetDiag}
+          title="Diagnostic réseau — ping, traceroute, DNS, TCP, HTTP depuis ou vers vos hôtes"
+          className="relative flex h-9 w-9 items-center justify-center rounded-lg border border-transparent text-[var(--c-text-faint)] transition-all duration-150 hover:bg-white/5 hover:text-[var(--c-text-secondary)]"
+        >
+          <IconNetDiag size={16} />
         </button>
         <div className="mt-auto">
           <button

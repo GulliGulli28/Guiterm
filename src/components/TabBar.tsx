@@ -14,10 +14,6 @@ interface TabBarProps {
   onToggleBroadcast: () => void;
   onToggleFullscreen: () => void;
   onReorder: (tabs: TabMeta[]) => void;
-  /** Opens (or focuses) the network diagnostics tab. */
-  onOpenNetDiag: () => void;
-  /** Whether that tab is the one on screen, so the button reads as pressed. */
-  netDiagActive: boolean;
   /** Resolves a tab to its host group's tag color (hex), if any. */
   tabColor?: (tab: TabMeta) => string | undefined;
 }
@@ -32,7 +28,7 @@ function TabIcon({ kind }: { kind: TabMeta["kind"] }) {
   return <IconMonitor size={13} />;
 }
 
-export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, fullscreen, onSelect, onClose, onToggleSplit, onToggleBroadcast, onToggleFullscreen, onReorder, onOpenNetDiag, netDiagActive, tabColor }: TabBarProps) {
+export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, fullscreen, onSelect, onClose, onToggleSplit, onToggleBroadcast, onToggleFullscreen, onReorder, tabColor }: TabBarProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const dragState = useRef<{ draggedId: string; moved: boolean; startX: number } | null>(null);
   const [draggedId, setDraggedId] = useState<string | null>(null);
@@ -73,23 +69,9 @@ export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, fullscre
 
   return (
     <div className="flex shrink-0 items-center gap-1 border-b border-[var(--c-border)] bg-[var(--c-bg2)] p-1.5">
-      {/* Left of the tabs, not right with split/broadcast/fullscreen: those
-          three change how the tabs you already have behave, this one opens
-          something. It sits where you look first, because reaching for it
-          means something is already wrong. */}
-      <button
-        onClick={onOpenNetDiag}
-        title="Diagnostic réseau — ping, DNS, TCP, HTTP"
-        aria-label="Diagnostic réseau"
-        className={`flex shrink-0 items-center justify-center rounded-lg border px-2 py-1.5 transition-colors ${
-          netDiagActive
-            ? "accent-surface"
-            : "border-transparent bg-[var(--c-bg3)] text-[var(--c-text-secondary)] hover:bg-white/5"
-        }`}
-      >
-        <IconNetDiag size={13} />
-      </button>
-      <div className="mx-0.5 h-5 w-px shrink-0 bg-[var(--c-border)]" />
+      {/* The network diagnostics button briefly lived here. It moved to the
+          sidebar's nav strip, next to fleet operations: that strip is where
+          people look for "what can this app do", and here it went unnoticed. */}
       <div ref={containerRef} className="flex min-w-0 flex-1 gap-1 overflow-x-auto">
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId;

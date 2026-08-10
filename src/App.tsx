@@ -619,8 +619,6 @@ export default function App() {
           onToggleBroadcast={toggleBroadcastMode}
           onToggleFullscreen={toggleFullscreen}
           onReorder={setTabs}
-          onOpenNetDiag={() => openNetdiag(null)}
-          netDiagActive={tabs.some((t) => t.id === activeTabId && t.kind === "netdiag")}
           tabColor={tabColor}
         />
       )}
@@ -691,6 +689,7 @@ export default function App() {
             awsAlerts={awsAlerts}
             onEditSqlConnection={(conn) => { setEditingSqlConnection(conn); setEditingHost(null); setEditingGroup(null); }}
             onOpenFleet={openFleet}
+            onOpenNetDiag={() => openNetdiag(null)}
             onError={reportError}
             preferences={preferences}
             onPreferencesChange={updatePreferences}
