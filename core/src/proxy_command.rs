@@ -141,7 +141,11 @@ pub fn expand(template: &str, address: &str, port: u16, username: &str) -> Strin
 /// A directory the helper can safely be started in: the user's home, falling
 /// back to the temp directory. Both are always local paths, which is the point
 /// — see the `current_dir` call in [`spawn`].
-fn helper_working_dir() -> std::path::PathBuf {
+///
+/// Shared with [`crate::cloud_cli`], which hits the identical problem for the
+/// identical reason: `az` and `gcloud` are batch shims on Windows, so running
+/// one starts a `cmd.exe`, and this repo is routinely opened from a UNC path.
+pub(crate) fn helper_working_dir() -> std::path::PathBuf {
     directories::BaseDirs::new()
         .map(|dirs| dirs.home_dir().to_path_buf())
         .filter(|home| home.is_dir())

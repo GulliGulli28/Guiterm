@@ -267,7 +267,38 @@ pub struct Host {
     /// path predates this field, and changing it would duplicate every
     /// instance already in a user's workspace).
     #[serde(default)]
-    pub source: Option<crate::ansible_inventory::HostSource>,
+    pub source: Option<HostSource>,
+}
+
+/// Which importer owns a host, and under what identity there.
+///
+/// Lived in `ansible_inventory` while that was its only user; moved here once
+/// [`crate::cloud_inventory`] gave it a second and third, since it is a field
+/// of [`Host`] and not a detail of any one source. The JSON is unchanged —
+/// it is the same two strings in the same place — so workspaces already on
+/// disk keep parsing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostSource {
+    /// `"ansible"`, `"azure"`, `"gcp"`. Deliberately **not** an enum: an
+    /// unknown source read from an older or newer `workspace.json` must stay
+    /// readable rather than make the whole file fail to parse — and a file
+    /// that fails to parse is a user whose hosts have vanished.
+    pub kind: String,
+    /// The identity within that source: the inventory name for Ansible, the
+    /// ARM resource id for Azure, the numeric instance id for GCP. Always
+    /// something the provider keeps stable across a rename or a move.
+    pub id: String,
+}
+
+impl HostSource {
+    pub fn new(kind: impl Into<String>, id: impl Into<String>) -> Self {
+        Self { kind: kind.into(), id: id.into() }
+    }
+
+    pub fn ansible(name: impl Into<String>) -> Self {
+        Self::new("ansible", name)
+    }
 }
 
 impl Host {
@@ -1022,7 +1053,7 @@ mod auth_method_json {
     #[test]
     fn provenance_survives_a_round_trip_in_camel_case() {
         let mut host = Host::new("web", "10.0.0.1", "ubuntu");
-        host.source = Some(crate::ansible_inventory::HostSource::ansible("web1.example.com"));
+        host.source = Some(HostSource::ansible("web1.example.com"));
 
         let json = serde_json::to_value(&host).unwrap();
         assert_eq!(json["source"]["kind"], "ansible");

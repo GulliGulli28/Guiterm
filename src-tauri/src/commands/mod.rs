@@ -2,6 +2,7 @@ pub mod activity;
 pub mod adaptive;
 pub mod aws;
 pub mod aws_sso;
+pub mod cloud_inventory;
 pub mod command_history;
 pub mod dialog;
 pub mod docker;

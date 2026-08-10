@@ -255,6 +255,7 @@ async function runScenarios(browser) {
   await runRollbackScenario(browser);
   await runDriftScenario(browser);
   await runAnsibleImportScenario(browser);
+  await runCloudImportScenario(browser);
   await runSsmTunnelScenario(browser);
   await runActivityScenario(browser);
 
@@ -547,6 +548,26 @@ async function clickButtonByText(browser, text) {
   if (!found) throw new Error(`bouton « ${text} » introuvable`);
 }
 
+/** Opens the cloud provider picker from the Hosts sidebar and picks one.
+ *
+ * Selects on `data-provider` rather than on text: each entry's label is a
+ * name, a CLI hint and a sentence, so there is no exact string to match. */
+async function pickCloudProvider(browser, provider) {
+  await clickButtonByText(browser, "Ajouter…");
+  await clickButtonByText(browser, "Importer depuis le cloud");
+  await browser.waitUntil(async () => await browser.execute(() =>
+    document.querySelectorAll("button[data-provider]").length === 3
+  ), { timeout: 5_000, timeoutMsg: "le sélecteur cloud n a pas proposé les trois fournisseurs" });
+
+  const picked = await browser.execute((id) => {
+    const entry = document.querySelector(`button[data-provider="${id}"]`);
+    if (!(entry instanceof HTMLElement)) return false;
+    entry.click();
+    return true;
+  }, provider);
+  if (!picked) throw new Error(`fournisseur « ${provider} » introuvable dans le sélecteur cloud`);
+}
+
 /** Same, for buttons whose label is only part of their text (an entry made of
  * a name, a hint and a code sample, say). */
 async function clickButtonContaining(browser, text) {
@@ -673,8 +694,10 @@ async function runProxyTestButtonScenario(browser) {
  * Nothing is imported, so the real workspace is untouched.
  */
 async function runAwsImportPanelScenario(browser) {
-  await clickButtonByText(browser, "Ajouter…");
-  await clickButtonByText(browser, "Importer depuis AWS");
+  // Since Azure and GCP joined, the menu holds one cloud entry and the
+  // provider is chosen a step later — the databases sidebar still has its own
+  // direct "Importer depuis AWS", which is a different panel.
+  await pickCloudProvider(browser, "aws");
 
   const panelText = () => browser.execute(() => {
     const heading = Array.from(document.querySelectorAll("p"))
@@ -893,6 +916,87 @@ async function runAnsibleImportScenario(browser) {
     throw new Error(`l erreur doit nommer le fichier, reçu : ${missing.message}`);
   }
   console.log("Import Ansible : OK (panneau atteignable, lecture d un fichier absent refusée en nommant le chemin).");
+}
+
+/**
+ * The Azure and GCP imports are reachable, and their commands are registered.
+ *
+ * This is the scenario that answers "can the user actually get there" — the
+ * question that `cargo check`, clippy and `tsc` all answered yes to while the
+ * MongoDB tab was unreachable. It walks the real path: Hôtes → Ajouter… →
+ * Importer depuis le cloud → the provider picker → each provider's own panel.
+ *
+ * The backend half asserts something subtler than "it worked". Neither CLI can
+ * be expected to be installed *and* signed in on a test machine — under WSL
+ * neither is, and on Windows the Azure session may well have lapsed. So what
+ * is asserted is that the failure is **typed**: a registered command answers
+ * with a `CloudCliError` variant, while an unregistered one rejects with
+ * Tauri's own "command not found" string and no `reason.kind` at all. That
+ * tells a missing registration apart from an absent CLI, which is exactly the
+ * distinction a plain try/catch would lose.
+ */
+async function runCloudImportScenario(browser) {
+  await browser.execute(() => {
+    const tab = Array.from(document.querySelectorAll("button"))
+      .find((b) => (b.getAttribute("title") || "") === "Hôtes");
+    if (tab instanceof HTMLElement) tab.click();
+  });
+
+  for (const [provider, title] of [["azure", "Importer depuis Azure"], ["gcp", "Importer depuis GCP"]]) {
+    // `pickCloudProvider` also asserts all three providers are offered — a
+    // picker that silently lost one is a provider nobody can reach any more,
+    // and nothing else in the suite would notice.
+    await pickCloudProvider(browser, provider);
+    await browser.waitUntil(async () => await browser.execute((t) =>
+      Array.from(document.querySelectorAll("p")).some((el) => el.textContent?.trim() === t), title,
+    ), { timeout: 5_000, timeoutMsg: `le panneau « ${title} » ne s est pas ouvert` });
+
+    // The sign-in panel is the whole answer to "an expired session is a dead
+    // end": if this entry point disappears, the only remedy left is a message
+    // telling the user to go and run `az login` somewhere else. Nothing else
+    // in the suite would notice, so it is asserted here.
+    if (provider === "azure") {
+      await clickButtonByText(browser, "Ajouter un abonnement / changer de compte…");
+      await browser.waitUntil(async () => await browser.execute(() =>
+        Array.from(document.querySelectorAll("p")).some((el) => el.textContent?.trim() === "Se connecter à Azure")
+      ), { timeout: 5_000, timeoutMsg: "le panneau de connexion Azure ne s est pas ouvert" });
+      // Not clicking "Se connecter": that would spawn a real `az login` and
+      // block on a browser nobody is going to complete.
+      await closeDialogTitled(browser, "Se connecter à Azure");
+      console.log("Import cloud : panneau de connexion Azure atteignable.");
+    }
+
+    await closeDialogTitled(browser, title);
+  }
+
+  const KINDS = ["cliMissing", "notLoggedIn", "refused", "unreadable"];
+  for (const command of ["list_azure_subscriptions", "list_gcp_projects"]) {
+    const answer = await browser.execute(async (name) => {
+      try {
+        return { ok: await window.__TAURI_INTERNALS__.invoke(name) };
+      } catch (e) {
+        // Keep the shape, not just the text: `reason.kind` is the whole point.
+        return { failed: typeof e === "object" && e !== null ? e : String(e) };
+      }
+    }, command);
+
+    if (answer.ok !== undefined) {
+      if (!Array.isArray(answer.ok)) {
+        throw new Error(`invoke("${command}") n a pas rendu un tableau : ${JSON.stringify(answer.ok)}`);
+      }
+      console.log(`Import cloud : ${command} a répondu ${answer.ok.length} entrée(s).`);
+      continue;
+    }
+    const kind = answer.failed?.reason?.kind;
+    if (!KINDS.includes(kind)) {
+      throw new Error(
+        `invoke("${command}") a échoué sans raison typée — commande non enregistrée ? ` +
+        `reçu : ${JSON.stringify(answer.failed)}`,
+      );
+    }
+    console.log(`Import cloud : ${command} a échoué proprement (${kind}), commande bien enregistrée.`);
+  }
+  console.log("Import cloud : OK (sélecteur, panneaux Azure et GCP atteignables, commandes typées).");
 }
 
 /**

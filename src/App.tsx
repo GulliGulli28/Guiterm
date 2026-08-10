@@ -26,6 +26,9 @@ import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, loadPrefe
 import { SplitPane } from "./components/SplitPane";
 import { AwsImportPanel } from "./components/AwsImportPanel";
 import { AnsibleImportPanel } from "./components/AnsibleImportPanel";
+import { AzureImportPanel } from "./components/AzureImportPanel";
+import { GcpImportPanel } from "./components/GcpImportPanel";
+import { CloudProviderPicker, type CloudProvider } from "./components/CloudProviderPicker";
 import { ReachabilityPanel } from "./components/ReachabilityPanel";
 import { RemoteSearchPanel } from "./components/RemoteSearchPanel";
 import { AwsDatabaseImportPanel } from "./components/AwsDatabaseImportPanel";
@@ -74,7 +77,10 @@ export default function App() {
   const toggleSplit = useCallback(() => setSplitOpen((v) => !v), []);
   const [paletteOpen, setPaletteOpen] = useState(false);
   const [snippetPickerOpen, setSnippetPickerOpen] = useState(false);
-  const [awsImportOpen, setAwsImportOpen] = useState(false);
+  /** Which cloud import is on screen. `"picker"` is the provider choice that
+   * the single "Importer depuis le cloud" menu entry opens; the others are the
+   * providers' own panels, which stay separate components. */
+  const [cloudImport, setCloudImport] = useState<"picker" | CloudProvider | null>(null);
   const [ansibleImportOpen, setAnsibleImportOpen] = useState(false);
   /** Open state of the reachability panel. `sourceId` is the host it was
    * opened from — `null` when opened from the palette, which is the "does *my*
@@ -505,15 +511,34 @@ export default function App() {
           onClose={() => setReachabilityOpen(null)}
         />
       )}
-      {awsImportOpen && (
+      {cloudImport === "picker" && (
+        <CloudProviderPicker onPick={setCloudImport} onClose={() => setCloudImport(null)} />
+      )}
+      {cloudImport === "aws" && (
         <AwsImportPanel
           workspace={workspace}
           onWorkspaceUpdate={refreshWorkspace}
-          onClose={() => setAwsImportOpen(false)}
+          onClose={() => setCloudImport(null)}
           onError={reportError}
           onConfigureSso={() => setAwsSsoOpen({ mode: "new" })}
           onReconnectSso={(session) => setAwsSsoOpen({ mode: "reconnect", session })}
           key={`aws-import-${awsProfilesEpoch}`}
+        />
+      )}
+      {cloudImport === "azure" && (
+        <AzureImportPanel
+          workspace={workspace}
+          onWorkspaceUpdate={refreshWorkspace}
+          onClose={() => setCloudImport(null)}
+          onError={reportError}
+        />
+      )}
+      {cloudImport === "gcp" && (
+        <GcpImportPanel
+          workspace={workspace}
+          onWorkspaceUpdate={refreshWorkspace}
+          onClose={() => setCloudImport(null)}
+          onError={reportError}
         />
       )}
       {ansibleImportOpen && (
@@ -623,7 +648,7 @@ export default function App() {
             onNewHost={() => { setEditingHost("new"); setNewHostDefaultGroupId(null); setEditingGroup(null); setEditingSqlConnection(null); }}
             onEditHost={(host) => { setEditingHost(host); setEditingGroup(null); setEditingSqlConnection(null); }}
             onNewGroup={() => { setEditingGroup({ id: null, name: "", parentId: null, icon: null, color: null }); setEditingHost(null); setEditingSqlConnection(null); }}
-            onImportAws={() => setAwsImportOpen(true)}
+            onImportCloud={() => setCloudImport("picker")}
             onImportAnsible={() => setAnsibleImportOpen(true)}
             onProbeReachability={(host) => setReachabilityOpen({ sourceId: host.id })}
             onSearchFiles={(host) => setSearchHost(host)}

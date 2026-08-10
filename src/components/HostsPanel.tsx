@@ -32,7 +32,9 @@ interface HostsPanelProps {
   onNewHost: () => void;
   onEditHost: (host: Host) => void;
   onNewGroup: () => void;
-  onImportAws: () => void;
+  /** Opens the provider picker — AWS, Azure or GCP — rather than one menu
+   * entry per provider, which pushed "Nouvel hôte" down a six-item list. */
+  onImportCloud: () => void;
   onImportAnsible: () => void;
   onNewHostInGroup: (groupId: GroupId) => void;
   onNewGroupUnder: (parentId: GroupId) => void;
@@ -106,7 +108,7 @@ function LocalTerminalButton({ onOpen }: { onOpen: (shell?: string) => void }) {
 export function HostsPanel({
   workspace, activeHostId, onConnect, onConnectDocker, onConnectK8s, onConnectRdpView, onOpenTransfer,
   onProbeReachability, onSearchFiles, onOpenLocalTerminal,
-  onNewHost, onEditHost, onNewGroup, onImportAws, onImportAnsible, onNewHostInGroup, onNewGroupUnder,
+  onNewHost, onEditHost, onNewGroup, onImportCloud, onImportAnsible, onNewHostInGroup, onNewGroupUnder,
   onEditGroup, onQuickSSH, onWorkspaceUpdate, onError,
 }: HostsPanelProps) {
   const [search, setSearch] = useState("");
@@ -477,10 +479,10 @@ export function HostsPanel({
                   <IconDownload size={14} /> Importer un hôte
                 </button>
                 <button
-                  onClick={() => { onImportAws(); setShowAddMenu(false); }}
+                  onClick={() => { onImportCloud(); setShowAddMenu(false); }}
                   className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)]"
                 >
-                  <IconDownload size={14} /> Importer depuis AWS
+                  <IconDownload size={14} /> Importer depuis le cloud
                 </button>
                 <button
                   onClick={() => { onImportAnsible(); setShowAddMenu(false); }}

@@ -1,6 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { ActivityEvent, ActivityFilter, AuthMethod, AwsCallerIdentity, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSessionAlert, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, AwsSsoSessionStatus, CollectionInfo, ColumnInfo, CollectFactsResult, ComposeResult, DbTunnel, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostDrift, HostId, HostKind, ImportSelection, Inventory, InventorySelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, ReachabilityOutcome, RedisKeyDetail, RemoteSearchMode, RemoteSearchOutcome, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, RollbackPlan, ScanPage, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SshAuthPrompt, SshConfigHost, SsmProbe, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
+import type { ActivityEvent, ActivityFilter, AuthMethod, AwsCallerIdentity, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSessionAlert, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, AwsSsoSessionStatus, CloudInstance, CloudScope, CloudSelection, CollectionInfo, ColumnInfo, CollectFactsResult, ComposeResult, DbTunnel, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostDrift, HostId, HostKind, ImportSelection, Inventory, InventorySelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, ReachabilityOutcome, RedisKeyDetail, RemoteSearchMode, RemoteSearchOutcome, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, RollbackPlan, ScanPage, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SshAuthPrompt, SshConfigHost, SsmProbe, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
 
 /** Mirrors the 12-byte little-endian header `commands::rdp_view::connect_rdp_view`
  * writes ahead of each frame's raw RGBA8 pixels (see its doc comment for why
@@ -495,6 +495,39 @@ export const api = {
   importAnsibleHosts: (selections: InventorySelection[], auth: AuthMethod, secret: string | null) =>
     invoke<Workspace>("import_ansible_hosts", { selections, auth, secret }),
 
+  /** The Azure subscriptions the `az` CLI is signed in to. Disabled ones are
+   * left out — picking one only produces a confusing refusal. */
+  listAzureSubscriptions: () => invoke<CloudScope[]>("list_azure_subscriptions"),
+  /** The VMs of a subscription (the CLI's default one when `null`), with their
+   * addresses resolved. Rejects with a `CloudFailure`. */
+  discoverAzureVms: (subscription: string | null) =>
+    invoke<CloudInstance[]>("discover_azure_vms", { subscription }),
+  /** Signs in to Azure. Resolves when the browser round trip is over, so the
+   * caller can reload its subscriptions; the lines printed meanwhile arrive
+   * through {@link onAzureLoginOutput}. `deviceCode` swaps the browser
+   * hand-off for a code, the only way through where no browser can open. */
+  azureLogin: (tenant: string | null, deviceCode: boolean) =>
+    invoke<void>("azure_login", { tenant, deviceCode }),
+  /** Signs out, so the next sign-in can reach a different tenant instead of
+   * silently reusing the cached account. */
+  azureLogout: () => invoke<void>("azure_logout"),
+  /** Creates the ticked VMs as hosts, refreshing the ones already imported
+   * instead of duplicating them. Matched on the ARM resource id. */
+  importAzureHosts: (selections: CloudSelection[], auth: AuthMethod, secret: string | null) =>
+    invoke<Workspace>("import_azure_hosts", { selections, auth, secret }),
+
+  /** The GCP projects the `gcloud` CLI can see, the configured one flagged. */
+  listGcpProjects: () => invoke<CloudScope[]>("list_gcp_projects"),
+  /** The Compute Engine instances of a project (the CLI's default one when
+   * `null`). Rejects with a `CloudFailure`. */
+  discoverGcpInstances: (project: string | null) =>
+    invoke<CloudInstance[]>("discover_gcp_instances", { project }),
+  /** Creates the ticked instances as hosts, matched on the numeric instance id
+   * — GCP reuses names freely, so matching on one would let a new machine
+   * inherit an old host's credentials. */
+  importGcpHosts: (selections: CloudSelection[], auth: AuthMethod, secret: string | null) =>
+    invoke<Workspace>("import_gcp_hosts", { selections, auth, secret }),
+
   /** Reads a DSL program as wanted state and reports which hosts have drifted.
    * Read-only on every host: asking changes nothing. On demand only — nothing
    * polls this. */
@@ -538,6 +571,13 @@ export function onTransferError(handler: (transferId: string, message: string) =
  * browser opens. */
 export function onAwsSsoOutput(handler: (line: string) => void) {
   return listen<string>("aws-sso-output", (event) => handler(event.payload));
+}
+
+/** Each line `az login` prints while it waits for the browser — the
+ * verification URL, and the code when the device flow is used. Same reason as
+ * the AWS one: it is the only way through when no browser opens. */
+export function onAzureLoginOutput(handler: (line: string) => void) {
+  return listen<string>("azure-login-output", (event) => handler(event.payload));
 }
 
 export function onSshAuthPrompt(handler: (prompt: SshAuthPrompt) => void): Promise<UnlistenFn> {

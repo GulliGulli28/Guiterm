@@ -1059,6 +1059,66 @@ export interface InventorySelection {
   tags: string[];
 }
 
+/** One Azure VM or GCP instance, as an import panel shows it
+ * (`discover_azure_vms`, `discover_gcp_instances`). One shape for both: the
+ * panels render the same table, and a type per provider would push the
+ * difference into rendering code where `assertNever` couldn't help. */
+export interface CloudInstance {
+  /** The provider's resource id — the identity a re-import matches on: the
+   * full ARM id on Azure, the numeric instance id on GCP. Never the name or
+   * the address, both of which change under a machine. */
+  id: string;
+  name: string;
+  privateIp: string | null;
+  publicIp: string | null;
+  /** Region (Azure) or zone (GCP). */
+  location: string;
+  /** Resource group (Azure) or zone (GCP) — whatever situates the machine. */
+  scope: string;
+  /** The provider's own wording: `VM running`, `TERMINATED`… */
+  state: string;
+  /** Whether that state means it's up. Typed by the backend rather than
+   * matched on strings here. */
+  running: boolean;
+  osType: string | null;
+  /** The login the provider records, when it records one (Azure only). */
+  username: string | null;
+  tags: [string, string][];
+}
+
+/** A scope picked before listing: an Azure subscription or a GCP project. */
+export interface CloudScope {
+  id: string;
+  name: string;
+  isDefault: boolean;
+}
+
+/** One cloud instance ticked in an import panel. */
+export interface CloudSelection {
+  id: string;
+  label: string;
+  address: string;
+  username: string;
+  port: number;
+  groupId: GroupId | null;
+  tags: string[];
+}
+
+/** Why a provider CLI call failed. Typed rather than a string so the panel can
+ * offer the matching remedy — notably telling "nobody is logged in" (one
+ * command away) apart from "you aren't allowed" (not fixable from here). */
+export type CloudCliError =
+  | { kind: "cliMissing"; program: string; installHint: string }
+  | { kind: "notLoggedIn"; program: string; message: string; loginHint: string }
+  | { kind: "refused"; message: string }
+  | { kind: "unreadable"; message: string };
+
+/** What a rejected cloud command carries: the typed reason plus text to show. */
+export interface CloudFailure {
+  reason: CloudCliError;
+  message: string;
+}
+
 /** What one drift check found. Three cases, never two: "we couldn't look" is
  * not "it's fine", and folding the two together would report a fleet as
  * compliant because nobody could actually check. */

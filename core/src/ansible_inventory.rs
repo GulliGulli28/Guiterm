@@ -404,25 +404,7 @@ fn scalar(value: &serde_yaml::Value) -> Option<String> {
     }
 }
 
-/// Where an imported host came from, recorded so a re-import refreshes it
-/// instead of adding a second copy. See the module docs for why this exists
-/// rather than matching on the address.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct HostSource {
-    /// `"ansible"` today. A slot for Azure/GCP later, and deliberately not an
-    /// enum: an unknown source read from an older/newer `workspace.json` must
-    /// stay readable rather than make the file fail to parse.
-    pub kind: String,
-    /// The identity within that source — the inventory name, here.
-    pub id: String,
-}
-
-impl HostSource {
-    pub fn ansible(name: impl Into<String>) -> Self {
-        Self { kind: "ansible".to_string(), id: name.into() }
-    }
-}
+pub use crate::model::HostSource;
 
 /// One host the user ticked in the import panel.
 #[derive(Debug, Clone, Deserialize)]
