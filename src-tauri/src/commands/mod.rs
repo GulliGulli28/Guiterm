@@ -18,6 +18,7 @@ pub mod k8s;
 pub mod keys;
 pub mod known_hosts;
 pub mod mongo;
+pub mod netdiag;
 pub mod proxy;
 pub mod rdp_view;
 pub mod reachability;

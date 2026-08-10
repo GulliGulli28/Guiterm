@@ -1,6 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { ActivityEvent, ActivityFilter, AuthMethod, AwsCallerIdentity, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSessionAlert, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, AwsSsoSessionStatus, CloudInstance, CloudScope, CloudSelection, CollectionInfo, ColumnInfo, CollectFactsResult, ComposeResult, DbTunnel, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostDrift, HostId, HostKind, ImportSelection, Inventory, InventorySelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, ReachabilityOutcome, RedisKeyDetail, RemoteSearchMode, RemoteSearchOutcome, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, RollbackPlan, ScanPage, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SshAuthPrompt, SshConfigHost, SsmProbe, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
+import type { ActivityEvent, ActivityFilter, AuthMethod, DiagTool, NetdiagOutcome, AwsCallerIdentity, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSessionAlert, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, AwsSsoSessionStatus, CloudInstance, CloudScope, CloudSelection, CollectionInfo, ColumnInfo, CollectFactsResult, ComposeResult, DbTunnel, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostDrift, HostId, HostKind, ImportSelection, Inventory, InventorySelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, ReachabilityOutcome, RedisKeyDetail, RemoteSearchMode, RemoteSearchOutcome, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, RollbackPlan, ScanPage, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SshAuthPrompt, SshConfigHost, SsmProbe, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
 
 /** Mirrors the 12-byte little-endian header `commands::rdp_view::connect_rdp_view`
  * writes ahead of each frame's raw RGBA8 pixels (see its doc comment for why
@@ -487,6 +487,15 @@ export const api = {
     programText: string | null,
   ) => invoke<void>("run_adaptive_plan", { runId, intent, groups, programText }),
 
+  /** Runs every tool against `destination`, from every target.
+   *
+   * Resolves as soon as the work is scheduled — results arrive on
+   * {@link onNetdiagOutcome} and the run closes with {@link onNetdiagDone}.
+   * Streamed rather than batched because a run is a grid of tools × targets,
+   * and tranche 2's traceroute alone takes tens of seconds. */
+  runNetdiag: (runId: string, targets: FleetTarget[], destination: string, tools: DiagTool[]) =>
+    invoke<void>("run_netdiag", { runId, targets, destination, tools }),
+
   /** Reads and parses an Ansible inventory file. Read-only — the import is a
    * separate step, so the panel can show what the file holds first. */
   readAnsibleInventory: (path: string) => invoke<Inventory>("read_ansible_inventory", { path }),
@@ -578,6 +587,16 @@ export function onAwsSsoOutput(handler: (line: string) => void) {
  * the AWS one: it is the only way through when no browser opens. */
 export function onAzureLoginOutput(handler: (line: string) => void) {
   return listen<string>("azure-login-output", (event) => handler(event.payload));
+}
+
+/** One cell of the diagnostic grid, as it completes. */
+export function onNetdiagOutcome(handler: (outcome: NetdiagOutcome) => void): Promise<UnlistenFn> {
+  return listen<NetdiagOutcome>("netdiag-outcome", (event) => handler(event.payload));
+}
+
+/** Closes a diagnostic run — every cell that was going to answer has. */
+export function onNetdiagDone(handler: (runId: string) => void): Promise<UnlistenFn> {
+  return listen<{ runId: string }>("netdiag-done", (event) => handler(event.payload.runId));
 }
 
 export function onSshAuthPrompt(handler: (prompt: SshAuthPrompt) => void): Promise<UnlistenFn> {

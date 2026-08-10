@@ -847,6 +847,17 @@ export type TabMeta =
   | { id: string; kind: "local-terminal"; label: string; initialCommand?: string; shell?: string | null; status?: "connected" | "placeholder" }
   | { id: string; kind: "fleet"; label: string; status?: "connected" | "placeholder" }
   | { id: string; kind: "activity"; label: string; status?: "connected" | "placeholder" }
+  | {
+      id: string;
+      kind: "netdiag";
+      label: string;
+      /** Preselected source, when the tab was opened from a host's menu —
+       * that entry has always meant "probe *from* this host". `null` (the
+       * palette's way in) preselects this machine instead, which is the other
+       * half of the question during an incident. */
+      sourceHostId?: HostId | null;
+      status?: "connected" | "placeholder";
+    }
   | { id: string; kind: "sql"; label: string; sqlConnectionId: SqlConnectionId; status?: "connected" | "placeholder" };
 
 /** Tabs bound to a saved host — the ones carrying a `hostId`.
@@ -1021,6 +1032,37 @@ export interface FleetRun {
    * free-command run and for anything recorded before rollback existed;
    * `perHostCommands` can't stand in for it, being rendered shell. */
   programText?: string | null;
+}
+
+/** One network diagnostic to run (`run_netdiag`). */
+export type DiagTool =
+  | { kind: "tcp"; port: number }
+  | { kind: "dns" }
+  | { kind: "http"; secure: boolean; port: number | null; path: string };
+
+/** What one tool found on one target.
+ *
+ * Seven variants rather than a boolean and a message, because seven different
+ * things to do next: a closed port is not a filtered one, a name that doesn't
+ * resolve is not a network problem, and a missing tool is not a failed test. */
+export type DiagVerdict =
+  | { kind: "ok"; summary: string }
+  | { kind: "refused"; summary: string }
+  | { kind: "silent"; summary: string }
+  | { kind: "unknownHost" }
+  | { kind: "unreachable" }
+  | { kind: "unavailable"; tool: string }
+  | { kind: "failed"; message: string };
+
+/** One cell of the diagnostic grid, streamed as it completes. */
+export interface NetdiagOutcome {
+  /** Echoed from the request so a slow result from a replaced run can be
+   * dropped instead of landing in the new grid. */
+  runId: string;
+  target: FleetTarget;
+  tool: DiagTool;
+  verdict: DiagVerdict;
+  durationMs: number;
 }
 
 /** One host as an Ansible inventory describes it. */

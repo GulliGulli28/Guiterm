@@ -249,7 +249,7 @@ async function runScenarios(browser) {
   await runAwsImportPanelScenario(browser);
   await runAwsDatabasePanelScenario(browser);
   await runAwsIdentitiesPanelScenario(browser);
-  await runReachabilityScenario(browser);
+  await runNetDiagScenario(browser);
   await runRemoteSearchScenario(browser);
   await runCertificateFieldScenario(browser);
   await runRollbackScenario(browser);
@@ -1406,66 +1406,68 @@ async function runSsmTunnelScenario(browser) {
 }
 
 /**
- * The reachability probe runs for real, end to end.
+ * The network diagnostics tab runs a real diagnostic, end to end.
  *
- * Opened from the command palette rather than from a host's menu — the other
- * entry point — because that one needs a host to exist in the developer's real
+ * Replaces the reachability-panel scenario, which this tab absorbed. Opened
+ * from the command palette rather than from a host's menu — the other entry
+ * point — because that one needs a host to exist in the developer's real
  * workspace, and a test that only runs on some machines proves nothing on the
  * others.
  *
- * Probes `127.0.0.1:22` **from this machine only**, so nothing connects to
- * anyone's infrastructure: the whole round trip stays local while still going
- * through `invoke` → fleet executor → local shell → the real script. The
- * assertion is that a verdict comes back, not which one — whether an sshd
- * happens to be listening is not this test's business.
+ * Diagnoses `127.0.0.1` **from this machine only**, so nothing touches anyone's
+ * infrastructure: the round trip stays local while still going through
+ * `invoke` → fleet executor → local shell → the real scripts. That also makes
+ * it the one automated check of the flavour split — under WSL the local target
+ * is POSIX, on Windows it is PowerShell, and each platform exercises its own
+ * scripts here.
+ *
+ * The assertion is that verdicts come back for both tools, not which ones:
+ * whether an sshd happens to be listening is not this test's business.
  */
-async function runReachabilityScenario(browser) {
+async function runNetDiagScenario(browser) {
   await browser.keys(["Control", "k"]);
-  for (const ch of "joignab") await browser.keys(ch);
+  for (const ch of "Diagnostic") await browser.keys(ch);
   await browser.keys("Enter");
 
-  const dialogText = () => browser.execute(() => {
-    const heading = Array.from(document.querySelectorAll("p"))
-      .find((el) => el.textContent?.trim() === "Tester la joignabilité");
-    return heading?.closest("div.flex.max-h-full")?.textContent ?? "";
-  });
-  await browser.waitUntil(async () => (await dialogText()).length > 0, {
-    timeout: 5_000,
-    timeoutMsg: "le panneau de joignabilité ne s est pas ouvert depuis la palette",
-  });
+  await browser.waitUntil(async () => await browser.execute(() =>
+    Array.from(document.querySelectorAll("h2")).some((el) => el.textContent?.trim() === "Diagnostic réseau")
+  ), { timeout: 10_000, timeoutMsg: "l onglet de diagnostic ne s est pas ouvert depuis la palette" });
 
-  // The dialog's first two inputs are the address and the port.
+  // The destination is the tab's first text input; the local machine is
+  // preselected as the source, which is what the palette's way in means.
   const filled = await browser.execute(() => {
-    const heading = Array.from(document.querySelectorAll("p"))
-      .find((el) => el.textContent?.trim() === "Tester la joignabilité");
-    const dialog = heading?.closest("div.flex.max-h-full");
-    const inputs = dialog ? Array.from(dialog.querySelectorAll("input")).filter((i) => i.type !== "checkbox") : [];
-    if (inputs.length < 2) return false;
-    const set = (el, value) => {
-      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
-      setter.call(el, value);
-      el.dispatchEvent(new Event("input", { bubbles: true }));
-    };
-    set(inputs[0], "127.0.0.1");
-    set(inputs[1], "22");
+    const input = document.querySelector('input[placeholder^="Adresse à joindre"]');
+    if (!(input instanceof HTMLInputElement)) return false;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+    setter.call(input, "127.0.0.1");
+    input.dispatchEvent(new Event("input", { bubbles: true }));
     return true;
   });
-  if (!filled) throw new Error("les champs adresse/port du panneau de joignabilité sont introuvables");
+  if (!filled) throw new Error("le champ adresse du diagnostic est introuvable");
 
-  await clickButtonByText(browser, "Tester");
-  // Any verdict is a pass: this asserts the probe ran and came back, not what
-  // the machine's port 22 happens to be doing.
-  await browser.waitUntil(async () => {
-    const text = await dialogText();
-    return ["Joignable", "Refusé", "Silence", "Pas de route", "Nom non résolu", "Sonde indisponible", "Échec"]
-      .some((verdict) => text.includes(verdict));
-  }, {
-    timeout: 30_000,
-    timeoutMsg: "aucun verdict de joignabilité — la sonde n atteint pas le backend",
+  const started = await browser.execute(() => {
+    const button = Array.from(document.querySelectorAll("button"))
+      .find((b) => (b.textContent || "").startsWith("Lancer sur"));
+    if (!(button instanceof HTMLElement) || button.disabled) return false;
+    button.click();
+    return true;
+  });
+  if (!started) throw new Error("bouton « Lancer sur … » introuvable ou désactivé");
+
+  // TCP and DNS are both on by default, so two cells must fill in. Each
+  // rendered verdict carries its explanation as a `title` — waiting on that is
+  // waiting on `describeVerdict` having run over a real backend answer.
+  await browser.waitUntil(async () => (await browser.execute(() =>
+    document.querySelectorAll("table td span[title]").length
+  )) >= 2, {
+    timeout: 60_000,
+    timeoutMsg: "aucun verdict de diagnostic — la sonde n atteint pas le backend",
   });
 
-  await closeDialogTitled(browser, "Tester la joignabilité");
-  console.log("Joignabilité : OK (palette → panneau → sonde réelle exécutée localement).");
+  const verdicts = await browser.execute(() =>
+    Array.from(document.querySelectorAll("table td span[title]"), (el) => el.textContent?.trim()),
+  );
+  console.log(`Diagnostic réseau : OK (palette → onglet → sonde réelle locale, verdicts : ${verdicts.join(" | ")}).`);
 }
 
 /**

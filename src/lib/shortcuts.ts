@@ -62,6 +62,7 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
   { id: "fleet.open", label: "Opérations de flotte — exécuter sur plusieurs hôtes…", defaultKey: "Ctrl+Shift+O", bubblesThroughTerminal: true },
   { id: "activity.open", label: "Activité — qui a fait quoi, où, quand…", defaultKey: "Ctrl+Shift+A", bubblesThroughTerminal: true },
   { id: "database.open", label: "Bases de données", defaultKey: "Ctrl+Shift+Q", bubblesThroughTerminal: true },
+  { id: "netdiag.open", label: "Diagnostic réseau — ping, DNS, TCP, HTTP…", defaultKey: "Ctrl+Shift+D", bubblesThroughTerminal: true },
 
   // Broadcast is turned *off* from inside a terminal as often as it is turned
   // on — a shortcut that only worked outside one would miss half its use.

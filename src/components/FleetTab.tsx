@@ -1,16 +1,16 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import type { DockerContainer, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, Host, HostDrift, HostFacts, HostId, K8sPod, RollbackPlan, Snippet, SnippetId, Workspace } from "../lib/types";
+import type { DockerContainer, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, Host, HostDrift, HostId, RollbackPlan, Snippet, SnippetId, Workspace } from "../lib/types";
 import { fleetTargetKey } from "../lib/types";
 import { api, onFleetDone, onFleetOutcome } from "../lib/api";
 import { formatRelativeTime } from "../lib/format";
 import { ramColor } from "../lib/facts";
 import { DSL_CONDITION_FIELDS, DSL_FUNCTIONS } from "../lib/operations";
-import { profileInCommand } from "../lib/awsInstances";
 import { hasSomethingToRun, rollbackAvailability } from "../lib/rollback";
 import { driftedHosts, summarise } from "../lib/drift";
 import { SnippetPicker } from "./SnippetPicker";
 import { IconPlay, IconSearch, IconChevronRight, IconChevronDown, IconRefresh, IconSnippets, IconFlash } from "./ui-icons";
 import { useResizablePane } from "../hooks/useResizablePane";
+import { useFleetTargets } from "../hooks/useFleetTargets";
 
 function formatTimestamp(ms: number): string {
   return new Date(ms).toLocaleString();
@@ -51,19 +51,6 @@ const DEFAULT_FILTERS: FactFilters = {
  * `key` is what selection/results state actually indexes by (`FleetTarget`
  * itself isn't a valid Set/Map key — it's a structural object, not a
  * primitive). */
-interface FleetTargetInfo {
-  key: string;
-  target: FleetTarget;
-  label: string;
-  sub: string;
-  facts?: HostFacts | null;
-  lastFactsAtMs?: number | null;
-  /** The AWS profile this target is reached through, when it is — the
-   * per-account cut, which targeting by tag can't express. Read out of the
-   * host's proxy command; `null` for everything else. */
-  profile?: string | null;
-}
-
 type RowStatus = "pending" | "ok" | "fail" | "error";
 
 function outcomeStatus(o: FleetOutcome): RowStatus {
@@ -133,107 +120,15 @@ function StatusDot({ status }: { status: RowStatus }) {
 }
 
 export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProps) {
-  const sshHosts = useMemo(() => workspace.hosts.filter((h) => h.kind === "ssh"), [workspace.hosts]);
-  const dockerHosts = useMemo(() => workspace.hosts.filter((h) => h.kind === "dockerExec"), [workspace.hosts]);
-  const k8sHosts = useMemo(() => workspace.hosts.filter((h) => h.kind === "k8sExec"), [workspace.hosts]);
+  // The target list — this machine, SSH hosts, live Docker containers and K8s
+  // pods — now lives in a hook, shared with the network diagnostics tab. It
+  // used to be a hundred lines here; a second copy would have meant two places
+  // deciding what a selectable target is.
+  const {
+    allTargets, sshHosts, dockerHosts, k8sHosts, dockerContainers,
+    loadingContainers, loadingPods, refreshContainers, refreshPods,
+  } = useFleetTargets(workspace);
   const hostById = useMemo(() => new Map(workspace.hosts.map((h) => [h.id, h])), [workspace.hosts]);
-  const groupName = (h: Host) => (h.groupId ? workspace.groups.find((g) => g.id === h.groupId)?.name ?? "" : "");
-
-  // Docker containers are a live daemon listing, not workspace-persisted
-  // state — fetched per `dockerExec` host, best-effort (an unreachable
-  // daemon just contributes no containers rather than erroring the panel).
-  // Only running containers are offered: a stopped one can't `exec` into.
-  const [dockerContainers, setDockerContainers] = useState<Map<HostId, DockerContainer[]>>(new Map());
-  const [loadingContainers, setLoadingContainers] = useState(false);
-  const refreshContainers = async () => {
-    if (dockerHosts.length === 0) return;
-    setLoadingContainers(true);
-    const next = new Map<HostId, DockerContainer[]>();
-    await Promise.all(
-      dockerHosts.map(async (h) => {
-        try {
-          next.set(h.id, (await api.listDockerContainers(h.id)).filter((c) => c.state === "running"));
-        } catch {
-          next.set(h.id, []);
-        }
-      }),
-    );
-    setDockerContainers(next);
-    setLoadingContainers(false);
-  };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { refreshContainers(); }, [dockerHosts.map((h) => h.id).join(",")]);
-
-  // Same idea, one level deeper: a K8s pod may have more than one container,
-  // each a distinct exec target — flattened into one entry per container
-  // (or per pod, if it only has one) rather than a separate picker step.
-  const [k8sPods, setK8sPods] = useState<Map<HostId, K8sPod[]>>(new Map());
-  const [loadingPods, setLoadingPods] = useState(false);
-  const refreshPods = async () => {
-    if (k8sHosts.length === 0) return;
-    setLoadingPods(true);
-    const next = new Map<HostId, K8sPod[]>();
-    await Promise.all(
-      k8sHosts.map(async (h) => {
-        try {
-          next.set(h.id, (await api.listK8sPods(h.id)).filter((p) => p.ready));
-        } catch {
-          next.set(h.id, []);
-        }
-      }),
-    );
-    setK8sPods(next);
-    setLoadingPods(false);
-  };
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  useEffect(() => { refreshPods(); }, [k8sHosts.map((h) => h.id).join(",")]);
-
-  // Every selectable target: a single fixed "Terminal local", every SSH
-  // host, every live-listed Docker container, and every live-listed K8s
-  // pod/container (each grouped under its host).
-  const allTargets = useMemo<FleetTargetInfo[]>(() => {
-    const items: FleetTargetInfo[] = [{ key: "local", target: { kind: "local" }, label: "Terminal local", sub: "" }];
-    for (const h of sshHosts) {
-      items.push({
-        key: fleetTargetKey({ kind: "ssh", hostId: h.id }),
-        target: { kind: "ssh", hostId: h.id },
-        label: h.label,
-        sub: [groupName(h), h.address].filter(Boolean).join(" · "),
-        facts: h.lastFacts,
-        lastFactsAtMs: h.lastFactsAtMs,
-        profile: profileInCommand(h.proxyCommand),
-      });
-    }
-    for (const h of dockerHosts) {
-      for (const c of dockerContainers.get(h.id) ?? []) {
-        items.push({
-          key: fleetTargetKey({ kind: "docker", hostId: h.id, containerId: c.id }),
-          target: { kind: "docker", hostId: h.id, containerId: c.id },
-          label: c.name,
-          sub: `${h.label} · ${c.image}`,
-          // The host's profile, not the container's: it is how the machine
-          // running Docker is reached, same as `compose_adaptive_for_docker`.
-          profile: profileInCommand(h.proxyCommand),
-        });
-      }
-    }
-    for (const h of k8sHosts) {
-      for (const p of k8sPods.get(h.id) ?? []) {
-        const containerNames = p.containers.length > 1 ? p.containers : [null];
-        for (const containerName of containerNames) {
-          items.push({
-            key: fleetTargetKey({ kind: "k8s", hostId: h.id, podName: p.name, containerName }),
-            target: { kind: "k8s", hostId: h.id, podName: p.name, containerName },
-            label: containerName ? `${p.name} › ${containerName}` : p.name,
-            sub: `${h.label} · ${p.namespace}`,
-            profile: profileInCommand(h.proxyCommand),
-          });
-        }
-      }
-    }
-    return items;
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [sshHosts, dockerHosts, dockerContainers, k8sHosts, k8sPods, workspace.groups]);
   const targetsByKey = useMemo(() => new Map(allTargets.map((t) => [t.key, t.target])), [allTargets]);
 
   const [filter, setFilter] = useState("");

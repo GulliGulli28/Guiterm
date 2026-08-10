@@ -22,6 +22,7 @@ const TransferTab = lazy(() => import("./components/TransferTab").then((m) => ({
 const RdpTab = lazy(() => import("./components/RdpTab").then((m) => ({ default: m.RdpTab })));
 const FleetTab = lazy(() => import("./components/FleetTab").then((m) => ({ default: m.FleetTab })));
 const ActivityTab = lazy(() => import("./components/ActivityTab").then((m) => ({ default: m.ActivityTab })));
+const NetDiagTab = lazy(() => import("./components/NetDiagTab").then((m) => ({ default: m.NetDiagTab })));
 import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, loadPreferences, savePreferences } from "./lib/preferences";
 import { SplitPane } from "./components/SplitPane";
 import { AwsImportPanel } from "./components/AwsImportPanel";
@@ -29,7 +30,7 @@ import { AnsibleImportPanel } from "./components/AnsibleImportPanel";
 import { AzureImportPanel } from "./components/AzureImportPanel";
 import { GcpImportPanel } from "./components/GcpImportPanel";
 import { CloudProviderPicker, type CloudProvider } from "./components/CloudProviderPicker";
-import { ReachabilityPanel } from "./components/ReachabilityPanel";
+
 import { RemoteSearchPanel } from "./components/RemoteSearchPanel";
 import { AwsDatabaseImportPanel } from "./components/AwsDatabaseImportPanel";
 import { AwsSsoSetupPanel } from "./components/AwsSsoSetupPanel";
@@ -82,10 +83,6 @@ export default function App() {
    * providers' own panels, which stay separate components. */
   const [cloudImport, setCloudImport] = useState<"picker" | CloudProvider | null>(null);
   const [ansibleImportOpen, setAnsibleImportOpen] = useState(false);
-  /** Open state of the reachability panel. `sourceId` is the host it was
-   * opened from — `null` when opened from the palette, which is the "does *my*
-   * machine reach it" case and needs no host at all. */
-  const [reachabilityOpen, setReachabilityOpen] = useState<{ sourceId: HostId | null } | null>(null);
   /** Host whose filesystem is being searched. */
   const [searchHost, setSearchHost] = useState<Host | null>(null);
   const [awsDbImportOpen, setAwsDbImportOpen] = useState(false);
@@ -285,7 +282,7 @@ export default function App() {
   const {
     tabs, setTabs, activeTabId, setActiveTabId,
     pendingCloseTabId, setPendingCloseTabId,
-    openTab, openLocalTerminal, openFleet, openActivity, openSql, reconnectTab,
+    openTab, openLocalTerminal, openFleet, openActivity, openNetdiag, openSql, reconnectTab,
     closeTab, requestCloseTab,
     runSnippet, runAdaptiveSnippet, exportActiveScrollback,
     activeTabRecording, startActiveRecording, stopActiveRecording,
@@ -339,6 +336,9 @@ export default function App() {
     "terminal.exportScrollback": () => { void exportActiveScrollback(); },
     "fleet.open": () => openFleet(),
     "activity.open": () => openActivity(),
+    // No source: this machine, which is the "do *I* reach it" half of the
+    // question. Opening from a host's menu preselects that host instead.
+    "netdiag.open": () => openNetdiag(null),
     "database.open": () => { setSidebarVisible(true); setSidebarPanel("database"); },
     "broadcast.toggle": () => toggleBroadcastMode(),
     "host.new": () => {
@@ -372,15 +372,9 @@ export default function App() {
       hint: "Hôte",
       run: () => openTab("terminal", h),
     })),
-    {
-      // Also in each SSH host's menu, pre-filled with that host. Here it opens
-      // with no source but this machine — during an incident the question is
-      // as often "do *I* reach it" as "does that box reach it", and reaching
-      // for a host first would be a detour.
-      id: "diagnostics.reachability",
-      label: "Tester la joignabilité d'une adresse…",
-      run: () => setReachabilityOpen({ sourceId: null }),
-    },
+    // "Tester la joignabilité" used to be listed here. It is now `netdiag.open`
+    // among the shortcut actions above, which renders it with its combo — and
+    // the panel it opened has been absorbed by the diagnostics tab.
     {
       id: "terminal.zoomIn",
       label: "Terminal actif — agrandir la police",
@@ -525,13 +519,6 @@ export default function App() {
       {searchHost && (
         <RemoteSearchPanel host={searchHost} onClose={() => setSearchHost(null)} onError={reportError} />
       )}
-      {reachabilityOpen && workspace && (
-        <ReachabilityPanel
-          workspace={workspace}
-          initialSourceId={reachabilityOpen.sourceId}
-          onClose={() => setReachabilityOpen(null)}
-        />
-      )}
       {cloudImport === "picker" && (
         <CloudProviderPicker onPick={setCloudImport} onClose={() => setCloudImport(null)} />
       )}
@@ -671,7 +658,7 @@ export default function App() {
             onNewGroup={() => { setEditingGroup({ id: null, name: "", parentId: null, icon: null, color: null }); setEditingHost(null); setEditingSqlConnection(null); }}
             onImportCloud={() => setCloudImport("picker")}
             onImportAnsible={() => setAnsibleImportOpen(true)}
-            onProbeReachability={(host) => setReachabilityOpen({ sourceId: host.id })}
+            onProbeReachability={(host) => openNetdiag(host.id)}
             onSearchFiles={(host) => setSearchHost(host)}
             onNewHostInGroup={(groupId) => { setEditingHost("new"); setNewHostDefaultGroupId(groupId); setEditingGroup(null); setEditingSqlConnection(null); }}
             onNewGroupUnder={(parentId) => { setEditingGroup({ id: null, name: "", parentId, icon: null, color: null }); setEditingHost(null); setEditingSqlConnection(null); }}
@@ -794,6 +781,23 @@ export default function App() {
                             workspace={workspace}
                             onError={reportError}
                             onExported={(message) => pushNotification("success", message)}
+                          />
+                        </Suspense>
+                      </div>
+                    );
+                  }
+                  if (tab.kind === "netdiag") {
+                    return (
+                      <div key={tab.id} className={isActive ? "absolute inset-0 flex flex-col" : "hidden"}>
+                        <Suspense fallback={<TabLoadingFallback />}>
+                          <NetDiagTab
+                            workspace={workspace}
+                            onError={reportError}
+                            initialSourceId={tab.sourceHostId}
+                            // Remounts when the tab is re-aimed from another
+                            // host's menu, so the selection follows instead of
+                            // keeping the previous incident's source.
+                            key={tab.sourceHostId ?? "local"}
                           />
                         </Suspense>
                       </div>

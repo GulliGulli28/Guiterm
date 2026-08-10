@@ -88,6 +88,29 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
     setActiveTabId(id);
   }, [tabs]);
 
+  /** Opens the diagnostics tab, optionally aimed at an address already known.
+   *
+   * A singleton like the fleet and activity tabs. Reopening it with a new
+   * destination re-aims the existing tab rather than stacking a second one:
+   * the panel this replaced was a modal, and people open it repeatedly from
+   * different hosts during one incident. */
+  const openNetdiag = useCallback((sourceHostId?: HostId | null) => {
+    const existing = tabs.find((t) => t.kind === "netdiag");
+    if (existing) {
+      if (sourceHostId) {
+        setTabs((prev) => prev.map((t) => (t.id === existing.id ? { ...t, sourceHostId } : t)));
+      }
+      setActiveTabId(existing.id);
+      return;
+    }
+    const id = `tab-${nextTabId++}`;
+    setTabs((prev) => [
+      ...prev,
+      { id, kind: "netdiag", label: "Diagnostic réseau", sourceHostId: sourceHostId ?? null },
+    ]);
+    setActiveTabId(id);
+  }, [tabs]);
+
   // One tab per SQL connection — reopening an already-open connection just
   // focuses it, same idea as `openFleet`'s single-tab dedup (there, a global
   // singleton; here, keyed per connection so different connections can each
@@ -336,7 +359,7 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
   return {
     tabs, setTabs, activeTabId, setActiveTabId,
     pendingCloseTabId, setPendingCloseTabId,
-    openTab, openLocalTerminal, openFleet, openActivity, openSql, reconnectTab,
+    openTab, openLocalTerminal, openFleet, openActivity, openNetdiag, openSql, reconnectTab,
     closeTab, requestCloseTab,
     activeTabRecording, startActiveRecording, stopActiveRecording,
     runSnippet, runAdaptiveSnippet, exportActiveScrollback,
