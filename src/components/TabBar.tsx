@@ -75,6 +75,11 @@ export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, fullscre
             <div
               key={tab.id}
               data-tab-id={tab.id}
+              // Which tab is active is otherwise only visible as a styling
+              // class, which a test would have to match on. Ctrl+1…9 is
+              // exactly the kind of feature that needs a real window to prove,
+              // so it gets a handle that says what it means.
+              data-tab-active={isActive ? "true" : undefined}
               onMouseDown={(e) => {
                 if (e.button !== 0) return;
                 dragState.current = { draggedId: tab.id, moved: false, startX: e.clientX };

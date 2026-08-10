@@ -318,6 +318,37 @@ export default function App() {
     "settings.open": () => { setSidebarVisible(true); setSidebarPanel("settings"); },
     "snippets.quickRun": () => setSnippetPickerOpen(true),
     "window.fullscreen": () => toggleFullscreen(),
+
+    // Ctrl+1…8 by position, Ctrl+9 to the last tab — the browser convention,
+    // which is what makes it useful with more tabs than fingers. Out of range
+    // does nothing rather than clamping: jumping to a tab you didn't ask for
+    // is worse than the keystroke being ignored.
+    ...Object.fromEntries(Array.from({ length: 9 }, (_, i) => [
+      `tab.goto${i + 1}`,
+      () => {
+        const target = i === 8 ? tabs[tabs.length - 1] : tabs[i];
+        if (target) setActiveTabId(target.id);
+      },
+    ])),
+
+    "tab.reconnect": () => { if (activeTabId) reconnectTab(activeTabId); },
+    "terminal.toggleRecording": () => {
+      if (activeTabRecording()) stopActiveRecording();
+      else void startActiveRecording();
+    },
+    "terminal.exportScrollback": () => { void exportActiveScrollback(); },
+    "fleet.open": () => openFleet(),
+    "activity.open": () => openActivity(),
+    "database.open": () => { setSidebarVisible(true); setSidebarPanel("database"); },
+    "broadcast.toggle": () => toggleBroadcastMode(),
+    "host.new": () => {
+      setSidebarVisible(true);
+      setSidebarPanel("hosts");
+      setEditingHost("new");
+      setNewHostDefaultGroupId(null);
+      setEditingGroup(null);
+      setEditingSqlConnection(null);
+    },
   };
   useGlobalShortcuts(preferences.keyboardShortcuts, shortcutHandlers);
 
@@ -329,7 +360,7 @@ export default function App() {
   };
 
   const paletteCommands: PaletteCommand[] = workspace ? [
-    ...SHORTCUT_ACTIONS.map((action) => ({
+    ...SHORTCUT_ACTIONS.filter((action) => !action.paletteHidden).map((action) => ({
       id: action.id,
       label: action.label,
       hint: preferences.keyboardShortcuts[action.id] || undefined,
@@ -341,11 +372,6 @@ export default function App() {
       hint: "Hôte",
       run: () => openTab("terminal", h),
     })),
-    {
-      id: "terminal.exportScrollback",
-      label: "Exporter le scrollback du terminal actif…",
-      run: () => { exportActiveScrollback(); },
-    },
     {
       // Also in each SSH host's menu, pre-filled with that host. Here it opens
       // with no source but this machine — during an incident the question is
@@ -380,23 +406,18 @@ export default function App() {
       ? {
           id: "terminal.stopRecording",
           label: "Arrêter l'enregistrement de la session",
+          hint: preferences.keyboardShortcuts["terminal.toggleRecording"] || undefined,
           run: () => { stopActiveRecording(); },
         }
       : {
           id: "terminal.startRecording",
           label: "Enregistrer la session du terminal actif…",
+          hint: preferences.keyboardShortcuts["terminal.toggleRecording"] || undefined,
           run: () => { startActiveRecording(); },
         },
-    {
-      id: "fleet.open",
-      label: "Opérations de flotte — exécuter sur plusieurs hôtes…",
-      run: () => openFleet(),
-    },
-    {
-      id: "activity.open",
-      label: "Activité — qui a fait quoi, où, quand…",
-      run: () => openActivity(),
-    },
+    // "Exporter le scrollback", "Opérations de flotte" and "Activité" used to
+    // be listed here too. They are shortcut actions now, so the block above
+    // renders them — with their combo as a hint, which these hadn't.
   ] : [];
 
   const notifyLongCommand = useCallback((command: string, durationMs: number, where: string) => {

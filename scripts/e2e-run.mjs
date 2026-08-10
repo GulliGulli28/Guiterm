@@ -255,6 +255,7 @@ async function runScenarios(browser) {
   await runRollbackScenario(browser);
   await runDriftScenario(browser);
   await runAnsibleImportScenario(browser);
+  await runTabShortcutScenario(browser);
   await runCloudImportScenario(browser);
   await runSsmTunnelScenario(browser);
   await runActivityScenario(browser);
@@ -916,6 +917,74 @@ async function runAnsibleImportScenario(browser) {
     throw new Error(`l erreur doit nommer le fichier, reçu : ${missing.message}`);
   }
   console.log("Import Ansible : OK (panneau atteignable, lecture d un fichier absent refusée en nommant le chemin).");
+}
+
+/** Focuses the terminal that is actually on screen.
+ *
+ * `browser.$(".xterm").click()` picks the *first* match, which stops working
+ * the moment a second terminal exists: the inactive one is still in the DOM,
+ * has zero size, and WebDriver rejects it as not interactable. Focusing
+ * xterm's hidden textarea directly is also closer to what a keystroke needs. */
+async function focusVisibleTerminal(browser) {
+  const focused = await browser.execute(() => {
+    const term = Array.from(document.querySelectorAll(".xterm"))
+      .find((el) => el.getBoundingClientRect().width > 0);
+    const textarea = term?.querySelector("textarea");
+    if (!(textarea instanceof HTMLElement)) return false;
+    textarea.focus();
+    return document.activeElement === textarea;
+  });
+  if (!focused) throw new Error("aucun terminal visible à focaliser");
+}
+
+/** Index of the active tab in the tab bar, or -1. */
+function activeTabIndex(browser) {
+  return browser.execute(() =>
+    Array.from(document.querySelectorAll("[data-tab-id]"))
+      .findIndex((el) => el.getAttribute("data-tab-active") === "true"),
+  );
+}
+
+/**
+ * Ctrl+1…9 jump straight to a tab, from inside a focused terminal.
+ *
+ * Two things no unit test can show. First that the combo *arrives at all*:
+ * xterm calls `stopPropagation()` on everything it handles, so a shortcut not
+ * declared `bubblesThroughTerminal` never fires while a terminal has focus —
+ * which is nearly always. Second that Ctrl+9 means "last", not "ninth".
+ *
+ * `shortcuts.test.ts` covers the combo arithmetic, including the AZERTY digit
+ * row; this covers the part that only a real window has, namely xterm sitting
+ * in the middle.
+ */
+async function runTabShortcutScenario(browser) {
+  // A second local terminal, so there is somewhere to jump to. One is already
+  // open from the channel scenario above.
+  await browser.keys(["Control", "t"]);
+  await browser.waitUntil(
+    async () => (await browser.execute(() => document.querySelectorAll("[data-tab-id]").length)) >= 2,
+    { timeout: 10_000, timeoutMsg: "impossible d ouvrir un deuxième terminal local" },
+  );
+  const tabCount = await browser.execute(() => document.querySelectorAll("[data-tab-id]").length);
+
+  // Focus the terminal itself: the whole point is that the shortcut survives
+  // xterm's key handling, which it can only do if xterm sees the key first.
+  await focusVisibleTerminal(browser);
+
+  await browser.keys(["Control", "1"]);
+  await browser.waitUntil(async () => (await activeTabIndex(browser)) === 0, {
+    timeout: 5_000,
+    timeoutMsg: "Ctrl+1 n a pas activé le premier onglet — la combinaison est-elle avalée par xterm ?",
+  });
+
+  await focusVisibleTerminal(browser);
+  await browser.keys(["Control", "9"]);
+  await browser.waitUntil(async () => (await activeTabIndex(browser)) === tabCount - 1, {
+    timeout: 5_000,
+    timeoutMsg: `Ctrl+9 doit activer le DERNIER onglet (index ${tabCount - 1}), convention des navigateurs`,
+  });
+
+  console.log(`Raccourcis d onglet : OK (Ctrl+1 et Ctrl+9 traversent xterm, ${tabCount} onglets).`);
 }
 
 /**
