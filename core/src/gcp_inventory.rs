@@ -194,10 +194,11 @@ fn instance_from(vm: RawInstance) -> CloudInstance {
         name: vm.name,
         private_ip,
         public_ip,
-        // The project isn't in the listing payload; the panel already knows
-        // which one it asked for, and `zone` is what distinguishes two
-        // instances within it.
-        scope: zone.clone(),
+        // The project, read out of the same URL the zone comes from. It has no
+        // field of its own in the listing, and putting the zone here too made
+        // every row read "europe-west1-b · europe-west1-b" — the Azure side
+        // hid the mistake, since a region and a resource group differ.
+        scope: vm.zone.as_deref().map(project_of).unwrap_or_default(),
         location: zone,
         running: status.eq_ignore_ascii_case("running"),
         state: status,
@@ -212,6 +213,20 @@ fn instance_from(vm: RawInstance) -> CloudInstance {
 /// The last path segment of a GCP resource URL, which is the readable name.
 fn last_segment(url: &str) -> String {
     url.rsplit('/').next().unwrap_or(url).to_string()
+}
+
+/// The project embedded in a GCP resource URL (`…/projects/NAME/zones/…`).
+///
+/// Empty when the URL isn't one — the panel already knows which project it
+/// asked for, so a blank subtitle is better than a wrong one.
+fn project_of(url: &str) -> String {
+    let mut parts = url.split('/');
+    while let Some(part) = parts.next() {
+        if part == "projects" {
+            return parts.next().unwrap_or_default().to_string();
+        }
+    }
+    String::new()
 }
 
 #[cfg(test)]
@@ -283,6 +298,25 @@ mod tests {
         let vms = parse_instances(INSTANCES).unwrap();
         assert_eq!(vms[0].location, "europe-west1-b");
         assert_eq!(vms[1].location, "europe-west1-c");
+    }
+
+    /// The zone and the project are two different things. They were briefly
+    /// both the zone, which made every row read "europe-west1-b ·
+    /// europe-west1-b" — invisible on the Azure side, where a region and a
+    /// resource group differ.
+    #[test]
+    fn the_scope_is_the_project_not_the_zone_again() {
+        let web = &parse_instances(INSTANCES).unwrap()[0];
+        assert_eq!(web.scope, "mon-projet");
+        assert_ne!(web.scope, web.location);
+    }
+
+    #[test]
+    fn a_zone_that_is_not_a_resource_url_yields_no_project() {
+        let json = r#"[{"id":"1","name":"n","zone":"europe-west1-b"}]"#;
+        let vm = &parse_instances(json).unwrap()[0];
+        assert_eq!(vm.location, "europe-west1-b");
+        assert_eq!(vm.scope, "", "mieux vaut un sous-titre vide qu'un faux");
     }
 
     #[test]

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import { readCloudFailure, tenantFromAzureError, type DescribedFailure } from "../lib/cloudFailure";
-import type { AuthMethod, CloudInstance, CloudScope, Workspace } from "../lib/types";
+import type { CloudInstance, CloudScope, Workspace } from "../lib/types";
 import { AzureSignInPanel } from "./AzureSignInPanel";
 import { IconClose } from "./ui-icons";
 import {
@@ -11,6 +11,8 @@ import {
   CloudFailureNotice,
   CloudInstanceRow,
   emptyBatchAuth,
+  toggleIn,
+  useCloudSelection,
   type BatchAuth,
 } from "./CloudImportBits";
 
@@ -94,30 +96,8 @@ export function AzureImportPanel({ workspace, onWorkspaceUpdate, onClose, onErro
       .finally(() => setLoading(false));
   };
 
-  const shown = useMemo(() => {
-    const terms = filter.toLowerCase().split(/\s+/).filter(Boolean);
-    if (!vms) return [];
-    if (terms.length === 0) return vms;
-    return vms.filter((vm) => {
-      const haystack = [
-        vm.name, vm.publicIp, vm.privateIp, vm.location, vm.scope, vm.osType, vm.state,
-        ...vm.tags.map(([k, v]) => `${k}=${v}`),
-      ].filter(Boolean).join(" ").toLowerCase();
-      return terms.every((term) => haystack.includes(term));
-    });
-  }, [vms, filter]);
-
-  /** Only machines with an address can become a host — the tick list disables
-   * the rest, and "select all" must agree with it. */
-  const selectable = useMemo(() => shown.filter((vm) => vm.publicIp || vm.privateIp), [shown]);
-
-  const toggle = (id: string) =>
-    setPicked((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const { shown, selectable } = useCloudSelection(vms, filter);
+  const toggle = (id: string) => setPicked((prev) => toggleIn(prev, id));
 
   const runImport = () => {
     if (!vms || picked.size === 0) return;
@@ -144,7 +124,7 @@ export function AzureImportPanel({ workspace, onWorkspaceUpdate, onClose, onErro
     }));
 
     setImporting(true);
-    api.importAzureHosts(selections, batchAuthMethod(workspace, auth) as AuthMethod, auth.secret.trim() || null)
+    api.importAzureHosts(selections, batchAuthMethod(workspace, auth), auth.secret.trim() || null)
       .then((ws) => { onWorkspaceUpdate(ws); onClose(); })
       .catch((e) => onError(readCloudFailure(e).message))
       .finally(() => setImporting(false));

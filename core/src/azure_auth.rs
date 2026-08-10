@@ -58,12 +58,9 @@ pub async fn login(
 /// signed in, which is exactly the state the caller wanted.
 pub async fn logout() -> Result<(), CloudCliError> {
     match cloud_cli::run(Provider::Azure, &["logout"]).await {
-        Ok(_) => Ok(()),
-        Err(CloudCliError::CliMissing { program, install_hint }) => {
-            Err(CloudCliError::CliMissing { program, install_hint })
-        }
+        Err(missing @ CloudCliError::CliMissing { .. }) => Err(missing),
         // Anything else means the CLI ran and had nothing to sign out of.
-        Err(_) => Ok(()),
+        _ => Ok(()),
     }
 }
 

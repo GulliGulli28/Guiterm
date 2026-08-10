@@ -1,4 +1,5 @@
-import type { CloudInstance, GroupId, KeyId, Workspace } from "../lib/types";
+import { useMemo, type ReactNode } from "react";
+import type { AuthMethod, CloudInstance, GroupId, KeyId, Workspace } from "../lib/types";
 import type { DescribedFailure } from "../lib/cloudFailure";
 import { GroupTreePicker } from "./GroupTreePicker";
 
@@ -38,6 +39,42 @@ export const emptyBatchAuth: BatchAuth = {
   groupId: null,
 };
 
+/** Filtering and ticking a list of cloud instances.
+ *
+ * A hook rather than a shared panel: each provider keeps its own component, as
+ * decided — this only removes the forty lines both had copied, which is where
+ * the two would otherwise drift apart. The filter matches every term against
+ * the whole row, so "prod west" narrows the way people expect.
+ *
+ * `selectable` exists because a machine with no address at all can't become a
+ * usable host: its checkbox is disabled, and "select all" has to agree with
+ * that or it would tick rows the import then refuses. */
+export function useCloudSelection(instances: CloudInstance[] | null, filter: string) {
+  const shown = useMemo(() => {
+    const terms = filter.toLowerCase().split(/\s+/).filter(Boolean);
+    if (!instances) return [];
+    if (terms.length === 0) return instances;
+    return instances.filter((vm) => {
+      const haystack = [
+        vm.name, vm.publicIp, vm.privateIp, vm.location, vm.scope, vm.osType, vm.state,
+        ...vm.tags.map(([k, v]) => (v ? `${k}=${v}` : k)),
+      ].filter(Boolean).join(" ").toLowerCase();
+      return terms.every((term) => haystack.includes(term));
+    });
+  }, [instances, filter]);
+
+  const selectable = useMemo(() => shown.filter((vm) => vm.publicIp || vm.privateIp), [shown]);
+  return { shown, selectable };
+}
+
+/** Toggling one id in a tick set — the same three lines in both panels. */
+export function toggleIn(set: Set<string>, id: string): Set<string> {
+  const next = new Set(set);
+  if (next.has(id)) next.delete(id);
+  else next.add(id);
+  return next;
+}
+
 /** A failure with its remedy, and nothing invented when there isn't one.
  *
  * `action` is where a remedy the app can actually *perform* goes — signing in,
@@ -49,7 +86,7 @@ export function CloudFailureNotice({
   action,
 }: {
   failure: DescribedFailure;
-  action?: React.ReactNode;
+  action?: ReactNode;
 }) {
   return (
     <div className="shrink-0 border-b border-[var(--c-border)] bg-rose-950/30 px-4 py-2">
@@ -211,8 +248,13 @@ export function CloudBatchCredentials({
   );
 }
 
-/** The `AuthMethod` the batch form describes. */
-export function batchAuthMethod(workspace: Workspace, auth: BatchAuth) {
+/** The `AuthMethod` the batch form describes.
+ *
+ * Typed as `AuthMethod` rather than inferred: both callers used to launder the
+ * result through `as AuthMethod`, which would have silently accepted a shape
+ * the backend can't deserialise. Now a mismatch is a `tsc` error here, once,
+ * instead of a cast at every call site. */
+export function batchAuthMethod(workspace: Workspace, auth: BatchAuth): AuthMethod {
   if (auth.kind !== "privateKey") return auth.kind;
   const fromKeychain = workspace.keychain.find((key) => key.id === auth.keyId);
   return {

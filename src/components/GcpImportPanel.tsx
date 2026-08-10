@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import { readCloudFailure, type DescribedFailure } from "../lib/cloudFailure";
-import type { AuthMethod, CloudInstance, CloudScope, Workspace } from "../lib/types";
+import type { CloudInstance, CloudScope, Workspace } from "../lib/types";
 import { IconClose } from "./ui-icons";
 import {
   batchAuthMethod,
@@ -10,6 +10,8 @@ import {
   CloudFailureNotice,
   CloudInstanceRow,
   emptyBatchAuth,
+  toggleIn,
+  useCloudSelection,
   type BatchAuth,
 } from "./CloudImportBits";
 
@@ -73,28 +75,8 @@ export function GcpImportPanel({ workspace, onWorkspaceUpdate, onClose, onError 
       .finally(() => setLoading(false));
   };
 
-  const shown = useMemo(() => {
-    const terms = filter.toLowerCase().split(/\s+/).filter(Boolean);
-    if (!instances) return [];
-    if (terms.length === 0) return instances;
-    return instances.filter((vm) => {
-      const haystack = [
-        vm.name, vm.publicIp, vm.privateIp, vm.location, vm.state,
-        ...vm.tags.map(([k, v]) => `${k}=${v}`),
-      ].filter(Boolean).join(" ").toLowerCase();
-      return terms.every((term) => haystack.includes(term));
-    });
-  }, [instances, filter]);
-
-  const selectable = useMemo(() => shown.filter((vm) => vm.publicIp || vm.privateIp), [shown]);
-
-  const toggle = (id: string) =>
-    setPicked((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
+  const { shown, selectable } = useCloudSelection(instances, filter);
+  const toggle = (id: string) => setPicked((prev) => toggleIn(prev, id));
 
   const runImport = () => {
     if (!instances || picked.size === 0) return;
@@ -122,7 +104,7 @@ export function GcpImportPanel({ workspace, onWorkspaceUpdate, onClose, onError 
       }));
 
     setImporting(true);
-    api.importGcpHosts(selections, batchAuthMethod(workspace, auth) as AuthMethod, auth.secret.trim() || null)
+    api.importGcpHosts(selections, batchAuthMethod(workspace, auth), auth.secret.trim() || null)
       .then((ws) => { onWorkspaceUpdate(ws); onClose(); })
       .catch((e) => onError(readCloudFailure(e).message))
       .finally(() => setImporting(false));
