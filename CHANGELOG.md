@@ -269,8 +269,39 @@ This changelog starts 2026-07-21 — for earlier versions, see
   `Ctrl` `1` used to be impossible to type. The digit shortcuts now read the
   physical key: `Ctrl` `1`, `Ctrl` `Shift` `1` and `Ctrl` `&` are the same
   shortcut, whichever layout you use.
+- A Network diagnostics tab, from the sidebar next to fleet operations (or
+  `Ctrl` `Shift` `D`). Pick an address, tick the checks — TCP, DNS, HTTP(S),
+  ping, traceroute — and the machines to run them from: each one answers for
+  itself, in a grid that fills in as results arrive. That is what separates
+  "the service is down" from "that network can't reach it". Click any result
+  to unfold the tool's own output.
+
+  It also runs the other way round: from this machine against each of your
+  saved hosts. That direction opens no SSH connection, so it still answers
+  about a host that is itself the thing that has broken.
+
+  Results say what they mean rather than pass or fail. A refusal (something
+  answered and said no — you are on the right machine) is not a silence
+  (nothing answered — a firewall, a security group, a missing route), an
+  unresolved name is a DNS problem and not a network one, and a check no tool
+  on that machine can perform says exactly that instead of looking like a
+  failure — common in slim containers, which often ship no `ping` at all.
+  Traceroute is reported as inconclusive when it doesn't complete, because most
+  routers on the internet drop its probes: a trace full of asterisks says
+  nothing about whether the destination is reachable.
+
+  This replaces the "Test the reachability" dialog, which was one check of the
+  same kind. Its two ways in still work: a host's menu opens the tab with that
+  host preselected as the source, the command palette with this machine.
+  Nothing is installed on any target — each check is a small script, so an SSH
+  host, a Docker container, a Kubernetes pod and this machine all work without
+  anything to set up.
 
 ### Fixed
+- Console windows no longer flash on Windows when something runs on this
+  machine — a fleet run against the local terminal, a facts probe, a network
+  diagnostic. Each target was its own process, so a run could open several in
+  a row.
 - A private key chosen from the keychain was not saved with the host. The key's
   identifier never reached storage, so the link was lost and the passphrase was
   filed under the host instead of the key. Hosts saved before this keep working
