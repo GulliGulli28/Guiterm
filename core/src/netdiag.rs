@@ -93,6 +93,13 @@ pub enum DiagTool {
         /// Request path, always starting with `/`.
         path: String,
     },
+    /// ICMP echo. Frequently unavailable — it needs a privileged socket, and
+    /// slim container images ship no `ping` at all — which is reported as
+    /// [`DiagVerdict::Unavailable`] rather than as a failure.
+    Ping { count: u8 },
+    /// The path taken, hop by hop. The slowest tool here by a wide margin, and
+    /// the least often installed.
+    Traceroute { max_hops: u8 },
 }
 
 impl DiagTool {
@@ -105,6 +112,22 @@ impl DiagTool {
                 Some(port) => format!("HTTP{} {port}", if *secure { "S" } else { "" }),
                 None => format!("HTTP{}", if *secure { "S" } else { "" }),
             },
+            Self::Ping { .. } => "Ping".to_string(),
+            Self::Traceroute { .. } => "Traceroute".to_string(),
+        }
+    }
+
+    /// How long this tool may take, which is what a caller has to budget for.
+    ///
+    /// Traceroute is the reason results stream rather than arrive in a batch:
+    /// it is an order of magnitude slower than everything else here.
+    pub fn timeout_secs(&self) -> u16 {
+        match self {
+            Self::Tcp { .. } => u16::from(TCP_TIMEOUT_SECS),
+            Self::Dns => u16::from(DNS_TIMEOUT_SECS),
+            Self::Http { .. } => u16::from(HTTP_TIMEOUT_SECS),
+            Self::Ping { count } => u16::from(*count) * 2 + 5,
+            Self::Traceroute { max_hops } => u16::from(*max_hops) * 3 + 10,
         }
     }
 }
@@ -218,6 +241,12 @@ pub fn script(tool: &DiagTool, destination: &str, flavour: Flavour) -> String {
         (DiagTool::Tcp { port }, Flavour::Powershell) => powershell_tcp(destination, *port),
         (DiagTool::Dns, Flavour::Posix) => posix_dns(destination),
         (DiagTool::Dns, Flavour::Powershell) => powershell_dns(destination),
+        (DiagTool::Ping { count }, Flavour::Posix) => posix_ping(destination, *count),
+        (DiagTool::Ping { count }, Flavour::Powershell) => powershell_ping(destination, *count),
+        (DiagTool::Traceroute { max_hops }, Flavour::Posix) => posix_traceroute(destination, *max_hops),
+        (DiagTool::Traceroute { max_hops }, Flavour::Powershell) => {
+            powershell_traceroute(destination, *max_hops)
+        }
         (DiagTool::Http { secure, port, path }, flavour) => {
             let url = http_url(destination, *secure, *port, path);
             // curl on both sides: Windows 10 1803+ ships `curl.exe`, so one
@@ -280,6 +309,60 @@ fn powershell_http(url: &str) -> String {
          if (Get-Command curl.exe -ErrorAction SilentlyContinue) {{ \
          $m=(& curl.exe -sS -o NUL -w '{CURL_FORMAT}' --max-time {t} '{url}' 2>&1 | Out-String); $c=$LASTEXITCODE; $v='curl' \
          }} else {{ $v='notool'; $c=0; $m='' }}; \
+         $e=Get-Date; \
+         Write-Output \"{MARKER} $v $c $([int]($e-$s).TotalSeconds)\"; \
+         Write-Output $m"
+    )
+}
+
+fn posix_ping(destination: &str, count: u8) -> String {
+    let deadline = u16::from(count) * 2 + 3;
+    let script = format!(
+        "h={destination}; n={count}; \
+         s=$(date +%s 2>/dev/null || echo 0); \
+         if command -v ping >/dev/null 2>&1; then \
+         m=$(ping -c $n -w {deadline} \"$h\" 2>&1 || ping -c $n \"$h\" 2>&1); c=$?; v=ping; \
+         else v=notool; c=0; m=\"\"; fi; \
+         e=$(date +%s 2>/dev/null || echo 0); \
+         echo {MARKER} $v $c $((e-s)); echo \"$m\""
+    );
+    format!("sh -c '{script}'")
+}
+
+/// `-w` is a GNU/iputils flag; busybox and BSD `ping` reject it, hence the
+/// second attempt without it. Without that fallback an Alpine container — the
+/// most common slim image there is — would report every host as unreachable.
+fn powershell_ping(destination: &str, count: u8) -> String {
+    format!(
+        "$ErrorActionPreference='SilentlyContinue'; \
+         $s=Get-Date; $v='ping'; \
+         $m=(& ping.exe -n {count} '{destination}' 2>&1 | Out-String); $c=$LASTEXITCODE; \
+         $e=Get-Date; \
+         Write-Output \"{MARKER} $v $c $([int]($e-$s).TotalSeconds)\"; \
+         Write-Output $m"
+    )
+}
+
+fn posix_traceroute(destination: &str, max_hops: u8) -> String {
+    let script = format!(
+        "h={destination}; \
+         s=$(date +%s 2>/dev/null || echo 0); \
+         if command -v traceroute >/dev/null 2>&1; then \
+         m=$(traceroute -n -m {max_hops} -w 2 \"$h\" 2>&1); c=$?; v=traceroute; \
+         elif command -v tracepath >/dev/null 2>&1; then \
+         m=$(tracepath -n -m {max_hops} \"$h\" 2>&1); c=$?; v=tracepath; \
+         else v=notool; c=0; m=\"\"; fi; \
+         e=$(date +%s 2>/dev/null || echo 0); \
+         echo {MARKER} $v $c $((e-s)); echo \"$m\""
+    );
+    format!("sh -c '{script}'")
+}
+
+fn powershell_traceroute(destination: &str, max_hops: u8) -> String {
+    format!(
+        "$ErrorActionPreference='SilentlyContinue'; \
+         $s=Get-Date; $v='tracert'; \
+         $m=(& tracert.exe -d -h {max_hops} -w 2000 '{destination}' 2>&1 | Out-String); $c=$LASTEXITCODE; \
          $e=Get-Date; \
          Write-Output \"{MARKER} $v $c $([int]($e-$s).TotalSeconds)\"; \
          Write-Output $m"
@@ -375,6 +458,8 @@ pub fn parse(tool: &DiagTool, flavour: Flavour, stdout: &str, stderr: &str) -> D
         DiagTool::Tcp { .. } => parse_powershell_tcp(&reported),
         DiagTool::Dns => parse_dns(&reported),
         DiagTool::Http { .. } => parse_http(&reported),
+        DiagTool::Ping { .. } => parse_ping(&reported),
+        DiagTool::Traceroute { .. } => parse_traceroute(&reported),
     }
 }
 
@@ -384,7 +469,190 @@ fn missing_tool_for(tool: &DiagTool) -> String {
         DiagTool::Tcp { .. } => "bash, nc ou curl".to_string(),
         DiagTool::Dns => "getent, dig ou nslookup".to_string(),
         DiagTool::Http { .. } => "curl".to_string(),
+        DiagTool::Ping { .. } => "ping".to_string(),
+        DiagTool::Traceroute { .. } => "traceroute ou tracepath".to_string(),
     }
+}
+
+/// Reads a ping run, whichever `ping` produced it.
+///
+/// **A non-zero exit is not enough to call it a failure**: `ping` exits 1 when
+/// *some* packets were lost as well as when all were, and reporting partial
+/// loss as "unreachable" would hide the more interesting answer — a link that
+/// works badly, which is exactly what someone reaches for ping to find.
+fn parse_ping(reported: &Reported) -> DiagVerdict {
+    let lowered = reported.body.to_lowercase();
+    // Said by iputils, BSD and Windows alike, in that order of wording.
+    if lowered.contains("unknown host")
+        || lowered.contains("name or service not known")
+        || lowered.contains("could not find host")
+        || lowered.contains("cannot resolve")
+    {
+        return DiagVerdict::UnknownHost;
+    }
+    if lowered.contains("network is unreachable") || lowered.contains("réseau inaccessible") {
+        return DiagVerdict::Unreachable;
+    }
+
+    let received = ping_received(&reported.body);
+    let latency = ping_average_ms(&reported.body);
+    match (received, latency) {
+        // Nothing came back at all: silence, not a refusal.
+        (Some(0), _) => DiagVerdict::Silent {
+            summary: "aucune réponse".to_string(),
+        },
+        (Some(received), Some(ms)) => DiagVerdict::Ok {
+            summary: format!("{received} rép., {ms:.0} ms"),
+        },
+        (Some(received), None) => DiagVerdict::Ok {
+            summary: format!("{received} réponse(s)"),
+        },
+        // No statistics line to read. `ping` prints one on every platform when
+        // it ran at all, so its absence means something else went wrong.
+        (None, _) if reported.code == 0 => DiagVerdict::Ok {
+            summary: "répond".to_string(),
+        },
+        (None, _) => DiagVerdict::Failed {
+            message: if reported.body.is_empty() {
+                format!("ping a quitté avec le code {}.", reported.code)
+            } else {
+                reported.body.clone()
+            },
+        },
+    }
+}
+
+/// Packets received, from the statistics line each `ping` prints.
+///
+/// Three wordings: iputils/BSD `"N packets transmitted, M received"`, Windows
+/// English `"Received = M"`, Windows French `"Reçus = M"`.
+fn ping_received(body: &str) -> Option<u32> {
+    for line in body.lines() {
+        let lowered = line.to_lowercase();
+        if let Some(index) = lowered.find(" received") {
+            // "4 packets transmitted, 4 received, 0% packet loss"
+            if let Some(value) = lowered[..index].split_whitespace().last().and_then(|v| v.parse().ok()) {
+                return Some(value);
+            }
+        }
+        for marker in ["received = ", "reçus = ", "recus = "] {
+            if let Some(rest) = lowered.split(marker).nth(1) {
+                let digits: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+                if let Ok(value) = digits.parse() {
+                    return Some(value);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Average round-trip time, from whichever summary line carries it.
+fn ping_average_ms(body: &str) -> Option<f64> {
+    for line in body.lines() {
+        let lowered = line.to_lowercase();
+        // iputils / BSD: "rtt min/avg/max/mdev = 0.041/0.052/0.068/0.010 ms"
+        if lowered.contains("min/avg/max") {
+            let values = lowered.split('=').nth(1)?.trim();
+            let avg = values.split('/').nth(1)?;
+            return avg.replace(',', ".").trim().parse().ok();
+        }
+        // Windows: "Average = 24ms" / "Moyenne = 24ms"
+        for marker in ["average = ", "moyenne = "] {
+            if let Some(rest) = lowered.split(marker).nth(1) {
+                let digits: String = rest
+                    .chars()
+                    .take_while(|c| c.is_ascii_digit() || *c == '.' || *c == ',')
+                    .collect();
+                if let Ok(value) = digits.replace(',', ".").parse() {
+                    return Some(value);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// Reads a traceroute, summarising it to what fits in a cell.
+///
+/// The full output stays available — the point of the summary is that a column
+/// can't hold thirty hops, not that the hops don't matter.
+fn parse_traceroute(reported: &Reported) -> DiagVerdict {
+    let lowered = reported.body.to_lowercase();
+    if lowered.contains("unknown host")
+        || lowered.contains("name or service not known")
+        || lowered.contains("unable to resolve")
+        || lowered.contains("impossible de résoudre")
+    {
+        return DiagVerdict::UnknownHost;
+    }
+    if lowered.contains("network is unreachable") {
+        return DiagVerdict::Unreachable;
+    }
+
+    let hops = traceroute_hops(&reported.body);
+    if hops == 0 {
+        return DiagVerdict::Failed {
+            message: if reported.body.is_empty() {
+                format!("traceroute a quitté avec le code {}.", reported.code)
+            } else {
+                reported.body.clone()
+            },
+        };
+    }
+    // A trace that ends in a run of timeouts never arrived. Saying "12 hops"
+    // there would read as success — the useful fact is that it stopped.
+    if traceroute_ends_in_silence(&reported.body) {
+        return DiagVerdict::Silent {
+            summary: format!("{hops} sauts, puis silence"),
+        };
+    }
+    DiagVerdict::Ok { summary: format!("{hops} sauts") }
+}
+
+/// Numbered hop lines, whichever tool wrote them.
+fn traceroute_hops(body: &str) -> u32 {
+    body.lines()
+        .filter(|line| {
+            let trimmed = line.trim_start();
+            let digits: String = trimmed.chars().take_while(|c| c.is_ascii_digit()).collect();
+            // A hop line starts with its number; a header or a summary doesn't.
+            !digits.is_empty()
+                && trimmed[digits.len()..]
+                    .starts_with(|c: char| c.is_whitespace() || c == ':')
+        })
+        .count() as u32
+}
+
+/// Whether the last hops all timed out — the trace never reached anything.
+fn traceroute_ends_in_silence(body: &str) -> bool {
+    let hop_lines: Vec<&str> = body
+        .lines()
+        .filter(|line| {
+            let trimmed = line.trim_start();
+            let digits: String = trimmed.chars().take_while(|c| c.is_ascii_digit()).collect();
+            !digits.is_empty()
+                && trimmed[digits.len()..]
+                    .starts_with(|c: char| c.is_whitespace() || c == ':')
+        })
+        .collect();
+    // Two in a row rather than one: a single silent hop in the middle of a
+    // working path is routine (a router that doesn't answer but forwards).
+    hop_lines
+        .iter()
+        .rev()
+        .take(2)
+        .filter(|line| is_silent_hop(line))
+        .count()
+        == 2
+        && hop_lines.len() >= 2
+}
+
+/// A hop line with no reply at all: only asterisks where the times go.
+fn is_silent_hop(line: &str) -> bool {
+    let after_number = line.trim_start().trim_start_matches(|c: char| c.is_ascii_digit());
+    let body = after_number.trim_start_matches([' ', ':', '\t']);
+    !body.is_empty() && body.chars().all(|c| c == '*' || c.is_whitespace())
 }
 
 /// Maps the reachability probe's verdict onto this module's, which is a
@@ -606,7 +874,13 @@ mod tests {
     /// PowerShell. The two must not be the same string.
     #[test]
     fn the_two_flavours_produce_different_scripts() {
-        for tool in [DiagTool::Tcp { port: 443 }, DiagTool::Dns, DiagTool::Http { secure: true, port: None, path: String::new() }] {
+        for tool in [
+            DiagTool::Tcp { port: 443 },
+            DiagTool::Dns,
+            DiagTool::Http { secure: true, port: None, path: String::new() },
+            DiagTool::Ping { count: 4 },
+            DiagTool::Traceroute { max_hops: 15 },
+        ] {
             let posix = script(&tool, "example.com", Flavour::Posix);
             let powershell = script(&tool, "example.com", Flavour::Powershell);
             assert_ne!(posix, powershell, "{tool:?} rend le même script pour les deux saveurs");
@@ -818,10 +1092,185 @@ mod tests {
         );
     }
 
+    // ─── Ping ────────────────────────────────────────────────────────────
+
+    fn ping() -> DiagTool {
+        DiagTool::Ping { count: 4 }
+    }
+
+    /// Real iputils output, the Linux default.
+    #[test]
+    fn iputils_ping_is_read_with_its_average() {
+        let body = "PING example.com (93.184.216.34) 56(84) bytes of data.\n\
+                    64 bytes from 93.184.216.34: icmp_seq=1 ttl=56 time=11.7 ms\n\
+                    \n--- example.com ping statistics ---\n\
+                    4 packets transmitted, 4 received, 0% packet loss, time 3005ms\n\
+                    rtt min/avg/max/mdev = 11.512/11.702/11.884/0.132 ms";
+        match parse(&ping(), Flavour::Posix, &marker("ping", 0, body), "") {
+            DiagVerdict::Ok { summary } => assert_eq!(summary, "4 rép., 12 ms"),
+            other => panic!("attendu Ok, obtenu {other:?}"),
+        }
+    }
+
+    /// Real Windows `ping.exe` output, in French — the locale of the machine
+    /// this is developed on, and one where none of the English markers match.
+    #[test]
+    fn french_windows_ping_is_read_too() {
+        let body = "Envoi d'une requête 'ping' sur example.com [93.184.216.34] avec 32 octets de données :\n\
+                    Réponse de 93.184.216.34 : octets=32 temps=24 ms TTL=56\n\
+                    \nStatistiques Ping pour 93.184.216.34:\n\
+                    Paquets : envoyés = 4, reçus = 4, perdus = 0 (perte 0%),\n\
+                    Durée approximative des boucles en millisecondes :\n\
+                    Minimum = 23ms, Maximum = 25ms, Moyenne = 24ms";
+        match parse(&ping(), Flavour::Powershell, &marker("ping", 0, body), "") {
+            DiagVerdict::Ok { summary } => assert_eq!(summary, "4 rép., 24 ms"),
+            other => panic!("attendu Ok, obtenu {other:?}"),
+        }
+    }
+
+    /// The case a naive "exit code != 0 means failure" would get wrong: `ping`
+    /// exits 1 on *partial* loss too, and a link that works badly is exactly
+    /// what someone reaches for ping to find.
+    #[test]
+    fn partial_packet_loss_is_still_an_answer() {
+        let body = "--- example.com ping statistics ---\n\
+                    4 packets transmitted, 2 received, 50% packet loss, time 3010ms\n\
+                    rtt min/avg/max/mdev = 11.512/11.702/11.884/0.132 ms";
+        match parse(&ping(), Flavour::Posix, &marker("ping", 1, body), "") {
+            DiagVerdict::Ok { summary } => assert_eq!(summary, "2 rép., 12 ms"),
+            other => panic!("une perte partielle reste une réponse, obtenu {other:?}"),
+        }
+    }
+
+    #[test]
+    fn total_packet_loss_is_a_silence() {
+        let body = "4 packets transmitted, 0 received, 100% packet loss, time 3070ms";
+        assert!(matches!(
+            parse(&ping(), Flavour::Posix, &marker("ping", 1, body), ""),
+            DiagVerdict::Silent { .. }
+        ));
+    }
+
+    #[test]
+    fn ping_tells_dns_and_routing_apart() {
+        assert!(matches!(
+            parse(&ping(), Flavour::Posix, &marker("ping", 2, "ping: nope.invalid: Name or service not known"), ""),
+            DiagVerdict::UnknownHost
+        ));
+        assert!(matches!(
+            parse(&ping(), Flavour::Posix, &marker("ping", 2, "connect: Network is unreachable"), ""),
+            DiagVerdict::Unreachable
+        ));
+    }
+
+    /// The common container case, and the reason this isn't reported as a
+    /// network failure.
+    #[test]
+    fn a_container_without_ping_says_so() {
+        match parse(&ping(), Flavour::Posix, &marker("notool", 0, ""), "") {
+            DiagVerdict::Unavailable { tool } => assert_eq!(tool, "ping"),
+            other => panic!("attendu Unavailable, obtenu {other:?}"),
+        }
+    }
+
+    // ─── Traceroute ──────────────────────────────────────────────────────
+
+    fn traceroute() -> DiagTool {
+        DiagTool::Traceroute { max_hops: 15 }
+    }
+
+    #[test]
+    fn a_completed_trace_counts_its_hops() {
+        let body = "traceroute to example.com (93.184.216.34), 15 hops max, 60 byte packets\n\
+                    \x201  192.168.1.1  0.412 ms  0.389 ms  0.371 ms\n\
+                    \x202  10.0.0.1  8.112 ms  8.090 ms  8.070 ms\n\
+                    \x203  93.184.216.34  11.702 ms  11.680 ms  11.660 ms";
+        match parse(&traceroute(), Flavour::Posix, &marker("traceroute", 0, body), "") {
+            DiagVerdict::Ok { summary } => assert_eq!(summary, "3 sauts"),
+            other => panic!("attendu Ok, obtenu {other:?}"),
+        }
+    }
+
+    /// A trace that dies in timeouts never arrived. Reporting "5 sauts" there
+    /// would read as success — the useful fact is that it stopped.
+    #[test]
+    fn a_trace_that_ends_in_timeouts_is_a_silence() {
+        let body = "\x201  192.168.1.1  0.412 ms  0.389 ms  0.371 ms\n\
+                    \x202  10.0.0.1  8.112 ms  8.090 ms  8.070 ms\n\
+                    \x203  * * *\n\
+                    \x204  * * *";
+        match parse(&traceroute(), Flavour::Posix, &marker("traceroute", 0, body), "") {
+            DiagVerdict::Silent { summary } => assert_eq!(summary, "4 sauts, puis silence"),
+            other => panic!("attendu Silent, obtenu {other:?}"),
+        }
+    }
+
+    /// One silent router in the middle of a working path is routine — it
+    /// doesn't answer but it forwards. Calling that a silence would flag half
+    /// the internet as broken.
+    #[test]
+    fn one_silent_hop_in_the_middle_is_not_a_silence() {
+        let body = "\x201  192.168.1.1  0.412 ms\n\
+                    \x202  * * *\n\
+                    \x203  93.184.216.34  11.702 ms";
+        assert!(matches!(
+            parse(&traceroute(), Flavour::Posix, &marker("traceroute", 0, body), ""),
+            DiagVerdict::Ok { .. }
+        ));
+    }
+
+    /// Windows `tracert` numbers its hops the same way but words everything
+    /// else differently.
+    #[test]
+    fn windows_tracert_output_is_counted_too() {
+        let body = "Détermination de l'itinéraire vers example.com [93.184.216.34]\n\
+                    avec un maximum de 15 sauts :\n\
+                    \n\x20 1     1 ms     1 ms     1 ms  192.168.1.1\n\
+                    \x20 2    12 ms    11 ms    12 ms  93.184.216.34\n\
+                    \nItinéraire déterminé.";
+        match parse(&traceroute(), Flavour::Powershell, &marker("tracert", 0, body), "") {
+            DiagVerdict::Ok { summary } => assert_eq!(summary, "2 sauts"),
+            other => panic!("attendu Ok, obtenu {other:?}"),
+        }
+    }
+
+    #[test]
+    fn a_missing_traceroute_names_both_candidates() {
+        match parse(&traceroute(), Flavour::Posix, &marker("notool", 0, ""), "") {
+            DiagVerdict::Unavailable { tool } => {
+                assert!(tool.contains("traceroute") && tool.contains("tracepath"));
+            }
+            other => panic!("attendu Unavailable, obtenu {other:?}"),
+        }
+    }
+
+    /// Traceroute is the reason the command layer streams instead of batching.
+    #[test]
+    fn traceroute_is_by_far_the_slowest_tool() {
+        let slowest = traceroute().timeout_secs();
+        for other in [DiagTool::Tcp { port: 1 }, DiagTool::Dns, http(), ping()] {
+            assert!(
+                slowest > other.timeout_secs(),
+                "{other:?} devrait être plus rapide qu'un traceroute"
+            );
+        }
+    }
+
+    /// busybox and BSD `ping` reject `-w`; without the second attempt, an
+    /// Alpine container — the most common slim image there is — would report
+    /// every host as unreachable.
+    #[test]
+    fn the_posix_ping_script_falls_back_without_the_deadline_flag() {
+        let s = script(&ping(), "example.com", Flavour::Posix);
+        assert!(s.contains("|| ping -c $n"), "il manque le repli sans -w : {s}");
+    }
+
     #[test]
     fn tool_labels_are_readable() {
         assert_eq!(DiagTool::Tcp { port: 443 }.label(), "TCP 443");
         assert_eq!(DiagTool::Dns.label(), "DNS");
+        assert_eq!(ping().label(), "Ping");
+        assert_eq!(traceroute().label(), "Traceroute");
         assert_eq!(DiagTool::Http { secure: true, port: None, path: String::new() }.label(), "HTTPS");
         assert_eq!(DiagTool::Http { secure: false, port: Some(8080), path: String::new() }.label(), "HTTP 8080");
     }

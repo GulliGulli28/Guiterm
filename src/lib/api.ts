@@ -496,6 +496,12 @@ export const api = {
   runNetdiag: (runId: string, targets: FleetTarget[], destination: string, tools: DiagTool[]) =>
     invoke<void>("run_netdiag", { runId, targets, destination, tools }),
 
+  /** The other direction: every tool run **from this machine**, against each
+   * selected host. Needs no SSH connection, so it still answers about a host
+   * that is exactly the thing that has broken. */
+  runNetdiagToHosts: (runId: string, hostIds: HostId[], tools: DiagTool[]) =>
+    invoke<void>("run_netdiag_to_hosts", { runId, hostIds, tools }),
+
   /** Reads and parses an Ansible inventory file. Read-only — the import is a
    * separate step, so the panel can show what the file holds first. */
   readAnsibleInventory: (path: string) => invoke<Inventory>("read_ansible_inventory", { path }),

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, onNetdiagDone, onNetdiagOutcome } from "../lib/api";
-import { describeVerdict, diagToolKey, diagToolLabel } from "../lib/netdiag";
+import { describeVerdict, diagRowKey, diagToolKey, diagToolLabel } from "../lib/netdiag";
 import { fleetTargetKey } from "../lib/types";
 import type { DiagTool, DiagVerdict, HostId, Workspace } from "../lib/types";
 import { useFleetTargets } from "../hooks/useFleetTargets";
@@ -41,6 +41,11 @@ const TONE_CLASS: Record<string, string> = {
 export function NetDiagTab({ workspace, onError, initialSourceId }: NetDiagTabProps) {
   const { allTargets } = useFleetTargets(workspace);
 
+  /** Which question is being asked. Both are needed in the same incident:
+   * "je ne joins plus db-1" then "et depuis web-1, tu le joins ?" — and the
+   * second direction needs no SSH connection, so it still answers about a host
+   * that is itself the thing that has broken. */
+  const [direction, setDirection] = useState<"from" | "to">("from");
   const [destination, setDestination] = useState("");
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState<Set<string>>(
@@ -58,10 +63,15 @@ export function NetDiagTab({ workspace, onError, initialSourceId }: NetDiagTabPr
   const [httpOn, setHttpOn] = useState(false);
   const [httpSecure, setHttpSecure] = useState(true);
   const [httpPath, setHttpPath] = useState("");
+  // Off by default, both of them: they need a privileged socket and are absent
+  // from most container images, so a grid that switched them on would greet
+  // people with a column of "outil absent".
+  const [pingOn, setPingOn] = useState(false);
+  const [tracerouteOn, setTracerouteOn] = useState(false);
 
   const [results, setResults] = useState<Map<string, { verdict: DiagVerdict; durationMs: number }>>(new Map());
   const [ranTools, setRanTools] = useState<DiagTool[]>([]);
-  const [ranTargets, setRanTargets] = useState<string[]>([]);
+  const [ranRows, setRanRows] = useState<{ key: string; label: string; sub: string }[]>([]);
   const runIdRef = useRef<string | null>(null);
 
   const tools = useMemo<DiagTool[]>(() => {
@@ -69,8 +79,18 @@ export function NetDiagTab({ workspace, onError, initialSourceId }: NetDiagTabPr
     if (tcpOn) list.push({ kind: "tcp", port: Number(tcpPort) || 0 });
     if (dnsOn) list.push({ kind: "dns" });
     if (httpOn) list.push({ kind: "http", secure: httpSecure, port: null, path: httpPath.trim() });
+    if (pingOn) list.push({ kind: "ping", count: 4 });
+    if (tracerouteOn) list.push({ kind: "traceroute", maxHops: 15 });
     return list;
-  }, [tcpOn, tcpPort, dnsOn, httpOn, httpSecure, httpPath]);
+  }, [tcpOn, tcpPort, dnsOn, httpOn, httpSecure, httpPath, pingOn, tracerouteOn]);
+
+  /** What can be ticked, which is not the same list in both directions: the
+   * "toward" direction probes a saved host's address, and a Docker container
+   * or the local machine has none. */
+  const selectable = useMemo(
+    () => (direction === "from" ? allTargets : allTargets.filter((t) => t.target.kind === "ssh")),
+    [direction, allTargets],
+  );
 
   // Subscribed for the tab's life rather than per run: the first cells come
   // back within milliseconds of a fast target, and a listener attached after
@@ -81,7 +101,7 @@ export function NetDiagTab({ workspace, onError, initialSourceId }: NetDiagTabPr
       if (outcome.runId !== runIdRef.current) return;
       setResults((prev) => {
         const next = new Map(prev);
-        next.set(`${fleetTargetKey(outcome.target)}|${diagToolKey(outcome.tool)}`, {
+        next.set(`${diagRowKey(outcome.row)}|${diagToolKey(outcome.tool)}`, {
           verdict: outcome.verdict,
           durationMs: outcome.durationMs,
         });
@@ -100,12 +120,12 @@ export function NetDiagTab({ workspace, onError, initialSourceId }: NetDiagTabPr
 
   const shown = useMemo(() => {
     const terms = filter.toLowerCase().split(/\s+/).filter(Boolean);
-    if (terms.length === 0) return allTargets;
-    return allTargets.filter((t) => {
+    if (terms.length === 0) return selectable;
+    return selectable.filter((t) => {
       const haystack = `${t.label} ${t.sub}`.toLowerCase();
       return terms.every((term) => haystack.includes(term));
     });
-  }, [allTargets, filter]);
+  }, [selectable, filter]);
 
   const toggle = (key: string) =>
     setSelected((prev) => {
@@ -116,46 +136,89 @@ export function NetDiagTab({ workspace, onError, initialSourceId }: NetDiagTabPr
     });
 
   const run = () => {
-    const targets = allTargets.filter((t) => selected.has(t.key));
-    if (targets.length === 0) {
-      onError("Choisir au moins un hôte depuis lequel diagnostiquer.");
+    const picked = selectable.filter((t) => selected.has(t.key));
+    if (picked.length === 0) {
+      onError(direction === "from"
+        ? "Choisir au moins un hôte depuis lequel diagnostiquer."
+        : "Choisir au moins un hôte à diagnostiquer.");
       return;
     }
     if (tools.length === 0) {
       onError("Choisir au moins un diagnostic.");
       return;
     }
+    if (direction === "from" && !destination.trim()) {
+      onError("Indiquer l'adresse à joindre.");
+      return;
+    }
+
     const runId = crypto.randomUUID();
     runIdRef.current = runId;
     setResults(new Map());
     setRanTools(tools);
-    setRanTargets(targets.map((t) => t.key));
     setRunning(true);
-    api.runNetdiag(runId, targets.map((t) => t.target), destination.trim(), tools)
+
+    if (direction === "from") {
+      setRanRows(picked.map((t) => ({
+        key: `from:${fleetTargetKey(t.target)}`,
+        label: t.label,
+        sub: t.sub,
+      })));
+      api.runNetdiag(runId, picked.map((t) => t.target), destination.trim(), tools)
+        .catch((e) => { setRunning(false); onError(String(e)); });
+      return;
+    }
+
+    // Only SSH targets survive `selectable` here, so the cast is the shape the
+    // filter already guarantees rather than an assumption.
+    const hostIds = picked
+      .map((t) => (t.target.kind === "ssh" ? t.target.hostId : null))
+      .filter((id): id is HostId => id !== null);
+    setRanRows(picked.map((t) => ({
+      key: `to:${t.target.kind === "ssh" ? t.target.hostId : ""}`,
+      label: t.label,
+      sub: t.sub,
+    })));
+    api.runNetdiagToHosts(runId, hostIds, tools)
       .catch((e) => { setRunning(false); onError(String(e)); });
   };
-
-  const ranTargetInfos = ranTargets
-    .map((key) => allTargets.find((t) => t.key === key))
-    .filter((t): t is NonNullable<typeof t> => t !== undefined);
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--c-bg)]">
       <div className="shrink-0 space-y-2 border-b border-[var(--c-border)] px-4 py-3">
         <div className="flex items-center gap-2">
           <h2 className="text-[15px] font-semibold text-[var(--c-text)]">Diagnostic réseau</h2>
+          <div className="flex overflow-hidden rounded-md border border-[var(--c-border)] text-[11px]">
+            {(["from", "to"] as const).map((value) => (
+              <button
+                key={value}
+                onClick={() => { setDirection(value); setSelected(new Set()); setRanRows([]); }}
+                className={`px-2.5 py-1 transition-colors ${
+                  direction === value
+                    ? "accent-surface"
+                    : "text-[var(--c-text-muted)] hover:bg-[var(--c-bg3)]"
+                }`}
+              >
+                {value === "from" ? "Depuis les hôtes" : "Vers les hôtes"}
+              </button>
+            ))}
+          </div>
           <span className="text-[11px] text-[var(--c-text-muted)]">
-            Depuis les machines choisies, vers une adresse.
+            {direction === "from"
+              ? "Chaque machine répond pour elle-même."
+              : "Depuis cette machine — aucune connexion SSH, donc répond même sur un hôte en panne."}
           </span>
         </div>
 
-        <input
-          value={destination}
-          onChange={(e) => setDestination(e.target.value)}
-          onKeyDown={(e) => { if (e.key === "Enter" && !running) run(); }}
-          placeholder="Adresse à joindre — api.example.com, 10.0.0.5…"
-          className={`${inputClass} w-full font-mono`}
-        />
+        {direction === "from" && (
+          <input
+            value={destination}
+            onChange={(e) => setDestination(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter" && !running) run(); }}
+            placeholder="Adresse à joindre — api.example.com, 10.0.0.5…"
+            className={`${inputClass} w-full font-mono`}
+          />
+        )}
 
         <div className="flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-1.5 text-[11px] text-[var(--c-text-secondary)]">
@@ -195,9 +258,23 @@ export function NetDiagTab({ workspace, onError, initialSourceId }: NetDiagTabPr
             />
           </label>
 
+          <label className="flex items-center gap-1.5 text-[11px] text-[var(--c-text-secondary)]">
+            <input type="checkbox" checked={pingOn} onChange={(e) => setPingOn(e.target.checked)} className="accent-[var(--c-accent)]" />
+            <span title="Souvent indisponible : ICMP demande des privilèges, et beaucoup d'images conteneur n'embarquent pas ping.">
+              Ping
+            </span>
+          </label>
+
+          <label className="flex items-center gap-1.5 text-[11px] text-[var(--c-text-secondary)]">
+            <input type="checkbox" checked={tracerouteOn} onChange={(e) => setTracerouteOn(e.target.checked)} className="accent-[var(--c-accent)]" />
+            <span title="Lent (jusqu'à une minute) et rarement installé. Les résultats arrivent au fil de l'eau.">
+              Traceroute
+            </span>
+          </label>
+
           <button
             onClick={run}
-            disabled={running || !destination.trim()}
+            disabled={running || (direction === "from" && !destination.trim())}
             className="accent-surface ml-auto flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium disabled:opacity-40"
           >
             <IconPlay size={12} />
@@ -259,24 +336,24 @@ export function NetDiagTab({ workspace, onError, initialSourceId }: NetDiagTabPr
 
         {/* Grid */}
         <div className="min-h-0 flex-1 overflow-auto p-3">
-          {ranTargetInfos.length === 0 ? (
+          {ranRows.length === 0 ? (
             <p className="py-8 text-center text-xs text-[var(--c-text-faint)]">
-              Choisissez une adresse, les diagnostics à faire et les machines depuis lesquelles les
-              faire. Chaque machine répond pour elle-même — c'est ce qui distingue « le service est
-              tombé » de « ce réseau-là ne l'atteint pas ».
+              {direction === "from"
+                ? "Choisissez une adresse, les diagnostics à faire et les machines depuis lesquelles les faire. Chaque machine répond pour elle-même — c'est ce qui distingue « le service est tombé » de « ce réseau-là ne l'atteint pas »."
+                : "Choisissez les hôtes à diagnostiquer depuis cette machine. Aucune connexion SSH n'est ouverte, donc la réponse arrive même quand c'est l'hôte lui-même qui ne va pas."}
             </p>
           ) : (
             <table className="w-full border-collapse text-[12px]">
               <thead>
                 <tr className="text-left text-[10px] uppercase tracking-wide text-[var(--c-text-faint)]">
-                  <th className="px-2 py-1 font-semibold">Depuis</th>
+                  <th className="px-2 py-1 font-semibold">{direction === "from" ? "Depuis" : "Hôte"}</th>
                   {ranTools.map((tool) => (
                     <th key={diagToolKey(tool)} className="px-2 py-1 font-semibold">{diagToolLabel(tool)}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
-                {ranTargetInfos.map((info) => (
+                {ranRows.map((info) => (
                   <tr key={info.key} className="border-t border-[var(--c-border)]">
                     <td className="px-2 py-1.5">
                       <div className="truncate text-[var(--c-text)]">{info.label}</div>

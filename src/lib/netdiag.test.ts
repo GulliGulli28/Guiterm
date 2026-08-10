@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { describeVerdict, diagToolKey, diagToolLabel } from "./netdiag";
-import type { DiagTool, DiagVerdict } from "./types";
+import { describeVerdict, diagRowKey, diagToolKey, diagToolLabel } from "./netdiag";
+import type { DiagRow, DiagTool, DiagVerdict, HostId } from "./types";
 
 describe("describeVerdict", () => {
   /** The distinction the whole feature exists for. Both are failures, but a
@@ -63,6 +63,8 @@ describe("diagToolKey", () => {
       diagToolKey({ kind: "http", secure: true, port: null, path: "" }),
       diagToolKey({ kind: "http", secure: true, port: 8443, path: "" }),
       diagToolKey({ kind: "http", secure: true, port: null, path: "/health" }),
+      diagToolKey({ kind: "ping", count: 4 }),
+      diagToolKey({ kind: "traceroute", maxHops: 15 }),
     ];
     expect(new Set(keys).size).toBe(keys.length);
   });
@@ -72,9 +74,35 @@ describe("diagToolKey", () => {
     expect(diagToolKey(tool)).toBe(diagToolKey({ ...tool }));
   });
 
+  /** `ping` used to stand in for the unknown variant here — until tranche 2
+   * made it real and this test started failing, which is precisely what an
+   * anti-vacuity check is for. `mtr` is the stand-in now. */
   it("échoue bruyamment sur un outil qu'aucune branche ne gère", () => {
-    const rogue = { kind: "ping", count: 4 } as unknown as DiagTool;
+    const rogue = { kind: "mtr", cycles: 10 } as unknown as DiagTool;
     expect(() => diagToolKey(rogue)).toThrow(/cas non géré/);
+  });
+});
+
+describe("diagRowKey", () => {
+  /** The two directions put different things on the rows, and a row from one
+   * must never collide with a row from the other — a stale result would land
+   * in the wrong cell. */
+  it("ne confond pas une source et un hôte diagnostiqué", () => {
+    const hostId = "11111111-2222-3333-4444-555555555555" as HostId;
+    const from = diagRowKey({ kind: "from", target: { kind: "ssh", hostId } });
+    const to = diagRowKey({ kind: "to", hostId });
+    expect(from).not.toBe(to);
+  });
+
+  it("distingue deux hôtes", () => {
+    const a = diagRowKey({ kind: "to", hostId: "aaaaaaaa-0000-0000-0000-000000000000" as HostId });
+    const b = diagRowKey({ kind: "to", hostId: "bbbbbbbb-0000-0000-0000-000000000000" as HostId });
+    expect(a).not.toBe(b);
+  });
+
+  it("échoue bruyamment sur une ligne qu'aucune branche ne gère", () => {
+    const rogue = { kind: "between", a: 1, b: 2 } as unknown as DiagRow;
+    expect(() => diagRowKey(rogue)).toThrow(/cas non géré/);
   });
 });
 
@@ -86,5 +114,7 @@ describe("diagToolLabel", () => {
     expect(diagToolLabel({ kind: "dns" })).toBe("DNS");
     expect(diagToolLabel({ kind: "http", secure: true, port: null, path: "" })).toBe("HTTPS");
     expect(diagToolLabel({ kind: "http", secure: false, port: 8080, path: "" })).toBe("HTTP 8080");
+    expect(diagToolLabel({ kind: "ping", count: 4 })).toBe("Ping");
+    expect(diagToolLabel({ kind: "traceroute", maxHops: 15 })).toBe("Traceroute");
   });
 });

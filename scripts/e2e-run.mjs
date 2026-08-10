@@ -1468,6 +1468,25 @@ async function runNetDiagScenario(browser) {
     Array.from(document.querySelectorAll("table td span[title]"), (el) => el.textContent?.trim()),
   );
   console.log(`Diagnostic réseau : OK (palette → onglet → sonde réelle locale, verdicts : ${verdicts.join(" | ")}).`);
+
+  // The other direction is a different execution path entirely — N local
+  // processes rather than the fleet executor, because `run_on_hosts` is keyed
+  // by target and every probe here runs on `Local`. Asserting the command is
+  // registered and typed is what tells that apart from a wiring mistake.
+  const toHosts = await browser.execute(async () => {
+    try {
+      return { ok: await window.__TAURI_INTERNALS__.invoke("run_netdiag_to_hosts", {
+        runId: "e2e", hostIds: [], tools: [{ kind: "dns" }],
+      }) };
+    } catch (e) {
+      return { failed: String(e) };
+    }
+  });
+  // An empty host list must be refused with a sentence, not accepted silently.
+  if (!/au moins un h/i.test(toHosts.failed ?? "")) {
+    throw new Error(`run_netdiag_to_hosts doit refuser une liste vide en le disant, reçu : ${JSON.stringify(toHosts)}`);
+  }
+  console.log("Diagnostic réseau : OK (sens « vers les hôtes » enregistré, liste vide refusée explicitement).");
 }
 
 /**

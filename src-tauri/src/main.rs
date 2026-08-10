@@ -88,6 +88,7 @@ fn main() {
             commands::adaptive::preview_rollback,
             commands::drift::check_drift,
             commands::netdiag::run_netdiag,
+            commands::netdiag::run_netdiag_to_hosts,
             commands::inventory::read_ansible_inventory,
             commands::inventory::import_ansible_hosts,
             commands::cloud_inventory::list_azure_subscriptions,

@@ -1038,7 +1038,9 @@ export interface FleetRun {
 export type DiagTool =
   | { kind: "tcp"; port: number }
   | { kind: "dns" }
-  | { kind: "http"; secure: boolean; port: number | null; path: string };
+  | { kind: "http"; secure: boolean; port: number | null; path: string }
+  | { kind: "ping"; count: number }
+  | { kind: "traceroute"; maxHops: number };
 
 /** What one tool found on one target.
  *
@@ -1054,12 +1056,20 @@ export type DiagVerdict =
   | { kind: "unavailable"; tool: string }
   | { kind: "failed"; message: string };
 
+/** Which row of the grid an answer belongs to.
+ *
+ * The two directions put different things on the rows: running *from* hosts
+ * makes each source a row, running *toward* hosts makes each probed host one. */
+export type DiagRow =
+  | { kind: "from"; target: FleetTarget }
+  | { kind: "to"; hostId: HostId };
+
 /** One cell of the diagnostic grid, streamed as it completes. */
 export interface NetdiagOutcome {
   /** Echoed from the request so a slow result from a replaced run can be
    * dropped instead of landing in the new grid. */
   runId: string;
-  target: FleetTarget;
+  row: DiagRow;
   tool: DiagTool;
   verdict: DiagVerdict;
   durationMs: number;

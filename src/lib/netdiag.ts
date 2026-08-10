@@ -1,5 +1,6 @@
 import { assertNever } from "./exhaustive";
-import type { DiagTool, DiagVerdict } from "./types";
+import { fleetTargetKey } from "./types";
+import type { DiagRow, DiagTool, DiagVerdict } from "./types";
 
 /** How a verdict reads in the grid. */
 export interface DescribedVerdict {
@@ -74,8 +75,24 @@ export function diagToolKey(tool: DiagTool): string {
       return "dns";
     case "http":
       return `http:${tool.secure ? "s" : ""}:${tool.port ?? ""}:${tool.path}`;
+    case "ping":
+      return `ping:${tool.count}`;
+    case "traceroute":
+      return `traceroute:${tool.maxHops}`;
     default:
       return assertNever(tool, "diagToolKey");
+  }
+}
+
+/** A stable key for one grid row, whichever direction produced it. */
+export function diagRowKey(row: DiagRow): string {
+  switch (row.kind) {
+    case "from":
+      return `from:${fleetTargetKey(row.target)}`;
+    case "to":
+      return `to:${row.hostId}`;
+    default:
+      return assertNever(row, "diagRowKey");
   }
 }
 
@@ -90,6 +107,10 @@ export function diagToolLabel(tool: DiagTool): string {
       const scheme = tool.secure ? "HTTPS" : "HTTP";
       return tool.port === null ? scheme : `${scheme} ${tool.port}`;
     }
+    case "ping":
+      return "Ping";
+    case "traceroute":
+      return "Traceroute";
     default:
       return assertNever(tool, "diagToolLabel");
   }
