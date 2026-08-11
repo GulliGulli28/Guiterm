@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { api } from "../lib/api";
 import type { Group, GroupId, Host, HostId, Workspace } from "../lib/types";
@@ -6,6 +6,7 @@ import { HostIcon } from "./icons";
 import { hostKindMeta } from "../lib/hostKinds";
 import { ramColor } from "../lib/facts";
 import { formatRelativeTime } from "../lib/format";
+import { buildHostTree } from "../lib/hostTree";
 import { usePolledHostStat } from "../hooks/usePolledHostStat";
 import { useContainerPicker } from "../hooks/useContainerPicker";
 import { BulkEditPanel } from "./BulkEditPanel";
@@ -187,20 +188,17 @@ export function HostsPanel({
   };
 
   const query = search.trim().toLowerCase();
-  const matches = (host: Host) =>
-    !query || host.label.toLowerCase().includes(query) || host.address.toLowerCase().includes(query) ||
-    host.username.toLowerCase().includes(query) || host.tags.some((t) => t.toLowerCase().includes(query));
 
-  const childGroups = (parentId: GroupId | null) =>
-    workspace.groups.filter((g) => g.parentId === parentId).sort((a, b) => a.name.localeCompare(b.name));
-  const hostsIn = (groupId: GroupId | null) =>
-    workspace.hosts.filter((h) => h.groupId === groupId && matches(h)).sort((a, b) => a.label.localeCompare(b.label));
+  // Indexé une fois par changement d'hôtes/dossiers/recherche, au lieu d'être
+  // refiltré et retrié à chaque dossier affiché — voir `buildHostTree`.
+  const { hostsByGroup, groupsByParent, matchingGroups } = useMemo(
+    () => buildHostTree(workspace.hosts, workspace.groups, query),
+    [workspace.hosts, workspace.groups, query],
+  );
+
+  const childGroups = (parentId: GroupId | null) => groupsByParent.get(parentId) ?? [];
+  const hostsIn = (groupId: GroupId | null) => hostsByGroup.get(groupId) ?? [];
   const isExpanded = (id: GroupId) => (query ? true : !collapsed.has(id));
-
-  function groupHasMatches(groupId: GroupId): boolean {
-    if (hostsIn(groupId).length > 0) return true;
-    return childGroups(groupId).some((g) => groupHasMatches(g.id));
-  }
 
   const toggleGroup = (id: GroupId) =>
     setCollapsed((prev) => {
@@ -418,7 +416,7 @@ export function HostsPanel({
 
   // ── Group row ────────────────────────────────────────────────────────────
   const renderGroup = (group: Group, depth: number) => {
-    if (query && !groupHasMatches(group.id)) return null;
+    if (query && !matchingGroups.has(group.id)) return null;
     const expanded = isExpanded(group.id);
     return (
       <div key={group.id} className="space-y-1">
