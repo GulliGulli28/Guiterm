@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import { readCloudFailure, type DescribedFailure } from "../lib/cloudFailure";
-import type { CloudInstance, CloudScope, Workspace } from "../lib/types";
+import type { CloudInstance, CloudScope, InventoryDiff, Workspace } from "../lib/types";
 import { IconClose } from "./ui-icons";
 import {
   batchAuthMethod,
@@ -10,6 +10,7 @@ import {
   CloudFailureNotice,
   CloudInstanceRow,
   emptyBatchAuth,
+  InventoryDriftNotice,
   toggleIn,
   useCloudSelection,
   type BatchAuth,
@@ -46,6 +47,7 @@ export function GcpImportPanel({ workspace, onWorkspaceUpdate, onClose, onError 
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [auth, setAuth] = useState<BatchAuth>(emptyBatchAuth);
   const [importing, setImporting] = useState(false);
+  const [diff, setDiff] = useState<InventoryDiff | null>(null);
 
   useEffect(() => {
     setLoading(true);
@@ -70,7 +72,12 @@ export function GcpImportPanel({ workspace, onWorkspaceUpdate, onClose, onError 
     setLoading(true);
     setFailure(null);
     api.discoverGcpInstances(project || null)
-      .then((found) => { setInstances(found); setPicked(new Set()); })
+      .then((found) => {
+        setInstances(found);
+        setPicked(new Set());
+        // Asked from the data just fetched — see the Azure panel.
+        api.diffGcpInventory(project, found).then(setDiff).catch(() => setDiff(null));
+      })
       .catch((e) => { setInstances(null); setFailure(readCloudFailure(e)); })
       .finally(() => setLoading(false));
   };
@@ -104,7 +111,7 @@ export function GcpImportPanel({ workspace, onWorkspaceUpdate, onClose, onError 
       }));
 
     setImporting(true);
-    api.importGcpHosts(selections, batchAuthMethod(workspace, auth), auth.secret.trim() || null)
+    api.importGcpHosts(project, selections, batchAuthMethod(workspace, auth), auth.secret.trim() || null)
       .then((ws) => { onWorkspaceUpdate(ws); onClose(); })
       .catch((e) => onError(readCloudFailure(e).message))
       .finally(() => setImporting(false));
@@ -158,6 +165,14 @@ export function GcpImportPanel({ workspace, onWorkspaceUpdate, onClose, onError 
             </div>
           </label>
         </div>
+
+        {diff && (
+          <InventoryDriftNotice
+            diff={diff}
+            scopeLabel="projet"
+            onSelectNew={() => setPicked(new Set(diff.notImported))}
+          />
+        )}
 
         {instances && (
           <>

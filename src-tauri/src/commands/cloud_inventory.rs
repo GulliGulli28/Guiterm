@@ -89,11 +89,12 @@ pub async fn azure_logout() -> Result<(), CloudFailure> {
 #[tauri::command]
 pub fn import_azure_hosts(
     state: State<'_, AppState>,
+    subscription: String,
     selections: Vec<CloudSelection>,
     auth: AuthMethod,
     secret: Option<String>,
 ) -> Result<Workspace, String> {
-    import(state, Provider::Azure, selections, auth, secret)
+    import(state, Provider::Azure, subscription.trim(), selections, auth, secret)
 }
 
 // ─── GCP ─────────────────────────────────────────────────────────────────
@@ -115,11 +116,48 @@ pub async fn discover_gcp_instances(
 #[tauri::command]
 pub fn import_gcp_hosts(
     state: State<'_, AppState>,
+    project: String,
     selections: Vec<CloudSelection>,
     auth: AuthMethod,
     secret: Option<String>,
 ) -> Result<Workspace, String> {
-    import(state, Provider::Gcp, selections, auth, secret)
+    import(state, Provider::Gcp, project.trim(), selections, auth, secret)
+}
+
+/// Compares a listing the panel already fetched against the hosts imported
+/// from that scope.
+///
+/// Takes the instances rather than fetching them again: the panel has just
+/// listed them, and a second call would double the wait and could disagree
+/// with what is on screen. Implemented once, in `core` — a TypeScript copy of
+/// the rule would be a second implementation of exactly the kind this repo
+/// keeps paying for.
+#[tauri::command]
+pub fn diff_azure_inventory(
+    state: State<'_, AppState>,
+    subscription: String,
+    listed: Vec<CloudInstance>,
+) -> cloud_inventory::InventoryDiff {
+    cloud_inventory::diff(
+        &state.workspace.lock_recover(),
+        Provider::Azure,
+        subscription.trim(),
+        &listed,
+    )
+}
+
+#[tauri::command]
+pub fn diff_gcp_inventory(
+    state: State<'_, AppState>,
+    project: String,
+    listed: Vec<CloudInstance>,
+) -> cloud_inventory::InventoryDiff {
+    cloud_inventory::diff(
+        &state.workspace.lock_recover(),
+        Provider::Gcp,
+        project.trim(),
+        &listed,
+    )
 }
 
 // ─── Shared ──────────────────────────────────────────────────────────────
@@ -131,12 +169,13 @@ pub fn import_gcp_hosts(
 fn import(
     state: State<'_, AppState>,
     provider: Provider,
+    scope: &str,
     selections: Vec<CloudSelection>,
     auth: AuthMethod,
     secret: Option<String>,
 ) -> Result<Workspace, String> {
     let mut workspace = state.workspace.lock_recover();
-    let outcome = cloud_inventory::apply_import(&mut workspace, provider, selections, &auth);
+    let outcome = cloud_inventory::apply_import(&mut workspace, provider, scope, selections, &auth);
 
     if let Some(secret) = secret.filter(|s| !s.is_empty()).as_deref() {
         for id in &outcome.added {

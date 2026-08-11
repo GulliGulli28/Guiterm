@@ -289,11 +289,31 @@ pub struct HostSource {
     /// ARM resource id for Azure, the numeric instance id for GCP. Always
     /// something the provider keeps stable across a rename or a move.
     pub id: String,
+    /// Which listing this host came out of — an Azure subscription, a GCP
+    /// project.
+    ///
+    /// **Needed to tell "deleted" from "belongs to another scope".** A GCP
+    /// instance id is a bare number carrying no project, so without this,
+    /// checking project A would report every host of project B as gone. Azure
+    /// could be parsed back out of its ARM id, but recording it keeps the two
+    /// providers on one rule.
+    ///
+    /// `#[serde(default)]`, so hosts imported before this existed stay
+    /// readable — they simply carry `None`, and the staleness check leaves
+    /// them alone rather than guessing.
+    #[serde(default)]
+    pub scope: Option<String>,
 }
 
 impl HostSource {
     pub fn new(kind: impl Into<String>, id: impl Into<String>) -> Self {
-        Self { kind: kind.into(), id: id.into() }
+        Self { kind: kind.into(), id: id.into(), scope: None }
+    }
+
+    /// The same source, attributed to the listing it came from.
+    pub fn in_scope(mut self, scope: impl Into<String>) -> Self {
+        self.scope = Some(scope.into());
+        self
     }
 
     pub fn ansible(name: impl Into<String>) -> Self {

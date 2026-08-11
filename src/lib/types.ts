@@ -1160,6 +1160,19 @@ export interface CloudInstance {
   tags: [string, string][];
 }
 
+/** What a provider listing says about the hosts already imported from it
+ * (`diff_azure_inventory`, `diff_gcp_inventory`). */
+export interface InventoryDiff {
+  /** `[hostId, label]` for hosts of this scope whose instance is gone. */
+  gone: [HostId, string][];
+  /** Instance ids in the listing that no host carries yet. */
+  notImported: string[];
+  /** Hosts of this provider whose scope is unknown or different — counted,
+   * never judged: "not in this listing" says nothing about whether they still
+   * exist, and calling them gone would invite deleting live machines. */
+  unattributed: number;
+}
+
 /** A scope picked before listing: an Azure subscription or a GCP project. */
 export interface CloudScope {
   id: string;

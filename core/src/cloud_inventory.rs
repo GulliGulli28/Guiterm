@@ -125,20 +125,21 @@ pub struct CloudScope {
 pub fn apply_import(
     workspace: &mut Workspace,
     provider: Provider,
+    scope: &str,
     selections: Vec<CloudSelection>,
     auth: &AuthMethod,
 ) -> crate::aws_inventory::ImportOutcome {
     let mut outcome = crate::aws_inventory::ImportOutcome::default();
     for selection in selections {
-        let source = HostSource {
-            kind: provider.source_kind().to_string(),
-            id: selection.id,
-        };
-        if let Some(existing) = workspace
-            .hosts
-            .iter_mut()
-            .find(|host| host.source.as_ref() == Some(&source))
-        {
+        let source = HostSource::new(provider.source_kind(), selection.id).in_scope(scope);
+        // Matched on kind and id alone: the scope is provenance, not identity.
+        // A machine moved between subscriptions is still that machine, and
+        // including the scope here would duplicate it instead of refreshing it.
+        if let Some(existing) = workspace.hosts.iter_mut().find(|host| {
+            host.source.as_ref().is_some_and(|s| s.kind == source.kind && s.id == source.id)
+        }) {
+            // Refreshed, since this listing is where it was just seen.
+            existing.source = Some(source);
             existing.address = selection.address;
             existing.tags = selection.tags;
             outcome.updated.push(existing.id);
@@ -154,6 +155,72 @@ pub fn apply_import(
         workspace.hosts.push(host);
     }
     outcome
+}
+
+/// What a listing says about the hosts already imported from it.
+#[derive(Debug, Clone, PartialEq, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct InventoryDiff {
+    /// Hosts attributed to this scope whose instance is no longer in it —
+    /// destroyed, or moved elsewhere. Labels, since that is what the user
+    /// recognises.
+    pub gone: Vec<(crate::model::HostId, String)>,
+    /// Instance ids present in the listing that no host carries yet.
+    pub not_imported: Vec<String>,
+    /// Hosts of this provider that predate scope recording, or that came from
+    /// another scope. **Counted, never judged**: without knowing which listing
+    /// they belong to, "not in this one" says nothing about whether they still
+    /// exist, and reporting them as gone would invite deleting live machines.
+    pub unattributed: usize,
+}
+
+/// Compares one provider listing against the hosts imported from it.
+///
+/// The half `apply_import` never had: it refreshes what is still there and
+/// adds what is new, but nothing ever noticed what *disappeared*. A destroyed
+/// VM stayed in the list forever, and a VM created since the last import
+/// existed nowhere — which is how an imported inventory quietly stops
+/// describing reality.
+///
+/// Scoped deliberately. A GCP instance id is a bare number carrying no
+/// project, so a host can only be declared gone when it is known to belong to
+/// the listing being checked — see [`crate::model::HostSource::scope`].
+pub fn diff(
+    workspace: &Workspace,
+    provider: Provider,
+    scope: &str,
+    listed: &[CloudInstance],
+) -> InventoryDiff {
+    let kind = provider.source_kind();
+    let listed_ids: std::collections::HashSet<&str> =
+        listed.iter().map(|instance| instance.id.as_str()).collect();
+
+    let mut result = InventoryDiff::default();
+    let mut imported_ids: std::collections::HashSet<&str> = std::collections::HashSet::new();
+
+    for host in &workspace.hosts {
+        let Some(source) = host.source.as_ref().filter(|s| s.kind == kind) else {
+            continue;
+        };
+        imported_ids.insert(source.id.as_str());
+        match source.scope.as_deref() {
+            Some(host_scope) if host_scope == scope => {
+                if !listed_ids.contains(source.id.as_str()) {
+                    result.gone.push((host.id, host.label.clone()));
+                }
+            }
+            // Another scope, or none recorded at all: this listing has nothing
+            // to say about it.
+            _ => result.unattributed += 1,
+        }
+    }
+
+    result.not_imported = listed
+        .iter()
+        .filter(|instance| !imported_ids.contains(instance.id.as_str()))
+        .map(|instance| instance.id.clone())
+        .collect();
+    result
 }
 
 #[cfg(test)]
@@ -204,12 +271,117 @@ mod tests {
         assert_eq!(instance(Some(""), Some("")).address(), None);
     }
 
+    // ─── Staleness ───────────────────────────────────────────────────────
+
+    fn imported(workspace: &mut Workspace, provider: Provider, scope: &str, id: &str, label: &str) {
+        let mut host = Host::new(label, "10.0.0.1", "root");
+        host.source = Some(HostSource::new(provider.source_kind(), id).in_scope(scope));
+        workspace.hosts.push(host);
+    }
+
+    fn listed(id: &str) -> CloudInstance {
+        CloudInstance {
+            id: id.to_string(),
+            name: id.to_string(),
+            private_ip: Some("10.0.0.1".to_string()),
+            public_ip: None,
+            location: String::new(),
+            scope: String::new(),
+            state: "running".to_string(),
+            running: true,
+            os_type: None,
+            username: None,
+            tags: vec![],
+        }
+    }
+
+    /// The half `apply_import` never had. A destroyed VM used to stay in the
+    /// list forever, and a VM created since the last import existed nowhere.
+    #[test]
+    fn a_listing_names_what_disappeared_and_what_is_new() {
+        let mut workspace = Workspace::default();
+        imported(&mut workspace, Provider::Gcp, "projet-a", "111", "toujours-là");
+        imported(&mut workspace, Provider::Gcp, "projet-a", "222", "détruite");
+
+        let result = diff(&workspace, Provider::Gcp, "projet-a", &[listed("111"), listed("333")]);
+
+        assert_eq!(result.gone.len(), 1);
+        assert_eq!(result.gone[0].1, "détruite");
+        assert_eq!(result.not_imported, vec!["333".to_string()]);
+        assert_eq!(result.unattributed, 0);
+    }
+
+    /// The reason `scope` exists at all. A GCP instance id is a bare number
+    /// carrying no project, so without attribution, checking one project would
+    /// report every host of the other as destroyed — and invite deleting live
+    /// machines.
+    #[test]
+    fn a_host_from_another_scope_is_never_called_gone() {
+        let mut workspace = Workspace::default();
+        imported(&mut workspace, Provider::Gcp, "projet-b", "999", "ailleurs");
+
+        let result = diff(&workspace, Provider::Gcp, "projet-a", &[]);
+
+        assert!(result.gone.is_empty(), "un hôte d'un autre projet n'est pas détruit");
+        assert_eq!(result.unattributed, 1);
+    }
+
+    /// Hosts imported before scope was recorded carry none. Counted, never
+    /// judged — same stakes as above.
+    #[test]
+    fn a_host_imported_before_scopes_existed_is_left_alone() {
+        let mut workspace = Workspace::default();
+        let mut host = Host::new("ancien", "10.0.0.1", "root");
+        host.source = Some(HostSource::new("azure", "/subscriptions/s/vm1"));
+        workspace.hosts.push(host);
+
+        let result = diff(&workspace, Provider::Azure, "s", &[]);
+        assert!(result.gone.is_empty());
+        assert_eq!(result.unattributed, 1);
+    }
+
+    /// Another provider's hosts are none of this listing's business.
+    #[test]
+    fn the_other_provider_is_ignored_entirely() {
+        let mut workspace = Workspace::default();
+        imported(&mut workspace, Provider::Azure, "sub", "/subscriptions/sub/vm", "azure-vm");
+
+        let result = diff(&workspace, Provider::Gcp, "projet", &[]);
+        assert!(result.gone.is_empty());
+        assert_eq!(result.unattributed, 0, "un hôte Azure n'est pas un GCP non attribué");
+    }
+
+    /// A machine that moved between subscriptions is still that machine: the
+    /// scope is provenance, the id is identity. It must be re-attributed by a
+    /// re-import, not duplicated.
+    #[test]
+    fn a_reimport_reattributes_a_host_that_changed_scope() {
+        let mut workspace = Workspace::default();
+        imported(&mut workspace, Provider::Azure, "ancien-abo", "/vm/1", "web");
+
+        let outcome = apply_import(
+            &mut workspace,
+            Provider::Azure,
+            "nouvel-abo",
+            vec![selection("/vm/1", "web", "10.0.0.9")],
+            &AuthMethod::Password,
+        );
+
+        assert_eq!(outcome.added.len(), 0, "pas de doublon");
+        assert_eq!(workspace.hosts.len(), 1);
+        assert_eq!(
+            workspace.hosts[0].source.as_ref().unwrap().scope.as_deref(),
+            Some("nouvel-abo"),
+        );
+    }
+
     #[test]
     fn a_first_import_creates_hosts_carrying_their_provenance() {
         let mut workspace = Workspace::default();
         let outcome = apply_import(
             &mut workspace,
             Provider::Azure,
+            "test-scope",
             vec![selection("/subscriptions/s/rg/vm1", "web-1", "20.0.0.1")],
             &AuthMethod::Password,
         );
@@ -217,10 +389,7 @@ mod tests {
         assert_eq!(workspace.hosts.len(), 1);
         assert_eq!(
             workspace.hosts[0].source,
-            Some(HostSource {
-                kind: "azure".to_string(),
-                id: "/subscriptions/s/rg/vm1".to_string()
-            })
+            Some(HostSource::new("azure", "/subscriptions/s/rg/vm1").in_scope("test-scope")),
         );
     }
 
@@ -232,12 +401,14 @@ mod tests {
         apply_import(
             &mut workspace,
             Provider::Azure,
+            "test-scope",
             vec![selection("/subscriptions/s/rg/vm1", "web-1", "20.0.0.1")],
             &AuthMethod::Password,
         );
         let outcome = apply_import(
             &mut workspace,
             Provider::Azure,
+            "test-scope",
             vec![selection("/subscriptions/s/rg/vm1", "renamed", "20.9.9.9")],
             &AuthMethod::Password,
         );
@@ -256,6 +427,7 @@ mod tests {
         apply_import(
             &mut workspace,
             Provider::Gcp,
+            "test-scope",
             vec![selection("8888888888", "vm", "34.0.0.1")],
             &AuthMethod::Password,
         );
@@ -267,7 +439,7 @@ mod tests {
         let mut renamed = selection("8888888888", "vm", "34.0.0.2");
         renamed.username = "root".to_string();
         renamed.port = 22;
-        apply_import(&mut workspace, Provider::Gcp, vec![renamed], &AuthMethod::Password);
+        apply_import(&mut workspace, Provider::Gcp, "test-scope", vec![renamed], &AuthMethod::Password);
 
         let host = &workspace.hosts[0];
         assert_eq!(host.id, host_id);
@@ -285,12 +457,14 @@ mod tests {
         apply_import(
             &mut workspace,
             Provider::Azure,
+            "test-scope",
             vec![selection("shared-id", "azure-vm", "20.0.0.1")],
             &AuthMethod::Password,
         );
         let outcome = apply_import(
             &mut workspace,
             Provider::Gcp,
+            "test-scope",
             vec![selection("shared-id", "gcp-vm", "34.0.0.1")],
             &AuthMethod::Password,
         );
@@ -315,6 +489,7 @@ mod tests {
         apply_import(
             &mut workspace,
             Provider::Azure,
+            "test-scope",
             vec![selection("web1.example.com", "vm", "20.0.0.1")],
             &AuthMethod::Password,
         );

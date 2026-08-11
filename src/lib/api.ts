@@ -1,6 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { ActivityEvent, ActivityFilter, AuthMethod, BulkEdit, DiagTool, NetdiagOutcome, AwsCallerIdentity, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSessionAlert, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, AwsSsoSessionStatus, CloudInstance, CloudScope, CloudSelection, CollectionInfo, ColumnInfo, CollectFactsResult, ComposeResult, DbTunnel, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostDrift, HostId, HostKind, ImportSelection, Inventory, InventorySelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, ReachabilityOutcome, RedisKeyDetail, RemoteSearchMode, RemoteSearchOutcome, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, RollbackPlan, ScanPage, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SshAuthPrompt, SshConfigHost, SsmProbe, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
+import type { ActivityEvent, ActivityFilter, AuthMethod, BulkEdit, DiagTool, NetdiagOutcome, AwsCallerIdentity, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSessionAlert, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, AwsSsoSessionStatus, CloudInstance, CloudScope, CloudSelection, CollectionInfo, ColumnInfo, CollectFactsResult, ComposeResult, DbTunnel, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostDrift, HostId, HostKind, ImportSelection, Inventory, InventoryDiff, InventorySelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, ReachabilityOutcome, RedisKeyDetail, RemoteSearchMode, RemoteSearchOutcome, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, RollbackPlan, ScanPage, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SshAuthPrompt, SshConfigHost, SsmProbe, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
 
 /** Mirrors the 12-byte little-endian header `commands::rdp_view::connect_rdp_view`
  * writes ahead of each frame's raw RGBA8 pixels (see its doc comment for why
@@ -538,8 +538,17 @@ export const api = {
   azureLogout: () => invoke<void>("azure_logout"),
   /** Creates the ticked VMs as hosts, refreshing the ones already imported
    * instead of duplicating them. Matched on the ARM resource id. */
-  importAzureHosts: (selections: CloudSelection[], auth: AuthMethod, secret: string | null) =>
-    invoke<Workspace>("import_azure_hosts", { selections, auth, secret }),
+  /** What a listing says about the hosts already imported from that scope:
+   * which have disappeared, which are new. Takes the instances the panel just
+   * fetched rather than listing again — a second call would double the wait
+   * and could disagree with what is on screen. */
+  diffAzureInventory: (subscription: string, listed: CloudInstance[]) =>
+    invoke<InventoryDiff>("diff_azure_inventory", { subscription, listed }),
+  diffGcpInventory: (project: string, listed: CloudInstance[]) =>
+    invoke<InventoryDiff>("diff_gcp_inventory", { project, listed }),
+
+  importAzureHosts: (subscription: string, selections: CloudSelection[], auth: AuthMethod, secret: string | null) =>
+    invoke<Workspace>("import_azure_hosts", { subscription, selections, auth, secret }),
 
   /** The GCP projects the `gcloud` CLI can see, the configured one flagged. */
   listGcpProjects: () => invoke<CloudScope[]>("list_gcp_projects"),
@@ -550,8 +559,8 @@ export const api = {
   /** Creates the ticked instances as hosts, matched on the numeric instance id
    * — GCP reuses names freely, so matching on one would let a new machine
    * inherit an old host's credentials. */
-  importGcpHosts: (selections: CloudSelection[], auth: AuthMethod, secret: string | null) =>
-    invoke<Workspace>("import_gcp_hosts", { selections, auth, secret }),
+  importGcpHosts: (project: string, selections: CloudSelection[], auth: AuthMethod, secret: string | null) =>
+    invoke<Workspace>("import_gcp_hosts", { project, selections, auth, secret }),
 
   /** Reads a DSL program as wanted state and reports which hosts have drifted.
    * Read-only on every host: asking changes nothing. On demand only — nothing

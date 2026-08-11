@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api } from "../lib/api";
 import { readCloudFailure, tenantFromAzureError, type DescribedFailure } from "../lib/cloudFailure";
-import type { CloudInstance, CloudScope, Workspace } from "../lib/types";
+import type { CloudInstance, CloudScope, InventoryDiff, Workspace } from "../lib/types";
 import { AzureSignInPanel } from "./AzureSignInPanel";
 import { IconClose } from "./ui-icons";
 import {
@@ -11,6 +11,7 @@ import {
   CloudFailureNotice,
   CloudInstanceRow,
   emptyBatchAuth,
+  InventoryDriftNotice,
   toggleIn,
   useCloudSelection,
   type BatchAuth,
@@ -47,6 +48,7 @@ export function AzureImportPanel({ workspace, onWorkspaceUpdate, onClose, onErro
   const [auth, setAuth] = useState<BatchAuth>(emptyBatchAuth);
   const [importing, setImporting] = useState(false);
   const [signInOpen, setSignInOpen] = useState(false);
+  const [diff, setDiff] = useState<InventoryDiff | null>(null);
 
   const loadSubscriptions = useCallback(() => {
     setLoading(true);
@@ -87,6 +89,9 @@ export function AzureImportPanel({ workspace, onWorkspaceUpdate, onClose, onErro
     api.discoverAzureVms(subscription || null)
       .then((found) => {
         setVms(found);
+        // Asked once per listing, from the data just fetched: what has
+        // disappeared since the last import is the half the panel never had.
+        api.diffAzureInventory(subscription, found).then(setDiff).catch(() => setDiff(null));
         // Nothing pre-ticked: a subscription can hold hundreds of machines,
         // and a panel that arrives fully selected invites importing a whole
         // fleet by reflex.
@@ -124,7 +129,7 @@ export function AzureImportPanel({ workspace, onWorkspaceUpdate, onClose, onErro
     }));
 
     setImporting(true);
-    api.importAzureHosts(selections, batchAuthMethod(workspace, auth), auth.secret.trim() || null)
+    api.importAzureHosts(subscription, selections, batchAuthMethod(workspace, auth), auth.secret.trim() || null)
       .then((ws) => { onWorkspaceUpdate(ws); onClose(); })
       .catch((e) => onError(readCloudFailure(e).message))
       .finally(() => setImporting(false));
@@ -204,6 +209,14 @@ export function AzureImportPanel({ workspace, onWorkspaceUpdate, onClose, onErro
             </button>
           </label>
         </div>
+
+        {diff && (
+          <InventoryDriftNotice
+            diff={diff}
+            scopeLabel="abonnement"
+            onSelectNew={() => setPicked(new Set(diff.notImported))}
+          />
+        )}
 
         {vms && (
           <>

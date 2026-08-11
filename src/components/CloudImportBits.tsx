@@ -1,5 +1,5 @@
 import { useMemo, type ReactNode } from "react";
-import type { AuthMethod, CloudInstance, GroupId, KeyId, Workspace } from "../lib/types";
+import type { AuthMethod, CloudInstance, GroupId, InventoryDiff, KeyId, Workspace } from "../lib/types";
 import type { DescribedFailure } from "../lib/cloudFailure";
 import { GroupTreePicker } from "./GroupTreePicker";
 
@@ -95,6 +95,56 @@ export function CloudFailureNotice({
         <p className="mt-1 text-[11px] font-medium text-rose-100">→ {failure.remedy}</p>
       )}
       {action && <div className="mt-1.5">{action}</div>}
+    </div>
+  );
+}
+
+/** What a listing says about what has drifted since the last import.
+ *
+ * The half the import never had: it refreshed what was still there and added
+ * what was new, but nothing ever noticed what *disappeared*. A destroyed VM
+ * stayed in the host list forever.
+ *
+ * Deliberately reports rather than acts. Deleting a host is the user's call —
+ * an instance can be missing because it was destroyed, but also because a
+ * permission changed or the listing was partial, and a panel that tidied up on
+ * its own would eventually delete something real. */
+export function InventoryDriftNotice({
+  diff,
+  scopeLabel,
+  onSelectNew,
+}: {
+  diff: InventoryDiff;
+  /** "abonnement", "projet" — what this provider calls the scope. */
+  scopeLabel: string;
+  onSelectNew: () => void;
+}) {
+  if (diff.gone.length === 0 && diff.notImported.length === 0) return null;
+  return (
+    <div className="shrink-0 space-y-1 border-b border-[var(--c-border)] bg-amber-950/25 px-4 py-2">
+      {diff.gone.length > 0 && (
+        <p className="text-[11px] text-amber-200">
+          <span className="font-medium">{diff.gone.length} hôte(s)</span> de cet {scopeLabel}{" "}
+          n'existent plus côté fournisseur :{" "}
+          <span className="text-amber-100">{diff.gone.map(([, label]) => label).join(", ")}</span>.
+          {" "}À supprimer depuis la liste des hôtes si c'est bien voulu.
+        </p>
+      )}
+      {diff.notImported.length > 0 && (
+        <p className="text-[11px] text-amber-200">
+          <span className="font-medium">{diff.notImported.length} instance(s)</span> ne sont pas
+          encore importées.{" "}
+          <button onClick={onSelectNew} className="underline hover:text-amber-100">
+            Les cocher
+          </button>
+        </p>
+      )}
+      {diff.unattributed > 0 && (
+        <p className="text-[10px] text-amber-200/70">
+          {diff.unattributed} hôte(s) de ce fournisseur viennent d'un autre {scopeLabel} ou d'un
+          import antérieur : ce listing ne dit rien sur eux.
+        </p>
+      )}
     </div>
   );
 }

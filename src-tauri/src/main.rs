@@ -101,6 +101,8 @@ fn main() {
             commands::cloud_inventory::list_gcp_projects,
             commands::cloud_inventory::discover_gcp_instances,
             commands::cloud_inventory::import_gcp_hosts,
+            commands::cloud_inventory::diff_azure_inventory,
+            commands::cloud_inventory::diff_gcp_inventory,
             commands::aws_sso::list_aws_session_alerts,
             commands::aws_sso::delete_aws_profile,
             commands::aws_sso::delete_aws_sso_session,
