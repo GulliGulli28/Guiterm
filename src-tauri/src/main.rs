@@ -87,6 +87,7 @@ fn main() {
             commands::aws_sso::list_aws_sso_status,
             commands::adaptive::preview_rollback,
             commands::drift::check_drift,
+            commands::hosts::list_key_usage,
             commands::netdiag::run_netdiag,
             commands::netdiag::run_netdiag_to_hosts,
             commands::inventory::read_ansible_inventory,

@@ -1,6 +1,7 @@
 use termius_core::sync_ext::MutexExt;
 use crate::state::AppState;
 use serde::Deserialize;
+use std::collections::HashMap;
 use tauri::State;
 use termius_core::model::{
     AuthMethod, CustomIcon, EnvVar, Group, GroupId, Host, HostId, HostKind, KeyId, PortForward,
@@ -203,6 +204,16 @@ pub fn add_private_key(
     workspace.keychain.push(key);
     persist(&workspace)?;
     Ok(workspace.clone())
+}
+
+/// Key id → labels of the hosts that authenticate with it.
+///
+/// What the keychain panel shows next to each key, and what its confirmation
+/// names before a deletion. See `model::hosts_by_key` for why only keys
+/// referenced by id count.
+#[tauri::command]
+pub fn list_key_usage(state: State<'_, AppState>) -> HashMap<KeyId, Vec<String>> {
+    termius_core::model::hosts_by_key(&state.workspace.lock_recover())
 }
 
 #[tauri::command]

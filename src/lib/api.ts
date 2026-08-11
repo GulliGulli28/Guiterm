@@ -230,6 +230,10 @@ export const api = {
     invoke<MongoQueryResult>("find_mongo_documents", { sessionId, database, collection, filter: filter ?? null }),
 
   addPrivateKey: (name: string, path: string, passphrase: string | null) => invoke<Workspace>("add_private_key", { name, path, passphrase }),
+  /** Key id → labels of the hosts authenticating with it. What the keychain
+   * shows next to each key, and what its confirmation names before deleting —
+   * removing a key used to break those hosts with nothing to say why. */
+  listKeyUsage: () => invoke<Record<KeyId, string[]>>("list_key_usage"),
   deletePrivateKey: (keyId: KeyId) => invoke<Workspace>("delete_private_key", { keyId }),
   renamePrivateKey: (keyId: KeyId, name: string) => invoke<Workspace>("rename_private_key", { keyId, name }),
   generatePrivateKey: (name: string, algorithm: KeyAlgorithm, passphrase: string | null) =>

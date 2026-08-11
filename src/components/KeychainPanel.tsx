@@ -1,9 +1,10 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { api } from "../lib/api";
 import type { HostId, KeyAlgorithm, KeyId, PrivateKey, Workspace } from "../lib/types";
 import { IconPlus, IconClose, IconTrash, IconEdit, IconKeychain, IconFolder, IconCopy, IconUpload } from "./ui-icons";
+import { ConfirmDialog } from "./ConfirmDialog";
 
 interface KeychainPanelProps {
   workspace: Workspace;
@@ -23,6 +24,18 @@ export function KeychainPanel({ workspace, onAddKey, onGenerateKey, onDeleteKey,
   const [error, setError] = useState<string | null>(null);
   const [showForm, setShowForm] = useState(false);
   const [editingName, setEditingName] = useState<{ id: KeyId; draft: string } | null>(null);
+
+  /** Key id → hosts authenticating with it. Reloaded whenever the workspace
+   * changes, since editing a host's auth changes the answer. */
+  const [keyUsage, setKeyUsage] = useState<Record<KeyId, string[]>>({});
+  useEffect(() => {
+    // Best effort: a failure here must not take the panel down — it only costs
+    // the count next to each key, and the confirmation below degrades to the
+    // generic wording.
+    api.listKeyUsage().then(setKeyUsage).catch(() => setKeyUsage({}));
+  }, [workspace]);
+  /** The key awaiting a confirmed deletion, with what it would break. */
+  const [confirmDelete, setConfirmDelete] = useState<{ key: PrivateKey; hosts: string[] } | null>(null);
 
   const [copiedKeyId, setCopiedKeyId] = useState<KeyId | null>(null);
   const [copyError, setCopyError] = useState<{ id: KeyId; text: string } | null>(null);
@@ -224,7 +237,19 @@ export function KeychainPanel({ workspace, onAddKey, onGenerateKey, onDeleteKey,
                     className="w-full rounded-md bg-[var(--c-bg2)] px-1.5 py-0.5 text-[14px] font-medium text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent)]"
                   />
                 ) : (
-                  <p className="truncate text-[14px] font-medium text-[var(--c-text)]">{key.name}</p>
+                  <div className="flex items-baseline gap-1.5">
+                    <p className="truncate text-[14px] font-medium text-[var(--c-text)]">{key.name}</p>
+                    {/* Says what depends on this key *before* anyone reaches
+                        for the bin, not only in the confirmation. */}
+                    {(keyUsage[key.id]?.length ?? 0) > 0 && (
+                      <span
+                        title={`Utilisée par : ${keyUsage[key.id].join(", ")}`}
+                        className="shrink-0 rounded bg-[var(--c-bg)] px-1.5 py-0.5 text-[10px] text-[var(--c-text-muted)]"
+                      >
+                        {keyUsage[key.id].length} hôte{keyUsage[key.id].length > 1 ? "s" : ""}
+                      </span>
+                    )}
+                  </div>
                 )}
                 {key.content ? (
                   <p className="mt-0.5 text-[10px] text-emerald-500">Contenu intégré ✓</p>
@@ -255,7 +280,10 @@ export function KeychainPanel({ workspace, onAddKey, onGenerateKey, onDeleteKey,
                   <IconEdit size={12} />
                 </button>
                 <button
-                  onClick={() => onDeleteKey(key.id)}
+                  // Never a bare delete any more: this key may be how several
+                  // hosts authenticate, and removing it used to break them
+                  // with nothing to say which or why.
+                  onClick={() => setConfirmDelete({ key, hosts: keyUsage[key.id] ?? [] })}
                   title="Supprimer"
                   className="flex items-center rounded p-1 text-[var(--c-text-muted)] hover:bg-rose-900/60 hover:text-rose-300"
                 >
@@ -299,6 +327,24 @@ export function KeychainPanel({ workspace, onAddKey, onGenerateKey, onDeleteKey,
           </div>
         ))}
       </div>
+
+      {confirmDelete && (
+        <ConfirmDialog
+          title={`Supprimer « ${confirmDelete.key.name} » ?`}
+          // The hosts are named, not counted: "3 hôtes" tells you there is a
+          // problem, the names tell you whether it is one you can accept.
+          message={
+            confirmDelete.hosts.length === 0
+              ? "Aucun hôte n'utilise cette clé. La suppression retire aussi sa passphrase et son contenu du coffre."
+              : `${confirmDelete.hosts.length} hôte(s) s'authentifient avec cette clé et ne pourront plus se connecter : ` +
+                `${confirmDelete.hosts.join(", ")}. La suppression retire aussi sa passphrase et son contenu du coffre.`
+          }
+          confirmLabel="Supprimer"
+          danger
+          onConfirm={() => { onDeleteKey(confirmDelete.key.id); setConfirmDelete(null); }}
+          onCancel={() => setConfirmDelete(null)}
+        />
+      )}
     </div>
   );
 }

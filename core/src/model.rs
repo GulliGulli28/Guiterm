@@ -933,6 +933,27 @@ pub struct Workspace {
     pub sql_connections: Vec<SqlConnection>,
 }
 
+/// Which hosts depend on each keychain key, by label.
+///
+/// The transposition of [`crate::aws_inventory::hosts_by_profile`], and it
+/// exists for the same reason its doc comment gives: **something has to answer
+/// "what breaks if this stops working" before a deletion is offered**.
+/// `delete_private_key` used to remove a key with no such check, so every host
+/// authenticating with it broke silently — and nothing said which ones.
+///
+/// Only keys referenced *by id* count. A host pointing at a key by path holds
+/// its own copy of that path and keeps working after the keychain entry goes,
+/// so counting it would overstate the damage.
+pub fn hosts_by_key(workspace: &Workspace) -> std::collections::HashMap<KeyId, Vec<String>> {
+    let mut usage: std::collections::HashMap<KeyId, Vec<String>> = std::collections::HashMap::new();
+    for host in &workspace.hosts {
+        if let AuthMethod::PrivateKey { key_id: Some(key_id), .. } = &host.auth {
+            usage.entry(*key_id).or_default().push(host.label.clone());
+        }
+    }
+    usage
+}
+
 impl Workspace {
     pub fn host(&self, id: HostId) -> Option<&Host> {
         self.hosts.iter().find(|h| h.id == id)
@@ -1109,6 +1130,59 @@ mod auth_method_json {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The safety check `delete_private_key` never had: a key in use has to be
+    /// nameable before it is removed, or the hosts that authenticate with it
+    /// break with nothing to explain why.
+    #[test]
+    fn hosts_using_a_key_can_be_named_before_it_is_deleted() {
+        let key_id = KeyId::new_v4();
+        let other_key = KeyId::new_v4();
+        let mut workspace = Workspace::default();
+
+        let mut web = Host::new("web-1", "10.0.0.1", "ubuntu");
+        web.auth = AuthMethod::PrivateKey {
+            path: "/k".to_string(),
+            key_id: Some(key_id),
+            cert_path: None,
+        };
+        let mut db = Host::new("db-1", "10.0.0.2", "ubuntu");
+        db.auth = AuthMethod::PrivateKey {
+            path: "/k".to_string(),
+            key_id: Some(key_id),
+            cert_path: None,
+        };
+        let mut lone = Host::new("autre", "10.0.0.3", "ubuntu");
+        lone.auth = AuthMethod::PrivateKey {
+            path: "/other".to_string(),
+            key_id: Some(other_key),
+            cert_path: None,
+        };
+        workspace.hosts = vec![web, db, lone];
+
+        let usage = hosts_by_key(&workspace);
+        assert_eq!(usage[&key_id], vec!["web-1".to_string(), "db-1".to_string()]);
+        assert_eq!(usage[&other_key], vec!["autre".to_string()]);
+    }
+
+    /// A host pointing at a key *by path* holds its own copy of that path and
+    /// keeps working once the keychain entry is gone. Counting it would
+    /// overstate the damage and make people keep keys they don't need.
+    #[test]
+    fn a_key_referenced_only_by_path_is_not_counted() {
+        let mut workspace = Workspace::default();
+        let mut host = Host::new("web", "10.0.0.1", "ubuntu");
+        host.auth = AuthMethod::PrivateKey {
+            path: "/home/u/.ssh/id_ed25519".to_string(),
+            key_id: None,
+            cert_path: None,
+        };
+        let mut agent = Host::new("agent", "10.0.0.2", "ubuntu");
+        agent.auth = AuthMethod::Agent;
+        workspace.hosts = vec![host, agent];
+
+        assert!(hosts_by_key(&workspace).is_empty());
+    }
 
     /// The migration promise: every `workspace.json` written before secret
     /// variables existed has no `secret` field at all. Reading one must not
