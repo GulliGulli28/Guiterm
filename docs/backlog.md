@@ -71,13 +71,13 @@ propriété que ma source n'a pas ».
 
 ---
 
-## En cours — Trois suites de l'inventaire (2026-08-11)
+## Livré — Trois suites de l'inventaire (2026-08-11)
 
 Choisies après la livraison du diagnostic réseau. Les trois sont des manques
 **créés ou révélés par le travail d'inventaire récent**, pas des idées
 génériques : vérifié dans le code le 2026-08-11, aucune n'existe déjà.
 
-### A. « Quels hôtes utilisent cette clé ? » — **S**
+### A. « Quels hôtes utilisent cette clé ? » — **livrée**
 
 **Valeur, et c'est une correction de sûreté.** `delete_private_key`
 (`commands/hosts.rs`) retire la clé du trousseau sans rien vérifier : tout hôte
@@ -92,7 +92,7 @@ casse si ceci cesse de marcher », consulté avant d'offrir une suppression.
 dans `KeychainPanel.tsx` : le compte à côté de chaque clé, et une confirmation
 nommant les hôtes avant suppression.
 
-### B. Édition en lot des hôtes — **M**
+### B. Édition en lot des hôtes — **livrée**
 
 **Valeur.** L'import cloud crée 50 hôtes d'un coup ; les modifier ensuite se
 fait un par un. Le formulaire d'identifiants des panneaux d'import ne s'applique
@@ -107,7 +107,7 @@ point d'écriture d'un hôte.
 les champs explicitement cochés, jamais « tout le formulaire », et confirmer en
 disant combien d'hôtes et quels champs.
 
-### C. Inventaire périmé — **M/L**
+### C. Inventaire périmé — **livrée (Azure, GCP)**
 
 **Valeur.** `Host::source` sait d'où vient un hôte et `apply_import` rafraîchit
 ce qui existe encore, mais **rien ne dit ce qui a disparu** : une VM détruite
@@ -126,6 +126,20 @@ chemin du fichier, donc un recontrôle exige de redemander le fichier.
 **Périmètre retenu.** Azure et GCP d'abord, AWS ensuite si l'appariement par
 adresse tient. Ansible explicitement hors périmètre tant que le chemin du
 fichier n'est pas conservé.
+
+**Livré pour Azure et GCP.** Le vrai sujet a été la *portée*, et l'annoncer
+d'avance a servi : un id d'instance GCP est un nombre nu qui ne porte pas le
+projet, donc sans attribution, vérifier le projet A aurait rapporté tous les
+hôtes du projet B comme détruits — et invité à supprimer des machines vivantes.
+D'où `HostSource::scope`, en `serde(default)` pour que les hôtes importés avant
+restent lisibles (ils portent `None`, et le contrôle les laisse tranquilles).
+La portée est une **provenance, pas une identité** : l'appariement d'un
+réimport reste sur `kind` + `id`, sinon une machine déplacée entre abonnements
+serait dupliquée au lieu d'être rattachée. Le bandeau **rapporte et n'agit
+pas** : une instance absente peut relever d'une permission changée ou d'un
+listing partiel, et un panneau qui rangerait tout seul finirait par supprimer
+quelque chose de réel. **Restent à faire : AWS et Ansible**, pour les raisons
+ci-dessus. **Non prouvé** contre une vraie flotte distante.
 
 ---
 
