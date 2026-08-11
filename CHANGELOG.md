@@ -296,6 +296,33 @@ This changelog starts 2026-07-21 — for earlier versions, see
   Nothing is installed on any target — each check is a small script, so an SSH
   host, a Docker container, a Kubernetes pod and this machine all work without
   anything to set up.
+- Several hosts can be edited at once, from "Sélectionner plusieurs hôtes…" in
+  the Hosts panel: the login, the port, the group, the authentication, and tags
+  to add or remove. Importing fifty machines from a subscription took one
+  click; changing anything about them afterwards took fifty.
+
+  **Only the fields you tick are written.** Everything else is left exactly as
+  it is on each host, so an edit meant for the login can't quietly reset ports
+  or groups — a write across fifty hosts is not something you undo by hand.
+  Tags are added and removed rather than replaced, which keeps the labels an
+  import wrote from the provider.
+- The keychain says how many hosts authenticate with each key, and deleting one
+  now names them and asks first. Removing a key used to break every host using
+  it with nothing on screen to say which, or why — the kind of failure you
+  spend an afternoon blaming on the server. Keys referenced by path rather than
+  from the keychain aren't counted: those hosts keep working.
+- Importing from Azure or GCP now also reports what has **disappeared**. Until
+  now a re-import refreshed the machines still there and added the new ones,
+  but a VM destroyed in the console stayed in your host list forever, and one
+  created since the last import existed nowhere. The panel lists both, and can
+  tick the new ones for you.
+
+  It only speaks about the subscription or project you are looking at. A host
+  imported from somewhere else — or before this existed — is counted and left
+  alone rather than reported as gone: "not in this listing" is not the same
+  claim as "no longer exists", and acting on the difference would eventually
+  delete a live machine. Nothing is deleted for you in any case; the panel
+  reports and you decide.
 
 ### Fixed
 - Console windows no longer flash on Windows when something runs on this
