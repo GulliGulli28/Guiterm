@@ -67,8 +67,14 @@ export function AzureSignInPanel({ onClose, onSignedIn, initialTenant }: AzureSi
     }
   };
 
+  // `stopPropagation` avant de fermer : ce panneau est rendu à l'intérieur de
+  // l'overlay du panneau d'import, dont le fond ferme aussi au clic — sans ça,
+  // cliquer à côté d'ici fermait les deux d'un coup.
   return (
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-6" onClick={onClose}>
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-6"
+      onClick={(e) => { e.stopPropagation(); onClose(); }}
+    >
       <div
         className="flex max-h-full w-[min(38rem,100%)] flex-col overflow-hidden rounded-xl border border-[var(--c-border)] bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]"
         onClick={(e) => e.stopPropagation()}
