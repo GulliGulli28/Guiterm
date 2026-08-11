@@ -343,11 +343,26 @@ This changelog starts 2026-07-21 — for earlier versions, see
   identifier never reached storage, so the link was lost and the passphrase was
   filed under the host instead of the key. Hosts saved before this keep working
   and pick their key back up.
+- Clicking beside the Azure sign-in panel closed the import panel behind it as
+  well, taking the chosen subscription and the listed VMs with it. The two are
+  stacked, and the click reached both.
 
 ### Changed
 - Terminal keystrokes travel to the session as raw bytes instead of being
   base64-encoded first, which was the app's most frequent call and carried
   about a third more data than it had to.
+- AWS panels show account names immediately instead of pausing on them. The
+  three panels that name accounts each waited on a full round of `aws` calls
+  every time they opened; they now display the last known names at once and
+  refresh in the background, replacing them if anything changed. The very
+  first time still shows account numbers for a few seconds, since there is
+  nothing to remember yet.
+
+  That round is also much shorter: resolving names asked the CLI for each
+  account's *roles* as well, one call per account, for information no name
+  needs. An organisation with twenty accounts made twenty-one calls where one
+  had already answered. Signed out or offline, the names last seen are kept on
+  screen rather than falling back to numbers.
 
 ## [2.4.0] - 2026-07-27
 
