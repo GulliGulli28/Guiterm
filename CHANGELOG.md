@@ -323,6 +323,16 @@ This changelog starts 2026-07-21 — for earlier versions, see
   claim as "no longer exists", and acting on the difference would eventually
   delete a live machine. Nothing is deleted for you in any case; the panel
   reports and you decide.
+- Tunnels can be edited. Each one now offers "Modifier" where it used to offer
+  "Supprimer", opening the same form it was created with, filled in — changing
+  a port no longer means deleting the tunnel and typing all of it again.
+  Deleting moved inside that form.
+
+  Editing a tunnel that is running stops it, saves, and starts it again, so
+  what the list says is always what the tunnel is actually doing; the form says
+  so before you save, since connections travelling through it are cut. If it
+  cannot start again — a port taken in the meantime, a host now unreachable —
+  the change is still saved and the failure is reported as what it is.
 
 ### Fixed
 - Console windows no longer flash on Windows when something runs on this
