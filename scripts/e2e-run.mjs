@@ -255,6 +255,7 @@ async function runScenarios(browser) {
   await runRollbackScenario(browser);
   await runDriftScenario(browser);
   await runAnsibleImportScenario(browser);
+  await runBulkEditScenario(browser);
   await runTabShortcutScenario(browser);
   await runCloudImportScenario(browser);
   await runSsmTunnelScenario(browser);
@@ -917,6 +918,76 @@ async function runAnsibleImportScenario(browser) {
     throw new Error(`l erreur doit nommer le fichier, reçu : ${missing.message}`);
   }
   console.log("Import Ansible : OK (panneau atteignable, lecture d un fichier absent refusée en nommant le chemin).");
+}
+
+/**
+ * Selection mode and the bulk edit panel are reachable, and the backend
+ * refuses an edit that changes nothing.
+ *
+ * Only runs when the developer's real workspace has more than one host — the
+ * entry point is hidden below that, deliberately, so asserting it on a machine
+ * with none would fail for the wrong reason. Nothing is ever applied: the
+ * panel is opened and closed, and the refusal is checked over IPC against an
+ * empty edit, which writes to no host.
+ */
+async function runBulkEditScenario(browser) {
+  await browser.execute(() => {
+    const tab = Array.from(document.querySelectorAll("button"))
+      .find((b) => (b.getAttribute("title") || "") === "Hôtes");
+    if (tab instanceof HTMLElement) tab.click();
+  });
+
+  const opened = await browser.execute(() => {
+    const entry = Array.from(document.querySelectorAll("button"))
+      .find((b) => b.textContent?.trim() === "Sélectionner plusieurs hôtes…");
+    if (!(entry instanceof HTMLElement)) return false;
+    entry.click();
+    return true;
+  });
+
+  if (opened) {
+    await browser.waitUntil(async () => await browser.execute(() =>
+      Array.from(document.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Tout")
+    ), { timeout: 5_000, timeoutMsg: "le mode sélection ne s est pas activé" });
+
+    await clickButtonByText(browser, "Tout");
+    await clickButtonByText(browser, "Modifier…");
+    await browser.waitUntil(async () => await browser.execute(() =>
+      Array.from(document.querySelectorAll("p")).some((el) => (el.textContent || "").startsWith("Modifier ") && el.textContent.includes("hôte"))
+    ), { timeout: 5_000, timeoutMsg: "le panneau de modification en lot ne s est pas ouvert" });
+
+    // The button must refuse before anything is ticked — an edit that writes
+    // nothing while reporting "50 hosts updated" is the failure worth
+    // preventing here.
+    const disabled = await browser.execute(() => {
+      const button = Array.from(document.querySelectorAll("button"))
+        .find((b) => (b.textContent || "").includes("Cocher un champ"));
+      return button instanceof HTMLButtonElement ? button.disabled : null;
+    });
+    if (disabled !== true) {
+      throw new Error(`le bouton d application doit être désactivé tant que rien n est coché (reçu ${disabled})`);
+    }
+    await clickButtonByText(browser, "Quitter");
+    console.log("Édition en lot : OK (mode sélection, panneau atteignable, application refusée à vide).");
+  } else {
+    console.log("Édition en lot : mode sélection non proposé (moins de deux hôtes enregistrés) — partie UI non vérifiée.");
+  }
+
+  // The backend half, which runs whatever the workspace holds: an edit with no
+  // chosen field must be refused with a sentence rather than silently succeed.
+  const empty = await browser.execute(async () => {
+    try {
+      return { ok: await window.__TAURI_INTERNALS__.invoke("bulk_edit_hosts", {
+        hostIds: [], edit: {}, secret: null,
+      }) };
+    } catch (e) {
+      return { failed: String(e) };
+    }
+  });
+  if (!/au moins un h/i.test(empty.failed ?? "")) {
+    throw new Error(`bulk_edit_hosts doit refuser une sélection vide en le disant, reçu : ${JSON.stringify(empty)}`);
+  }
+  console.log("Édition en lot : OK (sélection vide refusée explicitement côté backend).");
 }
 
 /** Focuses the terminal that is actually on screen.

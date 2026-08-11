@@ -1034,6 +1034,23 @@ export interface FleetRun {
   programText?: string | null;
 }
 
+/** One edit applied to several hosts at once (`bulk_edit_hosts`).
+ *
+ * Every field is optional and **absent means untouched** — a bulk edit is not
+ * a bulk overwrite, and a write across fifty hosts is not something anyone
+ * puts back by hand. `groupId` is deliberately three-valued: absent leaves the
+ * group alone, `null` moves the hosts out of every group. */
+export interface BulkEdit {
+  username?: string;
+  port?: number;
+  groupId?: GroupId | null;
+  auth?: AuthMethod;
+  /** Added, never replacing: imports write the provider's own labels, and
+   * `target tag:` in the adaptive language runs on them. */
+  addTags?: string[];
+  removeTags?: string[];
+}
+
 /** One network diagnostic to run (`run_netdiag`). */
 export type DiagTool =
   | { kind: "tcp"; port: number }

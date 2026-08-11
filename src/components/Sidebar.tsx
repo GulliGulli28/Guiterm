@@ -31,6 +31,8 @@ interface SidebarProps {
   onConnectRdpView: (host: Host) => void;
   onOpenTransfer: (host: Host, dockerContainerId?: string, k8sPodName?: string, k8sContainerName?: string | null) => void;
   onProbeReachability: (host: Host) => void;
+  /** Success feedback for actions in the hosts panel (a bulk edit, notably). */
+  onNotify: (message: string) => void;
   onSearchFiles: (host: Host) => void;
   onOpenLocalTerminal: (shell?: string) => void;
   onQuickSSH: (cmd: string) => void;
@@ -180,6 +182,7 @@ export function Sidebar(props: SidebarProps) {
               onConnectRdpView={props.onConnectRdpView}
               onOpenTransfer={props.onOpenTransfer}
               onProbeReachability={props.onProbeReachability}
+              onNotify={props.onNotify}
               onSearchFiles={props.onSearchFiles}
               onOpenLocalTerminal={props.onOpenLocalTerminal}
               onQuickSSH={props.onQuickSSH}

@@ -8,6 +8,7 @@ import { ramColor } from "../lib/facts";
 import { formatRelativeTime } from "../lib/format";
 import { usePolledHostStat } from "../hooks/usePolledHostStat";
 import { useContainerPicker } from "../hooks/useContainerPicker";
+import { BulkEditPanel } from "./BulkEditPanel";
 import {
   IconHosts, IconSearch, IconPlus, IconKeyboard, IconFlash,
   IconFolder, IconChevronDown, IconChevronRight,
@@ -42,6 +43,8 @@ interface HostsPanelProps {
   onQuickSSH: (cmd: string) => void;
   onWorkspaceUpdate?: (ws: Workspace) => void;
   onError?: (msg: string) => void;
+  /** Success feedback — a bulk edit that says nothing looks like it failed. */
+  onNotify?: (msg: string) => void;
 }
 
 function parseSSHInput(raw: string): { username: string; address: string; port: number } | null {
@@ -109,9 +112,26 @@ export function HostsPanel({
   workspace, activeHostId, onConnect, onConnectDocker, onConnectK8s, onConnectRdpView, onOpenTransfer,
   onProbeReachability, onSearchFiles, onOpenLocalTerminal,
   onNewHost, onEditHost, onNewGroup, onImportCloud, onImportAnsible, onNewHostInGroup, onNewGroupUnder,
-  onEditGroup, onQuickSSH, onWorkspaceUpdate, onError,
+  onEditGroup, onQuickSSH, onWorkspaceUpdate, onError, onNotify,
 }: HostsPanelProps) {
   const [search, setSearch] = useState("");
+  /** Selection mode, and what is ticked in it.
+   *
+   * A mode rather than always-on checkboxes: the ordinary case is connecting
+   * to one machine, and a permanent column of boxes would sit between the eye
+   * and the host name for it. Turned on from the header, and leaving it always
+   * clears the selection so nothing lingers invisibly. */
+  const [selecting, setSelecting] = useState(false);
+  const [selectedHosts, setSelectedHosts] = useState<Set<HostId>>(new Set());
+  const toggleSelected = (id: HostId) =>
+    setSelectedHosts((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      return next;
+    });
+  const leaveSelection = () => { setSelecting(false); setSelectedHosts(new Set()); };
+  const [bulkEditOpen, setBulkEditOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<GroupId>>(new Set());
   const [openMenuHostId, setOpenMenuHostId] = useState<HostId | null>(null);
   const [showAddMenu, setShowAddMenu] = useState(false);
@@ -253,9 +273,22 @@ export function HostsPanel({
       >
         {/* Header row */}
         <div className="flex items-stretch">
+          {/* Selection, only in selection mode: a checkbox always on screen
+              would sit between the eye and the host name for the ordinary
+              case, which is connecting to one machine. */}
+          {selecting && (
+            <label className="flex shrink-0 cursor-pointer items-center pl-3">
+              <input
+                type="checkbox"
+                checked={selectedHosts.has(host.id)}
+                onChange={() => toggleSelected(host.id)}
+                className="accent-[var(--c-accent)]"
+              />
+            </label>
+          )}
           {/* Connect zone */}
           <button
-            onClick={() => handleConnect(host)}
+            onClick={() => (selecting ? toggleSelected(host.id) : handleConnect(host))}
             className="flex min-w-0 flex-1 items-center gap-2.5 p-3 text-left"
             title={kind === "ssh" ? `Connecter — ${subtitle}` : kind === "rdp" ? `Aperçu intégré — ${subtitle}` : kindLabel}
           >
@@ -506,6 +539,53 @@ export function HostsPanel({
         <LocalTerminalButton onOpen={onOpenLocalTerminal} />
       </div>
 
+      {/* Selection mode: entering it, and acting on what's ticked. Offered
+          only once there is more than one host — below that it is a mode with
+          nothing to gain. */}
+      {workspace.hosts.length > 1 && (
+        <div className="shrink-0 px-2 pb-1">
+          {!selecting ? (
+            <button
+              onClick={() => setSelecting(true)}
+              className="text-[10px] text-[var(--c-text-muted)] hover:text-[var(--c-accent-text)] hover:underline"
+            >
+              Sélectionner plusieurs hôtes…
+            </button>
+          ) : (
+            <div className="flex flex-wrap items-center gap-1.5 rounded-lg bg-[var(--c-bg3)] px-2 py-1.5">
+              <span className="text-[11px] text-[var(--c-text-secondary)]">
+                {selectedHosts.size} sélectionné{selectedHosts.size > 1 ? "s" : ""}
+              </span>
+              <button
+                onClick={() => setSelectedHosts(new Set(workspace.hosts.map((h) => h.id)))}
+                className="text-[10px] text-[var(--c-accent-text)] hover:underline"
+              >
+                Tout
+              </button>
+              <button
+                onClick={() => setSelectedHosts(new Set())}
+                className="text-[10px] text-[var(--c-text-muted)] hover:underline"
+              >
+                Aucun
+              </button>
+              <button
+                onClick={() => setBulkEditOpen(true)}
+                disabled={selectedHosts.size === 0}
+                className="accent-surface ml-auto rounded-md border px-2 py-0.5 text-[10px] font-medium disabled:opacity-40"
+              >
+                Modifier…
+              </button>
+              <button
+                onClick={leaveSelection}
+                className="rounded-md px-2 py-0.5 text-[10px] text-[var(--c-text-muted)] hover:bg-white/5"
+              >
+                Quitter
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Host list */}
       <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-1 overflow-y-auto pb-2 pl-2 pt-2">
         {quickSSH && (
@@ -562,6 +642,19 @@ export function HostsPanel({
       )}
 
       {pickerModal}
+
+      {bulkEditOpen && (
+        <BulkEditPanel
+          workspace={workspace}
+          hosts={workspace.hosts.filter((h) => selectedHosts.has(h.id))}
+          onWorkspaceUpdate={(ws) => onWorkspaceUpdate?.(ws)}
+          onClose={() => setBulkEditOpen(false)}
+          onError={(message) => onError?.(message)}
+          // Leaves selection mode on success: the edit is done, and staying in
+          // it with a stale tick list invites a second unintended write.
+          onDone={(message) => { leaveSelection(); onNotify?.(message); }}
+        />
+      )}
     </div>
   );
 }

@@ -659,6 +659,7 @@ export default function App() {
             onImportCloud={() => setCloudImport("picker")}
             onImportAnsible={() => setAnsibleImportOpen(true)}
             onProbeReachability={(host) => openNetdiag(host.id)}
+            onNotify={(message) => pushNotification("success", message)}
             onSearchFiles={(host) => setSearchHost(host)}
             onNewHostInGroup={(groupId) => { setEditingHost("new"); setNewHostDefaultGroupId(groupId); setEditingGroup(null); setEditingSqlConnection(null); }}
             onNewGroupUnder={(parentId) => { setEditingGroup({ id: null, name: "", parentId, icon: null, color: null }); setEditingHost(null); setEditingSqlConnection(null); }}

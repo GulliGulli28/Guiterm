@@ -6,6 +6,7 @@ pub mod aws_inventory;
 pub mod aws_sso;
 pub mod azure_auth;
 pub mod azure_inventory;
+pub mod bulk_edit;
 pub mod cloud_cli;
 pub mod cloud_inventory;
 pub mod command_history;

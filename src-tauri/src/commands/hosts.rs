@@ -3,6 +3,7 @@ use crate::state::AppState;
 use serde::Deserialize;
 use std::collections::HashMap;
 use tauri::State;
+use termius_core::bulk_edit::{self, BulkEdit};
 use termius_core::model::{
     AuthMethod, CustomIcon, EnvVar, Group, GroupId, Host, HostId, HostKind, KeyId, PortForward,
     PortForwardId, PrivateKey, Snippet, SnippetId, Workspace,
@@ -202,6 +203,48 @@ pub fn add_private_key(
         let _ = vault::store(key.id, vault::SecretKind::KeyPassphrase, &pp);
     }
     workspace.keychain.push(key);
+    persist(&workspace)?;
+    Ok(workspace.clone())
+}
+
+/// Applies one edit to several hosts at once.
+///
+/// See [`termius_core::bulk_edit`] for why the payload is a set of chosen
+/// fields rather than a form: a write across fifty hosts is not something
+/// anyone undoes by hand, so anything not explicitly chosen is left alone.
+///
+/// A batch `secret` is stored only where the new auth method has a slot for
+/// it, exactly as `save_host` does — and only when the auth itself is being
+/// changed, since a password means nothing without the method it belongs to.
+#[tauri::command]
+pub fn bulk_edit_hosts(
+    state: State<'_, AppState>,
+    host_ids: Vec<HostId>,
+    edit: BulkEdit,
+    secret: Option<String>,
+) -> Result<Workspace, String> {
+    if host_ids.is_empty() {
+        return Err("Choisir au moins un hôte.".to_string());
+    }
+    if edit.is_empty() {
+        return Err("Aucune modification demandée.".to_string());
+    }
+    let mut workspace = state.workspace.lock_recover();
+    let changed = bulk_edit::apply(&mut workspace, &host_ids, &edit);
+
+    if let (Some(auth), Some(secret)) = (&edit.auth, secret.filter(|s| !s.is_empty())) {
+        for id in &changed {
+            match auth {
+                AuthMethod::Password | AuthMethod::KeyboardInteractive => {
+                    let _ = vault::store(*id, SecretKind::Password, &secret);
+                }
+                AuthMethod::PrivateKey { key_id: None, .. } => {
+                    let _ = vault::store(*id, SecretKind::KeyPassphrase, &secret);
+                }
+                _ => {}
+            }
+        }
+    }
     persist(&workspace)?;
     Ok(workspace.clone())
 }
