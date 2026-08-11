@@ -71,6 +71,64 @@ propriété que ma source n'a pas ».
 
 ---
 
+## En cours — Trois suites de l'inventaire (2026-08-11)
+
+Choisies après la livraison du diagnostic réseau. Les trois sont des manques
+**créés ou révélés par le travail d'inventaire récent**, pas des idées
+génériques : vérifié dans le code le 2026-08-11, aucune n'existe déjà.
+
+### A. « Quels hôtes utilisent cette clé ? » — **S**
+
+**Valeur, et c'est une correction de sûreté.** `delete_private_key`
+(`commands/hosts.rs`) retire la clé du trousseau sans rien vérifier : tout hôte
+dont l'auth est `PrivateKey { key_id: Some(…) }` casse silencieusement.
+
+**Levier — réel et exact.** `aws_inventory::hosts_by_profile` répond déjà à la
+même question pour les profils AWS, et son doc comment dit pourquoi : « ce qui
+casse si ceci cesse de marcher », consulté avant d'offrir une suppression.
+`hosts_by_key` en est la transposition littérale.
+
+**À écrire.** `model.rs` (requête pure sur le workspace), une commande, l'usage
+dans `KeychainPanel.tsx` : le compte à côté de chaque clé, et une confirmation
+nommant les hôtes avant suppression.
+
+### B. Édition en lot des hôtes — **M**
+
+**Valeur.** L'import cloud crée 50 hôtes d'un coup ; les modifier ensuite se
+fait un par un. Le formulaire d'identifiants des panneaux d'import ne s'applique
+qu'à la **création**, jamais après — c'est le manque que l'import a créé.
+
+**Levier — à moitié seulement.** `HostsPanel` n'a aucune sélection multiple, il
+faut l'ajouter. En revanche `cloud_inventory::apply_import` montre déjà quoi
+écrire et quoi ne pas écraser, et `commands/hosts.rs::save_host` est le seul
+point d'écriture d'un hôte.
+
+**Piège.** Une écriture sur N hôtes est difficile à annuler : ne modifier que
+les champs explicitement cochés, jamais « tout le formulaire », et confirmer en
+disant combien d'hôtes et quels champs.
+
+### C. Inventaire périmé — **M/L**
+
+**Valeur.** `Host::source` sait d'où vient un hôte et `apply_import` rafraîchit
+ce qui existe encore, mais **rien ne dit ce qui a disparu** : une VM détruite
+reste dans la liste pour toujours, une VM créée depuis n'y est jamais entrée.
+C'est `drift.rs` appliqué à l'inventaire au lieu de la configuration.
+
+**Levier — inégal selon la source, et c'est le vrai sujet.** Azure et GCP
+portent `source = {kind, id}`, donc le diff est direct. **AWS n'a pas de
+`source` du tout** (documenté dans `ansible_inventory` : les hôtes EC2
+antérieurs à ce champ n'en portent pas), il faut apparier sur l'adresse, qui
+*est* l'id d'instance — et retrouver profil et région dans la commande proxy
+(`profile_in_command` existe ; l'équivalent pour la région, non). **Ansible est
+le cas le plus faible** : `HostSource` stocke le nom d'inventaire, pas le
+chemin du fichier, donc un recontrôle exige de redemander le fichier.
+
+**Périmètre retenu.** Azure et GCP d'abord, AWS ensuite si l'appariement par
+adresse tient. Ansible explicitement hors périmètre tant que le chemin du
+fichier n'est pas conservé.
+
+---
+
 ## Livré — Onglet de diagnostic réseau — **L**
 
 Demandé le 2026-08-10. Un onglet qui lance des diagnostics réseau (TCP, DNS,
