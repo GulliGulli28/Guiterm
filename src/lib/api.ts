@@ -145,6 +145,10 @@ export const api = {
 
   addForward: (input: { hostId: HostId; kind: PortForwardKind; bindAddress: string; bindPort: number; destAddress: string; destPort: number }) =>
     invoke<Workspace>("add_forward", { input }),
+  /** Enregistre la modification et **arrête** le tunnel s'il tournait — c'est
+   * à l'appelant de le relancer, voir `update_forward` côté Rust. */
+  updateForward: (input: { id: PortForwardId; hostId: HostId; kind: PortForwardKind; bindAddress: string; bindPort: number; destAddress: string; destPort: number }) =>
+    invoke<Workspace>("update_forward", { input }),
   deleteForward: (forwardId: PortForwardId) => invoke<Workspace>("delete_forward", { forwardId }),
 
   /** `input` carries the engine tag plus that engine's own settings,

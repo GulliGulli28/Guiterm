@@ -52,6 +52,7 @@ interface SidebarProps {
   onSaveAdaptiveSnippet: (id: SnippetId | null, name: string, command: string) => void;
   openTerminals: { id: string; label: string }[];
   onAddForward: (input: { hostId: HostId; kind: PortForwardKind; bindAddress: string; bindPort: number; destAddress: string; destPort: number }) => void;
+  onUpdateForward: (input: { id: PortForwardId; hostId: HostId; kind: PortForwardKind; bindAddress: string; bindPort: number; destAddress: string; destPort: number }) => Promise<unknown>;
   onDeleteForward: (id: PortForwardId) => void;
   onAddKey: (name: string, path: string, passphrase: string | null) => void;
   onGenerateKey: (name: string, algorithm: KeyAlgorithm, passphrase: string | null) => void;
@@ -217,6 +218,7 @@ export function Sidebar(props: SidebarProps) {
             <TunnelsPanel
               workspace={workspace}
               onAddForward={props.onAddForward}
+              onUpdateForward={props.onUpdateForward}
               onDeleteForward={props.onDeleteForward}
               onError={props.onError}
             />

@@ -675,6 +675,11 @@ export default function App() {
             }
             openTerminals={broadcastTargets}
             onAddForward={(input) => api.addForward(input).then(refreshWorkspace).catch((e) => reportError(String(e)))}
+            // Pas de `.catch` ici, contrairement aux deux autres : le panneau
+            // attend cette promesse pour décider s'il relance le tunnel, et
+            // avaler l'échec ici le ferait redémarrer sur une modification qui
+            // n'a pas été enregistrée.
+            onUpdateForward={(input) => api.updateForward(input).then(refreshWorkspace)}
             onDeleteForward={(id) => api.deleteForward(id).then(refreshWorkspace).catch((e) => reportError(String(e)))}
             onAddKey={(name, path, passphrase) => api.addPrivateKey(name, path, passphrase).then(refreshWorkspace).catch((e) => reportError(String(e)))}
             onGenerateKey={(name, algorithm, passphrase) => api.generatePrivateKey(name, algorithm, passphrase).then(refreshWorkspace).catch((e) => reportError(String(e)))}

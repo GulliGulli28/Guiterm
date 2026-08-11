@@ -114,6 +114,7 @@ fn main() {
             commands::hosts::update_snippet,
             commands::hosts::delete_snippet,
             commands::hosts::add_forward,
+            commands::hosts::update_forward,
             commands::hosts::delete_forward,
             commands::hosts::add_private_key,
             commands::hosts::delete_private_key,

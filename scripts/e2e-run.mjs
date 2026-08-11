@@ -258,6 +258,7 @@ async function runScenarios(browser) {
   await runBulkEditScenario(browser);
   await runTabShortcutScenario(browser);
   await runCloudImportScenario(browser);
+  await runTunnelEditScenario(browser);
   await runSsmTunnelScenario(browser);
   await runActivityScenario(browser);
 
@@ -1411,6 +1412,128 @@ async function runActivityScenario(browser) {
  * output classified. An unregistered command rejects instead, which is what
  * this catches. Nothing is written and no real instance is contacted.
  */
+/**
+ * Un tunnel se crée, se modifie et se supprime **entièrement depuis l'UI**.
+ *
+ * Tout passe par des clics réels, y compris la création : une première version
+ * appelait `add_forward` par `invoke` et échouait — la commande écrivait bien
+ * côté Rust, mais l'état React d'`App` n'en savait rien, donc le panneau
+ * restait vide et le bouton « Modifier » n'existait jamais. Un raccourci par
+ * `invoke` teste le backend, pas le chemin que l'utilisateur emprunte.
+ *
+ * L'assertion qui porte la demande n'est pas seulement « Modifier existe »
+ * mais aussi « Supprimer n'est plus un bouton de la ligne » : un bouton ajouté
+ * à côté de l'ancien passerait autrement pour un succès.
+ *
+ * Le tunnel est créé sur le premier hôte du workspace réel avec un port haut,
+ * n'est **jamais démarré** (aucune connexion SSH ouverte), et est supprimé par
+ * le bouton du formulaire — ce qui fait de son propre nettoyage la dernière
+ * assertion du scénario.
+ */
+async function runTunnelEditScenario(browser) {
+  const BIND_PORT = "59137";
+  const NEW_PORT = "59138";
+
+  await browser.execute(() => {
+    const tab = Array.from(document.querySelectorAll("button"))
+      .find((b) => (b.getAttribute("title") || "") === "Tunnels");
+    if (tab instanceof HTMLElement) tab.click();
+  });
+
+  await browser.waitUntil(async () => await browser.execute(() =>
+    Array.from(document.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Ajouter un tunnel")
+  ), { timeout: 10_000, timeoutMsg: "le panneau Tunnels ne s est pas ouvert" });
+
+  await clickButtonByText(browser, "Ajouter un tunnel");
+
+  const hasHost = await browser.execute(() => {
+    const select = document.querySelector("select");
+    return select instanceof HTMLSelectElement && select.options.length > 0 && select.value !== "";
+  });
+  if (!hasHost) {
+    console.log("Modification de tunnel : ignoré (aucun hôte dans le workspace de cette machine).");
+    await clickButtonByText(browser, "Ajouter un tunnel");
+    return;
+  }
+
+  // Par les setters natifs + événement `input`, jamais par `.value = …` : une
+  // affectation directe modifie le DOM sans prévenir React, et le formulaire
+  // partirait avec des ports vides (même piège que `runNetDiagScenario`).
+  const filled = await browser.execute((bind) => {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+    const ports = Array.from(document.querySelectorAll('input[placeholder="Port"]'));
+    if (ports.length < 2) return false;
+    setter.call(ports[0], bind);
+    ports[0].dispatchEvent(new Event("input", { bubbles: true }));
+    setter.call(ports[1], "5432");
+    ports[1].dispatchEvent(new Event("input", { bubbles: true }));
+    return true;
+  }, BIND_PORT);
+  if (!filled) throw new Error("le formulaire d ajout de tunnel n expose pas ses deux champs de port");
+
+  await clickButtonByText(browser, "Ajouter");
+
+  await browser.waitUntil(async () => await browser.execute((port) =>
+    Array.from(document.querySelectorAll("p")).some((p) => (p.textContent || "").includes(`127.0.0.1:${port}`)),
+  BIND_PORT), { timeout: 5_000, timeoutMsg: "le tunnel ajouté n apparaît pas dans la liste" });
+
+  const labels = await browser.execute(() =>
+    Array.from(document.querySelectorAll("button")).map((b) => b.textContent?.trim()));
+  if (!labels.includes("Modifier")) {
+    throw new Error("la ligne de tunnel n offre pas de bouton « Modifier »");
+  }
+  if (labels.includes("Supprimer")) {
+    throw new Error("« Supprimer » est encore un bouton de la ligne : il devait passer dans le formulaire de modification");
+  }
+
+  await clickButtonByText(browser, "Modifier");
+  await browser.waitUntil(async () => await browser.execute(() => {
+    const found = Array.from(document.querySelectorAll("button")).map((b) => b.textContent?.trim());
+    return found.includes("Enregistrer") && found.includes("Supprimer ce tunnel");
+  }), {
+    timeout: 5_000,
+    timeoutMsg: "« Modifier » n ouvre pas un formulaire portant « Enregistrer » et « Supprimer ce tunnel »",
+  });
+
+  // Le formulaire doit arriver rempli avec le tunnel existant, pas vide : une
+  // modification qui repart de zéro écraserait ce qu'on ne touche pas.
+  const prefilled = await browser.execute((port) => {
+    const ports = Array.from(document.querySelectorAll('input[placeholder="Port"]'));
+    return ports.some((i) => i.value === port);
+  }, BIND_PORT);
+  if (!prefilled) throw new Error("le formulaire de modification n est pas prérempli avec le tunnel choisi");
+
+  const changed = await browser.execute((port) => {
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+    const field = Array.from(document.querySelectorAll('input[placeholder="Port"]')).find((i) => i.value === "59137");
+    if (!(field instanceof HTMLInputElement)) return false;
+    setter.call(field, port);
+    field.dispatchEvent(new Event("input", { bubbles: true }));
+    return true;
+  }, NEW_PORT);
+  if (!changed) throw new Error("le champ de port du formulaire de modification est introuvable");
+
+  await clickButtonByText(browser, "Enregistrer");
+
+  await browser.waitUntil(async () => await browser.execute((port) =>
+    Array.from(document.querySelectorAll("p")).some((p) => (p.textContent || "").includes(`127.0.0.1:${port}`)),
+  NEW_PORT), { timeout: 10_000, timeoutMsg: "le nouveau port n apparaît pas dans la liste après enregistrement" });
+
+  // Le nettoyage passe par le bouton du formulaire : c'est aussi la dernière
+  // assertion, puisque « Supprimer ce tunnel » est ce que la demande a déplacé.
+  await clickButtonByText(browser, "Modifier");
+  await browser.waitUntil(async () => await browser.execute(() =>
+    Array.from(document.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Supprimer ce tunnel")
+  ), { timeout: 5_000, timeoutMsg: "le formulaire de modification n offre pas « Supprimer ce tunnel »" });
+  await clickButtonByText(browser, "Supprimer ce tunnel");
+
+  await browser.waitUntil(async () => await browser.execute((port) =>
+    !Array.from(document.querySelectorAll("p")).some((p) => (p.textContent || "").includes(`127.0.0.1:${port}`)),
+  NEW_PORT), { timeout: 10_000, timeoutMsg: "le tunnel de test n a pas été supprimé — il reste dans le workspace" });
+
+  console.log("Modification de tunnel : OK (ajout, « Modifier » à la place de « Supprimer », formulaire prérempli, enregistrement, suppression depuis le formulaire).");
+}
+
 async function runSsmTunnelScenario(browser) {
   await browser.execute(() => {
     const tab = Array.from(document.querySelectorAll("button"))

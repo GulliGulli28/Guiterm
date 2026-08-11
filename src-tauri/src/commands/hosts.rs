@@ -546,6 +546,58 @@ pub fn add_forward(
     Ok(workspace.clone())
 }
 
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdateForwardInput {
+    pub id: PortForwardId,
+    pub host_id: HostId,
+    pub kind: termius_core::model::PortForwardKind,
+    pub bind_address: String,
+    pub bind_port: u16,
+    pub dest_address: String,
+    pub dest_port: u16,
+}
+
+/// Modifie un tunnel déjà enregistré, en arrêtant d'abord la session en cours
+/// s'il y en a une.
+///
+/// **L'arrêt n'est pas optionnel** : un tunnel qui tourne porte un listener lié
+/// à l'ancienne adresse et à l'ancien port, et le laisser vivre ferait mentir
+/// la fiche affichée — on lirait la nouvelle configuration au-dessus d'un
+/// tunnel qui achemine encore l'ancienne. Même raison que dans
+/// [`delete_forward`], qui arrête pour la même cause.
+///
+/// Le redémarrage est laissé à l'appelant plutôt que fait ici : un port déjà
+/// pris ou un hôte injoignable doit se signaler comme un échec de démarrage,
+/// pas comme un échec d'enregistrement d'une modification qui, elle, a bien été
+/// écrite.
+#[tauri::command]
+pub async fn update_forward(
+    state: State<'_, AppState>,
+    input: UpdateForwardInput,
+) -> Result<Workspace, String> {
+    let session = state.forwards.lock_recover().remove(&input.id);
+    if let Some(session) = session {
+        session.active.stop(&session.connection).await;
+    }
+
+    let mut workspace = state.workspace.lock_recover();
+    let forward = workspace
+        .port_forwards
+        .iter_mut()
+        .find(|f| f.id == input.id)
+        .ok_or_else(|| "tunnel inconnu".to_string())?;
+    forward.host_id = input.host_id;
+    forward.kind = input.kind;
+    forward.bind_address = input.bind_address;
+    forward.bind_port = input.bind_port;
+    forward.dest_address = input.dest_address;
+    forward.dest_port = input.dest_port;
+
+    persist(&workspace)?;
+    Ok(workspace.clone())
+}
+
 #[tauri::command]
 pub async fn delete_forward(
     state: State<'_, AppState>,
