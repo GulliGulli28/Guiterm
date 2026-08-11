@@ -1,7 +1,8 @@
 import { useMemo, type ReactNode } from "react";
-import type { AuthMethod, CloudInstance, GroupId, InventoryDiff, KeyId, Workspace } from "../lib/types";
+import type { AuthMethod, CloudInstance, CloudScope, GroupId, InventoryDiff, KeyId, Workspace } from "../lib/types";
 import type { DescribedFailure } from "../lib/cloudFailure";
 import { GroupTreePicker } from "./GroupTreePicker";
+import { IconClose } from "./ui-icons";
 
 /**
  * The pieces Azure and GCP import panels share.
@@ -12,6 +13,14 @@ import { GroupTreePicker } from "./GroupTreePicker";
  * branches. What is shared here is what is genuinely identical: how a failure
  * reads, how one row of a tick list looks, and the batch credential form,
  * which is the same set of SSH decisions no matter where the machine lives.
+ *
+ * That principle held for the *logic* but not for the markup: the two panels
+ * had drifted into ~180 lines of identical JSX each (modal chrome, scope bar,
+ * filter bar, list, footer) — 70% of the two files was the same shell with
+ * different wording. Those are the atoms below. Still atoms, deliberately:
+ * composing five small pieces keeps each provider's panel readable top to
+ * bottom, where one `<CloudImportPanel>` taking twenty props would just move
+ * the divergence into a prop list.
  */
 
 export const cloudInputClass =
@@ -295,6 +304,240 @@ export function CloudBatchCredentials({
         />
       </label>
     </>
+  );
+}
+
+/** The modal a cloud import lives in: backdrop, card, title, close.
+ *
+ * `overlayExtra` renders *beside* the card but still inside the backdrop —
+ * where Azure's sign-in panel sits. It keeps its own `fixed` positioning, so
+ * this is about staying in the same place in the tree, not about layout. */
+export function CloudImportModal({
+  title,
+  intro,
+  onClose,
+  overlayExtra,
+  children,
+}: {
+  title: string;
+  intro: ReactNode;
+  onClose: () => void;
+  overlayExtra?: ReactNode;
+  children: ReactNode;
+}) {
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6" onClick={onClose}>
+      <div
+        className="flex max-h-full w-[min(52rem,100%)] flex-col overflow-hidden rounded-xl border border-[var(--c-border)] bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="flex shrink-0 items-center justify-between border-b border-[var(--c-border)] px-4 py-2.5">
+          <div>
+            <p className="text-[13px] font-medium text-[var(--c-text)]">{title}</p>
+            <p className="text-[11px] text-[var(--c-text-muted)]">{intro}</p>
+          </div>
+          <button
+            onClick={onClose}
+            aria-label="Fermer"
+            className="rounded p-1 text-[var(--c-text-muted)] hover:bg-white/5 hover:text-[var(--c-text)]"
+          >
+            <IconClose size={13} />
+          </button>
+        </div>
+        {children}
+      </div>
+      {overlayExtra}
+    </div>
+  );
+}
+
+/** Picking which subscription/project to list, and asking for the listing.
+ *
+ * `label`/`loadLabel`/`emptyLabel`/`defaultSuffix` are the whole difference
+ * between the two providers here — an abonnement is not a projet, and "par
+ * défaut" is not "courant". `extra` is for an affordance only one of them has
+ * (Azure's "change account"), left absent rather than disabled elsewhere. */
+export function CloudScopeBar({
+  label,
+  scopes,
+  value,
+  onChange,
+  onLoad,
+  loading,
+  loadLabel,
+  emptyLabel,
+  defaultSuffix,
+  extra,
+}: {
+  label: string;
+  scopes: CloudScope[];
+  value: string;
+  onChange: (id: string) => void;
+  onLoad: () => void;
+  loading: boolean;
+  loadLabel: string;
+  emptyLabel: string;
+  defaultSuffix: string;
+  extra?: ReactNode;
+}) {
+  return (
+    <div className="shrink-0 border-b border-[var(--c-border)] px-4 py-2.5">
+      <label className="block space-y-1">
+        <span className="text-xs font-medium text-[var(--c-text-muted)]">{label}</span>
+        <div className="flex gap-1.5">
+          <select
+            value={value}
+            onChange={(e) => onChange(e.target.value)}
+            disabled={scopes.length === 0}
+            className={`${cloudInputClass} flex-1`}
+          >
+            {scopes.length === 0 && <option value="">{emptyLabel}</option>}
+            {scopes.map((s) => (
+              <option key={s.id} value={s.id}>
+                {s.name}{s.isDefault ? defaultSuffix : ""}
+              </option>
+            ))}
+          </select>
+          <button
+            onClick={onLoad}
+            disabled={loading}
+            className="accent-surface shrink-0 rounded-md border px-3 text-xs font-medium disabled:opacity-40"
+          >
+            {loading ? "…" : loadLabel}
+          </button>
+        </div>
+        {extra}
+      </label>
+    </div>
+  );
+}
+
+/** Narrowing the listing, and the two bulk-tick shortcuts.
+ *
+ * "Tout" ticks `selectable`, not `shown`: a row with no address has a disabled
+ * checkbox, and a select-all that ignored that would tick rows the import then
+ * refuses. */
+export function CloudFilterBar({
+  filter,
+  onFilterChange,
+  placeholder,
+  selectable,
+  onSelectAll,
+  onSelectNone,
+}: {
+  filter: string;
+  onFilterChange: (value: string) => void;
+  placeholder: string;
+  selectable: CloudInstance[];
+  onSelectAll: () => void;
+  onSelectNone: () => void;
+}) {
+  return (
+    <div className="shrink-0 border-b border-[var(--c-border)] px-4 py-2">
+      <div className="flex items-center gap-2">
+        <input
+          value={filter}
+          onChange={(e) => onFilterChange(e.target.value)}
+          placeholder={placeholder}
+          className={`${cloudInputClass} flex-1`}
+        />
+        <button
+          onClick={onSelectAll}
+          className="shrink-0 rounded px-2 py-1 text-[11px] text-[var(--c-accent-text)] hover:bg-[var(--c-bg3)]"
+        >
+          Tout ({selectable.length})
+        </button>
+        <button
+          onClick={onSelectNone}
+          className="shrink-0 rounded px-2 py-1 text-[11px] text-[var(--c-text-muted)] hover:bg-[var(--c-bg3)]"
+        >
+          Aucun
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/** The scrollable tick list, with its two distinct empty states.
+ *
+ * "nothing here" and "nothing matches your filter" are different answers and
+ * get different wording — telling someone the subscription is empty when they
+ * simply mistyped a filter sends them looking in the wrong place. */
+export function CloudInstanceList({
+  shown,
+  total,
+  picked,
+  alreadyImported,
+  onToggle,
+  emptyLabel,
+  noMatchLabel,
+}: {
+  shown: CloudInstance[];
+  /** Size of the unfiltered listing — what tells the two empty states apart. */
+  total: number;
+  picked: Set<string>;
+  alreadyImported: Set<string>;
+  onToggle: (id: string) => void;
+  emptyLabel: string;
+  noMatchLabel: string;
+}) {
+  return (
+    <div className="min-h-0 flex-1 overflow-y-auto px-4 py-2">
+      {shown.length === 0 ? (
+        <p className="py-6 text-center text-xs text-[var(--c-text-faint)]">
+          {total === 0 ? emptyLabel : noMatchLabel}
+        </p>
+      ) : (
+        <ul className="space-y-0.5">
+          {shown.map((vm) => (
+            <CloudInstanceRow
+              key={vm.id}
+              instance={vm}
+              checked={picked.has(vm.id)}
+              known={alreadyImported.has(vm.id)}
+              onToggle={() => onToggle(vm.id)}
+            />
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+}
+
+/** Batch credentials plus the button that commits the import. */
+export function CloudImportFooter({
+  workspace,
+  auth,
+  onAuthChange,
+  usernameHint,
+  count,
+  importing,
+  onImport,
+}: {
+  workspace: Workspace;
+  auth: BatchAuth;
+  onAuthChange: (next: BatchAuth) => void;
+  usernameHint: string;
+  count: number;
+  importing: boolean;
+  onImport: () => void;
+}) {
+  return (
+    <div className="shrink-0 space-y-2 border-t border-[var(--c-border)] px-4 py-2.5">
+      <CloudBatchCredentials
+        workspace={workspace}
+        auth={auth}
+        onChange={onAuthChange}
+        usernameHint={usernameHint}
+      />
+      <button
+        onClick={onImport}
+        disabled={importing || count === 0}
+        className="accent-surface w-full rounded-md border py-2 text-sm font-medium disabled:opacity-40"
+      >
+        {importing ? "Import…" : `Importer ${count} hôte(s)`}
+      </button>
+    </div>
   );
 }
 
