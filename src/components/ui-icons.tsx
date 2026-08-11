@@ -43,7 +43,7 @@ export function IconKeychain({ size = 16, className }: P) {
 }
 
 /** A cloud with a keyhole: the AWS identities panel — a login, not a machine
- * (which is what `IconServerStack` already says). */
+ * (which is what `IconHosts` already says). */
 export function IconCloud({ size = 16, className }: P) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
@@ -348,22 +348,9 @@ export function IconNetDiag({ size = 16, className }: P) {
   );
 }
 
-export function IconServerStack({ size = 16, className }: P) {
-  return (
-    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
-      <rect x="2" y="2" width="12" height="3.2" rx="0.8" stroke="currentColor" strokeWidth="1.15" />
-      <rect x="2" y="6.4" width="12" height="3.2" rx="0.8" stroke="currentColor" strokeWidth="1.15" />
-      <rect x="2" y="10.8" width="12" height="3.2" rx="0.8" stroke="currentColor" strokeWidth="1.15" />
-      <circle cx="4.2" cy="3.6" r="0.6" fill="currentColor" />
-      <circle cx="4.2" cy="8" r="0.6" fill="currentColor" />
-      <circle cx="4.2" cy="12.4" r="0.6" fill="currentColor" />
-    </svg>
-  );
-}
-
-/** Distinct from `IconHosts`/`IconServerStack` (both a single stacked
- * server) — a 2x2 grid reads as "several independent machines", matching
- * what fleet operations actually target (many hosts at once). */
+/** Distinct from `IconHosts` (a single stacked server) — a 2x2 grid reads as
+ * "several independent machines", matching what fleet operations actually
+ * target (many hosts at once). */
 export function IconFleet({ size = 16, className }: P) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>

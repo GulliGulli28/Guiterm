@@ -67,11 +67,6 @@ export function describeVerdict(verdict: ReachabilityVerdict): VerdictDisplay {
   }
 }
 
-/** The port people mean when they don't say. 22 rather than 80: this is opened
- * from a host in a terminal app, and "can that box reach my other box's SSH"
- * is the question that gets asked. */
-export const DEFAULT_PROBE_PORT = 22;
-
 /** Splits `host:port`, `[v6]:port` or a bare host, so pasting what you copied
  * from a log or a config lands in the right two fields instead of failing
  * validation on the colon. */
