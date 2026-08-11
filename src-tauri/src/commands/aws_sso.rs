@@ -54,10 +54,29 @@ pub fn save_aws_sso_profiles(profiles: Vec<ProfileSpec>) -> Result<(), AwsFailur
 }
 
 /// Account id → name, so a profile can show what it actually reaches rather
-/// than a twelve-digit number. Best effort: an unreachable session simply
-/// contributes nothing.
+/// than a twelve-digit number.
+///
+/// **Reads the cache only — no network, no CLI, returns instantly.** Resolving
+/// these names for real means one `aws` subprocess per SSO session, several
+/// seconds of it, and the three panels that display them each paid that at
+/// mount. They now paint from here and call [`refresh_aws_account_names`] in
+/// the background.
+///
+/// An empty map on a first run is the honest answer, not a failure: the panels
+/// already fall back to showing the account id, and the refresh replaces it a
+/// few seconds later.
 #[tauri::command]
-pub async fn list_aws_account_names() -> std::collections::HashMap<String, String> {
+pub fn list_aws_account_names() -> std::collections::HashMap<String, String> {
+    termius_core::aws_account_cache::load().names
+}
+
+/// Resolves account names for real and updates the cache.
+///
+/// Slow by nature (see above) — meant to be called *after* painting, never
+/// awaited before showing something. Best effort: an unreachable session
+/// simply contributes nothing.
+#[tauri::command]
+pub async fn refresh_aws_account_names() -> std::collections::HashMap<String, String> {
     aws_sso::account_names().await
 }
 

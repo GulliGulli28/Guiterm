@@ -785,12 +785,11 @@ pub fn parse_roles(json: &str) -> Result<Vec<String>, AwsCliError> {
         .unwrap_or_default())
 }
 
-/// Lists every account the session grants, each with its roles.
-pub async fn list_accounts(
-    start_url: &str,
-    region: &str,
-    session: &str,
-) -> Result<Vec<SsoAccount>, AwsCliError> {
+/// The session's access token, renewed if it has lapsed.
+///
+/// Shared by both listings so they cannot disagree about what "signed in"
+/// means — the renewal below is subtle enough that a second copy would drift.
+async fn usable_token(start_url: &str, session: &str) -> Result<String, AwsCliError> {
     let mut cached = cached_token(start_url, session);
     // A lapsed access token is the ordinary state of a session signed in more
     // than an hour ago, not a dead one — let the CLI renew it before giving
@@ -802,7 +801,7 @@ pub async fn list_accounts(
         }
         cached = cached.filter(is_usable);
     }
-    let token = cached
+    cached
         .map(|token| token.access_token)
         .ok_or_else(|| AwsCliError::Refused {
             message: "Le jeton SSO de cette session n'est pas utilisable.".to_string(),
@@ -813,7 +812,16 @@ pub async fn list_accounts(
             ),
             // Reconnecting is exactly the fix here.
             session_expired: true,
-        })?;
+        })
+}
+
+/// Lists every account the session grants, each with its roles.
+pub async fn list_accounts(
+    start_url: &str,
+    region: &str,
+    session: &str,
+) -> Result<Vec<SsoAccount>, AwsCliError> {
+    let token = usable_token(start_url, session).await?;
 
     let listing = run_aws(&[
         "sso",
@@ -856,6 +864,37 @@ pub async fn list_accounts(
     Ok(accounts)
 }
 
+/// Just the account names a session grants — no roles.
+///
+/// Deliberately not [`list_accounts`]: that one issues a `list-account-roles`
+/// call *per account*, so resolving names alone cost one CLI subprocess per
+/// account plus one, when a single `list-accounts` already carries every name.
+/// On an organisation with twenty accounts that was twenty-one subprocesses to
+/// answer a question the first one had already answered.
+async fn list_account_names(
+    start_url: &str,
+    region: &str,
+    session: &str,
+) -> Result<Vec<(String, String)>, AwsCliError> {
+    let token = usable_token(start_url, session).await?;
+    let listing = run_aws(&[
+        "sso",
+        "list-accounts",
+        "--access-token",
+        &token,
+        "--region",
+        region,
+        "--output",
+        "json",
+    ])
+    .await?;
+    Ok(parse_accounts(&listing)?
+        .into_iter()
+        .filter(|(_, name, _)| !name.is_empty())
+        .map(|(id, name, _)| (id, name))
+        .collect())
+}
+
 /// Account id → human name, for every SSO session that currently has a
 /// usable token.
 ///
@@ -867,21 +906,27 @@ pub async fn list_accounts(
 /// One call per session rather than per profile — several profiles usually
 /// share a session, and per-profile lookups would multiply a round trip that
 /// answers the same question.
+///
+/// Writes what it found to [`crate::aws_account_cache`] on the way out, so the
+/// next panel to ask gets an answer without waiting for any of this.
 pub async fn account_names() -> std::collections::HashMap<String, String> {
     let mut names = std::collections::HashMap::new();
     for session in crate::aws_inventory::list_sso_sessions() {
         if session.start_url.is_empty() || session.region.is_empty() {
             continue;
         }
-        let Ok(accounts) = list_accounts(&session.start_url, &session.region, &session.name).await
+        let Ok(accounts) =
+            list_account_names(&session.start_url, &session.region, &session.name).await
         else {
             continue;
         };
-        for account in accounts {
-            if !account.name.is_empty() {
-                names.insert(account.account_id, account.name);
-            }
-        }
+        names.extend(accounts);
+    }
+    // Un rafraîchissement qui n'a rien trouvé (hors ligne, sessions toutes
+    // expirées) n'écrase pas un cache utile : sinon un lancement sans réseau
+    // effacerait des noms corrects pour les remplacer par des numéros.
+    if !names.is_empty() {
+        crate::aws_account_cache::save(&names);
     }
     names
 }

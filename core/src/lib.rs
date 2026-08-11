@@ -1,6 +1,7 @@
 pub mod activity;
 pub mod adaptive;
 pub mod ansible_inventory;
+pub mod aws_account_cache;
 pub mod aws_databases;
 pub mod aws_inventory;
 pub mod aws_sso;

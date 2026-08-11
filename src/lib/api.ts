@@ -86,7 +86,12 @@ export const api = {
   listAwsSsoSessions: () => invoke<AwsSsoSession[]>("list_aws_sso_sessions"),
   /** Account id → name, for profile labels. Best effort: a session whose
    * token has expired contributes nothing rather than failing. */
+  /** Lecture du cache disque : instantané, éventuellement vide au tout
+   * premier lancement. À appeler pour l'affichage. */
   listAwsAccountNames: () => invoke<Record<string, string>>("list_aws_account_names"),
+  /** Résolution réelle via la CLI `aws` : plusieurs secondes. À appeler après
+   * l'affichage, jamais avant — voir `useAwsAccountNames`. */
+  refreshAwsAccountNames: () => invoke<Record<string, string>>("refresh_aws_account_names"),
   saveAwsSsoSession: (name: string, startUrl: string, region: string) =>
     invoke<void>("save_aws_sso_session", { name, startUrl, region }),
   /** Long-lived on purpose: resolves only once the browser authentication has

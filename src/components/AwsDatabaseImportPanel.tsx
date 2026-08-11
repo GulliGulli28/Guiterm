@@ -3,6 +3,7 @@ import { api } from "../lib/api";
 import type { AwsDatabase, AwsProfile, AwsSsoSession, DbTunnel, Workspace } from "../lib/types";
 import { DIRECT_TUNNEL } from "../lib/types";
 import { groupProfilesBySession, profileLabel } from "../lib/awsInstances";
+import { useAwsAccountNames } from "../hooks/useAwsAccountNames";
 import { DbTunnelPicker } from "./DbTunnelPicker";
 import { IconClose } from "./ui-icons";
 import { RegionSelect } from "./RegionSelect";
@@ -43,8 +44,7 @@ export function AwsDatabaseImportPanel({ workspace, onWorkspaceUpdate, onClose, 
   // Resolved after the profiles are listed, not before: a twelve-digit account
   // number identifies nothing to a human, but waiting on a network round trip
   // before showing the list at all would be worse. Unresolved ones stay as ids.
-  const [accountNames, setAccountNames] = useState<Record<string, string>>({});
-  useEffect(() => { api.listAwsAccountNames().then(setAccountNames).catch(() => {}); }, []);
+  const accountNames = useAwsAccountNames();
   useEffect(() => { api.listAwsSsoSessions().then(setSsoSessions).catch(() => {}); }, []);
   const [profile, setProfile] = useState("");
   const [region, setRegion] = useState("eu-west-3");

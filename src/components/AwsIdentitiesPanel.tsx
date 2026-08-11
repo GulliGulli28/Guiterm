@@ -3,6 +3,7 @@ import { api } from "../lib/api";
 import type { AwsCallerIdentity, AwsProfile, AwsSessionAlert, AwsSsoSession, AwsSsoSessionStatus, Workspace } from "../lib/types";
 import { describeAlert, describeState, groupIdentities, roleFromArn } from "../lib/awsIdentities";
 import { profileLabel } from "../lib/awsInstances";
+import { useAwsAccountNames } from "../hooks/useAwsAccountNames";
 import { IconCloud, IconPlus, IconRefresh, IconTrash } from "./ui-icons";
 
 interface AwsIdentitiesPanelProps {
@@ -53,7 +54,7 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
   /** Which profile's hosts are being moved, and where to. */
   const [reassigning, setReassigning] = useState<{ from: string; to: string } | null>(null);
   const [reassigned, setReassigned] = useState<string | null>(null);
-  const [accountNames, setAccountNames] = useState<Record<string, string>>({});
+  const accountNames = useAwsAccountNames(refreshToken);
   const [failure, setFailure] = useState<{ message: string; hint: string | null } | null>(null);
   // Kept apart from the one above, and never swallowed: this call reads two
   // local files and cannot fail for an AWS reason, so a rejection means the
@@ -92,7 +93,6 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
   useEffect(load, [load, refreshToken]);
   // Names need a valid token, so they arrive late or not at all; profiles show
   // their account id meanwhile rather than waiting on a round trip.
-  useEffect(() => { api.listAwsAccountNames().then(setAccountNames).catch(() => {}); }, [refreshToken]);
 
   useEffect(() => {
     const timer = setInterval(() => { void loadSessions(); }, REFRESH_INTERVAL_MS);
