@@ -41,8 +41,9 @@ CHANGELOG.
 
 Les trois vagues prévues le 2026-08-04 sont terminées, et l'onglet de diagnostic
 réseau demandé après elles l'est aussi — ses deux tranches (2026-08-10).
-**Ce fichier ne contient donc plus d'item à prendre** ; la section « Écarté
-volontairement » en bas reste ce qu'il ne faut pas reproposer sans raison neuve.
+**Un seul item en attente** : le registre de modules ci-dessous (2026-08-13),
+planifié mais volontairement non démarré. La section « Écarté volontairement »
+en bas reste ce qu'il ne faut pas reproposer sans raison neuve.
 
 Trois dettes connues, à traiter au premier usage réel plutôt qu'à planifier :
 l'import Azure/GCP, le tunnel SSM et le diagnostic réseau n'ont jamais tourné
@@ -68,6 +69,43 @@ Et une troisième forme, découverte sur Azure/GCP : le levier peut être exact
 qui ne marche que parce qu'`aws` est un `.exe`. La question à poser n'est pas
 « ce module est-il un bon modèle » mais « laquelle de ses pièces repose sur une
 propriété que ma source n'a pas ».
+
+---
+
+## À prendre — Registre de modules (étape 1 de « noyau + extensions ») — **M**
+
+Ajouté le 2026-08-13, **planifié et non démarré, à traiter plus tard** —
+décidé ainsi explicitement, ce n'est pas un item oublié.
+
+**D'où ça vient.** Question posée : peut-on avoir un noyau et des extensions
+par-dessus, pour tenir plus tard un marketplace et choisir ses features à
+l'installation ? L'analyse complète (les trois lectures possibles de la
+question, pourquoi ni dylib Rust ni WASM, ce qui doit rester noyau, la feuille
+de route en 4 étapes) vit dans **`docs/architecture-extensions.md`** — trop
+longue pour ce fichier, et c'est une décision d'architecture, pas une
+fonctionnalité.
+
+**Valeur, indépendamment du marketplace.** Ajouter une feature veut aujourd'hui
+dire éditer quatre listes centrales à la main (`generate_handler!`, `api.ts`,
+`TabMeta`, le dispatch d'`App.tsx`) — le mécanisme exact qui avait laissé
+MongoDB inatteignable. Un registre ramène ça à un fichier par module, et rend
+l'oubli détectable par `tsc`.
+
+**Levier — réel, et plus grand qu'attendu pour une fois.** Le côté Rust est
+**déjà couvert** : `tauriCommands.test.ts` vérifie les deux sens. `core/` est
+déjà sans Tauri, `dist/` déjà code-splitté, `Sidebar.tsx` a déjà une mini-table
+`TABS`. L'étape 1 est donc presque entièrement frontend.
+
+**Piège identifié d'avance.** `HostsPanel` prend ~18 callbacks et chaque
+onglet a une signature différente : un registre à signature uniforme est une
+fiction. Les contributions doivent être des **fonctions de rendu recevant un
+`AppContext`**, pas des composants. Et le commit `terminal`/`transfer`/`rdp`
+est le seul vraiment risqué (refs, split pane, broadcast) — porte de sortie
+prévue : s'arrêter avant, le registre reste utile pour le reste.
+
+**Découpage en 5 commits, fichiers touchés, garde-fous** : section 6 de
+`docs/architecture-extensions.md`. **Zéro changement visible pour
+l'utilisateur**, donc probablement aucune entrée CHANGELOG.
 
 ---
 
