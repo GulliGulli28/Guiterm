@@ -4,24 +4,43 @@ import type { AppContext } from "./types";
 import { activityModule } from "./activity";
 import { fleetModule } from "./fleet";
 import { netdiagModule } from "./netdiag";
+import { rdpModule } from "./rdp";
+import { terminalModule } from "./terminal";
+import { transferModule } from "./transfer";
 
 /** Les modules first-party. Ajouter un module = ajouter un fichier et une
  * ligne ici — au lieu d'éditer le dispatch d'`App.tsx`.
  *
+ * **Chaque module porte son propre `lazy(...)`**, là où les imports étaient
+ * groupés en tête d'`App.tsx`. Ce sont de gros panneaux rarement tous utilisés
+ * (rendu du canvas RDP, ~950 lignes de transfert de fichiers, ~1000 lignes de
+ * flotte/DSL adaptatif) : les sortir du chunk initial réduit ce qui doit être
+ * parsé avant que l'app soit interactive. Le chargement du chunk lui-même est
+ * quasi instantané (empaqueté localement par Tauri, aucun aller-retour
+ * réseau) — c'est une question de taille de bundle initial, pas de latence
+ * perçue. Seul `terminal` reste eager, c'est le chemin principal.
+ *
  * Non annoté volontairement : le type inféré garde le `kind` littéral de
  * chaque module, ce dont la preuve de couverture plus bas a besoin. Une
  * annotation `ModuleDef[]` les écraserait tous en l'union complète. */
-export const MODULES = [activityModule, fleetModule, netdiagModule] as const;
+export const MODULES = [
+  activityModule,
+  fleetModule,
+  netdiagModule,
+  terminalModule,
+  transferModule,
+  rdpModule,
+] as const;
 
 /** Les `kind` d'onglet qu'`App.tsx` rend encore lui-même.
  *
  * Cette liste est là pour **rétrécir**. Quand elle sera vide, le registre
  * pourra devenir un `Record<TabMeta["kind"], …>` complet et elle disparaîtra.
  *
- * Les trois onglets liés à un hôte (`terminal`, `transfer`, `rdp-view`) sont
- * gardés pour la fin : `terminalRefs`, le split pane et le broadcast les
- * traversent, c'est le seul morceau vraiment risqué du chantier. */
-export const TABS_STILL_IN_APP = ["terminal", "transfer", "rdp-view", "local-terminal", "sql"] as const;
+ * Les trois onglets liés à un hôte l'ont quittée au commit 2 du chantier —
+ * c'était le morceau risqué (`terminalRefs`, split pane, broadcast). Restent
+ * le terminal local et SQL. */
+export const TABS_STILL_IN_APP = ["local-terminal", "sql"] as const;
 
 /** Erreur de compilation si un `kind` n'est **ni** revendiqué par un module
  * **ni** listé comme restant dans `App.tsx`.

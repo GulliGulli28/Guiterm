@@ -258,6 +258,7 @@ async function runScenarios(browser) {
   await runBulkEditScenario(browser);
   await runTabShortcutScenario(browser);
   await runCloudImportScenario(browser);
+  await runSshTerminalTabScenario(browser);
   await runFleetTabScenario(browser);
   await runSidebarButtonsScenario(browser);
   await runTunnelEditScenario(browser);
@@ -1432,6 +1433,128 @@ async function runActivityScenario(browser) {
  * le bouton du formulaire — ce qui fait de son propre nettoyage la dernière
  * assertion du scénario.
  */
+/** Écrit dans un champ contrôlé par React.
+ *
+ * `input.value = …` seul ne suffit pas : React installe son propre setter sur
+ * le prototype et ne verrait jamais la valeur. Il faut appeler le setter natif
+ * puis émettre l'événement que React écoute. */
+async function setFieldByLabel(browser, label, value) {
+  const ok = await browser.execute((wanted, v) => {
+    // Scopé au formulaire d'hôte : le panneau d'édition en lot peut être
+    // ouvert en même temps et porte des champs « Adresse »/« Utilisateur »
+    // homonymes. Sans ce scope, la saisie partait dedans et le formulaire
+    // refusait avec « Adresse et utilisateur sont requis » — constaté.
+    const heading = Array.from(document.querySelectorAll("h2"))
+      .find((h) => h.textContent?.trim() === "Nouvel hôte" || h.textContent?.trim() === "Modifier l'hôte");
+    const form = heading?.closest("div");
+    const holder = Array.from((form ?? document).querySelectorAll("label"))
+      .find((l) => l.querySelector("span")?.textContent?.trim() === wanted);
+    const input = holder?.querySelector("input");
+    if (!input) return false;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+    setter.call(input, v);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    return true;
+  }, label, value);
+  if (!ok) throw new Error(`champ « ${label} » introuvable dans le formulaire`);
+}
+
+/**
+ * L'onglet terminal SSH, monté dans la vraie fenêtre.
+ *
+ * Ajouté avec la migration de `terminal`/`transfer`/`rdp` vers `src/modules/` :
+ * ces trois-là étaient le morceau risqué du chantier (poignées de terminal,
+ * split pane, broadcast) et **aucun scénario ne les montait**, faute d'hôte à
+ * viser. Les tests unitaires prouvent qu'un rendu est enregistré, pas que
+ * xterm s'attache pour de bon.
+ *
+ * L'hôte est créé pour l'occasion sur `127.0.0.1:1` — la connexion est donc
+ * refusée immédiatement, sans attente réseau, ce qui suffit : ce qu'on vérifie
+ * est que `TerminalTab` a monté, pas qu'une session s'ouvre. Il est supprimé
+ * dans tous les cas, y compris en cas d'échec, pour ne pas laisser de déchet
+ * dans le vrai workspace.
+ */
+async function runSshTerminalTabScenario(browser) {
+  const LABEL = `e2e-registre-${Date.now()}`;
+
+  // Créé **par le formulaire**, pas par un `invoke` direct : c'est le chemin
+  // qui met aussi à jour le workspace côté React. Un hôte écrit derrière le dos
+  // de l'app n'apparaîtrait tout simplement pas dans le panneau (constaté).
+  await browser.execute(() => {
+    const btn = Array.from(document.querySelectorAll("aside nav button"))
+      .find((b) => (b.getAttribute("title") || "") === "Hôtes");
+    if (btn instanceof HTMLElement) btn.click();
+  });
+  await clickButtonByText(browser, "Ajouter…");
+  await clickButtonByText(browser, "Nouvel hôte");
+  await setFieldByLabel(browser, "Nom", LABEL);
+  await setFieldByLabel(browser, "Adresse", "127.0.0.1");
+  await setFieldByLabel(browser, "Utilisateur", "e2e");
+  await clickButtonByText(browser, "Enregistrer");
+
+  const lookup = () => browser.execute(async (label) => {
+    try {
+      const ws = await window.__TAURI_INTERNALS__.invoke("get_workspace");
+      return { id: ws.hosts.find((h) => h.label === label)?.id ?? null };
+    } catch (e) {
+      return { __error: String(e) };
+    }
+  }, LABEL);
+
+  try {
+    await browser.waitUntil(async () => !!(await lookup()).id,
+      { timeout: 10_000, timeoutMsg: "l hôte de test n a pas été enregistré" });
+  } catch (e) {
+    // Le formulaire refuse en affichant son propre message — le lire vaut
+    // mieux que de deviner quel champ manque.
+    const formError = await browser.execute(() =>
+      Array.from(document.querySelectorAll("p")).map((p) => p.textContent?.trim()).filter((t) => t && t.length < 200).slice(0, 12),
+    );
+    console.log("Textes du formulaire au moment de l échec :", JSON.stringify(formError));
+    throw e;
+  }
+  const created = await lookup();
+
+  try {
+    const tabsBefore = await browser.execute(() => document.querySelectorAll("[data-tab-id]").length);
+
+    // Un simple clic sur la ligne ouvre la connexion — c'est le chemin qui
+    // traverse `openTab` puis le registre.
+    await browser.execute((label) => {
+      const row = Array.from(document.querySelectorAll("aside button"))
+        .find((el) => el.textContent?.trim().startsWith(label));
+      if (row instanceof HTMLElement) row.click();
+    }, LABEL);
+
+    await browser.waitUntil(
+      async () => (await browser.execute(() => document.querySelectorAll("[data-tab-id]").length)) > tabsBefore,
+      { timeout: 10_000, timeoutMsg: "cliquer sur l hôte n a pas ouvert d onglet" },
+    );
+
+    // Le terminal du nouvel onglet actif. `.xterm-screen` n'existe que si
+    // xterm s'est réellement attaché à un conteneur monté — c'est ce qu'un
+    // rendu de module qui ne serait jamais appelé ne produirait pas.
+    await browser.waitUntil(async () => await browser.execute(() => {
+      const panes = Array.from(document.querySelectorAll("div.absolute.inset-0"));
+      return panes.some((p) => !p.classList.contains("hidden") && p.querySelector(".xterm-screen"));
+    }), { timeout: 20_000, timeoutMsg: "l onglet terminal SSH n a pas monté xterm" });
+
+    console.log("Terminal SSH : OK (hôte créé, onglet ouvert depuis le panneau Hôtes, xterm attaché).");
+  } finally {
+    const cleanup = await browser.execute(async (id) => {
+      try {
+        await window.__TAURI_INTERNALS__.invoke("delete_host", { hostId: id });
+        return { ok: true };
+      } catch (e) {
+        return { __error: String(e) };
+      }
+    }, created.id);
+    if (!cleanup || cleanup.__error !== undefined) {
+      throw new Error(`l hôte de test n a pas pu être supprimé, workspace pollué : ${JSON.stringify(cleanup)}`);
+    }
+  }
+}
+
 /**
  * L'onglet Opérations de flotte, ouvert depuis la barre latérale.
  *

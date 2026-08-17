@@ -1,4 +1,4 @@
-import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { check as checkForUpdate } from "@tauri-apps/plugin-updater";
 import { api, onSshAuthPrompt } from "./lib/api";
 import type { AwsSsoSession, GroupId, Host, HostId, SqlConnection, SshAuthPrompt, TabMeta, VaultStatus, Workspace } from "./lib/types";
@@ -7,19 +7,11 @@ import { Sidebar, type SidebarPanelKind } from "./components/Sidebar";
 import { HostForm } from "./components/HostForm";
 import { TabBar } from "./components/TabBar";
 import { BroadcastBar } from "./components/BroadcastBar";
-import { TerminalTab, type TerminalTabHandle } from "./components/TerminalTab";
+import type { TerminalTabHandle } from "./components/TerminalTab";
 import { LocalTerminalTab } from "./components/LocalTerminalTab";
 import { TitleBar } from "./components/TitleBar";
 import { TabLoadingFallback } from "./components/TabLoadingFallback";
 
-// Lazy-loaded: each of these is a large, not-always-used panel (RDP canvas
-// rendering, the 950-line file transfer UI, the 1000+-line fleet/adaptive-DSL
-// UI). Splitting them out of the main chunk shrinks what has to be
-// parsed/compiled before the app is interactive. Chunk load itself is
-// near-instant here (bundled locally by Tauri, no network round-trip) — this
-// is purely about initial bundle size, not perceived loading latency.
-const TransferTab = lazy(() => import("./components/TransferTab").then((m) => ({ default: m.TransferTab })));
-const RdpTab = lazy(() => import("./components/RdpTab").then((m) => ({ default: m.RdpTab })));
 import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, loadPreferences, savePreferences } from "./lib/preferences";
 import { resolveVisiblePanel } from "./lib/sidebarButtons";
 import { renderModuleTab, isTabStillInApp } from "./modules/registry";
@@ -500,7 +492,17 @@ export default function App() {
   // dans un `useMemo` en tête de composant où il serait encore `null`. Pas de
   // mémoïsation : cet objet n'est pas une prop d'un composant mémoïsé, il est
   // consommé immédiatement par des fonctions de rendu.
-  const moduleContext: AppContext = { workspace, preferences, reportError, pushNotification, refreshWorkspace };
+  const moduleContext: AppContext = {
+    workspace, preferences, reportError, pushNotification, refreshWorkspace,
+    closeTab, notifyLongCommand, mirrorInput,
+    // La table des poignées reste ici : la palette, le broadcast, le zoom et
+    // la recherche terminal l'interrogent. Les modules n'ont le droit que d'y
+    // publier la leur.
+    registerTerminalHandle: (tabId, handle) => {
+      if (handle) terminalRefs.current.set(tabId, handle);
+      else terminalRefs.current.delete(tabId);
+    },
+  };
 
   const showRightPanel = !!(editingHost || editingGroup || editingSqlConnection);
   const activeTab = tabs.find((t) => t.id === activeTabId);
@@ -811,66 +813,10 @@ export default function App() {
                       </div>
                     );
                   }
-                  const host = workspace.hosts.find((h) => h.id === tab.hostId);
-                  if (!host) return null;
-                  return (
-                    <div key={tab.id} className={isActive ? "absolute inset-0 flex flex-col" : "hidden"}>
-                      {tab.kind === "terminal" ? (
-                        <TerminalTab
-                          host={host}
-                          isActive={isActive}
-                          preferences={preferences}
-                          onLongCommand={notifyLongCommand}
-                          onDisconnect={() => closeTab(tab.id, "disconnected")}
-                          onInputData={(data) => mirrorInput(tab.id, data)}
-                          dockerContainerId={tab.kind === "terminal" ? tab.dockerContainerId : undefined}
-                          k8sPodName={tab.kind === "terminal" ? tab.k8sPodName : undefined}
-                          k8sContainerName={tab.kind === "terminal" ? tab.k8sContainerName : undefined}
-                          ref={(handle) => {
-                            if (handle) terminalRefs.current.set(tab.id, handle);
-                            else terminalRefs.current.delete(tab.id);
-                          }}
-                        />
-                      ) : tab.kind === "rdp-view" ? (
-                        <Suspense fallback={<TabLoadingFallback />}>
-                          <RdpTab
-                            host={host}
-                            isActive={isActive}
-                            preferences={preferences}
-                            onDisconnect={() => closeTab(tab.id)}
-                            ref={(handle) => {
-                              if (handle) terminalRefs.current.set(tab.id, handle);
-                              else terminalRefs.current.delete(tab.id);
-                            }}
-                          />
-                        </Suspense>
-                      ) : tab.kind === "transfer" ? (
-                        <Suspense fallback={<TabLoadingFallback />}>
-                          <TransferTab
-                            host={host}
-                            workspace={workspace}
-                            preferences={preferences}
-                            onError={reportError}
-                            onPushed={(message) => pushNotification("success", message)}
-                            dockerContainerId={tab.dockerContainerId}
-                            k8sPodName={tab.k8sPodName}
-                            k8sContainerName={tab.k8sContainerName}
-                          />
-                        </Suspense>
-                      ) : (
-                        // Was a bare `else` rendering TransferTab: a new
-                        // host-bound tab kind would have silently rendered a
-                        // file browser. Now it fails to compile instead.
-                        //
-                        // Narrows `tab.kind`, not `tab`: these three kinds
-                        // share one `TabMeta` member (`kind: "terminal" |
-                        // "transfer" | "rdp-view"`) rather than being three
-                        // members, so the object type never reduces to
-                        // `never` — the discriminant field does.
-                        assertNever(tab.kind, "type d'onglet lié à un hôte")
-                      )}
-                    </div>
-                  );
+                  // Les deux `kind` de `TABS_STILL_IN_APP` sont traités
+                  // ci-dessus ; tout le reste appartient à un module et a été
+                  // rendu plus haut.
+                  return assertNever(tab, "type d'onglet");
                 })}
               </div>
 

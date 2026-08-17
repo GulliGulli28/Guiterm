@@ -1,4 +1,5 @@
 import type { ReactNode } from "react";
+import type { TerminalTabHandle } from "../components/TerminalTab";
 import type { NotificationKind } from "../lib/notifications";
 import type { AppPreferences } from "../lib/preferences";
 import type { TabMeta, Workspace } from "../lib/types";
@@ -26,6 +27,22 @@ export interface AppContext {
    * renvoyer — les commandes Tauri rendent le workspace entier après écriture,
    * d'où l'argument plutôt qu'un rechargement. */
   refreshWorkspace: (next: Workspace) => void;
+  /** Ferme l'onglet. `"disconnected"` distingue une session qui est tombée
+   * d'une fermeture demandée par l'utilisateur — la notification n'est pas la
+   * même. */
+  closeTab: (id: string, reason?: "disconnected") => void;
+  /** Signale la fin d'une commande assez longue pour qu'on soit parti voir
+   * ailleurs. */
+  notifyLongCommand: (command: string, durationMs: number, where: string) => void;
+  /** Recopie la frappe de cet onglet vers les autres cibles de diffusion. */
+  mirrorInput: (sourceTabId: string, data: string) => void;
+  /** Publie (ou retire, avec `null`) la poignée impérative d'un terminal.
+   *
+   * C'est ce qui rend les onglets liés à un hôte plus délicats que les autres :
+   * la palette, le broadcast, le zoom et la recherche appellent des méthodes
+   * *sur* le terminal. Le registre déplace l'endroit où le composant est
+   * monté, pas la propriété de cette table — elle reste dans `App.tsx`. */
+  registerTerminalHandle: (tabId: string, handle: TerminalTabHandle | null) => void;
 }
 
 /** Le rendu d'un onglet d'un `kind` donné.
@@ -40,9 +57,21 @@ export interface AppContext {
  * imposerait un cast à chaque module — un cast par module est précisément ce
  * qui finit par cacher une vraie erreur.
  */
+/** Les membres de `TabMeta` que ce `kind` peut désigner.
+ *
+ * Pas un simple `Extract<TabMeta, { kind: K }>` : `terminal`, `transfer` et
+ * `rdp-view` partagent **un seul** membre de `TabMeta`, dont le champ `kind`
+ * vaut déjà l'union des trois. Ce membre n'est donc assignable à
+ * `{ kind: "terminal" }` pour aucun des trois, et `Extract` rendait `never` —
+ * silencieusement, jusqu'à ce que le premier accès à `tab.hostId` échoue.
+ * Ici on garde le membre dès que son `kind` **recouvre** `K`. */
+export type TabOfKind<K extends TabMeta["kind"], T = TabMeta> = T extends { kind: infer TK }
+  ? [Extract<TK, K>] extends [never] ? never : T
+  : never;
+
 export interface TabContribution<K extends TabMeta["kind"]> {
   kind: K;
-  render(tab: Extract<TabMeta, { kind: K }>, ctx: AppContext, isActive: boolean): ReactNode;
+  render(tab: TabOfKind<K>, ctx: AppContext, isActive: boolean): ReactNode;
 }
 
 export interface ModuleDef<K extends TabMeta["kind"] = TabMeta["kind"]> {
