@@ -9,6 +9,7 @@ const SettingsPanel = lazy(() => import("../components/SettingsPanel").then((m) 
 export const settingsModule = defineModule({
   id: "settings",
   label: "Paramètres",
+  commandDomains: ["export"],
   panel: {
     kind: "settings",
     render: (ctx, a) => (

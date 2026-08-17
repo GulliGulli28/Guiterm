@@ -7,6 +7,7 @@ const RdpTab = lazy(() => import("../components/RdpTab").then((m) => ({ default:
 export const rdpModule = defineModule({
   id: "rdp",
   label: "Aperçu RDP",
+  commandDomains: ["rdp_view"],
   tab: {
     kind: "rdp-view",
     render: (tab, ctx, isActive) => {

@@ -6,6 +6,7 @@ const KnownHostsPanel = lazy(() => import("../components/KnownHostsPanel").then(
 export const knownHostsModule = defineModule({
   id: "known-hosts",
   label: "Known Hosts",
+  commandDomains: ["known_hosts"],
   panel: {
     kind: "knownHosts",
     render: (ctx) => <KnownHostsPanel onWorkspaceUpdate={ctx.refreshWorkspace} onError={ctx.reportError} />,

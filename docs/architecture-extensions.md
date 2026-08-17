@@ -320,10 +320,24 @@ export interface ModuleDef {
    réellement absente du type. **Leçon générale : quand un garde-fou repose sur
    l'inférence, doubler la preuve `tsc` d'une assertion à l'exécution** — c'est
    la divergence entre les deux qui révèle la vacuité.
-2. **Complétude module ↔ commandes.** Nouvelle assertion : l'union des
-   `tauriCommands` de tous les modules **est exactement** l'ensemble de
-   `generate_handler!`. Une commande Rust n'appartenant à aucun module devient
-   une erreur — c'est ce qui rendra l'étape 3 mécanique.
+2. **Complétude module ↔ commandes.** Une commande Rust n'appartenant à aucun
+   module doit être une erreur — c'est ce qui rend l'étape 3 mécanique. **En
+   place depuis le commit 5**, mais à la granularité du **domaine**
+   (`commands::<domaine>::`, soit un fichier de `src-tauri/src/commands/`) et
+   non de la commande, comme annoncé ici.
+
+   La raison : par commande, c'est 166 noms recopiés en TypeScript, à tenir à
+   jour à chaque ajout — un garde-fou dont l'échec le plus fréquent serait
+   « tu as oublié de recopier », c'est-à-dire du bruit. Par domaine, c'est 30
+   entrées, ajouter une commande à un domaine existant ne demande rien, et
+   ajouter un **domaine** — la vraie décision — échoue tant qu'on ne l'a pas
+   attribué. C'est aussi la bonne granularité pour l'étape 3 : extraire un
+   module en sidecar, c'est déplacer les domaines qu'il déclare.
+
+   Le pendant assumé est `CORE_COMMAND_DOMAINS` (`vault`, `interactive_auth`,
+   `command_history`) : les transversaux de la section 3, qu'aucun module ne
+   possède. Un test interdit qu'un domaine soit à la fois noyau et module, pour
+   que cette liste ne devienne pas un dépotoir.
 3. **Anti-vacuité**, comme dans le test existant : un plancher sur la taille des
    ensembles, sinon une regex qui cesse de matcher rend tout vert.
 
@@ -380,6 +394,26 @@ doit être vérifié pour lui-même.
 passage : le registre, `App.tsx` et le réglage de masquage en ont tous besoin,
 et le faire descendre d'un composant obligeait `lib/` à type-dépendre de
 `components/`.
+
+**Commit 5** (2026-08-17) : le côté Rust. Les 166 entrées de
+`generate_handler!` étaient dans l'ordre d'ajout, sans un commentaire, avec
+`hosts` à deux endroits — lire ce bloc n'apprenait rien. Elles sont regroupées
+par module propriétaire, chaque groupe annoncé par son module, le noyau à la
+fin. Regroupement pur : le script de réécriture a vérifié qu'aucune commande
+n'était perdue ni dupliquée, et l'ordre n'a aucun effet (la macro construit un
+dispatch par nom).
+
+Chaque module déclare ses `commandDomains`, et quatre assertions tiennent
+l'attribution : tout domaine enregistré est possédé, aucun module ne revendique
+un domaine disparu, aucun domaine n'est à la fois noyau et module, et un
+plancher anti-vacuité. Vérifiées en les cassant dans les quatre directions.
+
+**La feuille de route de l'étape 2 est terminée.** Reste, hors périmètre et
+volontairement : rapatrier dans leur module les écritures de `SidebarActions`
+qui ne sont qu'un `api.X(...).then(refreshWorkspace)`, et fusionner le
+catalogue de boutons de `lib/sidebarButtons.ts` dans le registre — aujourd'hui
+un module déclare son panneau, mais son bouton (ordre, libellé, icône) vit
+encore ailleurs.
 
 Chaque commit : `npm run verify`, `cargo clippy -D warnings`, puis build et
 lancement du binaire Windows release pour un test manuel réel.

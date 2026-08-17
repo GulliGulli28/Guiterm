@@ -53,6 +53,28 @@ export const MODULES = [
   settingsModule,
 ] as const;
 
+/** Les domaines de commandes Tauri qu'aucun module ne possède, et qui n'ont
+ * pas vocation à en avoir un.
+ *
+ * Ce sont les transversaux de la section 3 du document d'architecture : le
+ * coffre (tout module qui touche à un secret passe par lui), l'authentification
+ * interactive (elle se joue pendant la poignée de main SSH, sous le pool, donc
+ * sous les modules), et l'historique de commandes (partagé par le terminal SSH
+ * et le terminal local, sans propriétaire naturel).
+ *
+ * Cette liste est le pendant assumé de l'attribution : y inscrire un domaine
+ * est une décision, pas un contournement. Elle ne doit pas servir de dépotoir
+ * pour un domaine qu'on n'a pas envie de rattacher. */
+export const CORE_COMMAND_DOMAINS: readonly string[] = ["vault", "interactive_auth", "command_history"];
+
+type AssertNever<T extends never> = T;
+
+// `M` nu dans le conditionnel : c'est ce qui le rend distributif sur l'union
+// des modules. Un module sans `tab` ne correspond pas et contribue `never`.
+type TabKindOf<M> = M extends { tab: { kind: infer K } } ? K : never;
+type ClaimedTabKind = TabKindOf<typeof MODULES[number]>;
+type KindWithoutModule = Exclude<TabMeta["kind"], ClaimedTabKind>;
+
 /** Erreur de compilation si un `kind` d'onglet n'a pas de module.
  *
  * C'est le garde-fou central du registre, et il remplace l'exhaustivité que
@@ -63,13 +85,6 @@ export const MODULES = [
  * Pendant la migration, il tolérait une liste `TABS_STILL_IN_APP` de `kind`
  * encore rendus par `App.tsx` ; elle s'est vidée au commit 3 et a disparu
  * avec. Il n'y a plus de dispatch d'onglet en dehors d'ici. */
-type AssertNever<T extends never> = T;
-
-// `M` nu dans le conditionnel : c'est ce qui le rend distributif sur l'union
-// des modules. Un module sans `tab` ne correspond pas et contribue `never`.
-type TabKindOf<M> = M extends { tab: { kind: infer K } } ? K : never;
-type ClaimedTabKind = TabKindOf<typeof MODULES[number]>;
-type KindWithoutModule = Exclude<TabMeta["kind"], ClaimedTabKind>;
 export type _EveryTabKindHasAModule = AssertNever<KindWithoutModule>;
 
 /** Même preuve sur l'autre axe : chaque panneau de barre latérale a son

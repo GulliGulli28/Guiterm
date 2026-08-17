@@ -6,6 +6,7 @@ const AwsIdentitiesPanel = lazy(() => import("../components/AwsIdentitiesPanel")
 export const awsModule = defineModule({
   id: "aws",
   label: "Identités AWS",
+  commandDomains: ["aws", "aws_sso"],
   panel: {
     kind: "aws",
     render: (ctx, a) => (

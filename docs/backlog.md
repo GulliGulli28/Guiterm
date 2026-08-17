@@ -39,11 +39,14 @@ CHANGELOG.
 
 ## État
 
-Les trois vagues prévues le 2026-08-04 sont terminées, et l'onglet de diagnostic
-réseau demandé après elles l'est aussi — ses deux tranches (2026-08-10).
-**Un seul item en attente** : le registre de modules ci-dessous (2026-08-13),
-planifié mais volontairement non démarré. La section « Écarté volontairement »
-en bas reste ce qu'il ne faut pas reproposer sans raison neuve.
+Les trois vagues prévues le 2026-08-04 sont terminées, l'onglet de diagnostic
+réseau demandé après elles aussi (ses deux tranches, 2026-08-10), et le registre
+de modules a été livré le 2026-08-17 en cinq commits. **Aucun item en attente**
+— la prochaine étape de « noyau + extensions » (extraire un module en sidecar)
+est analysée dans `docs/architecture-extensions.md` mais n'est pas planifiée :
+elle ne vaut que si le poids du binaire devient un vrai problème. La section
+« Écarté volontairement » en bas reste ce qu'il ne faut pas reproposer sans
+raison neuve.
 
 Trois dettes connues, à traiter au premier usage réel plutôt qu'à planifier :
 l'import Azure/GCP, le tunnel SSM et le diagnostic réseau n'ont jamais tourné
@@ -72,40 +75,43 @@ propriété que ma source n'a pas ».
 
 ---
 
-## À prendre — Registre de modules (étape 1 de « noyau + extensions ») — **M**
+## Livré — Registre de modules + masquage des panneaux (2026-08-17)
 
-Ajouté le 2026-08-13, **planifié et non démarré, à traiter plus tard** —
-décidé ainsi explicitement, ce n'est pas un item oublié.
+Planifié le 2026-08-13, livré le 2026-08-17 en cinq commits. L'analyse
+complète, les décisions et les écarts au plan vivent dans
+**`docs/architecture-extensions.md`** — c'est une décision d'architecture, pas
+une fonctionnalité, et elle est trop longue pour ce fichier.
 
-**D'où ça vient.** Question posée : peut-on avoir un noyau et des extensions
-par-dessus, pour tenir plus tard un marketplace et choisir ses features à
-l'installation ? L'analyse complète (les trois lectures possibles de la
-question, pourquoi ni dylib Rust ni WASM, ce qui doit rester noyau, la feuille
-de route en 4 étapes) vit dans **`docs/architecture-extensions.md`** — trop
-longue pour ce fichier, et c'est une décision d'architecture, pas une
-fonctionnalité.
+**Ce qui est en place.** Un module (`src/modules/`) déclare son onglet, son
+panneau de barre latérale et les domaines de commandes Tauri qu'il possède.
+`App.tsx` (991 → 878 lignes) et `Sidebar.tsx` (272 → 122) ne gardent que leur
+coquille : plus aucun dispatch par type d'onglet ni par panneau. Ajouter une
+fonctionnalité, c'est un fichier de module et une ligne de registre.
 
-**Valeur, indépendamment du marketplace.** Ajouter une feature veut aujourd'hui
-dire éditer quatre listes centrales à la main (`generate_handler!`, `api.ts`,
-`TabMeta`, le dispatch d'`App.tsx`) — le mécanisme exact qui avait laissé
-MongoDB inatteignable. Un registre ramène ça à un fichier par module, et rend
-l'oubli détectable par `tsc`.
+**Ce que ça a rapporté en garde-fous.** Un onglet ou un panneau sans module ne
+compile plus ; un domaine de commandes Rust sans propriétaire fait échouer les
+tests ; et quatre scénarios e2e ont été ajoutés pour ce qui n'était monté nulle
+part en fenêtre réelle (terminal SSH, base de données, flotte, les neuf
+panneaux). C'est plus fort que ce qui existait avant le chantier, où seul
+`assertNever` couvrait le dispatch d'onglets.
 
-**Levier — réel, et plus grand qu'attendu pour une fois.** Le côté Rust est
-**déjà couvert** : `tauriCommands.test.ts` vérifie les deux sens. `core/` est
-déjà sans Tauri, `dist/` déjà code-splitté, `Sidebar.tsx` a déjà une mini-table
-`TABS`. L'étape 1 est donc presque entièrement frontend.
+**Le seul vrai piège**, à retenir au-delà de ce chantier : rendre deux champs
+optionnels a suffi à vider **les deux** preuves d'exhaustivité sans qu'aucun
+test ne rougisse. Trouvé parce que casser le registre exprès faisait échouer
+les tests d'exécution et pas `tsc` — la divergence entre les deux était le seul
+signal. D'où la règle : **un garde-fou qui repose sur l'inférence doit être
+doublé d'une assertion à l'exécution.**
 
-**Piège identifié d'avance.** `HostsPanel` prend ~18 callbacks et chaque
-onglet a une signature différente : un registre à signature uniforme est une
-fiction. Les contributions doivent être des **fonctions de rendu recevant un
-`AppContext`**, pas des composants. Et le commit `terminal`/`transfer`/`rdp`
-est le seul vraiment risqué (refs, split pane, broadcast) — porte de sortie
-prévue : s'arrêter avant, le registre reste utile pour le reste.
+**Seule sortie visible pour l'utilisateur** : le masquage des boutons de la
+barre latérale (Paramètres → Apparence), livré en premier parce qu'il ne
+dépendait pas du registre. Le reste est à comportement identique — d'où
+l'unique entrée CHANGELOG.
 
-**Découpage en 5 commits, fichiers touchés, garde-fous** : section 6 de
-`docs/architecture-extensions.md`. **Zéro changement visible pour
-l'utilisateur**, donc probablement aucune entrée CHANGELOG.
+**Suites possibles, volontairement laissées de côté** : rapatrier dans leur
+module les écritures de `SidebarActions` qui ne sont qu'un
+`api.X(...).then(refreshWorkspace)` (~14 membres en moins), et fusionner le
+catalogue de boutons de `lib/sidebarButtons.ts` dans le registre — un module
+déclare son panneau, mais son bouton vit encore ailleurs.
 
 ---
 

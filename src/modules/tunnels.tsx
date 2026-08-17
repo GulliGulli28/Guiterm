@@ -6,6 +6,7 @@ const TunnelsPanel = lazy(() => import("../components/TunnelsPanel").then((m) =>
 export const tunnelsModule = defineModule({
   id: "tunnels",
   label: "Tunnels",
+  commandDomains: ["forward"],
   panel: {
     kind: "tunnels",
     render: (ctx, a) => (

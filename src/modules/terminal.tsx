@@ -9,6 +9,7 @@ import { defineModule } from "./types";
 export const terminalModule = defineModule({
   id: "terminal",
   label: "Terminal SSH",
+  commandDomains: ["terminal", "docker", "k8s"],
   tab: {
     kind: "terminal",
     render: (tab, ctx, isActive) => {

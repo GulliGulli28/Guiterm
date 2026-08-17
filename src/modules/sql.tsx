@@ -11,6 +11,7 @@ const SqlConnectionsPanel = lazy(() => import("../components/SqlConnectionsPanel
 export const sqlModule = defineModule({
   id: "sql",
   label: "Bases de données",
+  commandDomains: ["sql", "redis", "mongo"],
   tab: {
     kind: "sql",
     render: (tab, ctx) => {

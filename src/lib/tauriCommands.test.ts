@@ -2,6 +2,7 @@ import { readdirSync, readFileSync } from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
+import { CORE_COMMAND_DOMAINS, MODULES } from "../modules/registry";
 
 // Every frontend feature reaches Rust through a command *name* in a string
 // literal. Nothing checks those strings: `tsc` sees an opaque string, Rust
@@ -36,13 +37,62 @@ function invokedCommands(): Set<string> {
 
 /** Command names registered in `tauri::generate_handler![...]`, which is the
  * only thing that actually makes a `#[tauri::command]` reachable. */
-function registeredCommands(): Set<string> {
+function handlerBlock(): string {
   const source = read("../../src-tauri/src/main.rs");
   const start = source.indexOf("generate_handler![");
   if (start === -1) throw new Error("generate_handler! introuvable dans src-tauri/src/main.rs");
-  const block = source.slice(start, source.indexOf("])", start));
-  return new Set([...block.matchAll(/commands::[a-z0-9_]+::([a-z0-9_]+)/g)].map((m) => m[1]));
+  return source.slice(start, source.indexOf("])", start));
 }
+
+function registeredCommands(): Set<string> {
+  return new Set([...handlerBlock().matchAll(/commands::[a-z0-9_]+::([a-z0-9_]+)/g)].map((m) => m[1]));
+}
+
+/** Les domaines (`commands::<domaine>::…`), c'est-à-dire un fichier de
+ * `src-tauri/src/commands/`. */
+function registeredDomains(): Set<string> {
+  return new Set([...handlerBlock().matchAll(/commands::([a-z0-9_]+)::/g)].map((m) => m[1]));
+}
+
+describe("propriété des commandes", () => {
+  // Le pendant backend du registre de modules. Côté frontend, `tsc` empêche
+  // déjà un onglet ou un panneau d'exister sans module ; côté Rust rien
+  // n'empêchait un domaine de commandes d'apparaître sans que personne ne le
+  // possède. C'est pourtant la question à laquelle il faut savoir répondre
+  // pour extraire un module en sidecar (étape 3) : quelles commandes partent
+  // avec lui.
+  const claimed = new Map<string, string>();
+  for (const m of MODULES) {
+    for (const domain of m.commandDomains ?? []) {
+      const previous = claimed.get(domain);
+      if (previous) throw new Error(`le domaine « ${domain} » est revendiqué par « ${previous} » et « ${m.id} »`);
+      claimed.set(domain, m.id);
+    }
+  }
+
+  it("attribue chaque domaine de commandes à un module ou au noyau", () => {
+    const orphans = [...registeredDomains()]
+      .filter((d) => !claimed.has(d) && !CORE_COMMAND_DOMAINS.includes(d))
+      .sort();
+    expect(orphans, `domaines enregistrés dans main.rs que personne ne possède : ${orphans.join(", ")}`).toEqual([]);
+  });
+
+  it("ne revendique pas de domaine qui n'existe plus côté Rust", () => {
+    const registered = registeredDomains();
+    const stale = [...claimed.keys(), ...CORE_COMMAND_DOMAINS].filter((d) => !registered.has(d)).sort();
+    expect(stale, `domaines revendiqués mais absents de main.rs : ${stale.join(", ")}`).toEqual([]);
+  });
+
+  it("ne fait pas revendiquer un domaine à la fois par un module et par le noyau", () => {
+    const both = CORE_COMMAND_DOMAINS.filter((d) => claimed.has(d)).sort();
+    expect(both, `domaines à la fois noyau et module : ${both.join(", ")}`).toEqual([]);
+  });
+
+  it("n'est pas vide — sinon les trois contrôles ci-dessus passeraient à vide", () => {
+    expect(registeredDomains().size).toBeGreaterThan(25);
+    expect(claimed.size).toBeGreaterThan(20);
+  });
+});
 
 describe("commandes Tauri", () => {
   // A regex that silently stops matching would make every assertion below

@@ -6,6 +6,7 @@ const ActivityTab = lazy(() => import("../components/ActivityTab").then((m) => (
 export const activityModule = defineModule({
   id: "activity",
   label: "Activité",
+  commandDomains: ["activity"],
   tab: {
     kind: "activity",
     render: (_tab, ctx) => (

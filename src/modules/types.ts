@@ -179,18 +179,54 @@ export interface TabModule<K extends TabMeta["kind"]> {
   /** Nom lisible — pas encore affiché nulle part, mais c'est ce qui nommera le
    * module le jour où le registre devient visible par l'utilisateur. */
   label: string;
+  /** Les domaines de commandes Tauri (`src-tauri/src/commands/<domaine>.rs`)
+   * que ce module possède.
+   *
+   * Granularité du **domaine**, pas de la commande : `main.rs` a un fichier
+   * par domaine, donc ajouter une commande à un domaine existant n'a aucune
+   * raison de demander une écriture ici, alors qu'ajouter un domaine est
+   * exactement la décision qu'on veut forcer. `tauriCommands.test.ts` vérifie
+   * que tout domaine enregistré est possédé par un module ou déclaré noyau.
+   *
+   * C'est ce qui rendra l'étape 3 mécanique : extraire un module en sidecar,
+   * c'est déplacer les domaines listés ici. */
+  commandDomains?: readonly string[];
   tab: TabContribution<K>;
 }
 
 export interface PanelModule<P extends SidebarPanelKind> {
   id: string;
   label: string;
+  /** Les domaines de commandes Tauri (`src-tauri/src/commands/<domaine>.rs`)
+   * que ce module possède.
+   *
+   * Granularité du **domaine**, pas de la commande : `main.rs` a un fichier
+   * par domaine, donc ajouter une commande à un domaine existant n'a aucune
+   * raison de demander une écriture ici, alors qu'ajouter un domaine est
+   * exactement la décision qu'on veut forcer. `tauriCommands.test.ts` vérifie
+   * que tout domaine enregistré est possédé par un module ou déclaré noyau.
+   *
+   * C'est ce qui rendra l'étape 3 mécanique : extraire un module en sidecar,
+   * c'est déplacer les domaines listés ici. */
+  commandDomains?: readonly string[];
   panel: PanelContribution<P>;
 }
 
 export interface TabAndPanelModule<K extends TabMeta["kind"], P extends SidebarPanelKind> {
   id: string;
   label: string;
+  /** Les domaines de commandes Tauri (`src-tauri/src/commands/<domaine>.rs`)
+   * que ce module possède.
+   *
+   * Granularité du **domaine**, pas de la commande : `main.rs` a un fichier
+   * par domaine, donc ajouter une commande à un domaine existant n'a aucune
+   * raison de demander une écriture ici, alors qu'ajouter un domaine est
+   * exactement la décision qu'on veut forcer. `tauriCommands.test.ts` vérifie
+   * que tout domaine enregistré est possédé par un module ou déclaré noyau.
+   *
+   * C'est ce qui rendra l'étape 3 mécanique : extraire un module en sidecar,
+   * c'est déplacer les domaines listés ici. */
+  commandDomains?: readonly string[];
   tab: TabContribution<K>;
   panel: PanelContribution<P>;
 }

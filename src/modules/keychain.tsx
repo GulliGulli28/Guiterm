@@ -6,6 +6,7 @@ const KeychainPanel = lazy(() => import("../components/KeychainPanel").then((m) 
 export const keychainModule = defineModule({
   id: "keychain",
   label: "Clés",
+  commandDomains: ["keys"],
   panel: {
     kind: "keychain",
     render: (ctx, a) => (

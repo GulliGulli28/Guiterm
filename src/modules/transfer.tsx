@@ -7,6 +7,7 @@ const TransferTab = lazy(() => import("../components/TransferTab").then((m) => (
 export const transferModule = defineModule({
   id: "transfer",
   label: "Transfert de fichiers",
+  commandDomains: ["sftp", "remote_edit"],
   tab: {
     kind: "transfer",
     render: (tab, ctx) => {

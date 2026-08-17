@@ -5,6 +5,7 @@ import { defineModule } from "./types";
 export const hostsModule = defineModule({
   id: "hosts",
   label: "Hôtes",
+  commandDomains: ["hosts", "proxy", "reachability", "remote_search", "inventory", "cloud_inventory"],
   panel: {
     kind: "hosts",
     render: (ctx, a) => (

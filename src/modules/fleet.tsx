@@ -6,6 +6,7 @@ const FleetTab = lazy(() => import("../components/FleetTab").then((m) => ({ defa
 export const fleetModule = defineModule({
   id: "fleet",
   label: "Opérations de flotte",
+  commandDomains: ["fleet", "adaptive", "drift", "facts"],
   tab: {
     kind: "fleet",
     render: (_tab, ctx) => (

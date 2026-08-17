@@ -6,6 +6,7 @@ const NetDiagTab = lazy(() => import("../components/NetDiagTab").then((m) => ({ 
 export const netdiagModule = defineModule({
   id: "netdiag",
   label: "Diagnostic réseau",
+  commandDomains: ["netdiag"],
   tab: {
     kind: "netdiag",
     render: (tab, ctx) => (
