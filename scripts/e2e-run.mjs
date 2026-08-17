@@ -258,6 +258,7 @@ async function runScenarios(browser) {
   await runBulkEditScenario(browser);
   await runTabShortcutScenario(browser);
   await runCloudImportScenario(browser);
+  await runSidebarButtonsScenario(browser);
   await runTunnelEditScenario(browser);
   await runSsmTunnelScenario(browser);
   await runActivityScenario(browser);
@@ -1430,6 +1431,123 @@ async function runActivityScenario(browser) {
  * le bouton du formulaire — ce qui fait de son propre nettoyage la dernière
  * assertion du scénario.
  */
+/** Titres des boutons de la barre verticale, libellé seul (l'infobulle de
+ * certains ajoute « — … »). */
+function sidebarButtonTitles(browser) {
+  return browser.execute(() =>
+    Array.from(document.querySelectorAll("aside nav button"))
+      .map((b) => (b.getAttribute("title") || "").split(" — ")[0].split("\n")[0]),
+  );
+}
+
+function storedHiddenSidebarButtons(browser) {
+  return browser.execute(() => {
+    try {
+      return JSON.parse(localStorage.getItem("gui-termius-prefs") ?? "{}").hiddenSidebarButtons ?? null;
+    } catch {
+      return null;
+    }
+  });
+}
+
+/** Coche/décoche une ligne du réglage, désignée par son libellé. `.click()`
+ * natif plutôt qu'un élément WebdriverIO : React écoute l'événement `click`
+ * pour les cases à cocher, donc `onChange` part bien. */
+function toggleSidebarButtonRow(browser, label) {
+  return browser.execute((wanted) => {
+    const row = Array.from(document.querySelectorAll("label")).find(
+      (l) => l.querySelector("span")?.textContent?.trim() === wanted && l.querySelector('input[type="checkbox"]'),
+    );
+    if (!row) return { found: false };
+    const input = row.querySelector('input[type="checkbox"]');
+    const before = input.checked;
+    if (!input.disabled) input.click();
+    return { found: true, disabled: input.disabled, before, after: input.checked };
+  }, label);
+}
+
+/**
+ * Masquer un bouton de la barre latérale, de bout en bout.
+ *
+ * `lib/sidebarButtons.test.ts` prouve la logique (catalogue exhaustif, repli,
+ * `hosts` inmasquable) et `tsc` prouve qu'aucun bouton n'est sans icône — mais
+ * aucun des deux ne prouve le **câblage** : que la case du panneau Paramètres
+ * parle bien à la barre, et que le choix est réellement persisté. C'est
+ * exactement le trou par lequel MongoDB était passé, d'où ce scénario.
+ *
+ * Le repli d'un panneau masqué pendant qu'il est ouvert n'est pas couvert ici :
+ * ouvrir les Paramètres change déjà le panneau courant, donc la situation est
+ * inatteignable depuis l'UI. Elle reste couverte par `resolveVisiblePanel` en
+ * test unitaire.
+ */
+async function runSidebarButtonsScenario(browser) {
+  await browser.execute(() => {
+    const btn = Array.from(document.querySelectorAll("aside nav button"))
+      .find((b) => (b.getAttribute("title") || "") === "Paramètres");
+    if (btn instanceof HTMLElement) btn.click();
+  });
+  await browser.waitUntil(async () => await browser.execute(() =>
+    Array.from(document.querySelectorAll("p")).some((p) => p.textContent?.trim() === "Boutons de la barre latérale")
+  ), { timeout: 10_000, timeoutMsg: "la section « Boutons de la barre latérale » ne s est pas affichée dans Apparence" });
+
+  // « Hôtes » est le point d'entrée : la case doit exister mais rester
+  // inactionnable, sinon l'utilisateur peut s'enfermer hors de ses connexions.
+  const hosts = await toggleSidebarButtonRow(browser, "Hôtes");
+  if (!hosts.found) throw new Error("la ligne « Hôtes » est absente du réglage");
+  if (!hosts.disabled) throw new Error("la ligne « Hôtes » est décochable : le point d entrée peut disparaître");
+  if (!hosts.before) throw new Error("« Hôtes » n est pas coché alors qu il est toujours visible");
+
+  // Remettre « Tunnels » visible plutôt que l'exiger : ces préférences sont
+  // celles du vrai profil, et un run précédent interrompu au mauvais moment
+  // aurait sinon fait échouer tous les suivants sur son propre résidu.
+  const initial = await toggleSidebarButtonRow(browser, "Tunnels");
+  if (!initial.found) throw new Error("la ligne « Tunnels » est absente du réglage");
+  if (initial.before === false) {
+    await browser.waitUntil(async () => (await sidebarButtonTitles(browser)).includes("Tunnels"),
+      { timeout: 5_000, timeoutMsg: "« Tunnels » masqué par un run précédent n a pas pu être réaffiché" });
+  } else {
+    // Il était déjà visible : le clic ci-dessus vient de le masquer, on annule.
+    await toggleSidebarButtonRow(browser, "Tunnels");
+  }
+  if (!(await sidebarButtonTitles(browser)).includes("Tunnels")) {
+    throw new Error("« Tunnels » n est pas visible au moment de commencer le scénario");
+  }
+
+  const off = await toggleSidebarButtonRow(browser, "Tunnels");
+  if (!off.found || off.before !== true || off.after !== false) {
+    throw new Error(`décocher « Tunnels » n a pas pris : ${JSON.stringify(off)}`);
+  }
+
+  await browser.waitUntil(async () => !(await sidebarButtonTitles(browser)).includes("Tunnels"),
+    { timeout: 5_000, timeoutMsg: "« Tunnels » est resté dans la barre après avoir été décoché" });
+
+  const hidden = await storedHiddenSidebarButtons(browser);
+  if (!Array.isArray(hidden) || !hidden.includes("tunnels")) {
+    throw new Error(`le masquage n a pas été persisté dans les préférences : ${JSON.stringify(hidden)}`);
+  }
+  // Le réglage ne doit rien emporter d'autre avec lui.
+  const remaining = await sidebarButtonTitles(browser);
+  for (const kept of ["Hôtes", "Snippets", "Paramètres"]) {
+    if (!remaining.includes(kept)) {
+      throw new Error(`masquer « Tunnels » a aussi fait disparaître « ${kept} » : ${JSON.stringify(remaining)}`);
+    }
+  }
+
+  const on = await toggleSidebarButtonRow(browser, "Tunnels");
+  if (!on.found || on.after !== true) throw new Error(`recocher « Tunnels » n a pas pris : ${JSON.stringify(on)}`);
+  await browser.waitUntil(async () => (await sidebarButtonTitles(browser)).includes("Tunnels"),
+    { timeout: 5_000, timeoutMsg: "« Tunnels » n est pas revenu dans la barre après avoir été recoché" });
+
+  // Ce scénario écrit dans les vraies préférences du profil : il doit les
+  // laisser sans trace de son passage.
+  const restored = await storedHiddenSidebarButtons(browser);
+  if (Array.isArray(restored) && restored.includes("tunnels")) {
+    throw new Error(`préférences non restaurées, « tunnels » toujours masqué : ${JSON.stringify(restored)}`);
+  }
+
+  console.log("Barre latérale : OK (case décochée → bouton retiré et persisté, recoché → revenu, « Hôtes » verrouillé).");
+}
+
 async function runTunnelEditScenario(browser) {
   const BIND_PORT = "59137";
   const NEW_PORT = "59138";

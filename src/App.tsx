@@ -24,6 +24,7 @@ const FleetTab = lazy(() => import("./components/FleetTab").then((m) => ({ defau
 const ActivityTab = lazy(() => import("./components/ActivityTab").then((m) => ({ default: m.ActivityTab })));
 const NetDiagTab = lazy(() => import("./components/NetDiagTab").then((m) => ({ default: m.NetDiagTab })));
 import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, loadPreferences, savePreferences } from "./lib/preferences";
+import { resolveVisiblePanel } from "./lib/sidebarButtons";
 import { SplitPane } from "./components/SplitPane";
 import { AwsImportPanel } from "./components/AwsImportPanel";
 import { AnsibleImportPanel } from "./components/AnsibleImportPanel";
@@ -643,7 +644,11 @@ export default function App() {
         >
           <Sidebar
             workspace={workspace}
-            panel={sidebarPanel}
+            // Résolu au rendu plutôt que dans un effet : masquer le panneau
+            // ouvert le fait retomber sur « Hôtes » tout de suite, et un
+            // réglage posé dans une session précédente ne peut pas laisser un
+            // panneau sans bouton au rechargement.
+            panel={resolveVisiblePanel(sidebarPanel, preferences.hiddenSidebarButtons)}
             onPanelChange={setSidebarPanel}
             activeHostId={activeHostId}
             onConnect={(host) => openTab("terminal", host)}

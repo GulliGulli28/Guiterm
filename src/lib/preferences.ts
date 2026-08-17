@@ -1,4 +1,5 @@
 import type { ITheme } from "@xterm/xterm";
+import type { SidebarButtonId } from "./sidebarButtons";
 import { defaultShortcuts } from "./shortcuts";
 
 export type UiAccent = "indigo" | "blue" | "violet" | "emerald" | "rose" | "teal" | "amber" | "cyan";
@@ -116,6 +117,12 @@ export interface AppPreferences {
    * `terminalWebglRenderer` being a setting is being able to compare the two
    * on your own hardware, which needs something to compare with. */
   terminalRenderStats: boolean;
+  /** Boutons retirés de la barre verticale de gauche. Liste de **masqués**, et
+   * non d'affichés, délibérément : ces préférences vivent dans le
+   * `localStorage` de la webview, donc une installation déjà utilisée n'hérite
+   * jamais d'un défaut modifié. Une liste d'affichés serait absente chez tous
+   * les utilisateurs actuels — et leur viderait la barre à la mise à jour. */
+  hiddenSidebarButtons: SidebarButtonId[];
 }
 
 export interface TerminalThemeEntry {
@@ -280,6 +287,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   masterVaultAutoLockMinutes: 0,
   terminalWebglRenderer: true,
   terminalRenderStats: false,
+  hiddenSidebarButtons: [],
 };
 
 // Same two-stop aurora wash as `.app-aurora-bg` in index.css, but layered over
@@ -301,6 +309,10 @@ export function loadPreferences(): AppPreferences {
         ...DEFAULT_PREFERENCES,
         ...parsed,
         keyboardShortcuts: { ...DEFAULT_PREFERENCES.keyboardShortcuts, ...(parsed.keyboardShortcuts ?? {}) },
+        // Toute la barre latérale se rend à partir de cette liste : si un
+        // `localStorage` édité à la main y met autre chose qu'un tableau,
+        // l'app entière n'affiche plus rien plutôt qu'un bouton de trop.
+        hiddenSidebarButtons: Array.isArray(parsed.hiddenSidebarButtons) ? parsed.hiddenSidebarButtons : [],
       };
     }
   } catch { /* ignore */ }

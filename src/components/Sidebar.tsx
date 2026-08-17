@@ -2,6 +2,7 @@ import type { AwsSessionAlert, AwsSsoSession, Group, GroupId, Host, HostId, KeyA
 import type { AppPreferences } from "../lib/preferences";
 import { lazy, Suspense, type ComponentType } from "react";
 import { alertTone, describeAlert } from "../lib/awsIdentities";
+import { SIDEBAR_BUTTONS, isSidebarButtonVisible, type SidebarButtonId } from "../lib/sidebarButtons";
 import { HostsPanel } from "./HostsPanel";
 import { IconHosts, IconSnippets, IconTunnels, IconKeychain, IconSettings, IconTransfer, IconShield, IconDatabase, IconFleet, IconCloud, IconNetDiag } from "./ui-icons";
 import { TabLoadingFallback } from "./TabLoadingFallback";
@@ -84,45 +85,64 @@ interface SidebarProps {
   onVaultStatusChange: () => void;
 }
 
-const TABS: { key: Exclude<SidebarPanelKind, "settings">; label: string; Icon: ComponentType<{ size?: number }> }[] = [
-  { key: "knownHosts", label: "Known Hosts", Icon: IconShield  },
-  { key: "hosts",      label: "Hôtes",       Icon: IconHosts    },
-  { key: "sftp",       label: "SFTP",        Icon: IconTransfer },
-  { key: "snippets",   label: "Snippets",    Icon: IconSnippets },
-  { key: "tunnels",    label: "Tunnels",     Icon: IconTunnels  },
-  { key: "database",   label: "Bases de données", Icon: IconDatabase },
-  { key: "keychain",   label: "Clés",        Icon: IconKeychain },
-  { key: "aws",        label: "Identités AWS", Icon: IconCloud   },
-];
+// L'ordre et les libellés vivent dans `lib/sidebarButtons` — partagés avec le
+// réglage de masquage, qui doit se lire contre cette barre. Ici, seule
+// l'icône. Le `Record` rend l'oubli impossible : ajouter un bouton sans son
+// icône est une erreur `tsc`.
+const BUTTON_ICONS: Record<SidebarButtonId, ComponentType<{ size?: number }>> = {
+  knownHosts: IconShield,
+  hosts:      IconHosts,
+  sftp:       IconTransfer,
+  snippets:   IconSnippets,
+  tunnels:    IconTunnels,
+  database:   IconDatabase,
+  keychain:   IconKeychain,
+  aws:        IconCloud,
+  fleet:      IconFleet,
+  netdiag:    IconNetDiag,
+};
 
 export function Sidebar(props: SidebarProps) {
   const { workspace, panel, onPanelChange, awsAlerts } = props;
   const tone = alertTone(awsAlerts);
+  const hidden = props.preferences.hiddenSidebarButtons;
+
+  // `fleet` et `netdiag` ouvrent un onglet au lieu de changer de panneau. Ils
+  // vivent dans cette barre parce que c'est là qu'on cherche « ce que sait
+  // faire l'app » — un bouton relégué dans la barre d'onglets ne se trouvait
+  // pas.
+  const activate = (id: SidebarButtonId) => {
+    if (id === "fleet") return props.onOpenFleet();
+    if (id === "netdiag") return props.onOpenNetDiag();
+    onPanelChange(id);
+  };
 
   return (
     <aside className="flex min-w-0 flex-1 overflow-hidden">
       {/* Vertical nav strip — fixed 44px, never overflows regardless of sidebar width */}
       <nav className="relative flex w-11 shrink-0 flex-col items-center border-r border-[var(--c-border)] bg-[var(--c-bg)] py-2 gap-0.5">
-        {TABS.map((t) => {
-          const active = panel === t.key;
+        {SIDEBAR_BUTTONS.filter((b) => isSidebarButtonVisible(b.id, hidden)).map((b) => {
+          const Icon = BUTTON_ICONS[b.id];
+          const active = panel === b.id;
           // The dot only ever belongs to the AWS tab, and only when something
           // that carries work is about to lapse — see `aws_sso::alerts`.
-          const alerting = t.key === "aws" && tone !== null;
+          const alerting = b.id === "aws" && tone !== null;
+          const label = b.hint ? `${b.label} — ${b.hint}` : b.label;
           return (
             <button
-              key={t.key}
-              onClick={() => onPanelChange(t.key)}
+              key={b.id}
+              onClick={() => activate(b.id)}
               // The reason goes in the tooltip rather than the badge: a bare
               // dot says "something", and the hosts are what makes it a
               // decision.
-              title={alerting ? [t.label, ...awsAlerts.map(describeAlert)].join("\n") : t.label}
+              title={alerting ? [b.label, ...awsAlerts.map(describeAlert)].join("\n") : label}
               className={`relative flex h-9 w-9 items-center justify-center rounded-lg border transition-all duration-150 ${
                 active
                   ? "accent-surface"
                   : "border-transparent text-[var(--c-text-faint)] hover:bg-white/5 hover:text-[var(--c-text-secondary)]"
               }`}
             >
-              <t.Icon size={16} />
+              <Icon size={16} />
               {alerting && (
                 <span
                   className={`absolute right-1 top-1 h-2 w-2 rounded-full ring-2 ring-[var(--c-bg)] ${
@@ -133,24 +153,6 @@ export function Sidebar(props: SidebarProps) {
             </button>
           );
         })}
-        {/* These two open a tab in the main area rather than switching the
-            sidebar panel — their content is a grid that needs the width. They
-            live here anyway because this strip is where people look for "what
-            can this app do", and a button hidden in the tab bar wasn't found. */}
-        <button
-          onClick={props.onOpenFleet}
-          title="Opérations de flotte — exécuter une commande sur plusieurs hôtes à la fois"
-          className="relative flex h-9 w-9 items-center justify-center rounded-lg border border-transparent text-[var(--c-text-faint)] transition-all duration-150 hover:bg-white/5 hover:text-[var(--c-text-secondary)]"
-        >
-          <IconFleet size={16} />
-        </button>
-        <button
-          onClick={props.onOpenNetDiag}
-          title="Diagnostic réseau — ping, traceroute, DNS, TCP, HTTP depuis ou vers vos hôtes"
-          className="relative flex h-9 w-9 items-center justify-center rounded-lg border border-transparent text-[var(--c-text-faint)] transition-all duration-150 hover:bg-white/5 hover:text-[var(--c-text-secondary)]"
-        >
-          <IconNetDiag size={16} />
-        </button>
         <div className="mt-auto">
           <button
             onClick={() => onPanelChange(panel === "settings" ? "hosts" : "settings")}

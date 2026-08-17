@@ -9,6 +9,7 @@ import type { VaultStatus, Workspace } from "../lib/types";
 import type { AppPreferences } from "../lib/preferences";
 import { TERMINAL_THEMES, FONT_FAMILIES, ACCENT_COLORS, BG_THEMES, type UiAccent, type UiBg, type ColorMode } from "../lib/preferences";
 import { SHORTCUT_ACTIONS, defaultShortcuts, comboFromEvent, shellBindingWarning } from "../lib/shortcuts";
+import { SIDEBAR_BUTTONS, ALWAYS_VISIBLE_SIDEBAR_BUTTONS, isSidebarButtonVisible } from "../lib/sidebarButtons";
 import { IconUpload, IconDownload, IconPalette, IconTerminal, IconTransfer, IconKeyboard, IconBell, IconSettings, IconSun, IconMoon, IconRefresh, IconShield } from "./ui-icons";
 import { VaultSettings } from "./VaultSettings";
 import { AdaptiveEngineSettings } from "./AdaptiveEngineSettings";
@@ -77,13 +78,17 @@ function ShortcutRow({ label, combo, onChange }: { label: string; combo: string;
   );
 }
 
-function ToggleRow({ label, checked, onChange }: { label: string; checked: boolean; onChange: (v: boolean) => void }) {
+function ToggleRow({ label, checked, onChange, disabled, title }: { label: string; checked: boolean; onChange: (v: boolean) => void; disabled?: boolean; title?: string }) {
   return (
-    <label className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 hover:bg-white/5">
+    <label
+      title={title}
+      className={`flex items-center justify-between gap-2 rounded-md px-2 py-1.5 ${disabled ? "opacity-60" : "hover:bg-white/5"}`}
+    >
       <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--c-text-secondary)]">{label}</span>
       <input
         type="checkbox"
         checked={checked}
+        disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
         className="h-4 w-4 shrink-0 accent-[var(--c-accent)]"
       />
@@ -284,6 +289,36 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
                     );
                   })}
                 </div>
+              </div>
+            </section>
+
+            <section className="space-y-2">
+              <p className="text-[13px] font-medium text-[var(--c-text)]">Boutons de la barre latérale</p>
+              <div className="space-y-1 rounded-lg bg-[var(--c-bg3)] p-3">
+                <p className="px-2 pb-1 text-[12px] text-[var(--c-text-secondary)]">
+                  Décocher un bouton le retire de la barre de gauche, rien de plus :
+                  aucune fonctionnalité n'est désactivée, les onglets déjà ouverts
+                  restent, et la palette de commandes garde tout.
+                </p>
+                {SIDEBAR_BUTTONS.map((b) => {
+                  const locked = ALWAYS_VISIBLE_SIDEBAR_BUTTONS.includes(b.id);
+                  const visible = isSidebarButtonVisible(b.id, preferences.hiddenSidebarButtons);
+                  return (
+                    <ToggleRow
+                      key={b.id}
+                      label={b.label}
+                      checked={visible}
+                      disabled={locked}
+                      title={locked ? "Toujours visible — c'est par là qu'on ouvre une connexion." : b.hint}
+                      onChange={(show) => onPreferencesChange({
+                        ...preferences,
+                        hiddenSidebarButtons: show
+                          ? preferences.hiddenSidebarButtons.filter((id) => id !== b.id)
+                          : [...preferences.hiddenSidebarButtons, b.id],
+                      })}
+                    />
+                  );
+                })}
               </div>
             </section>
           </>

@@ -4,17 +4,19 @@
 noyau et des extensions par-dessus, pour tenir plus tard un marketplace, et
 choisir à l'installation les features à télécharger ? »
 
-Révisé le 2026-08-17 : l'étape 2 ne passe plus par un écran de premier
-lancement (section 5).
+Révisé le 2026-08-17 : le masquage des boutons passe devant le registre et ne
+passe plus par un écran de premier lancement (section 5, où il est livré) ;
+l'installeur allégé est abandonné pour de bon (section 2, choix A).
 
-**Rien n'est décidé ni commencé.** Ce document existe pour que la réflexion ne
-soit pas refaite de zéro. Les chiffres ci-dessous ont été mesurés dans le dépôt
-le 2026-08-13 — les revérifier avant de s'engager sur une taille (c'est la
-leçon récurrente de `backlog.md`).
+**Seule l'étape 1 est faite** ; les étapes 2 à 4 restent analysées et non
+commencées. Ce document existe pour que la réflexion ne soit pas refaite de
+zéro. Les chiffres ci-dessous ont été mesurés dans le dépôt le 2026-08-13 —
+les revérifier avant de s'engager sur une taille (c'est la leçon récurrente de
+`backlog.md`).
 
 `backlog.md` dit quoi construire et dans quel ordre ; `dev-history.md` pourquoi
 l'existant est comme il est ; ce fichier-ci tient une décision d'architecture
-pas encore prise.
+en cours de découverte.
 
 ---
 
@@ -56,8 +58,10 @@ Le sens littéral de « choisir ce que je télécharge ».
 classe de bugs « ne se reproduit qu'avec la feature X désactivée ».
 **Gain** : ~20 Mo sur 67.
 
-**Verdict : mauvais rapport.** Éventuellement *deux* variantes figées (Lite
-SSH-only / Full), jamais N².
+**Verdict : mauvais rapport.** Deux variantes figées (Lite SSH-only / Full)
+restaient envisageables — **abandonné le 2026-08-17**, y compris sous cette
+forme réduite : voir « Ce que cette étape ne résout pas » en section 5. Le
+chemin vers un binaire plus léger, si le besoin revient, est l'étape 3.
 
 ### B. Choisir à l'exécution (tout est compilé, l'utilisateur active ce qu'il veut)
 
@@ -105,25 +109,31 @@ que de la décréter.
 
 ## 5. Feuille de route en 4 étapes
 
-Chaque étape a de la valeur seule.
+Chaque étape a de la valeur seule. **Renumérotée le 2026-08-17** : le masquage
+passe devant le registre. Il n'en dépendait pas — `Sidebar.tsx` portait déjà
+une table `TABS`, seul point d'accroche nécessaire — et rien ne justifiait
+qu'une amélioration d'une demi-journée attende un refactor taille M dont le
+bénéfice est interne.
 
-1. **Registre de modules first-party** — aucune promesse publique. Détail en
-   section 6.
-2. **Masquage des panneaux, réglable dans les préférences** — pas d'écran de
-   premier lancement (voir juste en dessous). `hiddenPanels` dans les
-   préférences, **tout visible par défaut**. Garde-fou : le noyau (SSH, vault,
-   known_hosts) n'est jamais masquable.
+1. **Masquer les boutons de la barre latérale**, réglable dans les préférences
+   — **fait le 2026-08-17**, pas d'écran de premier lancement (voir juste en
+   dessous). `hiddenSidebarButtons` dans les préférences, tout visible par
+   défaut, `hosts` jamais masquable.
+2. **Registre de modules first-party** — aucune promesse publique. Détail en
+   section 6. `lib/sidebarButtons.ts`, écrit à l'étape 1, en est la graine :
+   c'est déjà « une liste de contributions déclarée hors du composant », mais
+   sur le seul axe des boutons de barre.
 3. **Extraire un vrai module en sidecar** (candidat : Mongo ou Redis) pour
    éprouver la frontière sous contrainte réelle, en réutilisant le patron
    `rdp-ipc`. C'est là qu'on mesure les Mo réellement gagnés.
 4. **Marketplace** — seulement si 3 tient : manifeste, permissions, signature,
    distribution, mises à jour.
 
-**L'étape 1 vaut le coup même si le marketplace ne voit jamais le jour.**
+**Le registre vaut le coup même si le marketplace ne voit jamais le jour.**
 
 ### Pourquoi pas d'écran de premier lancement (révisé le 2026-08-17)
 
-La première version de l'étape 2 proposait un écran d'onboarding où
+La première version de cette étape proposait un écran d'onboarding où
 l'utilisateur cochait ses modules, façon VS Code. Écarté après discussion, pour
 trois raisons — la troisième étant la vraie :
 
@@ -141,35 +151,71 @@ trois raisons — la troisième étant la vraie :
 
 Ce qui reste, et qui suffit : **un réglage dans les préférences existantes**.
 Celui que ça encombre range ; les autres ne voient jamais la question. C'est une
-petite fraction du travail initialement prévu pour l'étape 2, et l'essentiel de
-sa valeur.
+petite fraction du travail initialement prévu, et l'essentiel de sa valeur.
 
 Le périmètre réel est d'ailleurs plus étroit que « 14 modules » : les onglets
-n'apparaissent que si on les ouvre. Ce qui encombre visuellement, ce sont les
-**8 panneaux de la barre latérale** (`TABS` dans `Sidebar.tsx`). Un réglage
-« quels panneaux afficher dans la barre latérale » couvre la plainte concrète
-sans introduire une notion de « module » visible par l'utilisateur — notion
-qu'il vaut mieux ne pas exposer avant que l'étape 3 lui donne un sens.
+n'apparaissent que si on les ouvre. Ce qui encombre visuellement, c'est la barre
+verticale de gauche. Un réglage « quels boutons afficher » couvre la plainte
+concrète sans introduire une notion de « module » visible par l'utilisateur —
+notion qu'il vaut mieux ne pas exposer avant que l'étape 3 lui donne un sens.
 
 **Contrainte à ne pas rater** : les préférences vivent dans le `localStorage` de
 la webview, donc une installation déjà utilisée n'hérite jamais d'un défaut
-modifié (piège documenté dans `CLAUDE.md`). Le réglage doit donc être une liste
-de **masqués** et non d'activés — absente, elle vaut « rien de masqué ». Une
-liste d'activés ferait disparaître tous les panneaux chez les utilisateurs
+modifié (piège documenté dans `CLAUDE.md`). Le réglage est donc une liste de
+**masqués** et non d'affichés — absente, elle vaut « rien de masqué ». Une
+liste d'affichés ferait disparaître tous les boutons chez les utilisateurs
 actuels à la première mise à jour.
 
-### Ce que l'étape 2 ne résout pas
+### Ce qui a été livré le 2026-08-17
+
+`src/lib/sidebarButtons.ts` — catalogue (ordre, libellés, infobulles),
+`ALWAYS_VISIBLE_SIDEBAR_BUTTONS` (`hosts` seul) et `resolveVisiblePanel`.
+`hiddenSidebarButtons` dans `AppPreferences`, section « Boutons de la barre
+latérale » dans l'onglet Apparence des paramètres.
+
+Trois décisions prises en cours de route :
+
+- **Flotte et Diagnostic réseau rejoignent la même liste.** Ils étaient codés
+  en dur hors de `TABS` parce qu'ils ouvrent un onglet au lieu de changer de
+  panneau — mais du point de vue du réglage, c'est un bouton comme un autre.
+  Le dispatch `panel`/`onglet` tient en trois lignes dans `Sidebar.tsx`.
+- **Le repli est calculé au rendu**, pas dans un effet au changement de
+  réglage : `App.tsx` passe `resolveVisiblePanel(sidebarPanel, …)` plutôt que
+  `sidebarPanel`. Un panneau masqué dans une session précédente ne peut donc
+  pas survivre à un rechargement, et masquer le panneau ouvert retombe sur
+  « Hôtes » immédiatement.
+- **Masquer ne désactive rien** : onglets ouverts conservés, palette de
+  commandes complète, backend inchangé. C'est écrit dans l'UI même du réglage.
+  C'est ce qui rend l'étape sûre — et ce qui la distingue de l'étape 3.
+
+Garde-fous (`src/lib/sidebarButtons.test.ts`), chacun vérifié en le cassant
+volontairement une fois : un `Record<SidebarButtonId, …>` côté icônes rend
+l'ajout d'un bouton sans icône impossible à compiler ; deux `Record` dans le
+test font échouer `tsc` si un bouton ou un panneau n'y est pas déclaré, et les
+assertions attrapent alors l'oubli symétrique dans le catalogue ; `hosts` reste
+visible même listé comme masqué ; `settings` ne retombe jamais sur « Hôtes ».
+Plus un plancher anti-vacuité.
+
+### Ce que cette étape ne résout pas
 
 Elle ne répond **pas** à « choisir les features à télécharger à
-l'installation », malgré l'apparence. Rien n'est retiré du binaire. Si c'est
-bien ça la demande, les seules vraies réponses sont le choix A de la section 2
-(deux variantes figées Lite/Full) ou l'étape 3 (sidecars téléchargés à la
-demande). À trancher avant de commencer l'étape 2, pour ne pas croire la
-question réglée.
+l'installation », malgré l'apparence. Rien n'est retiré du binaire, qui reste à
+53 Mo et continuera de grossir.
+
+**Tranché le 2026-08-17 : c'est assumé, l'installeur allégé est abandonné.** Le
+masquage était jugé préférable, le choix A de la section 2 (variantes figées)
+trop gros pour ce qu'il rapporte. Abandonner A ne coûte aucune option : si le
+poids devient un vrai problème, la réponse est l'étape 3 (sidecars), meilleure
+sur tous les axes — module par module, pas de matrice de builds, et un patron
+qui tourne déjà dans ce dépôt. On ne renonce pas à un binaire plus léger, on
+renonce à la mauvaise façon de l'obtenir.
 
 ---
 
-## 6. Plan détaillé de l'étape 1 (validé le 2026-08-13, non démarré)
+## 6. Plan détaillé du registre de modules (validé le 2026-08-13, non démarré)
+
+Étape 2 depuis la renumérotation du 2026-08-17 — le plan lui-même n'a pas
+bougé.
 
 ### Ce qu'il ne faut PAS toucher, et pourquoi
 
@@ -186,8 +232,8 @@ question réglée.
 - **`api.ts` reste le point de passage unique** — invariant testé, ne pas le
   casser.
 
-**L'étape 1 est donc presque entièrement un chantier frontend**, nettement plus
-petit que la question ne le laissait craindre.
+**Le registre est donc presque entièrement un chantier frontend**, nettement
+plus petit que la question ne le laissait craindre.
 
 ### L'obstacle réel, nommé d'avance
 
@@ -281,11 +327,12 @@ lancement du binaire Windows release pour un test manuel réel.
 garder `terminal`/`transfer`/`rdp` en dispatch manuel. Le registre reste utile
 pour tout le reste.
 
-### Hors périmètre de l'étape 1
+### Hors périmètre du registre
 
-Pas de masquage de panneaux (étape 2), pas de feature Cargo ni
-de sidecar (étape 3), aucun changement de format `workspace.json`, aucun
-renommage de commande Tauri.
+Pas de feature Cargo ni de sidecar (étape 3), aucun changement de format
+`workspace.json`, aucun renommage de commande Tauri. Le masquage des boutons
+est déjà livré et lui est antérieur — le registre devra reprendre
+`lib/sidebarButtons.ts` comme contribution parmi d'autres, pas le contourner.
 
 **Zéro changement visible pour l'utilisateur** — volontaire : si un comportement
 change, c'est une régression, pas une feature. Il n'y a donc probablement
