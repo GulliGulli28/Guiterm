@@ -1,88 +1,17 @@
-import type { AwsSessionAlert, AwsSsoSession, Group, GroupId, Host, HostId, KeyAlgorithm, KeyId, PortForwardId, PortForwardKind, SnippetId, SqlConnection, VaultStatus, Workspace } from "../lib/types";
-import type { AppPreferences } from "../lib/preferences";
-import { lazy, Suspense, type ComponentType } from "react";
+import { Suspense, type ComponentType } from "react";
 import { alertTone, describeAlert } from "../lib/awsIdentities";
-import { SIDEBAR_BUTTONS, isSidebarButtonVisible, type SidebarButtonId } from "../lib/sidebarButtons";
-import { HostsPanel } from "./HostsPanel";
+import { SIDEBAR_BUTTONS, isSidebarButtonVisible, type SidebarButtonId, type SidebarPanelKind } from "../lib/sidebarButtons";
+
+import { renderModulePanel } from "../modules/registry";
+import type { AppContext, SidebarActions } from "../modules/types";
 import { IconHosts, IconSnippets, IconTunnels, IconKeychain, IconSettings, IconTransfer, IconShield, IconDatabase, IconFleet, IconCloud, IconNetDiag } from "./ui-icons";
 import { TabLoadingFallback } from "./TabLoadingFallback";
 
-// Lazy-loaded: "Hôtes" is the default panel shown on launch (stays eager),
-// every other sidebar panel only needs to load once the user actually
-// clicks that tab.
-const KeychainPanel = lazy(() => import("./KeychainPanel").then((m) => ({ default: m.KeychainPanel })));
-const KnownHostsPanel = lazy(() => import("./KnownHostsPanel").then((m) => ({ default: m.KnownHostsPanel })));
-const SettingsPanel = lazy(() => import("./SettingsPanel").then((m) => ({ default: m.SettingsPanel })));
-const SnippetsPanel = lazy(() => import("./SnippetsPanel").then((m) => ({ default: m.SnippetsPanel })));
-const SftpPanel = lazy(() => import("./SftpPanel").then((m) => ({ default: m.SftpPanel })));
-const TunnelsPanel = lazy(() => import("./TunnelsPanel").then((m) => ({ default: m.TunnelsPanel })));
-const SqlConnectionsPanel = lazy(() => import("./SqlConnectionsPanel").then((m) => ({ default: m.SqlConnectionsPanel })));
-const AwsIdentitiesPanel = lazy(() => import("./AwsIdentitiesPanel").then((m) => ({ default: m.AwsIdentitiesPanel })));
-
-export type SidebarPanelKind = "knownHosts" | "hosts" | "sftp" | "snippets" | "tunnels" | "keychain" | "database" | "aws" | "settings";
-
 interface SidebarProps {
-  workspace: Workspace;
   panel: SidebarPanelKind;
   onPanelChange: (panel: SidebarPanelKind) => void;
-  activeHostId?: HostId | null;
-  onConnect: (host: Host) => void;
-  onConnectDocker: (host: Host, containerId: string) => void;
-  onConnectK8s: (host: Host, podName: string, containerName: string | null) => void;
-  onConnectRdpView: (host: Host) => void;
-  onOpenTransfer: (host: Host, dockerContainerId?: string, k8sPodName?: string, k8sContainerName?: string | null) => void;
-  onProbeReachability: (host: Host) => void;
-  /** Success feedback for actions in the hosts panel (a bulk edit, notably). */
-  onNotify: (message: string) => void;
-  onSearchFiles: (host: Host) => void;
-  onOpenLocalTerminal: (shell?: string) => void;
-  onQuickSSH: (cmd: string) => void;
-  onNewHost: () => void;
-  onEditHost: (host: Host) => void;
-  onNewGroup: () => void;
-  onImportCloud: () => void;
-  onImportAnsible: () => void;
-  onNewHostInGroup: (groupId: GroupId) => void;
-  onNewGroupUnder: (parentId: GroupId) => void;
-  onEditGroup: (group: Group) => void;
-  onAddSnippet: (name: string, command: string) => void;
-  onUpdateSnippet: (id: SnippetId, name: string, command: string) => void;
-  onDeleteSnippet: (id: SnippetId) => void;
-  onRunSnippet: (command: string, targetTabIds?: string[]) => void;
-  onRunAdaptiveSnippet: (programText: string, targetTabIds?: string[]) => void;
-  onSaveAdaptiveSnippet: (id: SnippetId | null, name: string, command: string) => void;
-  openTerminals: { id: string; label: string }[];
-  onAddForward: (input: { hostId: HostId; kind: PortForwardKind; bindAddress: string; bindPort: number; destAddress: string; destPort: number }) => void;
-  onUpdateForward: (input: { id: PortForwardId; hostId: HostId; kind: PortForwardKind; bindAddress: string; bindPort: number; destAddress: string; destPort: number }) => Promise<unknown>;
-  onDeleteForward: (id: PortForwardId) => void;
-  onAddKey: (name: string, path: string, passphrase: string | null) => void;
-  onGenerateKey: (name: string, algorithm: KeyAlgorithm, passphrase: string | null) => void;
-  onDeleteKey: (id: KeyId) => void;
-  onRenameKey: (id: KeyId, name: string) => void;
-  onConnectSql: (conn: SqlConnection) => void;
-  onNewSqlConnection: () => void;
-  onImportAwsDatabases: () => void;
-  /** AWS identities panel — the SSO modal it opens lives at the App level,
-   * since the import panels open the very same one. */
-  onConfigureSso: () => void;
-  onReconnectSso: (session: AwsSsoSession) => void;
-  onAddAwsProfiles: (session: AwsSsoSession) => void;
-  /** Bumped whenever that modal wrote something, so the listing catches up. */
-  awsRefreshToken: number;
-  /** SSO sessions about to lapse that hosts depend on — polled at the App
-   * level, since the point is to be seen without opening the panel. */
-  awsAlerts: AwsSessionAlert[];
-  onEditSqlConnection: (conn: SqlConnection) => void;
-  onOpenFleet: () => void;
-  /** Opens the network diagnostics tab. Lives in this strip rather than the
-   * tab bar, where it went unnoticed. */
-  onOpenNetDiag: () => void;
-  onWorkspaceUpdate: (ws: Workspace) => void;
-  onError: (message: string) => void;
-  preferences: AppPreferences;
-  onPreferencesChange: (p: AppPreferences) => void;
-  vaultStatus: VaultStatus | null;
-  onVaultStatusChange: () => void;
+  ctx: AppContext;
+  actions: SidebarActions;
 }
 
 // L'ordre et les libellés vivent dans `lib/sidebarButtons` — partagés avec le
@@ -102,18 +31,26 @@ const BUTTON_ICONS: Record<SidebarButtonId, ComponentType<{ size?: number }>> = 
   netdiag:    IconNetDiag,
 };
 
-export function Sidebar(props: SidebarProps) {
-  const { workspace, panel, onPanelChange, awsAlerts } = props;
-  const tone = alertTone(awsAlerts);
-  const hidden = props.preferences.hiddenSidebarButtons;
+/**
+ * La coquille de la barre latérale : la bande de boutons, et le conteneur du
+ * panneau courant.
+ *
+ * Ne connaît **aucun** panneau. Chacun est rendu par son module
+ * (`modules/registry`), là où ce composant déclarait 45 props qu'il se
+ * contentait de faire suivre. Ce qui reste ici est le shell — comme le shell
+ * d'onglets d'`App.tsx`, il est noyau et non extensible.
+ */
+export function Sidebar({ panel, onPanelChange, ctx, actions }: SidebarProps) {
+  const tone = alertTone(actions.awsAlerts);
+  const hidden = ctx.preferences.hiddenSidebarButtons;
 
   // `fleet` et `netdiag` ouvrent un onglet au lieu de changer de panneau. Ils
   // vivent dans cette barre parce que c'est là qu'on cherche « ce que sait
   // faire l'app » — un bouton relégué dans la barre d'onglets ne se trouvait
   // pas.
   const activate = (id: SidebarButtonId) => {
-    if (id === "fleet") return props.onOpenFleet();
-    if (id === "netdiag") return props.onOpenNetDiag();
+    if (id === "fleet") return actions.openFleet();
+    if (id === "netdiag") return actions.openNetDiag();
     onPanelChange(id);
   };
 
@@ -135,7 +72,7 @@ export function Sidebar(props: SidebarProps) {
               // The reason goes in the tooltip rather than the badge: a bare
               // dot says "something", and the hosts are what makes it a
               // decision.
-              title={alerting ? [b.label, ...awsAlerts.map(describeAlert)].join("\n") : label}
+              title={alerting ? [b.label, ...actions.awsAlerts.map(describeAlert)].join("\n") : label}
               className={`relative flex h-9 w-9 items-center justify-center rounded-lg border transition-all duration-150 ${
                 active
                   ? "accent-surface"
@@ -170,100 +107,13 @@ export function Sidebar(props: SidebarProps) {
 
       {/* Panel content */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--c-bg2)]">
-        <div className="min-h-0 min-w-0 flex-1 overflow-hidden p-2">
+        {/* `data-sidebar-panel` : le seul point d'accroche stable pour vérifier
+            en E2E que le panneau demandé rend bien quelque chose. Sans lui, le
+            test devrait viser des classes utilitaires Tailwind, qui changent
+            au premier ajustement de style. */}
+        <div data-sidebar-panel={panel} className="min-h-0 min-w-0 flex-1 overflow-hidden p-2">
           <Suspense fallback={<TabLoadingFallback />}>
-          {panel === "knownHosts" && (
-            <KnownHostsPanel onWorkspaceUpdate={props.onWorkspaceUpdate} onError={props.onError} />
-          )}
-          {panel === "hosts" && (
-            <HostsPanel
-              workspace={workspace}
-              activeHostId={props.activeHostId}
-              onConnect={props.onConnect}
-              onConnectDocker={props.onConnectDocker}
-              onConnectK8s={props.onConnectK8s}
-              onConnectRdpView={props.onConnectRdpView}
-              onOpenTransfer={props.onOpenTransfer}
-              onProbeReachability={props.onProbeReachability}
-              onNotify={props.onNotify}
-              onSearchFiles={props.onSearchFiles}
-              onOpenLocalTerminal={props.onOpenLocalTerminal}
-              onQuickSSH={props.onQuickSSH}
-              onNewHost={props.onNewHost}
-              onEditHost={props.onEditHost}
-              onNewGroup={props.onNewGroup}
-              onImportCloud={props.onImportCloud}
-              onImportAnsible={props.onImportAnsible}
-              onNewHostInGroup={props.onNewHostInGroup}
-              onNewGroupUnder={props.onNewGroupUnder}
-              onEditGroup={props.onEditGroup}
-              onWorkspaceUpdate={props.onWorkspaceUpdate}
-              onError={props.onError}
-            />
-          )}
-          {panel === "sftp" && (
-            <SftpPanel workspace={workspace} onOpenTransfer={props.onOpenTransfer} />
-          )}
-          {panel === "snippets" && (
-            <SnippetsPanel
-              workspace={workspace}
-              onAddSnippet={props.onAddSnippet}
-              onUpdateSnippet={props.onUpdateSnippet}
-              onDeleteSnippet={props.onDeleteSnippet}
-              onRunSnippet={props.onRunSnippet}
-              onRunAdaptiveSnippet={props.onRunAdaptiveSnippet}
-              onSaveAdaptiveSnippet={props.onSaveAdaptiveSnippet}
-              openTerminals={props.openTerminals}
-            />
-          )}
-          {panel === "tunnels" && (
-            <TunnelsPanel
-              workspace={workspace}
-              onAddForward={props.onAddForward}
-              onUpdateForward={props.onUpdateForward}
-              onDeleteForward={props.onDeleteForward}
-              onError={props.onError}
-            />
-          )}
-          {panel === "database" && (
-            <SqlConnectionsPanel
-              workspace={workspace}
-              onConnect={props.onConnectSql}
-              onNewConnection={props.onNewSqlConnection}
-              onEditConnection={props.onEditSqlConnection}
-              onImportAws={props.onImportAwsDatabases}
-            />
-          )}
-          {panel === "keychain" && (
-            <KeychainPanel
-              workspace={workspace}
-              onAddKey={props.onAddKey}
-              onGenerateKey={props.onGenerateKey}
-              onDeleteKey={props.onDeleteKey}
-              onRenameKey={props.onRenameKey}
-            />
-          )}
-          {panel === "aws" && (
-            <AwsIdentitiesPanel
-              onConfigureSso={props.onConfigureSso}
-              onReconnectSso={props.onReconnectSso}
-              onAddProfiles={props.onAddAwsProfiles}
-              onWorkspaceUpdate={props.onWorkspaceUpdate}
-              refreshToken={props.awsRefreshToken}
-              alerts={awsAlerts}
-            />
-          )}
-          {panel === "settings" && (
-            <SettingsPanel
-              workspace={workspace}
-              onWorkspaceUpdate={props.onWorkspaceUpdate}
-              onError={props.onError}
-              preferences={props.preferences}
-              onPreferencesChange={props.onPreferencesChange}
-              vaultStatus={props.vaultStatus}
-              onVaultStatusChange={props.onVaultStatusChange}
-            />
-          )}
+            {renderModulePanel(panel, ctx, actions)}
           </Suspense>
         </div>
       </div>

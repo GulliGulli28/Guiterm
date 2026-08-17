@@ -1,7 +1,9 @@
 import { describe, expect, it } from "vitest";
 import type { TabMeta } from "../lib/types";
 import { DEFAULT_PREFERENCES } from "../lib/preferences";
-import { MODULES, renderModuleTab } from "./registry";
+import type { SidebarPanelKind } from "../lib/sidebarButtons";
+import { MODULES, renderModulePanel, renderModuleTab } from "./registry";
+import type { SidebarActions } from "./types";
 import type { AppContext } from "./types";
 
 // Énumération à l'exécution des `kind` d'onglet — le `Record` fait échouer
@@ -20,11 +22,28 @@ const EVERY_TAB_KIND: Record<TabMeta["kind"], true> = {
 
 const ALL_KINDS = Object.keys(EVERY_TAB_KIND) as TabMeta["kind"][];
 
+// Même énumération, pour l'axe panneaux.
+const EVERY_PANEL: Record<SidebarPanelKind, true> = {
+  knownHosts: true,
+  hosts: true,
+  sftp: true,
+  snippets: true,
+  tunnels: true,
+  keychain: true,
+  database: true,
+  aws: true,
+  settings: true,
+};
+
+const ALL_PANELS = Object.keys(EVERY_PANEL) as SidebarPanelKind[];
+
 describe("registre de modules", () => {
-  const claimed = MODULES.map((m) => m.tab.kind);
+  const claimed = MODULES.flatMap((m) => ("tab" in m ? [m.tab.kind] : []));
+  const claimedPanels = MODULES.flatMap((m) => ("panel" in m ? [m.panel.kind] : []));
 
   it("ne fait revendiquer un même kind par deux modules", () => {
     expect(new Set(claimed).size).toBe(claimed.length);
+    expect(new Set(claimedPanels).size).toBe(claimedPanels.length);
   });
 
   it("couvre chaque kind d'onglet, exactement une fois", () => {
@@ -42,9 +61,35 @@ describe("registre de modules", () => {
     for (const m of MODULES) expect(m.label.trim()).not.toBe("");
   });
 
-  it("n'est pas vide — sinon la couverture ci-dessus se vérifierait à vide", () => {
-    expect(MODULES.length).toBeGreaterThanOrEqual(8);
+  it("couvre chaque panneau de barre latérale, exactement une fois", () => {
+    // Version exécutable de `_EveryPanelHasAModule`. Un panneau sans module
+    // s'afficherait vide : `Sidebar.tsx` n'a plus aucun dispatch de secours.
+    expect([...claimedPanels].sort()).toEqual([...ALL_PANELS].sort());
+  });
+
+  it("n'est pas vide — sinon les couvertures ci-dessus se vérifieraient à vide", () => {
+    expect(MODULES.length).toBeGreaterThanOrEqual(14);
     expect(ALL_KINDS.length).toBeGreaterThanOrEqual(8);
+    expect(ALL_PANELS.length).toBeGreaterThanOrEqual(9);
+  });
+});
+
+describe("renderModulePanel", () => {
+  const ctx = {
+    workspace: { hosts: [], sqlConnections: [], groups: [], snippets: [], keychain: [], portForwards: [] },
+    preferences: DEFAULT_PREFERENCES,
+    reportError: () => {},
+    pushNotification: () => {},
+    refreshWorkspace: () => {},
+  } as unknown as AppContext;
+  const actions = {} as SidebarActions;
+
+  it("rend un contenu pour chaque panneau, sans exception", () => {
+    for (const panel of ALL_PANELS) {
+      const out = renderModulePanel(panel, ctx, actions);
+      expect(out, `aucun rendu pour le panneau « ${panel} »`).toBeDefined();
+      expect(out, `rendu vide pour le panneau « ${panel} »`).not.toBeNull();
+    }
   });
 });
 

@@ -1,4 +1,12 @@
-import type { SidebarPanelKind } from "../components/Sidebar";
+/** Les panneaux de la barre latérale.
+ *
+ * Défini ici plutôt que dans `Sidebar.tsx` : ce fichier, le registre de
+ * modules et `App.tsx` en ont tous besoin, et le faire descendre d'un
+ * composant obligeait `lib/` à type-dépendre de `components/` — la mauvaise
+ * direction. `Sidebar.tsx` n'est plus qu'un consommateur parmi d'autres. */
+export type SidebarPanelKind =
+  | "knownHosts" | "hosts" | "sftp" | "snippets" | "tunnels"
+  | "keychain" | "database" | "aws" | "settings";
 
 /** Boutons de la barre verticale de gauche que l'utilisateur peut masquer.
  *

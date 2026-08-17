@@ -1,7 +1,16 @@
 import type { ReactNode } from "react";
 import type { TabMeta } from "../lib/types";
-import type { AppContext } from "./types";
+import type { SidebarPanelKind } from "../lib/sidebarButtons";
+import type { AppContext, SidebarActions } from "./types";
 import { activityModule } from "./activity";
+import { awsModule } from "./aws";
+import { hostsModule } from "./hosts";
+import { keychainModule } from "./keychain";
+import { knownHostsModule } from "./knownHosts";
+import { settingsModule } from "./settings";
+import { sftpModule } from "./sftp";
+import { snippetsModule } from "./snippets";
+import { tunnelsModule } from "./tunnels";
 import { localTerminalModule } from "./localTerminal";
 import { fleetModule } from "./fleet";
 import { netdiagModule } from "./netdiag";
@@ -34,6 +43,14 @@ export const MODULES = [
   rdpModule,
   localTerminalModule,
   sqlModule,
+  hostsModule,
+  knownHostsModule,
+  sftpModule,
+  snippetsModule,
+  tunnelsModule,
+  keychainModule,
+  awsModule,
+  settingsModule,
 ] as const;
 
 /** Erreur de compilation si un `kind` d'onglet n'a pas de module.
@@ -46,9 +63,23 @@ export const MODULES = [
  * Pendant la migration, il tolérait une liste `TABS_STILL_IN_APP` de `kind`
  * encore rendus par `App.tsx` ; elle s'est vidée au commit 3 et a disparu
  * avec. Il n'y a plus de dispatch d'onglet en dehors d'ici. */
-type KindWithoutModule = Exclude<TabMeta["kind"], typeof MODULES[number]["tab"]["kind"]>;
 type AssertNever<T extends never> = T;
+
+// `M` nu dans le conditionnel : c'est ce qui le rend distributif sur l'union
+// des modules. Un module sans `tab` ne correspond pas et contribue `never`.
+type TabKindOf<M> = M extends { tab: { kind: infer K } } ? K : never;
+type ClaimedTabKind = TabKindOf<typeof MODULES[number]>;
+type KindWithoutModule = Exclude<TabMeta["kind"], ClaimedTabKind>;
 export type _EveryTabKindHasAModule = AssertNever<KindWithoutModule>;
+
+/** Même preuve sur l'autre axe : chaque panneau de barre latérale a son
+ * module. `Sidebar.tsx` n'a plus de dispatch par `panel`, donc un
+ * `SidebarPanelKind` sans module afficherait un panneau vide — la même panne
+ * silencieuse que côté onglets. */
+type PanelKindOf<M> = M extends { panel: { kind: infer P } } ? P : never;
+type ClaimedPanelKind = PanelKindOf<typeof MODULES[number]>;
+type PanelWithoutModule = Exclude<SidebarPanelKind, ClaimedPanelKind>;
+export type _EveryPanelHasAModule = AssertNever<PanelWithoutModule>;
 
 type AnyTabRenderer = (tab: TabMeta, ctx: AppContext, isActive: boolean) => ReactNode;
 
@@ -58,7 +89,13 @@ type AnyTabRenderer = (tab: TabMeta, ctx: AppContext, isActive: boolean) => Reac
 // cherche jamais que par `tab.kind`, donc le rendu retrouvé est toujours celui
 // qui a déclaré ce `kind`.
 const TAB_RENDERERS = new Map<TabMeta["kind"], AnyTabRenderer>(
-  MODULES.map((m) => [m.tab.kind, m.tab.render as AnyTabRenderer]),
+  MODULES.flatMap((m) => ("tab" in m ? [[m.tab.kind, m.tab.render as AnyTabRenderer]] : [])),
+);
+
+type AnyPanelRenderer = (ctx: AppContext, actions: SidebarActions) => ReactNode;
+
+const PANEL_RENDERERS = new Map<SidebarPanelKind, AnyPanelRenderer>(
+  MODULES.flatMap((m) => ("panel" in m ? [[m.panel.kind, m.panel.render as AnyPanelRenderer]] : [])),
 );
 
 /** Le rendu du contenu de cet onglet.
@@ -71,4 +108,17 @@ const TAB_RENDERERS = new Map<TabMeta["kind"], AnyTabRenderer>(
 export function renderModuleTab(tab: TabMeta, ctx: AppContext, isActive: boolean): ReactNode | undefined {
   const render = TAB_RENDERERS.get(tab.kind);
   return render ? render(tab, ctx, isActive) : undefined;
+}
+
+/** Le rendu du panneau de barre latérale demandé.
+ *
+ * Mêmes conventions que `renderModuleTab` : `undefined` est impossible
+ * (`_EveryPanelHasAModule`), `null` reste un rendu légitime. */
+export function renderModulePanel(
+  panel: SidebarPanelKind,
+  ctx: AppContext,
+  actions: SidebarActions,
+): ReactNode | undefined {
+  const render = PANEL_RENDERERS.get(panel);
+  return render ? render(ctx, actions) : undefined;
 }

@@ -3,7 +3,7 @@ import { check as checkForUpdate } from "@tauri-apps/plugin-updater";
 import { api, onSshAuthPrompt } from "./lib/api";
 import type { AwsSsoSession, GroupId, Host, HostId, SqlConnection, SshAuthPrompt, TabMeta, VaultStatus, Workspace } from "./lib/types";
 import { isHostBoundTab } from "./lib/types";
-import { Sidebar, type SidebarPanelKind } from "./components/Sidebar";
+import { Sidebar } from "./components/Sidebar";
 import { HostForm } from "./components/HostForm";
 import { TabBar } from "./components/TabBar";
 import { BroadcastBar } from "./components/BroadcastBar";
@@ -12,9 +12,9 @@ import { TitleBar } from "./components/TitleBar";
 import { TabLoadingFallback } from "./components/TabLoadingFallback";
 
 import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, loadPreferences, savePreferences } from "./lib/preferences";
-import { resolveVisiblePanel } from "./lib/sidebarButtons";
+import { resolveVisiblePanel, type SidebarPanelKind } from "./lib/sidebarButtons";
 import { renderModuleTab } from "./modules/registry";
-import type { AppContext } from "./modules/types";
+import type { AppContext, SidebarActions } from "./modules/types";
 import { SplitPane } from "./components/SplitPane";
 import { AwsImportPanel } from "./components/AwsImportPanel";
 import { AnsibleImportPanel } from "./components/AnsibleImportPanel";
@@ -505,6 +505,67 @@ export default function App() {
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const activeHostId = activeTab && isHostBoundTab(activeTab) ? activeTab.hostId : null;
 
+  // Ce que les panneaux de la barre latérale peuvent demander à l'app. Même
+  // contenu qu'avant, mais déclaré **une** fois : `SidebarProps` et les 90
+  // lignes de passe-plat de `Sidebar.tsx` ont disparu avec.
+  const sidebarActions: SidebarActions = {
+    connect: (host) => openTab("terminal", host),
+    connectDocker: (host, containerId) => openTab("terminal", host, containerId),
+    connectK8s: (host, podName, containerName) => openTab("terminal", host, undefined, podName, containerName),
+    connectRdpView: (host) => openTab("rdp-view", host),
+    openTransfer: (host, dockerContainerId, k8sPodName, k8sContainerName) =>
+      openTab("transfer", host, dockerContainerId, k8sPodName, k8sContainerName),
+    openLocalTerminal: (shell) => openLocalTerminal(undefined, shell),
+    quickSSH: (cmd) => openLocalTerminal(cmd),
+    connectSql: (conn) => openSql(conn),
+    probeReachability: (host) => openNetdiag(host.id),
+    searchFiles: (host) => setSearchHost(host),
+
+    newHost: () => { setEditingHost("new"); setNewHostDefaultGroupId(null); setEditingGroup(null); setEditingSqlConnection(null); },
+    editHost: (host) => { setEditingHost(host); setEditingGroup(null); setEditingSqlConnection(null); },
+    newHostInGroup: (groupId) => { setEditingHost("new"); setNewHostDefaultGroupId(groupId); setEditingGroup(null); setEditingSqlConnection(null); },
+    newGroup: () => { setEditingGroup({ id: null, name: "", parentId: null, icon: null, color: null }); setEditingHost(null); setEditingSqlConnection(null); },
+    newGroupUnder: (parentId) => { setEditingGroup({ id: null, name: "", parentId, icon: null, color: null }); setEditingHost(null); setEditingSqlConnection(null); },
+    editGroup: (group) => { setEditingGroup({ id: group.id, name: group.name, parentId: group.parentId ?? null, icon: group.icon ?? null, color: group.color ?? null }); setEditingHost(null); setEditingSqlConnection(null); },
+    newSqlConnection: () => { setEditingSqlConnection("new"); setEditingHost(null); setEditingGroup(null); },
+    editSqlConnection: (conn) => { setEditingSqlConnection(conn); setEditingHost(null); setEditingGroup(null); },
+    importCloud: () => setCloudImport("picker"),
+    importAnsible: () => setAnsibleImportOpen(true),
+    importAwsDatabases: () => setAwsDbImportOpen(true),
+    configureSso: () => setAwsSsoOpen({ mode: "new" }),
+    reconnectSso: (session) => setAwsSsoOpen({ mode: "reconnect", session }),
+    addAwsProfiles: (session) => setAwsSsoOpen({ mode: "profiles", session }),
+
+    addSnippet: (name, command) => api.addSnippet(name, command).then(refreshWorkspace).catch((e) => reportError(String(e))),
+    updateSnippet: (id, name, command) => api.updateSnippet(id, name, command).then(refreshWorkspace).catch((e) => reportError(String(e))),
+    deleteSnippet: (id) => api.deleteSnippet(id).then(refreshWorkspace).catch((e) => reportError(String(e))),
+    runSnippet,
+    runAdaptiveSnippet,
+    saveAdaptiveSnippet: (id, name, command) =>
+      api.saveAdaptiveSnippet(id, name, command).then(refreshWorkspace).catch((e) => reportError(String(e))),
+    addForward: (input) => api.addForward(input).then(refreshWorkspace).catch((e) => reportError(String(e))),
+    // Pas de `.catch` ici, contrairement aux deux autres : le panneau attend
+    // cette promesse pour décider s'il relance le tunnel, et avaler l'échec ici
+    // le ferait redémarrer sur une modification qui n'a pas été enregistrée.
+    updateForward: (input) => api.updateForward(input).then(refreshWorkspace),
+    deleteForward: (id) => api.deleteForward(id).then(refreshWorkspace).catch((e) => reportError(String(e))),
+    addKey: (name, path, passphrase) => api.addPrivateKey(name, path, passphrase).then(refreshWorkspace).catch((e) => reportError(String(e))),
+    generateKey: (name, algorithm, passphrase) => api.generatePrivateKey(name, algorithm, passphrase).then(refreshWorkspace).catch((e) => reportError(String(e))),
+    deleteKey: (id) => api.deletePrivateKey(id).then(refreshWorkspace).catch((e) => reportError(String(e))),
+    renameKey: (id, name) => api.renamePrivateKey(id, name).then(refreshWorkspace).catch((e) => reportError(String(e))),
+
+    activeHostId,
+    openTerminals: broadcastTargets,
+    awsRefreshToken: awsIdentitiesEpoch,
+    awsAlerts,
+    vaultStatus,
+    onVaultStatusChange: refreshVaultStatus,
+    updatePreferences,
+
+    openFleet,
+    openNetDiag: () => openNetdiag(null),
+  };
+
   // Resolves a tab to its host's group color tag (if the host, its group, and a
   // color are all set), so TabBar can show a small dot without knowing about hosts/groups.
   const tabColor = (tab: TabMeta): string | undefined => {
@@ -648,69 +709,14 @@ export default function App() {
           className={`flex shrink-0 overflow-hidden ${isDragging ? "" : "transition-[width] duration-200 ease-in-out"}`}
         >
           <Sidebar
-            workspace={workspace}
             // Résolu au rendu plutôt que dans un effet : masquer le panneau
             // ouvert le fait retomber sur « Hôtes » tout de suite, et un
             // réglage posé dans une session précédente ne peut pas laisser un
             // panneau sans bouton au rechargement.
             panel={resolveVisiblePanel(sidebarPanel, preferences.hiddenSidebarButtons)}
             onPanelChange={setSidebarPanel}
-            activeHostId={activeHostId}
-            onConnect={(host) => openTab("terminal", host)}
-            onConnectDocker={(host, containerId) => openTab("terminal", host, containerId)}
-            onConnectK8s={(host, podName, containerName) => openTab("terminal", host, undefined, podName, containerName)}
-            onConnectRdpView={(host) => openTab("rdp-view", host)}
-            onOpenTransfer={(host, dockerContainerId, k8sPodName, k8sContainerName) => openTab("transfer", host, dockerContainerId, k8sPodName, k8sContainerName)}
-            onOpenLocalTerminal={(shell) => openLocalTerminal(undefined, shell)}
-            onQuickSSH={(cmd) => openLocalTerminal(cmd)}
-            onNewHost={() => { setEditingHost("new"); setNewHostDefaultGroupId(null); setEditingGroup(null); setEditingSqlConnection(null); }}
-            onEditHost={(host) => { setEditingHost(host); setEditingGroup(null); setEditingSqlConnection(null); }}
-            onNewGroup={() => { setEditingGroup({ id: null, name: "", parentId: null, icon: null, color: null }); setEditingHost(null); setEditingSqlConnection(null); }}
-            onImportCloud={() => setCloudImport("picker")}
-            onImportAnsible={() => setAnsibleImportOpen(true)}
-            onProbeReachability={(host) => openNetdiag(host.id)}
-            onNotify={(message) => pushNotification("success", message)}
-            onSearchFiles={(host) => setSearchHost(host)}
-            onNewHostInGroup={(groupId) => { setEditingHost("new"); setNewHostDefaultGroupId(groupId); setEditingGroup(null); setEditingSqlConnection(null); }}
-            onNewGroupUnder={(parentId) => { setEditingGroup({ id: null, name: "", parentId, icon: null, color: null }); setEditingHost(null); setEditingSqlConnection(null); }}
-            onEditGroup={(group) => { setEditingGroup({ id: group.id, name: group.name, parentId: group.parentId ?? null, icon: group.icon ?? null, color: group.color ?? null }); setEditingHost(null); setEditingSqlConnection(null); }}
-            onWorkspaceUpdate={refreshWorkspace}
-            onAddSnippet={(name, command) => api.addSnippet(name, command).then(refreshWorkspace).catch((e) => reportError(String(e)))}
-            onUpdateSnippet={(id, name, command) => api.updateSnippet(id, name, command).then(refreshWorkspace).catch((e) => reportError(String(e)))}
-            onDeleteSnippet={(id) => api.deleteSnippet(id).then(refreshWorkspace).catch((e) => reportError(String(e)))}
-            onRunSnippet={runSnippet}
-            onRunAdaptiveSnippet={runAdaptiveSnippet}
-            onSaveAdaptiveSnippet={(id, name, command) =>
-              api.saveAdaptiveSnippet(id, name, command).then(refreshWorkspace).catch((e) => reportError(String(e)))
-            }
-            openTerminals={broadcastTargets}
-            onAddForward={(input) => api.addForward(input).then(refreshWorkspace).catch((e) => reportError(String(e)))}
-            // Pas de `.catch` ici, contrairement aux deux autres : le panneau
-            // attend cette promesse pour décider s'il relance le tunnel, et
-            // avaler l'échec ici le ferait redémarrer sur une modification qui
-            // n'a pas été enregistrée.
-            onUpdateForward={(input) => api.updateForward(input).then(refreshWorkspace)}
-            onDeleteForward={(id) => api.deleteForward(id).then(refreshWorkspace).catch((e) => reportError(String(e)))}
-            onAddKey={(name, path, passphrase) => api.addPrivateKey(name, path, passphrase).then(refreshWorkspace).catch((e) => reportError(String(e)))}
-            onGenerateKey={(name, algorithm, passphrase) => api.generatePrivateKey(name, algorithm, passphrase).then(refreshWorkspace).catch((e) => reportError(String(e)))}
-            onDeleteKey={(id) => api.deletePrivateKey(id).then(refreshWorkspace).catch((e) => reportError(String(e)))}
-            onRenameKey={(id, name) => api.renamePrivateKey(id, name).then(refreshWorkspace).catch((e) => reportError(String(e)))}
-            onConnectSql={(conn) => openSql(conn)}
-            onNewSqlConnection={() => { setEditingSqlConnection("new"); setEditingHost(null); setEditingGroup(null); }}
-            onImportAwsDatabases={() => setAwsDbImportOpen(true)}
-            onConfigureSso={() => setAwsSsoOpen({ mode: "new" })}
-            onReconnectSso={(session) => setAwsSsoOpen({ mode: "reconnect", session })}
-            onAddAwsProfiles={(session) => setAwsSsoOpen({ mode: "profiles", session })}
-            awsRefreshToken={awsIdentitiesEpoch}
-            awsAlerts={awsAlerts}
-            onEditSqlConnection={(conn) => { setEditingSqlConnection(conn); setEditingHost(null); setEditingGroup(null); }}
-            onOpenFleet={openFleet}
-            onOpenNetDiag={() => openNetdiag(null)}
-            onError={reportError}
-            preferences={preferences}
-            onPreferencesChange={updatePreferences}
-            vaultStatus={vaultStatus}
-            onVaultStatusChange={refreshVaultStatus}
+            ctx={moduleContext}
+            actions={sidebarActions}
           />
         </div>
 

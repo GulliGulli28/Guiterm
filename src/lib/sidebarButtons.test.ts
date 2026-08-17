@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
-import type { SidebarPanelKind } from "../components/Sidebar";
 import {
+  type SidebarPanelKind,
   ALWAYS_VISIBLE_SIDEBAR_BUTTONS,
   SIDEBAR_BUTTONS,
   isSidebarButtonVisible,

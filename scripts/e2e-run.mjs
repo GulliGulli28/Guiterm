@@ -261,6 +261,7 @@ async function runScenarios(browser) {
   await runSshTerminalTabScenario(browser);
   await runSqlTabScenario(browser);
   await runFleetTabScenario(browser);
+  await runSidebarPanelsScenario(browser);
   await runSidebarButtonsScenario(browser);
   await runTunnelEditScenario(browser);
   await runSsmTunnelScenario(browser);
@@ -1702,6 +1703,60 @@ async function runFleetTabScenario(browser) {
   if (!hasFilter) throw new Error("l onglet Flotte est monté sans son filtre de cibles");
 
   console.log("Flotte : OK (onglet ouvert depuis la barre, composant monté avec son filtre et sa zone de commande).");
+}
+
+/**
+ * Les neuf panneaux de la barre latérale, ouverts un par un.
+ *
+ * Ajouté avec la migration des panneaux vers `src/modules/` : `Sidebar.tsx`
+ * n'a plus aucun dispatch, un panneau dont le module manquerait s'afficherait
+ * simplement vide. `registry.test.ts` prouve qu'un rendu est enregistré pour
+ * chacun ; seul ceci prouve qu'il monte pour de vrai.
+ *
+ * Un seul scénario en boucle plutôt que neuf : cinq panneaux étaient déjà
+ * traversés par d'autres scénarios (hôtes, AWS, tunnels, bases, paramètres),
+ * mais `knownHosts`, `sftp`, `snippets` et `keychain` n'étaient montés nulle
+ * part — et c'est l'axe entier qui vient de changer de mécanisme.
+ */
+async function runSidebarPanelsScenario(browser) {
+  const panels = [
+    ["knownHosts", "Known Hosts"],
+    ["hosts", "Hôtes"],
+    ["sftp", "SFTP"],
+    ["snippets", "Snippets"],
+    ["tunnels", "Tunnels"],
+    ["database", "Bases de données"],
+    ["keychain", "Clés"],
+    ["aws", "Identités AWS"],
+    ["settings", "Paramètres"],
+  ];
+
+  for (const [kind, title] of panels) {
+    const clicked = await browser.execute((t) => {
+      const btn = Array.from(document.querySelectorAll("aside nav button"))
+        .find((b) => (b.getAttribute("title") || "").split(" — ")[0].split("\n")[0] === t);
+      if (!btn) return false;
+      btn.click();
+      return true;
+    }, title);
+    if (!clicked) throw new Error(`le bouton « ${title} » est absent de la barre latérale`);
+
+    // Non vide : un module manquant laisserait le conteneur rendu mais sans
+    // contenu, ce qu'aucune erreur ne signalerait par ailleurs.
+    await browser.waitUntil(async () => await browser.execute((k) => {
+      const host = document.querySelector(`[data-sidebar-panel="${k}"]`);
+      return !!host && (host.textContent || "").trim().length > 0;
+    }, kind), { timeout: 15_000, timeoutMsg: `le panneau « ${kind} » est resté vide` });
+  }
+
+  // Remettre la barre sur son panneau d'origine pour les scénarios suivants.
+  await browser.execute(() => {
+    const btn = Array.from(document.querySelectorAll("aside nav button"))
+      .find((b) => (b.getAttribute("title") || "") === "Hôtes");
+    if (btn instanceof HTMLElement) btn.click();
+  });
+
+  console.log(`Panneaux de la barre latérale : OK (${panels.length} panneaux ouverts, chacun rend du contenu).`);
 }
 
 /** Titres des boutons de la barre verticale, libellé seul (l'infobulle de

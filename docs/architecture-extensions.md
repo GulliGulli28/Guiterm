@@ -307,6 +307,19 @@ export interface ModuleDef {
    `kind` restés dans `App.tsx`, sous peine d'être plus faible que la cascade
    qu'il remplaçait. D'où la liste transitoire `TABS_STILL_IN_APP`, vidée et
    supprimée au commit 3.
+
+   **Un garde-fou de type peut devenir vide sans prévenir.** Au commit 4, rendre
+   `tab` et `panel` optionnels sur `ModuleDef` a suffi à neutraliser les deux
+   preuves d'un coup : un module sans panneau voyait son paramètre de type `P`
+   retomber sur sa valeur par défaut, `SidebarPanelKind` **entier**, si bien que
+   le `Exclude<>` n'avait plus rien à exclure. Aucune erreur, aucun test rouge —
+   simplement deux garde-fous verts pour toujours. Trouvé en cassant le registre
+   exprès : les tests d'exécution échouaient, `tsc` non, et c'est cet écart qui a
+   mis la puce à l'oreille. Corrigé par trois surcharges de `defineModule`
+   (onglet seul, panneau seul, les deux), qui rendent une contribution absente
+   réellement absente du type. **Leçon générale : quand un garde-fou repose sur
+   l'inférence, doubler la preuve `tsc` d'une assertion à l'exécution** — c'est
+   la divergence entre les deux qui révèle la vacuité.
 2. **Complétude module ↔ commandes.** Nouvelle assertion : l'union des
    `tauriCommands` de tous les modules **est exactement** l'ensemble de
    `generate_handler!`. Une commande Rust n'appartenant à aucun module devient
@@ -347,6 +360,26 @@ comme prévu. Le commit 3 a été redécoupé sur un axe plutôt que sur un doma
 
 Le commit 3 livre donc « l'axe onglets est complet », et le 4 ouvrira l'axe
 panneaux avec les huit d'un coup.
+
+**Commit 4** (2026-08-17) : les neuf panneaux d'un coup, `settings` compris.
+`Sidebar.tsx` passe de 272 à 122 lignes et n'a plus aucun dispatch — il ne
+connaît plus un seul panneau. Ce que ce commit gagne mérite d'être dit sans
+exagérer : la dépendance entre les panneaux et `App.tsx` **ne disparaît pas**,
+elle cesse d'être déclarée trois fois. `SidebarProps` (45 props) et ~90 lignes
+de passe-plat JSX sont remplacés par une seule interface `SidebarActions`.
+Ajouter un panneau, c'est désormais un fichier de module et une ligne de
+registre, avec l'oubli attrapé par `tsc`.
+
+Reste ouvert, volontairement : une bonne moitié de `SidebarActions` n'est que
+des `api.X(...).then(refreshWorkspace).catch(reportError)`. Les rapatrier dans
+leur module supprimerait ~14 membres et rapprocherait chaque écriture de son
+panneau — mais c'est un changement de responsabilité, pas un déplacement, et il
+doit être vérifié pour lui-même.
+
+`SidebarPanelKind` a migré de `Sidebar.tsx` vers `lib/sidebarButtons.ts` au
+passage : le registre, `App.tsx` et le réglage de masquage en ont tous besoin,
+et le faire descendre d'un composant obligeait `lib/` à type-dépendre de
+`components/`.
 
 Chaque commit : `npm run verify`, `cargo clippy -D warnings`, puis build et
 lancement du binaire Windows release pour un test manuel réel.
