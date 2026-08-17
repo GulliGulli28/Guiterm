@@ -9,6 +9,15 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+### Added
+- The remote mouse cursor now shows in the embedded RDP preview, and changes
+  shape as the remote side does — a text bar over a field, a resize arrow on a
+  window edge, nothing at all where the application hides it. It is drawn by
+  your own machine at your pointer's real position rather than painted into
+  the remote picture, so it stays exactly under your hand instead of trailing
+  the connection. One case it cannot follow: an application that moves the
+  pointer itself, which a window on your desktop is not allowed to do.
+
 ## [3.0.0] - 2026-08-17
 
 ### Added
