@@ -20,11 +20,10 @@ import { TabLoadingFallback } from "./components/TabLoadingFallback";
 // is purely about initial bundle size, not perceived loading latency.
 const TransferTab = lazy(() => import("./components/TransferTab").then((m) => ({ default: m.TransferTab })));
 const RdpTab = lazy(() => import("./components/RdpTab").then((m) => ({ default: m.RdpTab })));
-const FleetTab = lazy(() => import("./components/FleetTab").then((m) => ({ default: m.FleetTab })));
-const ActivityTab = lazy(() => import("./components/ActivityTab").then((m) => ({ default: m.ActivityTab })));
-const NetDiagTab = lazy(() => import("./components/NetDiagTab").then((m) => ({ default: m.NetDiagTab })));
 import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, loadPreferences, savePreferences } from "./lib/preferences";
 import { resolveVisiblePanel } from "./lib/sidebarButtons";
+import { renderModuleTab, isTabStillInApp } from "./modules/registry";
+import type { AppContext } from "./modules/types";
 import { SplitPane } from "./components/SplitPane";
 import { AwsImportPanel } from "./components/AwsImportPanel";
 import { AnsibleImportPanel } from "./components/AnsibleImportPanel";
@@ -496,6 +495,13 @@ export default function App() {
     );
   }
 
+  // Ce que les modules reçoivent pour rendre leurs onglets. Construit ici, une
+  // fois `workspace` narrowed par le retour anticipé ci-dessus, plutôt que
+  // dans un `useMemo` en tête de composant où il serait encore `null`. Pas de
+  // mémoïsation : cet objet n'est pas une prop d'un composant mémoïsé, il est
+  // consommé immédiatement par des fonctions de rendu.
+  const moduleContext: AppContext = { workspace, preferences, reportError, pushNotification, refreshWorkspace };
+
   const showRightPanel = !!(editingHost || editingGroup || editingSqlConnection);
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const activeHostId = activeTab && isHostBoundTab(activeTab) ? activeTab.hostId : null;
@@ -776,45 +782,24 @@ export default function App() {
                       </div>
                     );
                   }
-                  if (tab.kind === "fleet") {
+                  // Les modules d'abord : ceux qui ont migré rendent leur
+                  // contenu, `App.tsx` ne garde que la coquille d'onglet.
+                  // `undefined` = aucun module ne revendique ce `kind`, on
+                  // retombe sur la cascade ci-dessous (cf.
+                  // `TABS_STILL_IN_APP`).
+                  const moduleContent = renderModuleTab(tab, moduleContext, isActive);
+                  if (moduleContent !== undefined) {
                     return (
                       <div key={tab.id} className={isActive ? "absolute inset-0 flex flex-col" : "hidden"}>
-                        <Suspense fallback={<TabLoadingFallback />}>
-                          <FleetTab workspace={workspace} onError={reportError} onWorkspaceUpdate={refreshWorkspace} />
-                        </Suspense>
+                        <Suspense fallback={<TabLoadingFallback />}>{moduleContent}</Suspense>
                       </div>
                     );
                   }
-                  if (tab.kind === "activity") {
-                    return (
-                      <div key={tab.id} className={isActive ? "absolute inset-0 flex flex-col" : "hidden"}>
-                        <Suspense fallback={<TabLoadingFallback />}>
-                          <ActivityTab
-                            workspace={workspace}
-                            onError={reportError}
-                            onExported={(message) => pushNotification("success", message)}
-                          />
-                        </Suspense>
-                      </div>
-                    );
-                  }
-                  if (tab.kind === "netdiag") {
-                    return (
-                      <div key={tab.id} className={isActive ? "absolute inset-0 flex flex-col" : "hidden"}>
-                        <Suspense fallback={<TabLoadingFallback />}>
-                          <NetDiagTab
-                            workspace={workspace}
-                            onError={reportError}
-                            initialSourceId={tab.sourceHostId}
-                            // Remounts when the tab is re-aimed from another
-                            // host's menu, so the selection follows instead of
-                            // keeping the previous incident's source.
-                            key={tab.sourceHostId ?? "local"}
-                          />
-                        </Suspense>
-                      </div>
-                    );
-                  }
+                  // Narrowing sur ce qui reste à `App.tsx`, pour que la
+                  // cascade ci-dessous garde son `assertNever` final. Prouvé
+                  // exhaustif à la compilation par `_AllTabKindsCovered` : un
+                  // `kind` qu'aucun module ne revendique est forcément ici.
+                  if (!isTabStillInApp(tab)) return null;
                   if (tab.kind === "sql") {
                     const connection = workspace.sqlConnections.find((c) => c.id === tab.sqlConnectionId);
                     if (!connection) return null;

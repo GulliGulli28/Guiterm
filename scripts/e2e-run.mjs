@@ -258,6 +258,7 @@ async function runScenarios(browser) {
   await runBulkEditScenario(browser);
   await runTabShortcutScenario(browser);
   await runCloudImportScenario(browser);
+  await runFleetTabScenario(browser);
   await runSidebarButtonsScenario(browser);
   await runTunnelEditScenario(browser);
   await runSsmTunnelScenario(browser);
@@ -1431,6 +1432,39 @@ async function runActivityScenario(browser) {
  * le bouton du formulaire — ce qui fait de son propre nettoyage la dernière
  * assertion du scénario.
  */
+/**
+ * L'onglet Opérations de flotte, ouvert depuis la barre latérale.
+ *
+ * Ajouté avec la migration vers `src/modules/` : `netdiag` et `activity` ont
+ * déjà leurs scénarios, mais rien ne montait `FleetTab` dans une vraie
+ * fenêtre. `registry.test.ts` prouve qu'un rendu est enregistré pour ce
+ * `kind`, pas que le composant qu'il renvoie s'affiche — et c'est le rendu qui
+ * a changé de fichier.
+ */
+async function runFleetTabScenario(browser) {
+  await browser.execute(() => {
+    const btn = Array.from(document.querySelectorAll("aside nav button"))
+      .find((b) => (b.getAttribute("title") || "").startsWith("Opérations de flotte"));
+    if (btn instanceof HTMLElement) btn.click();
+  });
+
+  await browser.waitUntil(async () => await browser.execute(() =>
+    Array.from(document.querySelectorAll("textarea")).some(
+      (t) => (t.getAttribute("placeholder") || "").includes("Commande à exécuter sur les cibles"),
+    )
+  ), { timeout: 15_000, timeoutMsg: "l onglet Flotte ne s est pas rendu depuis la barre latérale" });
+
+  // Le filtre de cibles est l'autre moitié du composant : sa présence
+  // distingue « FleetTab a monté » de « un fallback de Suspense est resté ».
+  const hasFilter = await browser.execute(() =>
+    Array.from(document.querySelectorAll("input")).some(
+      (i) => (i.getAttribute("placeholder") || "").startsWith("Filtrer (nom, groupe"),
+    ));
+  if (!hasFilter) throw new Error("l onglet Flotte est monté sans son filtre de cibles");
+
+  console.log("Flotte : OK (onglet ouvert depuis la barre, composant monté avec son filtre et sa zone de commande).");
+}
+
 /** Titres des boutons de la barre verticale, libellé seul (l'infobulle de
  * certains ajoute « — … »). */
 function sidebarButtonTitles(browser) {
