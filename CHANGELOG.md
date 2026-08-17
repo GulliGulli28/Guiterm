@@ -9,6 +9,8 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+## [3.0.0] - 2026-08-17
+
 ### Added
 - Servers that ask for a second factor (one-time code, MFA prompt) can now be
   reached. The app answers the server's questions during the handshake, in a
