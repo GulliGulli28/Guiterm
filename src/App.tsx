@@ -8,13 +8,12 @@ import { HostForm } from "./components/HostForm";
 import { TabBar } from "./components/TabBar";
 import { BroadcastBar } from "./components/BroadcastBar";
 import type { TerminalTabHandle } from "./components/TerminalTab";
-import { LocalTerminalTab } from "./components/LocalTerminalTab";
 import { TitleBar } from "./components/TitleBar";
 import { TabLoadingFallback } from "./components/TabLoadingFallback";
 
 import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, loadPreferences, savePreferences } from "./lib/preferences";
 import { resolveVisiblePanel } from "./lib/sidebarButtons";
-import { renderModuleTab, isTabStillInApp } from "./modules/registry";
+import { renderModuleTab } from "./modules/registry";
 import type { AppContext } from "./modules/types";
 import { SplitPane } from "./components/SplitPane";
 import { AwsImportPanel } from "./components/AwsImportPanel";
@@ -34,8 +33,6 @@ import { SnippetPicker } from "./components/SnippetPicker";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { VaultUnlockModal } from "./components/VaultUnlockModal";
 import { SshAuthPromptModal } from "./components/SshAuthPromptModal";
-import { SqlConnectionTab } from "./components/SqlConnectionTab";
-import { assertNever } from "./lib/exhaustive";
 import { SHORTCUT_ACTIONS, useGlobalShortcuts } from "./lib/shortcuts";
 import { formatDuration } from "./lib/longCommand";
 import { useNotifications } from "./hooks/useNotifications";
@@ -765,58 +762,17 @@ export default function App() {
                       </div>
                     );
                   }
-                  if (tab.kind === "local-terminal") {
-                    return (
-                      <div key={tab.id} className={isActive ? "absolute inset-0 flex flex-col" : "hidden"}>
-                        <LocalTerminalTab
-                          isActive={isActive}
-                          preferences={preferences}
-                          initialCommand={tab.initialCommand}
-                          shell={tab.shell}
-                          onLongCommand={notifyLongCommand}
-                          onDisconnect={() => closeTab(tab.id, "disconnected")}
-                          onInputData={(data) => mirrorInput(tab.id, data)}
-                          ref={(handle) => {
-                            if (handle) terminalRefs.current.set(tab.id, handle);
-                            else terminalRefs.current.delete(tab.id);
-                          }}
-                        />
-                      </div>
-                    );
-                  }
-                  // Les modules d'abord : ceux qui ont migré rendent leur
-                  // contenu, `App.tsx` ne garde que la coquille d'onglet.
-                  // `undefined` = aucun module ne revendique ce `kind`, on
-                  // retombe sur la cascade ci-dessous (cf.
-                  // `TABS_STILL_IN_APP`).
-                  const moduleContent = renderModuleTab(tab, moduleContext, isActive);
-                  if (moduleContent !== undefined) {
-                    return (
-                      <div key={tab.id} className={isActive ? "absolute inset-0 flex flex-col" : "hidden"}>
-                        <Suspense fallback={<TabLoadingFallback />}>{moduleContent}</Suspense>
-                      </div>
-                    );
-                  }
-                  // Narrowing sur ce qui reste à `App.tsx`, pour que la
-                  // cascade ci-dessous garde son `assertNever` final. Prouvé
-                  // exhaustif à la compilation par `_AllTabKindsCovered` : un
-                  // `kind` qu'aucun module ne revendique est forcément ici.
-                  if (!isTabStillInApp(tab)) return null;
-                  if (tab.kind === "sql") {
-                    const connection = workspace.sqlConnections.find((c) => c.id === tab.sqlConnectionId);
-                    if (!connection) return null;
-                    return (
-                      <div key={tab.id} className={isActive ? "absolute inset-0 flex flex-col" : "hidden"}>
-                        <Suspense fallback={<TabLoadingFallback />}>
-                          <SqlConnectionTab connection={connection} hosts={workspace.hosts} onError={reportError} />
-                        </Suspense>
-                      </div>
-                    );
-                  }
-                  // Les deux `kind` de `TABS_STILL_IN_APP` sont traités
-                  // ci-dessus ; tout le reste appartient à un module et a été
-                  // rendu plus haut.
-                  return assertNever(tab, "type d'onglet");
+                  // Plus aucun dispatch par `kind` ici : chaque onglet est
+                  // rendu par son module. `App.tsx` ne garde que la coquille
+                  // (montage/masquage, `key`, `Suspense`), qui est le shell
+                  // d'onglets — noyau, non extensible.
+                  return (
+                    <div key={tab.id} className={isActive ? "absolute inset-0 flex flex-col" : "hidden"}>
+                      <Suspense fallback={<TabLoadingFallback />}>
+                        {renderModuleTab(tab, moduleContext, isActive)}
+                      </Suspense>
+                    </div>
+                  );
                 })}
               </div>
 

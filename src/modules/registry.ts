@@ -2,9 +2,11 @@ import type { ReactNode } from "react";
 import type { TabMeta } from "../lib/types";
 import type { AppContext } from "./types";
 import { activityModule } from "./activity";
+import { localTerminalModule } from "./localTerminal";
 import { fleetModule } from "./fleet";
 import { netdiagModule } from "./netdiag";
 import { rdpModule } from "./rdp";
+import { sqlModule } from "./sql";
 import { terminalModule } from "./terminal";
 import { transferModule } from "./transfer";
 
@@ -30,42 +32,23 @@ export const MODULES = [
   terminalModule,
   transferModule,
   rdpModule,
+  localTerminalModule,
+  sqlModule,
 ] as const;
 
-/** Les `kind` d'onglet qu'`App.tsx` rend encore lui-même.
+/** Erreur de compilation si un `kind` d'onglet n'a pas de module.
  *
- * Cette liste est là pour **rétrécir**. Quand elle sera vide, le registre
- * pourra devenir un `Record<TabMeta["kind"], …>` complet et elle disparaîtra.
+ * C'est le garde-fou central du registre, et il remplace l'exhaustivité que
+ * la cascade de `if` d'`App.tsx` donnait gratuitement : un registre consulté à
+ * l'exécution est invisible pour `tsc`, donc un nouveau `kind` aurait pu
+ * n'être rendu nulle part sans que rien ne proteste — la panne MongoDB.
  *
- * Les trois onglets liés à un hôte l'ont quittée au commit 2 du chantier —
- * c'était le morceau risqué (`terminalRefs`, split pane, broadcast). Restent
- * le terminal local et SQL. */
-export const TABS_STILL_IN_APP = ["local-terminal", "sql"] as const;
-
-/** Erreur de compilation si un `kind` n'est **ni** revendiqué par un module
- * **ni** listé comme restant dans `App.tsx`.
- *
- * C'est ce qui remplace, pendant la migration, l'exhaustivité que le dispatch
- * en cascade donnait gratuitement : un registre consulté à l'exécution est
- * invisible pour `tsc`, donc un nouveau `kind` d'onglet aurait pu n'être rendu
- * nulle part sans que rien ne proteste. Ici, il ne compile pas tant que
- * personne n'a décidé de quel côté il tombe. */
-type UncoveredKind = Exclude<
-  TabMeta["kind"],
-  typeof MODULES[number]["tab"]["kind"] | typeof TABS_STILL_IN_APP[number]
->;
+ * Pendant la migration, il tolérait une liste `TABS_STILL_IN_APP` de `kind`
+ * encore rendus par `App.tsx` ; elle s'est vidée au commit 3 et a disparu
+ * avec. Il n'y a plus de dispatch d'onglet en dehors d'ici. */
+type KindWithoutModule = Exclude<TabMeta["kind"], typeof MODULES[number]["tab"]["kind"]>;
 type AssertNever<T extends never> = T;
-export type _AllTabKindsCovered = AssertNever<UncoveredKind>;
-
-/** Les onglets encore rendus par `App.tsx`. */
-export type TabStillInApp = Extract<TabMeta, { kind: typeof TABS_STILL_IN_APP[number] }>;
-
-/** Sain grâce à `_AllTabKindsCovered` : tout ce qu'aucun module ne revendique
- * est forcément dans cette liste, donc la cascade d'`App.tsx` peut se narrower
- * dessus et retrouver son `assertNever` final. */
-export function isTabStillInApp(tab: TabMeta): tab is TabStillInApp {
-  return (TABS_STILL_IN_APP as readonly string[]).includes(tab.kind);
-}
+export type _EveryTabKindHasAModule = AssertNever<KindWithoutModule>;
 
 type AnyTabRenderer = (tab: TabMeta, ctx: AppContext, isActive: boolean) => ReactNode;
 
@@ -78,12 +61,13 @@ const TAB_RENDERERS = new Map<TabMeta["kind"], AnyTabRenderer>(
   MODULES.map((m) => [m.tab.kind, m.tab.render as AnyTabRenderer]),
 );
 
-/** Le rendu du contenu de cet onglet, si un module le revendique.
+/** Le rendu du contenu de cet onglet.
  *
- * `undefined` — et non `null` — quand aucun ne le fait : `null` est un rendu
- * React légitime (un onglet SQL dont la connexion a disparu en rend un), donc
- * les confondre ferait afficher du vide au lieu de passer la main à
- * `App.tsx`. */
+ * `undefined` est désormais **impossible** — `_EveryTabKindHasAModule` le
+ * prouve à la compilation. Le type le garde quand même : c'est ce que rend une
+ * `Map` interrogée avec une clé absente, et le masquer derrière un `!` ferait
+ * disparaître la seule trace d'un registre incohérent. `null` reste un rendu
+ * légitime (onglet dont l'hôte ou la connexion a été supprimé). */
 export function renderModuleTab(tab: TabMeta, ctx: AppContext, isActive: boolean): ReactNode | undefined {
   const render = TAB_RENDERERS.get(tab.kind);
   return render ? render(tab, ctx, isActive) : undefined;

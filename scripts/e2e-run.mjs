@@ -259,6 +259,7 @@ async function runScenarios(browser) {
   await runTabShortcutScenario(browser);
   await runCloudImportScenario(browser);
   await runSshTerminalTabScenario(browser);
+  await runSqlTabScenario(browser);
   await runFleetTabScenario(browser);
   await runSidebarButtonsScenario(browser);
   await runTunnelEditScenario(browser);
@@ -1457,6 +1458,121 @@ async function setFieldByLabel(browser, label, value) {
     return true;
   }, label, value);
   if (!ok) throw new Error(`champ « ${label} » introuvable dans le formulaire`);
+}
+
+/** Même chose, mais pour un champ désigné par son `placeholder` : le
+ * formulaire de connexion SQL n'utilise pas de libellés séparés. */
+async function setFieldByPlaceholder(browser, heading, placeholder, value) {
+  const ok = await browser.execute((headingText, ph, v) => {
+    const h = Array.from(document.querySelectorAll("h2")).find((el) => el.textContent?.trim() === headingText);
+    const form = h?.closest("div");
+    const input = Array.from((form ?? document).querySelectorAll("input"))
+      .find((i) => (i.getAttribute("placeholder") || "").startsWith(ph));
+    if (!input) return false;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+    setter.call(input, v);
+    input.dispatchEvent(new Event("input", { bubbles: true }));
+    return true;
+  }, heading, placeholder, value);
+  if (!ok) throw new Error(`champ « ${placeholder} » introuvable dans « ${heading} »`);
+}
+
+/**
+ * L'onglet d'une base de données, monté dans la vraie fenêtre.
+ *
+ * C'est la famille d'onglets où MongoDB était resté inatteignable : backend
+ * complet, commandes enregistrées, tests verts, mais aucun chemin depuis
+ * l'interface. Rien ne montait un `SqlConnectionTab` dans une vraie fenêtre —
+ * ce scénario referme ça pour de bon.
+ *
+ * Comme pour le terminal SSH : la connexion vise 127.0.0.1:1, elle échoue
+ * immédiatement, et ce qu'on vérifie est que l'onglet monte.
+ */
+async function runSqlTabScenario(browser) {
+  const LABEL = `e2e-sql-${Date.now()}`;
+  const HEADING = "Nouvelle connexion SQL";
+
+  await browser.execute(() => {
+    const btn = Array.from(document.querySelectorAll("aside nav button"))
+      .find((b) => (b.getAttribute("title") || "") === "Bases de données");
+    if (btn instanceof HTMLElement) btn.click();
+  });
+  await clickButtonContaining(browser, "Ajouter une connexion");
+
+  await browser.waitUntil(async () => await browser.execute((h) =>
+    Array.from(document.querySelectorAll("h2")).some((el) => el.textContent?.trim() === h), HEADING,
+  ), { timeout: 10_000, timeoutMsg: "le formulaire de connexion SQL ne s est pas ouvert" });
+
+  await setFieldByPlaceholder(browser, HEADING, "Nom", LABEL);
+  await setFieldByPlaceholder(browser, HEADING, "Adresse", "127.0.0.1");
+  await setFieldByPlaceholder(browser, HEADING, "Port", "1");
+  await setFieldByPlaceholder(browser, HEADING, "Utilisateur", "e2e");
+  await clickButtonByText(browser, "Ajouter");
+
+  const lookup = () => browser.execute(async (label) => {
+    try {
+      const ws = await window.__TAURI_INTERNALS__.invoke("get_workspace");
+      return { id: ws.sqlConnections.find((c) => c.label === label)?.id ?? null };
+    } catch (e) {
+      return { __error: String(e) };
+    }
+  }, LABEL);
+
+  try {
+    await browser.waitUntil(async () => !!(await lookup()).id,
+      { timeout: 10_000, timeoutMsg: "la connexion SQL de test n a pas été enregistrée" });
+  } catch (e) {
+    const formError = await browser.execute(() =>
+      Array.from(document.querySelectorAll("p")).map((p) => p.textContent?.trim()).filter((t) => t && t.length < 200).slice(0, 12),
+    );
+    console.log("Textes du formulaire au moment de l échec :", JSON.stringify(formError));
+    throw e;
+  }
+  const created = await lookup();
+
+  try {
+    const tabsBefore = await browser.execute(() => document.querySelectorAll("[data-tab-id]").length);
+    // La carte porte le libellé ; l'action est un bouton « Connexion » à
+    // l'intérieur, pas la carte elle-même.
+    const clicked = await browser.execute((label) => {
+      const card = Array.from(document.querySelectorAll("aside div"))
+        .find((d) => d.querySelector("span")?.textContent?.trim() === label && d.querySelector("button"));
+      const connect = Array.from(card?.querySelectorAll("button") ?? [])
+        .find((b) => b.textContent?.trim() === "Connexion");
+      if (!connect) return false;
+      connect.click();
+      return true;
+    }, LABEL);
+    if (!clicked) throw new Error("le bouton « Connexion » de la carte de test est introuvable");
+
+    await browser.waitUntil(
+      async () => (await browser.execute(() => document.querySelectorAll("[data-tab-id]").length)) > tabsBefore,
+      { timeout: 10_000, timeoutMsg: "cliquer sur « Connexion » n a pas ouvert d onglet" },
+    );
+
+    // L'arborescence bases/tables est le squelette de `SqlConnectionTab` : elle
+    // s'affiche avant même qu'une connexion réussisse, donc sa présence prouve
+    // le montage sans dépendre d'un serveur.
+    await browser.waitUntil(async () => await browser.execute(() => {
+      const panes = Array.from(document.querySelectorAll("div.absolute.inset-0"));
+      const active = panes.find((p) => !p.classList.contains("hidden"));
+      return !!active && (active.textContent || "").length > 0;
+    }), { timeout: 20_000, timeoutMsg: "l onglet de base de données est resté vide — le module n a rien rendu" });
+
+    console.log("Base de données : OK (connexion créée, onglet ouvert depuis le panneau, composant monté).");
+  } finally {
+    const cleanup = await browser.execute(async (id) => {
+      try {
+        await window.__TAURI_INTERNALS__.invoke("delete_sql_connection", { connectionId: id });
+        return { ok: true };
+      } catch (e) {
+        return { __error: String(e) };
+      }
+    }, created.id);
+    if (!cleanup || cleanup.__error !== undefined) {
+      throw new Error(`la connexion de test n a pas pu être supprimée, workspace pollué : ${JSON.stringify(cleanup)}`);
+    }
+  }
 }
 
 /**

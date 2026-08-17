@@ -293,10 +293,20 @@ export interface ModuleDef {
 
 ### Garde-fous — « quel test échouerait si je m'étais trompé ? »
 
-1. **Exhaustivité à la compilation.** Le registre expose
-   `Record<TabMeta["kind"], TabContribution>` : ajouter un `kind` sans renderer
-   devient une **erreur `tsc`**. Strictement plus fort que l'`assertNever`
-   actuel, qui n'attrape que ce qui traverse le dispatch existant.
+1. **Exhaustivité à la compilation.** Ajouter un `kind` sans renderer doit être
+   une **erreur `tsc`**. Strictement plus fort que l'`assertNever` d'avant, qui
+   n'attrapait que ce qui traversait le dispatch existant. **En place depuis le
+   commit 3** — sous la forme `_EveryTabKindHasAModule` plutôt que du
+   `Record<TabMeta["kind"], TabContribution>` prévu ici : un `Record` littéral
+   dupliquerait la liste des modules, et le construire par `Object.fromEntries`
+   perd justement l'exhaustivité qu'on cherche. Un `Exclude<…>` contraint à
+   `never` la retrouve sans duplication.
+
+   Point non anticipé : un registre consulté à l'exécution est **invisible pour
+   `tsc`**, donc pendant la migration ce garde-fou devait couvrir aussi les
+   `kind` restés dans `App.tsx`, sous peine d'être plus faible que la cascade
+   qu'il remplaçait. D'où la liste transitoire `TABS_STILL_IN_APP`, vidée et
+   supprimée au commit 3.
 2. **Complétude module ↔ commandes.** Nouvelle assertion : l'union des
    `tauriCommands` de tous les modules **est exactement** l'ensemble de
    `generate_handler!`. Une commande Rust n'appartenant à aucun module devient
@@ -319,6 +329,24 @@ Chaque garde-fou doit être **cassé une fois volontairement** pour vérifier qu
 4. **Panneaux sidebar restants** — `hosts` (le gros, ~18 callbacks), `sftp`,
    `snippets`, `tunnels`, `keychain`, `aws`, `knownHosts`.
 5. **Complétude Rust** — regroupement de `main.rs` + assertion 2.
+
+**Découpage réellement suivi** (2026-08-17). Les commits 1 et 2 sont partis
+comme prévu. Le commit 3 a été redécoupé sur un axe plutôt que sur un domaine :
+
+- `sql` couvre déjà `redis` et `mongo` — les trois partagent un seul `kind`
+  d'onglet, `SqlConnectionTab` faisant le tri par moteur. Il n'y avait donc pas
+  trois modules à écrire, mais un.
+- `local-terminal`, que le découpage n'assignait à aucun commit, y a été
+  ajouté. Sans lui l'axe « onglets » restait incomplet pour un seul cas
+  trivial, et c'est sa complétude qui débloque le vrai garde-fou : un
+  `Record<TabMeta["kind"], …>` exhaustif à la place de la liste transitoire
+  `TABS_STILL_IN_APP`.
+- Le **panneau** `database` a été renvoyé au commit 4. C'est un autre axe de
+  contribution (panneaux de barre latérale, pas onglets) et le traiter seul
+  aurait demandé d'inventer cet axe pour un panneau sur huit.
+
+Le commit 3 livre donc « l'axe onglets est complet », et le 4 ouvrira l'axe
+panneaux avec les huit d'un coup.
 
 Chaque commit : `npm run verify`, `cargo clippy -D warnings`, puis build et
 lancement du binaire Windows release pour un test manuel réel.
