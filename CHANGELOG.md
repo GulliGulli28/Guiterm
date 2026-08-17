@@ -333,6 +333,11 @@ This changelog starts 2026-07-21 — for earlier versions, see
   so before you save, since connections travelling through it are cut. If it
   cannot start again — a port taken in the meantime, a host now unreachable —
   the change is still saved and the failure is reported as what it is.
+- The left-hand button strip can be pared down to what you actually use, from
+  Settings → Appearance → "Boutons de la barre latérale". Unticking a button
+  removes it from the strip and nothing else: no feature is turned off, open
+  tabs stay open, and the command palette still reaches everything. "Hôtes"
+  stays put, since it is the way to a connection.
 
 ### Fixed
 - Console windows no longer flash on Windows when something runs on this
