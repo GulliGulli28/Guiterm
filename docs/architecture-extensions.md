@@ -4,6 +4,9 @@
 noyau et des extensions par-dessus, pour tenir plus tard un marketplace, et
 choisir à l'installation les features à télécharger ? »
 
+Révisé le 2026-08-17 : l'étape 2 ne passe plus par un écran de premier
+lancement (section 5).
+
 **Rien n'est décidé ni commencé.** Ce document existe pour que la réflexion ne
 soit pas refaite de zéro. Les chiffres ci-dessous ont été mesurés dans le dépôt
 le 2026-08-13 — les revérifier avant de s'engager sur une taille (c'est la
@@ -58,10 +61,10 @@ SSH-only / Full), jamais N².
 
 ### B. Choisir à l'exécution (tout est compilé, l'utilisateur active ce qu'il veut)
 
-**Coût faible, gain UX réel** : écran de premier lancement, sidebar non
-surchargée. Du point de vue de l'utilisateur, ça *ressemble* à « choisir ses
-features à l'installation ». C'est ce que fait VS Code pour ses extensions
-intégrées. **C'est la réponse pragmatique à la demande initiale.**
+**Coût faible, gain UX réel** : une barre latérale non surchargée, réglable par
+celui que ça gêne. **C'est la réponse pragmatique**, à condition d'assumer ce
+qu'elle n'est pas : elle ne retire rien du binaire, donc elle ne répond pas
+littéralement à « choisir ce que je télécharge » (détail en section 5).
 
 ### C. Vraies extensions tierces (le marketplace)
 
@@ -106,10 +109,10 @@ Chaque étape a de la valeur seule.
 
 1. **Registre de modules first-party** — aucune promesse publique. Détail en
    section 6.
-2. **Activation/désactivation à l'exécution** + écran de premier lancement.
-   `enabledModules` dans les préférences. Garde-fou : le noyau (SSH, vault,
-   known_hosts) n'est jamais désactivable. Répond à la demande « choisir mes
-   features » sans matrice de builds.
+2. **Masquage des panneaux, réglable dans les préférences** — pas d'écran de
+   premier lancement (voir juste en dessous). `hiddenPanels` dans les
+   préférences, **tout visible par défaut**. Garde-fou : le noyau (SSH, vault,
+   known_hosts) n'est jamais masquable.
 3. **Extraire un vrai module en sidecar** (candidat : Mongo ou Redis) pour
    éprouver la frontière sous contrainte réelle, en réutilisant le patron
    `rdp-ipc`. C'est là qu'on mesure les Mo réellement gagnés.
@@ -117,6 +120,52 @@ Chaque étape a de la valeur seule.
    distribution, mises à jour.
 
 **L'étape 1 vaut le coup même si le marketplace ne voit jamais le jour.**
+
+### Pourquoi pas d'écran de premier lancement (révisé le 2026-08-17)
+
+La première version de l'étape 2 proposait un écran d'onboarding où
+l'utilisateur cochait ses modules, façon VS Code. Écarté après discussion, pour
+trois raisons — la troisième étant la vraie :
+
+- **On demande au moment où l'utilisateur en sait le moins.** Il vient
+  d'installer un client SSH ; il ne peut pas savoir s'il aura besoin de Redis ou
+  du diagnostic réseau. Il coche tout (l'écran n'a servi à rien) ou coche au
+  hasard et perd des fonctionnalités dont il ignorera l'existence.
+- **Ça met de la friction avant la première valeur.** Le premier lancement doit
+  mener à « je me connecte à un serveur », pas à un formulaire.
+- **Le gain est nul tant que l'étape 3 n'existe pas.** Tout reste compilé dans
+  le binaire de toute façon : désactiver un module ne fait que cacher une icône.
+  Ce serait du rangement d'UI présenté comme un choix d'installation — et ça
+  **arme volontairement** la classe de bugs « la fonctionnalité existe mais
+  l'utilisateur ne la trouve pas », c'est-à-dire le mode d'échec de MongoDB.
+
+Ce qui reste, et qui suffit : **un réglage dans les préférences existantes**.
+Celui que ça encombre range ; les autres ne voient jamais la question. C'est une
+petite fraction du travail initialement prévu pour l'étape 2, et l'essentiel de
+sa valeur.
+
+Le périmètre réel est d'ailleurs plus étroit que « 14 modules » : les onglets
+n'apparaissent que si on les ouvre. Ce qui encombre visuellement, ce sont les
+**8 panneaux de la barre latérale** (`TABS` dans `Sidebar.tsx`). Un réglage
+« quels panneaux afficher dans la barre latérale » couvre la plainte concrète
+sans introduire une notion de « module » visible par l'utilisateur — notion
+qu'il vaut mieux ne pas exposer avant que l'étape 3 lui donne un sens.
+
+**Contrainte à ne pas rater** : les préférences vivent dans le `localStorage` de
+la webview, donc une installation déjà utilisée n'hérite jamais d'un défaut
+modifié (piège documenté dans `CLAUDE.md`). Le réglage doit donc être une liste
+de **masqués** et non d'activés — absente, elle vaut « rien de masqué ». Une
+liste d'activés ferait disparaître tous les panneaux chez les utilisateurs
+actuels à la première mise à jour.
+
+### Ce que l'étape 2 ne résout pas
+
+Elle ne répond **pas** à « choisir les features à télécharger à
+l'installation », malgré l'apparence. Rien n'est retiré du binaire. Si c'est
+bien ça la demande, les seules vraies réponses sont le choix A de la section 2
+(deux variantes figées Lite/Full) ou l'étape 3 (sidecars téléchargés à la
+demande). À trancher avant de commencer l'étape 2, pour ne pas croire la
+question réglée.
 
 ---
 
@@ -234,7 +283,7 @@ pour tout le reste.
 
 ### Hors périmètre de l'étape 1
 
-Pas d'activation/désactivation à l'exécution (étape 2), pas de feature Cargo ni
+Pas de masquage de panneaux (étape 2), pas de feature Cargo ni
 de sidecar (étape 3), aucun changement de format `workspace.json`, aucun
 renommage de commande Tauri.
 
