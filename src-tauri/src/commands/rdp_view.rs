@@ -7,6 +7,8 @@ use tauri_plugin_shell::ShellExt;
 use tauri_plugin_shell::process::CommandEvent;
 use termius_core::model::HostId;
 use termius_core::sync_ext::MutexExt;
+use base64::Engine as _;
+use base64::engine::general_purpose::STANDARD as BASE64;
 use termius_core::vault::{self, SecretKind};
 use tokio::io::AsyncWriteExt as _;
 use uuid::Uuid;
@@ -20,6 +22,39 @@ struct RdpViewErrorEvent {
 #[derive(Serialize, Clone)]
 struct RdpViewClosedEvent {
     id: String,
+}
+
+/// A new cursor shape for a session's canvas.
+///
+/// Plain event with base64 pixels, unlike the framebuffer's raw channel: a
+/// cursor changes shape when the pointer crosses a window edge or an app
+/// switches tool, i.e. orders of magnitude less often than the screen
+/// repaints. Paying JSON + base64 here buys the simpler path, and the frame
+/// channel's whole reason to exist (megabytes per second) does not apply.
+///
+/// `#[serde(rename_all = "camelCase")]` on a plain struct really does rename
+/// its fields — the trap documented in `CLAUDE.md` is about *enum* variants
+/// with internal tags, which this is not.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct RdpViewPointerEvent {
+    id: String,
+    /// `null` for "no custom shape": paired with `hidden`, that is either the
+    /// system arrow (`hidden: false`) or nothing at all (`hidden: true`).
+    bitmap: Option<RdpViewPointerBitmap>,
+    hidden: bool,
+}
+
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct RdpViewPointerBitmap {
+    width: u16,
+    height: u16,
+    hotspot_x: u16,
+    hotspot_y: u16,
+    /// RGBA8, non-premultiplied alpha, row-major — straight into
+    /// `putImageData` on the frontend.
+    pixels_base64: String,
 }
 
 /// Starts an embedded, view-only RDP session against `host_id`
@@ -178,6 +213,34 @@ pub async fn connect_rdp_view(
                     if channel.send(InvokeResponseBody::Raw(frame)).is_err() {
                         break;
                     }
+                }
+                SidecarMessage::PointerBitmap { width, height, hotspot_x, hotspot_y, pixels } => {
+                    let _ = bridge_app.emit(
+                        "rdp-view-pointer",
+                        RdpViewPointerEvent {
+                            id: bridge_id.clone(),
+                            bitmap: Some(RdpViewPointerBitmap {
+                                width,
+                                height,
+                                hotspot_x,
+                                hotspot_y,
+                                pixels_base64: BASE64.encode(&pixels),
+                            }),
+                            hidden: false,
+                        },
+                    );
+                }
+                SidecarMessage::PointerHidden => {
+                    let _ = bridge_app.emit(
+                        "rdp-view-pointer",
+                        RdpViewPointerEvent { id: bridge_id.clone(), bitmap: None, hidden: true },
+                    );
+                }
+                SidecarMessage::PointerDefault => {
+                    let _ = bridge_app.emit(
+                        "rdp-view-pointer",
+                        RdpViewPointerEvent { id: bridge_id.clone(), bitmap: None, hidden: false },
+                    );
                 }
                 SidecarMessage::Error(msg) => {
                     let _ = bridge_app.emit("rdp-view-error", RdpViewErrorEvent { id: bridge_id.clone(), message: msg });

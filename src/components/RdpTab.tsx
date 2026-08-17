@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { UnlistenFn } from "@tauri-apps/api/event";
-import { api, onRdpViewClosed, onRdpViewError } from "../lib/api";
+import { api, onRdpViewClosed, onRdpViewError, onRdpViewPointer } from "../lib/api";
+import { decodePointerPixels, pointerCss, type RdpPointerBitmap } from "../lib/rdpCursor";
 import type { Host } from "../lib/types";
 import type { AppPreferences } from "../lib/preferences";
 import { shouldBubbleToShortcut } from "../lib/shortcuts";
@@ -52,6 +53,28 @@ export const RdpTab = forwardRef<TerminalTabHandle, RdpTabProps>(function RdpTab
   const preferencesRef = useRef(preferences);
   useEffect(() => { preferencesRef.current = preferences; }, [preferences]);
 
+  // Le curseur distant est peint en CSS sur le canvas, pas composité dans
+  // l'image : le navigateur le dessine alors à la position réelle de la
+  // souris, sans le retard d'un aller-retour réseau. Voir `lib/rdpCursor.ts`.
+  const bitmapToDataUrl = (bitmap: RdpPointerBitmap): string | null => {
+    try {
+      const pixels = decodePointerPixels(bitmap.pixelsBase64);
+      if (pixels.length < bitmap.width * bitmap.height * 4) return null;
+      const off = document.createElement("canvas");
+      off.width = bitmap.width;
+      off.height = bitmap.height;
+      const ctx = off.getContext("2d");
+      if (!ctx) return null;
+      // Alpha non prémultiplié des deux côtés (`PointerBitmapTarget::Accelerated`
+      // côté sidecar) : rien à convertir, sans quoi tout bord semi-transparent
+      // s'assombrirait.
+      ctx.putImageData(new ImageData(pixels, bitmap.width, bitmap.height), 0, 0);
+      return off.toDataURL("image/png");
+    } catch {
+      return null;
+    }
+  };
+
   const sendInput = (message: Parameters<typeof api.sendRdpViewInput>[1]) => {
     const id = sessionIdRef.current;
     if (id) api.sendRdpViewInput(id, message).catch(() => {});
@@ -101,6 +124,7 @@ export const RdpTab = forwardRef<TerminalTabHandle, RdpTabProps>(function RdpTab
     let disposed = false;
     let unlistenError: UnlistenFn | null = null;
     let unlistenClosed: UnlistenFn | null = null;
+    let unlistenPointer: UnlistenFn | null = null;
 
     const connect = async () => {
       try {
@@ -140,6 +164,11 @@ export const RdpTab = forwardRef<TerminalTabHandle, RdpTabProps>(function RdpTab
           setStatus("failed");
           setError(message);
         });
+        unlistenPointer = await onRdpViewPointer((eventId, update) => {
+          if (eventId !== id) return;
+          const canvas = canvasRef.current;
+          if (canvas) canvas.style.cursor = pointerCss(update, bitmapToDataUrl);
+        });
         unlistenClosed = await onRdpViewClosed((eventId) => {
           if (eventId !== id) return;
           sessionIdRef.current = null;
@@ -159,6 +188,7 @@ export const RdpTab = forwardRef<TerminalTabHandle, RdpTabProps>(function RdpTab
       disposed = true;
       unlistenError?.();
       unlistenClosed?.();
+      unlistenPointer?.();
       if (sessionIdRef.current) {
         api.closeRdpView(sessionIdRef.current).catch(() => {});
         onSessionId?.(null);
@@ -307,7 +337,11 @@ export const RdpTab = forwardRef<TerminalTabHandle, RdpTabProps>(function RdpTab
       <canvas
         ref={canvasRef}
         tabIndex={0}
-        className={status === "open" && isActive ? "max-h-full max-w-full cursor-default outline-none" : "hidden"}
+        // Pas de classe `cursor-*` ici : le curseur est piloté par
+        // `canvas.style.cursor` depuis les événements `rdp-view-pointer`, et
+        // une classe utilitaire à côté ne ferait qu'égarer la prochaine
+        // lecture (le style inline gagne, mais la classe dit le contraire).
+        className={status === "open" && isActive ? "max-h-full max-w-full outline-none" : "hidden"}
         onMouseMove={handleMouseMove}
         onMouseDown={handleMouseDown}
         onContextMenu={(e) => e.preventDefault()}

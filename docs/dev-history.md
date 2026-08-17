@@ -525,10 +525,39 @@ fichiers `core/src/rdp.rs`/`src-tauri/src/commands/rdp.rs` supprimés,
 `connectRdp` retiré d'`api.ts`. L'aperçu intégré est désormais l'unique mode
 de connexion RDP de l'app.
 
+### Curseur distant (2026-08-17)
+
+Les événements `PointerBitmap`/`Hidden`/`Default` étaient ignorés côté
+`rdp-sidecar` : l'aperçu s'utilisait sans voir son curseur. Ils sont désormais
+relayés (trois nouveaux tags dans le cadrage binaire de `rdp-ipc`, puis un
+événement Tauri `rdp-view-pointer`) et le curseur est peint en **CSS sur le
+canvas** (`lib/rdpCursor.ts`), pas composité dans l'image.
+
+**Pourquoi CSS plutôt que composité** : le serveur envoie une *forme*, la
+position étant celle de la vraie souris — que seul le navigateur connaît. En
+CSS, c'est lui qui dessine, à la position exacte du pointeur. Composité dans le
+framebuffer, le curseur suivrait la position que le serveur *croit* correcte,
+soit un aller-retour réseau complet derrière la main qui tient la souris.
+
+**Conséquence assumée** : `PointerPosition` — le serveur qui *déplace* le
+curseur — reste ignoré et le restera, une page web ne pouvant pas déplacer le
+pointeur de l'OS. N'affecte que les applications qui recentrent le pointeur
+elles-mêmes.
+
+Deux pièges traités, tous deux invisibles à la compilation et silencieux au
+runtime, car ils produisent une déclaration CSS que le navigateur **jette sans
+rien dire** — donc *aucun* curseur, strictement pire que le curseur système
+qu'on remplaçait : un bitmap plus grand que 128×128, et un hotspot hors de
+l'image. Les deux retombent sur `default` (le second en serrant le hotspot).
+Testés dans `lib/rdpCursor.test.ts`.
+
+Pas de conversion d'alpha nulle part : `pointer_software_rendering: false` fait
+décoder ironrdp en `PointerBitmapTarget::Accelerated`, c'est-à-dire du RGBA
+**non prémultiplié** — exactement ce que `putImageData` attend. Basculer ce
+drapeau assombrirait silencieusement tout bord semi-transparent.
+
 ### Limites connues restantes
 
-- **Pas de curseur rendu** — les événements `PointerDefault`/`Hidden`/
-  `Position`/`Bitmap` sont ignorés côté `rdp-sidecar`.
 - **Molette approximative** — chaque `wheel` envoie un cran fixe (±120) dans
   le sens du signe de `deltaY`, pas la magnitude réelle (évite un
   wraparound sur l'octet signé de `MousePdu`).

@@ -187,6 +187,34 @@ pub enum SidecarMessage {
         height: u16,
         pixels: Vec<u8>,
     },
+    /// A new mouse-cursor shape, as RGBA8 with **non-premultiplied** alpha —
+    /// which is what `PointerBitmapTarget::Accelerated` produces, and what a
+    /// canvas `putImageData` expects, so neither side converts anything.
+    ///
+    /// Sent on its own rather than composited into `Image`: the frontend
+    /// paints it as the canvas' CSS `cursor`, so the *browser* draws it at
+    /// the real mouse position. Compositing it server-side instead would tie
+    /// the cursor to the server's idea of where the pointer is, i.e. one full
+    /// network round-trip behind the hand holding the mouse.
+    ///
+    /// Rare compared to `Image` (a shape change, not a move), so it goes
+    /// through the plain event path rather than the frame channel.
+    PointerBitmap {
+        width: u16,
+        height: u16,
+        /// Where in the bitmap the actual "point" of the cursor is — the tip
+        /// of an arrow, the centre of a crosshair. CSS takes the same two
+        /// numbers after the URL.
+        hotspot_x: u16,
+        hotspot_y: u16,
+        pixels: Vec<u8>,
+    },
+    /// The server hid the cursor (full-screen video, a game, a text field
+    /// being dragged). `cursor: none` on the canvas.
+    PointerHidden,
+    /// Back to the system arrow. Lets the frontend drop its custom cursor
+    /// rather than keep painting a stale shape.
+    PointerDefault,
     Error(String),
     Closed,
 }
@@ -194,6 +222,9 @@ pub enum SidecarMessage {
 const TAG_IMAGE: u8 = 1;
 const TAG_ERROR: u8 = 2;
 const TAG_CLOSED: u8 = 3;
+const TAG_POINTER_BITMAP: u8 = 4;
+const TAG_POINTER_HIDDEN: u8 = 5;
+const TAG_POINTER_DEFAULT: u8 = 6;
 
 impl SidecarMessage {
     pub async fn write_to(&self, mut w: impl AsyncWrite + Unpin) -> io::Result<()> {
@@ -218,6 +249,23 @@ impl SidecarMessage {
                 header.extend_from_slice(&u32::try_from(bytes.len()).unwrap_or(u32::MAX).to_be_bytes());
                 w.write_all(&header).await?;
                 w.write_all(bytes).await?;
+            }
+            SidecarMessage::PointerBitmap { width, height, hotspot_x, hotspot_y, pixels } => {
+                let mut header = Vec::with_capacity(13);
+                header.push(TAG_POINTER_BITMAP);
+                header.extend_from_slice(&width.to_be_bytes());
+                header.extend_from_slice(&height.to_be_bytes());
+                header.extend_from_slice(&hotspot_x.to_be_bytes());
+                header.extend_from_slice(&hotspot_y.to_be_bytes());
+                header.extend_from_slice(&u32::try_from(pixels.len()).unwrap_or(u32::MAX).to_be_bytes());
+                w.write_all(&header).await?;
+                w.write_all(pixels).await?;
+            }
+            SidecarMessage::PointerHidden => {
+                w.write_all(&[TAG_POINTER_HIDDEN]).await?;
+            }
+            SidecarMessage::PointerDefault => {
+                w.write_all(&[TAG_POINTER_DEFAULT]).await?;
             }
             SidecarMessage::Closed => {
                 w.write_all(&[TAG_CLOSED]).await?;
@@ -258,6 +306,22 @@ impl SidecarMessage {
                 r.read_exact(&mut bytes).await?;
                 Ok(Some(SidecarMessage::Error(String::from_utf8_lossy(&bytes).into_owned())))
             }
+            TAG_POINTER_BITMAP => {
+                let mut dims = [0u8; 8];
+                r.read_exact(&mut dims).await?;
+                let width = u16::from_be_bytes([dims[0], dims[1]]);
+                let height = u16::from_be_bytes([dims[2], dims[3]]);
+                let hotspot_x = u16::from_be_bytes([dims[4], dims[5]]);
+                let hotspot_y = u16::from_be_bytes([dims[6], dims[7]]);
+                let mut len_buf = [0u8; 4];
+                r.read_exact(&mut len_buf).await?;
+                let len = u32::from_be_bytes(len_buf) as usize;
+                let mut pixels = vec![0u8; len];
+                r.read_exact(&mut pixels).await?;
+                Ok(Some(SidecarMessage::PointerBitmap { width, height, hotspot_x, hotspot_y, pixels }))
+            }
+            TAG_POINTER_HIDDEN => Ok(Some(SidecarMessage::PointerHidden)),
+            TAG_POINTER_DEFAULT => Ok(Some(SidecarMessage::PointerDefault)),
             TAG_CLOSED => Ok(Some(SidecarMessage::Closed)),
             other => Err(io::Error::new(io::ErrorKind::InvalidData, format!("unknown sidecar message tag {other}"))),
         }
@@ -357,6 +421,56 @@ mod tests {
         msg.write_to(client).await.unwrap();
         let decoded = SidecarMessage::read_from(server).await.unwrap().expect("a message was sent");
         assert_eq!(decoded, msg);
+    }
+
+    #[tokio::test]
+    async fn pointer_bitmap_roundtrips_through_a_pipe() {
+        let (client, server) = tokio::io::duplex(65536);
+        // Hotspot deliberately neither zero nor centred: it is the field a
+        // wrong header offset would silently swap with width/height, and the
+        // symptom would be a cursor that points a few pixels off — the kind
+        // of thing nobody reports as a bug, they just aim differently.
+        let msg = SidecarMessage::PointerBitmap {
+            width: 32,
+            height: 32,
+            hotspot_x: 5,
+            hotspot_y: 11,
+            pixels: (0..(32 * 32 * 4)).map(|i| (i % 251) as u8).collect(),
+        };
+        msg.write_to(client).await.unwrap();
+        let decoded = SidecarMessage::read_from(server).await.unwrap().expect("a message was sent");
+        assert_eq!(decoded, msg);
+    }
+
+    #[tokio::test]
+    async fn pointer_visibility_messages_roundtrip_through_a_pipe() {
+        for msg in [SidecarMessage::PointerHidden, SidecarMessage::PointerDefault] {
+            let (client, server) = tokio::io::duplex(4096);
+            msg.write_to(client).await.unwrap();
+            let decoded = SidecarMessage::read_from(server).await.unwrap().expect("a message was sent");
+            assert_eq!(decoded, msg);
+        }
+    }
+
+    /// The two one-byte pointer messages carry no length, so a wrong tag
+    /// would not desynchronise the stream — it would decode as the *other*
+    /// pointer state and quietly show the wrong cursor. Pin the tags apart.
+    #[tokio::test]
+    async fn pointer_messages_do_not_share_a_tag() {
+        let mut tags = Vec::new();
+        for msg in [
+            SidecarMessage::PointerHidden,
+            SidecarMessage::PointerDefault,
+            SidecarMessage::Closed,
+            SidecarMessage::PointerBitmap { width: 1, height: 1, hotspot_x: 0, hotspot_y: 0, pixels: vec![0; 4] },
+            SidecarMessage::Image { canvas_width: 1, canvas_height: 1, x: 0, y: 0, width: 1, height: 1, pixels: vec![0; 4] },
+        ] {
+            let mut buf = Vec::new();
+            msg.write_to(&mut buf).await.unwrap();
+            tags.push(buf[0]);
+        }
+        let unique: std::collections::HashSet<_> = tags.iter().copied().collect();
+        assert_eq!(unique.len(), tags.len(), "tags en collision : {tags:?}");
     }
 
     #[tokio::test]

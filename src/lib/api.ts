@@ -1,5 +1,6 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
+import type { RdpPointerUpdate } from "./rdpCursor";
 import type { ActivityEvent, ActivityFilter, AuthMethod, BulkEdit, DiagTool, NetdiagOutcome, AwsCallerIdentity, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSessionAlert, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, AwsSsoSessionStatus, CloudInstance, CloudScope, CloudSelection, CollectionInfo, ColumnInfo, CollectFactsResult, ComposeResult, DbTunnel, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, GroupId, HostDrift, HostId, HostKind, ImportSelection, Inventory, InventoryDiff, InventorySelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneListed, PaneOpened, PaneSource, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, ReachabilityOutcome, RedisKeyDetail, RemoteSearchMode, RemoteSearchOutcome, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, RollbackPlan, ScanPage, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SshAuthPrompt, SshConfigHost, SsmProbe, TableInfo, TransferProgressEvent, VaultStatus, Workspace } from "./types";
 
 /** Mirrors the 12-byte little-endian header `commands::rdp_view::connect_rdp_view`
@@ -647,6 +648,15 @@ export function onRdpViewError(handler: (id: string, message: string) => void): 
 
 export function onRdpViewClosed(handler: (id: string) => void): Promise<UnlistenFn> {
   return listen<{ id: string }>("rdp-view-closed", (event) => handler(event.payload.id));
+}
+
+/** Changement de forme du curseur distant. Événement ordinaire et non canal
+ * brut, contrairement aux images : une forme change quand le pointeur passe
+ * une bordure de fenêtre, pas soixante fois par seconde. */
+export function onRdpViewPointer(handler: (id: string, update: RdpPointerUpdate) => void): Promise<UnlistenFn> {
+  return listen<{ id: string } & RdpPointerUpdate>("rdp-view-pointer", (event) =>
+    handler(event.payload.id, { bitmap: event.payload.bitmap, hidden: event.payload.hidden }),
+  );
 }
 
 export function onFleetOutcome(handler: (runId: string, outcome: FleetOutcome) => void): Promise<UnlistenFn> {

@@ -575,11 +575,38 @@ async fn active_session(
                     handle_deactivate_all(&mut reader, &mut writer, &mut active_stage, &mut image, *sequence).await?;
                     send_full_next = true;
                 }
-                // Cursor shape/position — not rendered in this view-only first pass.
-                ActiveStageOutput::PointerDefault
-                | ActiveStageOutput::PointerHidden
-                | ActiveStageOutput::PointerPosition { .. }
-                | ActiveStageOutput::PointerBitmap(_) => {}
+                ActiveStageOutput::PointerDefault => {
+                    SidecarMessage::PointerDefault.write_to(&mut *stdout).await?;
+                }
+                ActiveStageOutput::PointerHidden => {
+                    SidecarMessage::PointerHidden.write_to(&mut *stdout).await?;
+                }
+                ActiveStageOutput::PointerBitmap(pointer) => {
+                    // `pointer_software_rendering: false` (see the connector
+                    // config above) means ironrdp decodes to
+                    // `PointerBitmapTarget::Accelerated`, i.e. RGBA8 with
+                    // **non-premultiplied** alpha — exactly what a canvas
+                    // `putImageData` wants, so nothing is converted here or
+                    // on the other side. Flipping that flag would silently
+                    // darken every semi-transparent cursor edge.
+                    SidecarMessage::PointerBitmap {
+                        width: pointer.width,
+                        height: pointer.height,
+                        hotspot_x: pointer.hotspot_x,
+                        hotspot_y: pointer.hotspot_y,
+                        pixels: pointer.bitmap_data.clone(),
+                    }
+                    .write_to(&mut *stdout)
+                    .await?;
+                }
+                // Server-driven cursor *moves* stay ignored, and always will:
+                // the frontend draws the cursor as the canvas' CSS `cursor`,
+                // and a web page cannot warp the OS pointer. Only apps that
+                // recentre the pointer themselves are affected; honouring it
+                // would mean compositing the cursor into the framebuffer
+                // instead, which puts it a full network round-trip behind the
+                // hand holding the mouse.
+                ActiveStageOutput::PointerPosition { .. } => {}
                 ActiveStageOutput::MultitransportRequest(_) | ActiveStageOutput::AutoDetect(_) => {}
             }
         }
