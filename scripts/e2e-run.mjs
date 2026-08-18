@@ -1563,7 +1563,25 @@ async function runHostAttachmentsScenario(browser) {
       DB_LABEL,
     ), { timeout: 10_000, timeoutMsg: "la base tunnelée n apparaît pas sous l hôte qu elle traverse" });
 
-    console.log("Liens entre verticales : OK (base tunnelée listée sous son hôte, et cliquable).");
+    // Sens inverse : depuis le panneau des bases, l'hôte traversé doit être un
+    // vrai lien et pas seulement le texte « via bastion » qu'il était déjà.
+    await browser.execute(() => {
+      const btn = Array.from(document.querySelectorAll("aside nav button"))
+        .find((b) => (b.getAttribute("title") || "").split(" — ")[0] === "Bases de données");
+      if (btn instanceof HTMLElement) btn.click();
+    });
+    await browser.waitUntil(async () => await browser.execute((hostLabel, dbLabel) => {
+      const card = Array.from(document.querySelectorAll("aside div"))
+        .find((d) => Array.from(d.querySelectorAll("span")).some((s) => s.textContent?.trim() === dbLabel));
+      if (!card) return false;
+      return Array.from(card.querySelectorAll("button"))
+        .some((b) => (b.getAttribute("title") || "").includes(hostLabel));
+    }, HOST_LABEL, DB_LABEL), {
+      timeout: 10_000,
+      timeoutMsg: "l hôte traversé n est pas un lien cliquable depuis la connexion",
+    });
+
+    console.log("Liens entre verticales : OK (base listée sous son hôte, et hôte atteignable depuis la base).");
   } finally {
     const cleanup = await browser.execute(async (hostId, dbId) => {
       try {

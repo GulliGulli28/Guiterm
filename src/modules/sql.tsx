@@ -34,6 +34,7 @@ export const sqlModule = defineModule({
         onNewConnection={a.newSqlConnection}
         onEditConnection={a.editSqlConnection}
         onImportAws={a.importAwsDatabases}
+        onConnectHost={a.connect}
       />
     ),
   },

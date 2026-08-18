@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { SqlConnection, Workspace } from "./types";
-import { attachmentCount, connectionViaHostId, hasAttachments, hostAttachments } from "./hostGraph";
+import { attachmentCount, hasAttachments, hostAttachments } from "./hostGraph";
 
 const conn = (over: Partial<SqlConnection> & Pick<SqlConnection, "engine">): SqlConnection =>
   ({ id: "c", label: "db", groupId: null, tags: [], ...over }) as SqlConnection;
@@ -16,37 +16,10 @@ const workspace = (over: Partial<Workspace>): Workspace =>
     ...over,
   }) as unknown as Workspace;
 
-describe("connectionViaHostId", () => {
-  it("suit un tunnel SSH", () => {
-    expect(connectionViaHostId(conn({ engine: "postgres", tunnel: { kind: "sshHost", hostId: "h1" } }))).toBe("h1");
-  });
-
-  it("suit un fichier SQLite posé sur un hôte", () => {
-    // SQLite n'a pas de tunnel : le fichier est rapatrié par SFTP. Lire
-    // `tunnel` pour ce moteur ne trouverait jamais rien, et le lien serait
-    // silencieusement perdu — c'est le cas que cette fonction existe pour
-    // ne pas oublier.
-    expect(connectionViaHostId(conn({ engine: "sqlite", path: "/srv/app.db", sqliteHostId: "h2" }))).toBe("h2");
-  });
-
-  it("suit un tunnel SSH pour MongoDB aussi", () => {
-    expect(connectionViaHostId(conn({ engine: "mongodb", connectionString: "mongodb://x", tunnel: { kind: "sshHost", hostId: "h3" } }))).toBe("h3");
-  });
-
-  it("ne rattache rien quand la connexion ne passe par aucun hôte enregistré", () => {
-    expect(connectionViaHostId(conn({ engine: "mysql", tunnel: { kind: "direct" } }))).toBeNull();
-    // SSM traverse bien un relais, mais c'est un identifiant d'instance AWS,
-    // pas un hôte de ce workspace : le rattacher inventerait un lien. Cette
-    // assertion documente l'intention sans discriminer grand-chose — un tunnel
-    // SSM ne porte aucun champ d'hôte, donc même une implémentation qui lirait
-    // `tunnel.hostId` à l'aveugle rendrait `null`. Vérifié en la cassant.
-    expect(connectionViaHostId(conn({ engine: "mysql", tunnel: { kind: "ssm", target: "i-123" } }))).toBeNull();
-    expect(connectionViaHostId(conn({ engine: "sqlite", path: "/tmp/local.db" }))).toBeNull();
-    // Une connexion enregistrée avant l'existence du champ : absent vaut
-    // « direct », pas « rattachée à on ne sait quoi ».
-    expect(connectionViaHostId(conn({ engine: "postgres" }))).toBeNull();
-  });
-});
+// Les tests de résolution d'hôte (tunnel SSH, fichier SQLite, SSM, connexion
+// d'avant le champ) ne sont pas ici : ils existaient déjà dans
+// `dbTunnel.test.ts` pour `sqlConnectionViaHostId`, que ce module réutilise.
+// Ce fichier ne teste que ce qui est neuf : l'agrégation par hôte.
 
 describe("hostAttachments", () => {
   const ws = workspace({

@@ -1,4 +1,4 @@
-import { sqlConnectionTarget, sqlConnectionVia, sqlEngineLabel, type SqlConnection, type Workspace } from "../lib/types";
+import { sqlConnectionTarget, sqlConnectionVia, sqlConnectionViaHostId, sqlEngineLabel, type Host, type SqlConnection, type Workspace } from "../lib/types";
 import { IconDatabase, IconPlus, IconEdit, IconFlash, IconDownload } from "./ui-icons";
 
 interface SqlConnectionsPanelProps {
@@ -7,12 +7,16 @@ interface SqlConnectionsPanelProps {
   onNewConnection: () => void;
   onEditConnection: (conn: SqlConnection) => void;
   onImportAws: () => void;
+  /** Ouvrir un terminal sur l'hôte que cette connexion traverse. Le lien
+   * existait déjà dans le modèle et s'affichait déjà en texte (« via
+   * bastion-prod ») — il ne menait simplement nulle part. */
+  onConnectHost: (host: Host) => void;
 }
 
 /** List-only — creating/editing (and deleting, from inside that form) goes
  * through `SqlConnectionForm` in the app's right panel, same as hosts/groups
  * (`App.tsx`'s `showRightPanel`), not an inline expansion in this list. */
-export function SqlConnectionsPanel({ workspace, onConnect, onNewConnection, onEditConnection, onImportAws }: SqlConnectionsPanelProps) {
+export function SqlConnectionsPanel({ workspace, onConnect, onNewConnection, onEditConnection, onImportAws, onConnectHost }: SqlConnectionsPanelProps) {
   return (
     <div className="flex h-full min-w-0 flex-col">
       <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-2 overflow-y-auto pb-2 pl-2 pt-2">
@@ -33,6 +37,10 @@ export function SqlConnectionsPanel({ workspace, onConnect, onNewConnection, onE
           // there, "via" for anything tunnelled) and covers SSM, which has no
           // saved host to name — see `sqlConnectionVia`.
           const via = sqlConnectionVia(conn, workspace.hosts);
+          // `null` pour un tunnel SSM ou une connexion directe : il y a alors
+          // un texte à afficher, mais aucun hôte d'ici où aller.
+          const viaHostId = sqlConnectionViaHostId(conn);
+          const viaHost = viaHostId ? workspace.hosts.find((h) => h.id === viaHostId) ?? null : null;
           return (
             <div key={conn.id} className="rounded-xl border border-transparent bg-[var(--c-bg3)] p-2.5 transition-all hover:border-white/15">
               <div className="flex items-center gap-2">
@@ -42,8 +50,20 @@ export function SqlConnectionsPanel({ workspace, onConnect, onNewConnection, onE
               <p className="mt-0.5 truncate pl-[22px] text-[10px] text-[var(--c-text-muted)]">
                 {sqlEngineLabel(conn.engine)} ·{" "}
                 <span className="font-mono">{sqlConnectionTarget(conn)}</span>
-                {via && <> · {via}</>}
+                {via && !viaHost && <> · {via}</>}
               </p>
+              {via && viaHost && (
+                <p className="truncate pl-[22px] text-[10px] text-[var(--c-text-muted)]">
+                  ·{" "}
+                  <button
+                    onClick={() => onConnectHost(viaHost)}
+                    title={`Ouvrir un terminal sur ${viaHost.label}`}
+                    className="underline decoration-dotted underline-offset-2 hover:text-[var(--c-accent-text)]"
+                  >
+                    {via}
+                  </button>
+                </p>
+              )}
               <div className="mt-2 flex gap-1">
                 <button
                   onClick={() => onConnect(conn)}
