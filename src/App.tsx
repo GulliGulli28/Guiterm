@@ -1,4 +1,4 @@
-import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { check as checkForUpdate } from "@tauri-apps/plugin-updater";
 import { api, onSshAuthPrompt } from "./lib/api";
 import type { AwsSsoSession, GroupId, Host, HostId, SqlConnection, SshAuthPrompt, TabMeta, VaultStatus, Workspace } from "./lib/types";
@@ -15,7 +15,10 @@ import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, loadPrefe
 import { resolveVisiblePanel, type SidebarPanelKind } from "./lib/sidebarButtons";
 import { renderModuleTab } from "./modules/registry";
 import type { AppContext, SidebarActions } from "./modules/types";
-import { SplitPane } from "./components/SplitPane";
+// Lazy : `SplitPane` monte un terminal, donc importe xterm. Eager, il
+// annulerait à lui seul le gain des deux modules ci-dessus — et il n'est rendu
+// que si l'utilisateur ouvre le panneau scindé.
+const SplitPane = lazy(() => import("./components/SplitPane").then((m) => ({ default: m.SplitPane })));
 import { AwsImportPanel } from "./components/AwsImportPanel";
 import { AnsibleImportPanel } from "./components/AnsibleImportPanel";
 import { AzureImportPanel } from "./components/AzureImportPanel";

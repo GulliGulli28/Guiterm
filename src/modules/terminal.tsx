@@ -1,11 +1,17 @@
-import { TerminalTab } from "../components/TerminalTab";
+import { lazy } from "react";
 import { hostOf } from "./hostBound";
 import { defineModule } from "./types";
 
-// Pas de `lazy` ici, contrairement aux autres modules : c'est le chemin
-// principal de l'app, chargé d'office par `App.tsx` (le panneau de split monte
-// le même composant). Le sortir du bundle initial ne ferait que retarder le
-// premier terminal.
+// `lazy` depuis le 2026-08-18, contrairement à ce que ce fichier affirmait
+// jusque-là. `TerminalTab` et `LocalTerminalTab` sont les seuls à importer
+// xterm comme valeur, soit **367 ko** — 40 % du JS chargé au démarrage — pour
+// un composant que rien ne monte au lancement : les onglets restaurés le sont
+// en placeholders, et l'app s'ouvre sur le panneau Hôtes.
+//
+// Le coût est un chargement de chunk à l'ouverture du premier terminal. Il est
+// local (empaqueté par Tauri, aucun aller-retour réseau) et `TabLoadingFallback`
+// couvre l'intervalle.
+const TerminalTab = lazy(() => import("../components/TerminalTab").then((m) => ({ default: m.TerminalTab })));
 export const terminalModule = defineModule({
   id: "terminal",
   label: "Terminal SSH",
