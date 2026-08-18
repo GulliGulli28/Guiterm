@@ -2,13 +2,14 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import type { DockerContainer, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, Host, HostDrift, HostId, RollbackPlan, Snippet, SnippetId, Workspace } from "../lib/types";
 import { fleetTargetKey } from "../lib/types";
 import { api, onFleetDone, onFleetOutcome } from "../lib/api";
+import { AdaptiveComposer } from "./AdaptiveComposer";
 import { formatRelativeTime } from "../lib/format";
 import { ramColor } from "../lib/facts";
 import { DSL_CONDITION_FIELDS, DSL_FUNCTIONS } from "../lib/operations";
 import { hasSomethingToRun, rollbackAvailability } from "../lib/rollback";
 import { driftedHosts, summarise } from "../lib/drift";
 import { SnippetPicker } from "./SnippetPicker";
-import { IconPlay, IconSearch, IconChevronRight, IconChevronDown, IconRefresh, IconSnippets, IconFlash } from "./ui-icons";
+import { IconPlay, IconSearch, IconChevronRight, IconChevronDown, IconRefresh, IconSnippets } from "./ui-icons";
 import { useResizablePane } from "../hooks/useResizablePane";
 import { useFleetTargets } from "../hooks/useFleetTargets";
 
@@ -178,9 +179,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
   // auto-selection, and whether the SSH checkboxes below are manually
   // selectable in "Langage" mode).
   const hasTargetLine = useMemo(() => programHasTargetLine(programText), [programText]);
-  const [aiIntent, setAiIntent] = useState("");
   const [activeSnippetId, setActiveSnippetId] = useState<SnippetId | null>(null);
-  const [generatingAi, setGeneratingAi] = useState(false);
   const [previewing, setPreviewing] = useState(false);
   const [previewGroups, setPreviewGroups] = useState<ExecutionGroup[] | null>(null);
   const [showSaveDialog, setShowSaveDialog] = useState(false);
@@ -421,23 +420,6 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
 
   // Asks the AI to write (or extend) the DSL program from a short English
   // instruction — never runs anything, never touches the target hosts.
-  const generateWithAi = async () => {
-    if (generatingAi) return;
-    if (!aiIntent.trim()) {
-      onError("Décris ce que tu veux faire");
-      return;
-    }
-    setGeneratingAi(true);
-    try {
-      const result = await api.generateAdaptiveProgram(programText, aiIntent.trim());
-      setProgramText(result);
-      setPreviewGroups(null);
-    } catch (e) {
-      onError(String(e));
-    } finally {
-      setGeneratingAi(false);
-    }
-  };
 
   // Facts older than this are treated the same as missing facts by
   // `runPreview` below — a `target ram: > 80` decision made on a
@@ -1006,23 +988,11 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
                     </div>
                   </div>
                 )}
-                <div className="flex items-center gap-2 rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] p-1.5">
-                  <IconFlash size={13} className="ml-1 shrink-0 text-sky-400" />
-                  <input
-                    value={aiIntent}
-                    onChange={(e) => setAiIntent(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); generateWithAi(); } }}
-                    placeholder="Décrire en français ce qu'ajouter/changer, et laisser l'IA écrire les lignes…"
-                    className="min-w-0 flex-1 bg-transparent text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-faint)]"
-                  />
-                  <button
-                    onClick={generateWithAi}
-                    disabled={generatingAi || !aiIntent.trim()}
-                    className="shrink-0 rounded bg-[var(--c-accent-dim)] px-2.5 py-1 text-[11px] font-medium text-[var(--c-accent-text)] hover:bg-[var(--c-accent)] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-                  >
-                    {generatingAi ? "Génération…" : "Générer"}
-                  </button>
-                </div>
+                <AdaptiveComposer
+                  programText={programText}
+                  onGenerated={(next) => { setProgramText(next); setPreviewGroups(null); }}
+                  onError={onError}
+                />
                 <details className="text-[11px] text-[var(--c-text-faint)]">
                   <summary className="cursor-pointer select-none hover:text-[var(--c-text-muted)]">Aide-mémoire de la syntaxe</summary>
                   <div className="mt-1.5 max-h-64 space-y-1 overflow-y-auto rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] p-2">

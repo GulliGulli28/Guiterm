@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { Snippet, SnippetId, Workspace } from "../lib/types";
 import { extractVariables, fillVariables } from "../lib/snippets";
+import { AdaptiveComposer } from "./AdaptiveComposer";
 import { DSL_CONDITION_FIELDS, DSL_FUNCTIONS } from "../lib/operations";
 import { IconPlay, IconTrash, IconPlus, IconClose, IconEdit, IconFlash } from "./ui-icons";
 import { TerminalTargetPicker } from "./TerminalTargetPicker";
@@ -17,12 +18,16 @@ interface SnippetsPanelProps {
    * `onRunSnippet`, same target-tab-ids convention. */
   onRunAdaptiveSnippet: (programText: string, targetTabIds?: string[]) => void;
   /** Creates (`id: null`) or updates an adaptive snippet — `command` is the
-   * DSL program text, written by hand here or generated/extended by AI from
-   * `FleetTab.tsx`'s language mode; either way this is the same save path.
+   * DSL program text, written by hand or generated/extended from French by
+   * `AdaptiveComposer` — ici comme dans `FleetTab`, depuis le 2026-08-18 ;
+   * dans tous les cas c'est le même chemin d'enregistrement.
    * May contain `{{variables}}`, filled in the same way as classic snippets
    * before use. */
   onSaveAdaptiveSnippet: (id: SnippetId | null, name: string, command: string) => void;
   openTerminals: { id: string; label: string }[];
+  /** Une génération qui échoue (pas de clé API, modèle injoignable) doit se
+   * dire ici, pas dans la console. */
+  onError: (message: string) => void;
 }
 
 type Mode = "snippet" | "script" | "adaptive";
@@ -59,6 +64,7 @@ function SnippetForm({
   onSubmit,
   onSubmitAdaptive,
   onCancel,
+  onError,
 }: {
   initialName?: string;
   initialCommand?: string;
@@ -67,6 +73,7 @@ function SnippetForm({
   onSubmit: (name: string, command: string) => void;
   onSubmitAdaptive: (name: string, command: string) => void;
   onCancel: () => void;
+  onError: (message: string) => void;
 }) {
   const [name, setName] = useState(initialName);
   const [command, setCommand] = useState(initialCommand);
@@ -158,6 +165,11 @@ function SnippetForm({
               className="w-full resize-none overflow-hidden bg-transparent px-2.5 py-2 font-mono text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-faint)]"
             />
           </div>
+          {/* La génération depuis le français vivait uniquement dans l'onglet
+              Flotte : créer un snippet adaptatif obligeait donc à connaître la
+              grammaire par cœur, alors que ce qui la rend abordable existait
+              déjà à un onglet de distance. */}
+          <AdaptiveComposer programText={command} onGenerated={setCommand} onError={onError} />
           <DslCheatSheet />
         </div>
       )}
@@ -184,6 +196,7 @@ function SnippetForm({
 function SnippetCard({
   snippet,
   openTerminals,
+  onError,
   onRun,
   onRunAdaptive,
   onUpdate,
@@ -192,6 +205,7 @@ function SnippetCard({
 }: {
   snippet: Snippet;
   openTerminals: { id: string; label: string }[];
+  onError: (message: string) => void;
   onRun: (command: string, targetTabIds?: string[]) => void;
   onRunAdaptive: (programText: string, targetTabIds?: string[]) => void;
   onUpdate: (name: string, command: string) => void;
@@ -248,6 +262,7 @@ function SnippetCard({
           onSubmit={(name, command) => { onUpdate(name, command); setEditing(false); }}
           onSubmitAdaptive={(name, command) => { onUpdateAdaptive(name, command); setEditing(false); }}
           onCancel={() => setEditing(false)}
+          onError={onError}
         />
       </div>
     );
@@ -335,7 +350,7 @@ function SnippetCard({
   );
 }
 
-export function SnippetsPanel({ workspace, onAddSnippet, onUpdateSnippet, onDeleteSnippet, onRunSnippet, onRunAdaptiveSnippet, onSaveAdaptiveSnippet, openTerminals }: SnippetsPanelProps) {
+export function SnippetsPanel({ workspace, onAddSnippet, onUpdateSnippet, onDeleteSnippet, onRunSnippet, onRunAdaptiveSnippet, onSaveAdaptiveSnippet, openTerminals, onError }: SnippetsPanelProps) {
   const [showForm, setShowForm] = useState(false);
 
   return (
@@ -359,6 +374,7 @@ export function SnippetsPanel({ workspace, onAddSnippet, onUpdateSnippet, onDele
                 onSubmit={(name, command) => { onAddSnippet(name, command); setShowForm(false); }}
                 onSubmitAdaptive={(name, command) => { onSaveAdaptiveSnippet(null, name, command); setShowForm(false); }}
                 onCancel={() => setShowForm(false)}
+                onError={onError}
               />
             </div>
           )}
@@ -369,6 +385,7 @@ export function SnippetsPanel({ workspace, onAddSnippet, onUpdateSnippet, onDele
             key={snippet.id}
             snippet={snippet}
             openTerminals={openTerminals}
+            onError={onError}
             onRun={onRunSnippet}
             onRunAdaptive={onRunAdaptiveSnippet}
             onUpdate={(name, command) => onUpdateSnippet(snippet.id, name, command)}

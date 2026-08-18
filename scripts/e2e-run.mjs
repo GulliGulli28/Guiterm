@@ -261,6 +261,7 @@ async function runScenarios(browser) {
   await runSshTerminalTabScenario(browser);
   await runSqlTabScenario(browser);
   await runHostAttachmentsScenario(browser);
+  await runAdaptiveComposerScenario(browser);
   await runFleetTabScenario(browser);
   await runSidebarPanelsScenario(browser);
   await runSidebarButtonsScenario(browser);
@@ -1477,6 +1478,92 @@ async function setFieldByPlaceholder(browser, heading, placeholder, value) {
     return true;
   }, heading, placeholder, value);
   if (!ok) throw new Error(`champ « ${placeholder} » introuvable dans « ${heading} »`);
+}
+
+/** Clique un bouton **du panneau de barre latérale affiché**, par son libellé
+ * exact. `clickButtonContaining` cherche dans tout le document et prend le
+ * premier qui contient la chaîne : sur un libellé aussi courant qu'« Ajouter »,
+ * il attrapait un bouton d'ailleurs et le scénario continuait sur un panneau
+ * qui n'avait pas bougé. */
+async function clickPanelButton(browser, label) {
+  const found = await browser.execute((wanted) => {
+    const panel = document.querySelector("[data-sidebar-panel]");
+    const button = Array.from(panel?.querySelectorAll("button") ?? [])
+      .find((b) => (b.textContent || "").trim() === wanted);
+    if (!button) return false;
+    button.click();
+    return true;
+  }, label);
+  if (!found) throw new Error(`bouton « ${label} » introuvable dans le panneau affiché`);
+}
+
+/** Ouvre un panneau de la barre latérale et attend qu'il soit réellement là.
+ *
+ * Deux attentes, pas une, et la seconde n'est pas du zèle : les panneaux sont
+ * chargés à la demande, donc le conteneur porte déjà `data-sidebar-panel="…"`
+ * du nouveau panneau pendant que le contenu affiché est encore **celui d'avant**,
+ * le temps que le chunk arrive. Un scénario qui ne guettait que l'attribut
+ * continuait donc sur les boutons du panneau précédent — constaté, et d'autant
+ * plus probable depuis que le découpage du bundle a été poussé plus loin.
+ */
+async function openSidebarPanel(browser, title, kind, expectedLabel) {
+  await browser.execute((wanted) => {
+    const btn = Array.from(document.querySelectorAll("aside nav button"))
+      .find((b) => (b.getAttribute("title") || "").split(" — ")[0] === wanted);
+    if (btn instanceof HTMLElement) btn.click();
+  }, title);
+
+  await browser.waitUntil(async () => await browser.execute((k, label) => {
+    const panel = document.querySelector(`[data-sidebar-panel="${k}"]`);
+    if (!panel) return false;
+    if (!label) return true;
+    return Array.from(panel.querySelectorAll("button")).some((b) => (b.textContent || "").trim() === label);
+  }, kind, expectedLabel ?? null), {
+    timeout: 15_000,
+    timeoutMsg: `le panneau « ${title} » ne s est pas affiché${expectedLabel ? ` (bouton « ${expectedLabel} » attendu)` : ""}`,
+  });
+}
+
+/**
+ * La génération d'un programme adaptatif depuis le français, atteignable
+ * depuis l'éditeur de snippets.
+ *
+ * Elle n'existait que dans l'onglet Flotte : créer un snippet adaptatif
+ * obligeait à connaître la grammaire du DSL par cœur, alors que la seule chose
+ * qui la rend abordable était à un onglet de distance. Ce scénario vérifie que
+ * le composeur est bien là où l'on écrit le programme — un test unitaire ne
+ * dirait rien de son accessibilité, et c'est précisément la question.
+ *
+ * La génération elle-même n'est pas déclenchée : elle appellerait un modèle
+ * distant et coûterait une requête facturée à chaque exécution de la suite.
+ */
+async function runAdaptiveComposerScenario(browser) {
+  await openSidebarPanel(browser, "Snippets", "snippets", "Ajouter");
+  await clickPanelButton(browser, "Ajouter");
+
+  await browser.waitUntil(async () => await browser.execute(() =>
+    Array.from(document.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Adaptatif")
+  ), { timeout: 10_000, timeoutMsg: "le formulaire de snippet ne s est pas ouvert" });
+
+  await browser.execute(() => {
+    const btn = Array.from(document.querySelectorAll("button")).find((b) => b.textContent?.trim() === "Adaptatif");
+    if (btn instanceof HTMLElement) btn.click();
+  });
+
+  await browser.waitUntil(async () => await browser.execute(() =>
+    Array.from(document.querySelectorAll("input")).some((i) =>
+      (i.getAttribute("placeholder") || "").startsWith("Décrire en français")),
+  ), { timeout: 10_000, timeoutMsg: "le composeur en français est absent de l éditeur de snippets" });
+
+  const generatable = await browser.execute(() =>
+    Array.from(document.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Générer"));
+  if (!generatable) throw new Error("le bouton « Générer » est absent à côté du composeur");
+
+  // Refermer par le bouton bascule : l annulation du formulaire est une croix
+  // sans texte (elle porte un `aria-label`, pas un libellé visible).
+  await clickPanelButton(browser, "Ajouter");
+
+  console.log("DSL adaptatif : OK (composeur en français atteignable depuis l éditeur de snippets).");
 }
 
 /**
