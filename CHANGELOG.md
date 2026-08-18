@@ -9,6 +9,18 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+### Added
+- Hosts and the things that go through them are no longer separate lists. A
+  host's menu now shows what depends on it — databases reached through its
+  tunnel, Docker and Kubernetes hosts it relays for, port forwards saved on
+  it — and the first two open in one click. The other way round, the host
+  named under a database connection ("via bastion-prod") is now a link that
+  opens a terminal there, which is where you tend to want to be when a
+  database won't answer.
+
+  Nothing new is stored for this: your connections already recorded which
+  host they travel through. Only nothing ever read it in that direction.
+
 ## [3.1.0] - 2026-08-18
 
 ### Added
