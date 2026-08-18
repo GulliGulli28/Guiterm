@@ -574,6 +574,13 @@ pourquoi Docker/K8s exec partagent `RemoteFileClient`, etc.).
   signal.
 - L'utilisateur écrit et pense en français ; les réponses, les libellés UI, les
   messages de commit et la documentation du projet suivent cette convention.
+  **Cela inclut les messages d'erreur de `core/`** : il n'existe aucune couche
+  de traduction, et `commands/` les relaie verbatim, donc un `anyhow!` écrit en
+  anglais s'affiche tel quel dans l'interface. Vérifié par
+  `core/tests/error_messages_are_french.rs`. Deux exceptions volontaires : les
+  chaînes comparées à la **sortie d'une CLI externe** (`aws_inventory`,
+  `cloud_cli`, `netdiag` cherchent « command not found » dans ce que le binaire
+  a imprimé) et les fixtures des modules `#[cfg(test)]`.
 - Avant une fonctionnalité un peu ambiguë (ex. « menu contextuel » vs « action
   instantanée » pour un clic droit), une question courte à choix (2-3 options)
   vaut mieux qu'une supposition — surtout quand les deux implémentations sont

@@ -79,7 +79,7 @@ async fn start_local(
         .await
         .map_err(|e| {
             anyhow::anyhow!(
-                "could not listen on {}:{}: {e}",
+                "impossible d'écouter sur {}:{} : {e}",
                 forward.bind_address,
                 forward.bind_port
             )
@@ -136,7 +136,7 @@ async fn start_dynamic(
         .await
         .map_err(|e| {
             anyhow::anyhow!(
-                "could not listen on {}:{}: {e}",
+                "impossible d'écouter sur {}:{} : {e}",
                 forward.bind_address,
                 forward.bind_port
             )

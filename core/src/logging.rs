@@ -30,7 +30,7 @@ const LOG_FILE_PREFIX: &str = "guiterm";
 
 fn project_dirs() -> anyhow::Result<ProjectDirs> {
     ProjectDirs::from("dev", "gui-termius", "gui-termius")
-        .ok_or_else(|| anyhow::anyhow!("could not determine config directory"))
+        .ok_or_else(|| anyhow::anyhow!("impossible de déterminer le dossier de configuration"))
 }
 
 /// The directory log files are written to, created if missing. Exposed as a

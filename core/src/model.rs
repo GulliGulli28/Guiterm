@@ -987,7 +987,7 @@ impl Workspace {
     pub fn jump_chain(&self, id: HostId) -> anyhow::Result<Vec<&Host>> {
         let target = self
             .host(id)
-            .ok_or_else(|| anyhow::anyhow!("host {id} not found"))?;
+            .ok_or_else(|| anyhow::anyhow!("hôte {id} introuvable"))?;
         let mut chain: Vec<&Host> = Vec::with_capacity(target.jump_via.len() + 1);
         let mut seen = std::collections::HashSet::new();
         seen.insert(id);
@@ -997,7 +997,7 @@ impl Workspace {
             }
             chain.push(
                 self.host(jid)
-                    .ok_or_else(|| anyhow::anyhow!("bastion {jid} not found"))?,
+                    .ok_or_else(|| anyhow::anyhow!("bastion {jid} introuvable"))?,
             );
         }
         chain.push(target);

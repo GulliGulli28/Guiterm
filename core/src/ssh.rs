@@ -70,7 +70,7 @@ impl client::Handler for AppHandler {
             known_hosts::check_and_trust(&identity, &label, &key)
         })
         .await
-        .unwrap_or_else(|e| Err(anyhow::anyhow!("check_and_trust panicked: {e}")));
+        .unwrap_or_else(|e| Err(anyhow::anyhow!("la vérification de la clé d'hôte a échoué de façon inattendue : {e}")));
         match verdict {
             Ok(Verdict::AlreadyTrusted | Verdict::NewlyTrusted) => Ok(true),
             Ok(Verdict::Mismatch {
@@ -228,7 +228,7 @@ async fn authenticate(
     let result = match &host.auth {
         AuthMethod::Password => {
             let password = vault::load(host.id, SecretKind::Password)?
-                .ok_or_else(|| anyhow::anyhow!("no stored password for '{}'", host.label))?;
+                .ok_or_else(|| anyhow::anyhow!("aucun mot de passe enregistré pour « {} »", host.label))?;
             handle
                 .authenticate_password(host.username.clone(), password)
                 .await?
@@ -249,14 +249,14 @@ async fn authenticate(
                 });
                 if let Some(content) = stored {
                     decode_secret_key(&content, passphrase.as_deref())
-                        .map_err(|e| anyhow::anyhow!("could not decode stored key: {e}"))?
+                        .map_err(|e| anyhow::anyhow!("impossible de décoder la clé enregistrée : {e}"))?
                 } else {
                     load_secret_key(path, passphrase.as_deref())
-                        .map_err(|e| anyhow::anyhow!("could not load private key '{path}': {e}"))?
+                        .map_err(|e| anyhow::anyhow!("impossible de charger la clé privée « {path} » : {e}"))?
                 }
             } else {
                 load_secret_key(path, passphrase.as_deref())
-                    .map_err(|e| anyhow::anyhow!("could not load private key '{path}': {e}"))?
+                    .map_err(|e| anyhow::anyhow!("impossible de charger la clé privée « {path} » : {e}"))?
             };
             // A certificate replaces the *offer*, not the key: the private key
             // still signs, the certificate is what the server checks against
@@ -414,7 +414,7 @@ async fn authenticate_with_agent(
 
     let mut agent = AgentClient::connect_env()
         .await
-        .map_err(|e| anyhow::anyhow!("could not reach ssh-agent (SSH_AUTH_SOCK): {e}"))?;
+        .map_err(|e| anyhow::anyhow!("impossible de joindre l'agent SSH (SSH_AUTH_SOCK) : {e}"))?;
     let identities = agent.request_identities().await?;
     if identities.is_empty() {
         anyhow::bail!("ssh-agent has no loaded identities");
@@ -568,7 +568,7 @@ async fn connect_chain(workspace: &Workspace, chain: Vec<&Host>) -> anyhow::Resu
             .await
             .map_err(|e| {
                 mismatch_error(&first_mismatch, || {
-                    anyhow::anyhow!("could not reach '{}': {e}", first.label)
+                    anyhow::anyhow!("impossible de joindre « {} » : {e}", first.label)
                 })
             })?;
             (None, handle)
@@ -588,7 +588,7 @@ async fn connect_chain(workspace: &Workspace, chain: Vec<&Host>) -> anyhow::Resu
                 0,
             )
             .await
-            .map_err(|e| anyhow::anyhow!("bastion could not reach '{}': {e}", next.label))?;
+            .map_err(|e| anyhow::anyhow!("le bastion n'a pas pu joindre « {} » : {e}", next.label))?;
         let stream = channel.into_stream();
         let routes = if is_target {
             remote_forward_routes.clone()

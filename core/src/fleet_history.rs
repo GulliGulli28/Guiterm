@@ -208,7 +208,7 @@ mod legacy_snake_case_target {
 
 fn history_path() -> anyhow::Result<PathBuf> {
     let dirs = ProjectDirs::from("dev", "gui-termius", "gui-termius")
-        .ok_or_else(|| anyhow::anyhow!("could not determine config directory"))?;
+        .ok_or_else(|| anyhow::anyhow!("impossible de déterminer le dossier de configuration"))?;
     Ok(dirs.config_dir().join(HISTORY_FILE))
 }
 

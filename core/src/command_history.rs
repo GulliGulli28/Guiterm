@@ -64,7 +64,7 @@ mod legacy {
 
 fn project_dirs() -> anyhow::Result<ProjectDirs> {
     ProjectDirs::from("dev", "gui-termius", "gui-termius")
-        .ok_or_else(|| anyhow::anyhow!("could not determine config directory"))
+        .ok_or_else(|| anyhow::anyhow!("impossible de déterminer le dossier de configuration"))
 }
 
 fn history_path(filename: &str) -> anyhow::Result<PathBuf> {

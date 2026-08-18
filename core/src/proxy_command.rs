@@ -217,7 +217,7 @@ pub fn spawn(
 
     let mut child = builder
         .spawn()
-        .map_err(|e| anyhow::anyhow!("could not start the proxy command '{command}': {e}"))?;
+        .map_err(|e| anyhow::anyhow!("impossible de lancer la commande de proxy « {command} » : {e}"))?;
 
     let stdout = child
         .stdout

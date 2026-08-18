@@ -78,7 +78,7 @@ fn initial_backend() -> Backend {
 
 fn vault_file() -> anyhow::Result<PathBuf> {
     let dirs = directories::ProjectDirs::from("dev", "gui-termius", "gui-termius")
-        .ok_or_else(|| anyhow::anyhow!("could not determine config directory"))?;
+        .ok_or_else(|| anyhow::anyhow!("impossible de déterminer le dossier de configuration"))?;
     Ok(dirs.config_dir().join("secrets.enc"))
 }
 
