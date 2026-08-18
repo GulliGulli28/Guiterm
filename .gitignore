@@ -34,6 +34,13 @@
 # on NTFS (breaks native Windows checkouts) and never useful to track.
 *:Zone.Identifier
 
+# VM macOS montée localement pour éprouver la signature / Gatekeeper : images
+# disque de plusieurs gigaoctets (4,5 Go au 2026-08-18), donc à ne jamais
+# approcher d'un commit. Ignoré explicitement parce que `RELEASING.md`
+# conseillait un `git add -A` à l'étape « bump de version » — un seul geste
+# distrait suffisait à pousser ça sur GitHub, où c'est irréversible.
+/macos
+
 # Editor / OS cruft
 .DS_Store
 Thumbs.db

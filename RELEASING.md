@@ -23,8 +23,9 @@ GitHub Releases. Ce document décrit comment déclencher une nouvelle version.
 #    celle de src-tauri/Cargo.toml, qui hérite elle-même du workspace).
 npm run bump-version -- 1.4.1
 
-# 2. Commit + push
-git add -A && git commit -m "Bump version to 1.4.1"
+# 2. Commit + push — les fichiers nommés, pas `git add -A`
+git add package.json package-lock.json Cargo.toml Cargo.lock CHANGELOG.md
+git commit -m "Bump version to 1.4.1"
 git push
 
 # 3. Tag + push du tag : déclenche le build
@@ -32,9 +33,18 @@ git tag v1.4.1
 git push origin v1.4.1
 ```
 
-4. Suivre l'avancement dans l'onglet **Actions** du dépôt (~10-15 min pour
-   un build Windows natif). **Vérifier que les quatre jobs sont verts avant
-   de publier** : ils s'ajoutent à la même release brouillon au fur et à
+**Pourquoi les fichiers sont nommés à l'étape 2 :** ce document conseillait un
+`git add -A`, et la racine du dépôt a contenu un dossier `macos/` de 4,5 Go
+(images disque d'une VM servant à éprouver Gatekeeper) resté non suivi pendant
+un temps. Un `-A` distrait le poussait sur GitHub, où l'on ne retire pas 4,5 Go
+d'un historique public sans réécrire les refs de tout le monde. Il est ignoré
+depuis (`.gitignore`), mais l'habitude reste mauvaise : un bump de version
+touche cinq fichiers connus d'avance, et les nommer coûte une ligne. Le même
+`-A` avait aussi failli emporter une révision périmée de ce fichier-ci.
+
+4. Suivre l'avancement dans l'onglet **Actions** du dépôt (~10-15 min, les
+   quatre jobs tournant en parallèle). **Vérifier que les quatre jobs sont
+   verts avant de publier** : ils s'ajoutent à la même release brouillon au fur et à
    mesure, donc un job annulé ou en échec ne se voit pas dans la release —
    il se voit à un installeur manquant. C'est ce qui est arrivé à la 2.4.0 :
    le job Intel visait `macos-13`, image de runner qui n'existe plus, n'a
