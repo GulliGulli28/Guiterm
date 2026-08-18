@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { api } from "../lib/api";
-import type { Group, GroupId, Host, HostId, Workspace } from "../lib/types";
+import type { Group, GroupId, Host, HostId, SqlConnection, Workspace } from "../lib/types";
+import { attachmentCount, hasAttachments, hostAttachments } from "../lib/hostGraph";
 import { HostIcon } from "./icons";
 import { hostKindMeta } from "../lib/hostKinds";
 import { ramColor } from "../lib/facts";
@@ -30,6 +31,8 @@ interface HostsPanelProps {
   onProbeReachability: (host: Host) => void;
   /** « Où est ce fichier ? » — recherche par nom ou par contenu sur cet hôte. */
   onSearchFiles: (host: Host) => void;
+  /** Ouvrir une base atteinte à travers cet hôte, depuis la ligne de l'hôte. */
+  onConnectSql: (connection: SqlConnection) => void;
   onOpenLocalTerminal: (shell?: string) => void;
   onNewHost: () => void;
   onEditHost: (host: Host) => void;
@@ -110,7 +113,7 @@ function LocalTerminalButton({ onOpen }: { onOpen: (shell?: string) => void }) {
 }
 
 export function HostsPanel({
-  workspace, activeHostId, onConnect, onConnectDocker, onConnectK8s, onConnectRdpView, onOpenTransfer,
+  workspace, activeHostId, onConnect, onConnectDocker, onConnectK8s, onConnectRdpView, onOpenTransfer, onConnectSql,
   onProbeReachability, onSearchFiles, onOpenLocalTerminal,
   onNewHost, onEditHost, onNewGroup, onImportCloud, onImportAnsible, onNewHostInGroup, onNewGroupUnder,
   onEditGroup, onQuickSSH, onWorkspaceUpdate, onError, onNotify,
@@ -248,6 +251,9 @@ export function HostsPanel({
   // ── Host card ────────────────────────────────────────────────────────────
   const renderHost = (host: Host, depth: number) => {
     const menuOpen = openMenuHostId === host.id;
+    // Calculé seulement quand le menu est ouvert : c'est trois filtres sur le
+    // workspace, inutile de les repasser pour chaque ligne de la liste.
+    const attached = menuOpen ? hostAttachments(workspace, host.id) : null;
     const isActive = host.id === activeHostId;
     const kind = host.kind ?? "ssh";
     const { label: kindLabel, Icon: KindIcon } = hostKindMeta(kind);
@@ -367,6 +373,49 @@ export function HostsPanel({
         )}
 
         {/* Expanded actions */}
+        {menuOpen && attached && hasAttachments(attached) && (
+          /* Ce qui passe par cet hôte. Les liens existaient déjà dans le
+             modèle — une base tunnelée porte l'id de son hôte, un hôte Docker
+             celui de son relais — mais rien ne les lisait dans ce sens : on ne
+             pouvait ni voir ce qui dépend d'une machine, ni sauter de l'une à
+             l'autre. Voir `lib/hostGraph.ts`. */
+          <div className="mx-2 mb-2 space-y-1 rounded-md bg-[var(--c-bg3)] p-2">
+            <p className="px-1 text-[10px] uppercase tracking-wide text-[var(--c-text-muted)]">
+              Passe par cet hôte ({attachmentCount(attached)})
+            </p>
+            {attached.relayedHosts.map((relayed) => (
+              <button
+                key={relayed.id}
+                onClick={() => { handleConnect(relayed); setOpenMenuHostId(null); }}
+                className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5"
+              >
+                <IconHosts size={11} className="shrink-0 text-[var(--c-text-muted)]" />
+                <span className="truncate">{relayed.label}</span>
+                <span className="ml-auto shrink-0 text-[10px] text-[var(--c-text-muted)]">{hostKindMeta(relayed.kind ?? "ssh").label}</span>
+              </button>
+            ))}
+            {attached.databases.map((db) => (
+              <button
+                key={db.id}
+                onClick={() => { onConnectSql(db); setOpenMenuHostId(null); }}
+                className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5"
+              >
+                <IconFolder size={11} className="shrink-0 text-[var(--c-text-muted)]" />
+                <span className="truncate">{db.label}</span>
+                <span className="ml-auto shrink-0 text-[10px] text-[var(--c-text-muted)]">{db.engine}</span>
+              </button>
+            ))}
+            {attached.forwards.map((forward) => (
+              /* Listés sans lien : un tunnel se gère dans son propre panneau,
+                 et le montrer ici sert à savoir ce qui casse si on retire
+                 l'hôte — pas à l'ouvrir. */
+              <p key={forward.id} className="flex items-center gap-1.5 px-1.5 py-1 text-[11px] text-[var(--c-text-muted)]">
+                <IconTunnels size={11} className="shrink-0" />
+                <span className="truncate">{forward.bindAddress}:{forward.bindPort} → {forward.destAddress}:{forward.destPort}</span>
+              </p>
+            ))}
+          </div>
+        )}
         {menuOpen && (
           <div className="flex flex-wrap gap-1 p-2 pt-0">
             <button

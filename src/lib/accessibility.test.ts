@@ -23,7 +23,13 @@ function componentSources(): string[] {
 
 describe("nom accessible des boutons", () => {
   it("ne laisse aucun bouton réduit à une icône sans aria-label ni title", () => {
-    const pattern = /<button\b([^>]*?)>\s*(<Icon\w+[^>]*\/>)\s*<\/button>/gs;
+    // `(?:[^>]|=>)` et non `[^>]` : la première version s'arrêtait au premier
+    // `>` rencontré, donc sur la flèche de `onClick={(e) => …}` — c'est-à-dire
+    // sur la quasi-totalité des boutons. Elle n'en voyait que 4 sur 11.
+    // Trouvé parce qu'un scénario e2e cherchait un bouton de menu par son
+    // titre et ne le trouvait pas : le test disait « rien à signaler » sur un
+    // bouton qui n'avait effectivement aucun nom.
+    const pattern = /<button\b((?:[^>]|=>)*?)>\s*(<Icon\w+[^>]*\/>)\s*<\/button>/gs;
     const offenders: string[] = [];
     for (const file of componentSources()) {
       const source = readFileSync(path.join(srcDir, file), "utf8");

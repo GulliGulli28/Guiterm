@@ -221,6 +221,7 @@ function SnippetCard({
     </button>
   ) : (
     <button
+      aria-label="Supprimer le snippet"
       onClick={() => setConfirmDelete(true)}
       className="flex flex-1 basis-[68px] items-center justify-center gap-1 rounded-md bg-[var(--c-bg2)] px-1 py-1.5 text-xs text-rose-400 hover:bg-rose-900/60"
     >
@@ -273,7 +274,7 @@ function SnippetCard({
             <button onClick={submit} className="accent-surface flex flex-1 items-center justify-center gap-1 rounded-md border py-1.5 text-xs font-medium">
               <IconPlay size={11} /> Exécuter
             </button>
-            <button onClick={() => setPromptValues(null)} className="flex items-center justify-center rounded-md bg-[var(--c-bg2)] px-2.5 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5">
+            <button aria-label="Annuler l'exécution" onClick={() => setPromptValues(null)} className="flex items-center justify-center rounded-md bg-[var(--c-bg2)] px-2.5 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5">
               <IconClose size={12} />
             </button>
           </div>

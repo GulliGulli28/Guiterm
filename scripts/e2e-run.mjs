@@ -260,6 +260,7 @@ async function runScenarios(browser) {
   await runCloudImportScenario(browser);
   await runSshTerminalTabScenario(browser);
   await runSqlTabScenario(browser);
+  await runHostAttachmentsScenario(browser);
   await runFleetTabScenario(browser);
   await runSidebarPanelsScenario(browser);
   await runSidebarButtonsScenario(browser);
@@ -1476,6 +1477,107 @@ async function setFieldByPlaceholder(browser, heading, placeholder, value) {
     return true;
   }, heading, placeholder, value);
   if (!ok) throw new Error(`champ « ${placeholder} » introuvable dans « ${heading} »`);
+}
+
+/**
+ * Ce qui passe par un hôte, listé sous cet hôte, et cliquable.
+ *
+ * `lib/hostGraph.test.ts` prouve que les arêtes du workspace sont lues
+ * correctement ; seul ce scénario prouve qu'elles arrivent jusqu'à l'écran.
+ * C'est exactement la distinction qui avait laissé MongoDB inatteignable :
+ * backend juste, chemin d'accès inexistant.
+ *
+ * Crée un hôte et une base tunnelée à travers lui, ouvre le menu de l'hôte, et
+ * vérifie que la base y apparaît. Les deux sont supprimés dans un `finally`.
+ */
+async function runHostAttachmentsScenario(browser) {
+  const HOST_LABEL = `e2e-relais-${Date.now()}`;
+  const DB_LABEL = `e2e-liee-${Date.now()}`;
+
+  await browser.execute(() => {
+    const btn = Array.from(document.querySelectorAll("aside nav button"))
+      .find((b) => (b.getAttribute("title") || "") === "Hôtes");
+    if (btn instanceof HTMLElement) btn.click();
+  });
+  await clickButtonByText(browser, "Ajouter…");
+  await clickButtonByText(browser, "Nouvel hôte");
+  await setFieldByLabel(browser, "Nom", HOST_LABEL);
+  await setFieldByLabel(browser, "Adresse", "127.0.0.1");
+  await setFieldByLabel(browser, "Utilisateur", "e2e");
+  await clickButtonByText(browser, "Enregistrer");
+
+  const ids = await browser.execute(async (hostLabel, dbLabel) => {
+    try {
+      const ws = await window.__TAURI_INTERNALS__.invoke("get_workspace");
+      const hostId = ws.hosts.find((h) => h.label === hostLabel)?.id ?? null;
+      if (!hostId) return { __error: "hôte non enregistré" };
+      // La connexion est créée par `invoke` : ce que ce scénario vérifie est la
+      // *lecture* du lien, pas le formulaire SQL — déjà couvert ailleurs.
+      const after = await window.__TAURI_INTERNALS__.invoke("save_sql_connection", {
+        input: {
+          id: null, label: dbLabel, engine: "postgres", address: "127.0.0.1", port: 1,
+          username: "e2e", database: "", tunnel: { kind: "sshHost", hostId },
+          groupId: null, tags: [], secret: null, tls: false, tlsCaFile: null, tlsInsecure: false,
+        },
+      });
+      return { hostId, dbId: after.sqlConnections.find((c) => c.label === dbLabel)?.id ?? null };
+    } catch (e) {
+      return { __error: String(e) };
+    }
+  }, HOST_LABEL, DB_LABEL);
+  if (!ids || ids.__error !== undefined || !ids.dbId) {
+    throw new Error(`préparation impossible : ${JSON.stringify(ids)}`);
+  }
+
+  try {
+    // La connexion a été écrite par `invoke`, donc React garde encore le
+    // workspace d'avant — changer de panneau n'y change rien, c'est le même
+    // objet en mémoire. Repasser par le formulaire d'hôte force un vrai
+    // `save_host`, dont la réponse rafraîchit le workspace côté React.
+    const reopened = await browser.execute((label) => {
+      const card = Array.from(document.querySelectorAll("aside div"))
+        .find((d) => Array.from(d.querySelectorAll("span")).some((s) => s.textContent?.trim() === label));
+      const menu = Array.from(card?.querySelectorAll("button") ?? [])
+        .find((b) => b.getAttribute("title") === "Options");
+      if (!menu) return false;
+      menu.click();
+      return true;
+    }, HOST_LABEL);
+    if (!reopened) throw new Error("le bouton de menu de l hôte de test est introuvable");
+    await clickButtonByText(browser, "Éditer");
+    await clickButtonByText(browser, "Enregistrer");
+
+    const opened = await browser.execute((label) => {
+      const card = Array.from(document.querySelectorAll("aside div"))
+        .find((d) => Array.from(d.querySelectorAll("span")).some((s) => s.textContent?.trim() === label));
+      const menu = Array.from(card?.querySelectorAll("button") ?? [])
+        .find((b) => b.getAttribute("title") === "Options");
+      if (!menu) return false;
+      menu.click();
+      return true;
+    }, HOST_LABEL);
+    if (!opened) throw new Error("le bouton de menu de l hôte de test est introuvable");
+
+    await browser.waitUntil(async () => await browser.execute((dbLabel) =>
+      Array.from(document.querySelectorAll("aside button")).some((b) => b.textContent?.includes(dbLabel)),
+      DB_LABEL,
+    ), { timeout: 10_000, timeoutMsg: "la base tunnelée n apparaît pas sous l hôte qu elle traverse" });
+
+    console.log("Liens entre verticales : OK (base tunnelée listée sous son hôte, et cliquable).");
+  } finally {
+    const cleanup = await browser.execute(async (hostId, dbId) => {
+      try {
+        await window.__TAURI_INTERNALS__.invoke("delete_sql_connection", { connectionId: dbId });
+        await window.__TAURI_INTERNALS__.invoke("delete_host", { hostId });
+        return { ok: true };
+      } catch (e) {
+        return { __error: String(e) };
+      }
+    }, ids.hostId, ids.dbId);
+    if (!cleanup || cleanup.__error !== undefined) {
+      throw new Error(`nettoyage impossible, workspace pollué : ${JSON.stringify(cleanup)}`);
+    }
+  }
 }
 
 /**

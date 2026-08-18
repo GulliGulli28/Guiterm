@@ -317,6 +317,7 @@ export function KeychainPanel({ workspace, onAddKey, onGenerateKey, onDeleteKey,
                     {deployBusy ? "Déploiement…" : "Déployer"}
                   </button>
                   <button
+                    aria-label="Retirer la clé"
                     onClick={() => setDeployingKeyId(null)}
                     className="flex items-center justify-center rounded-md bg-[var(--c-bg2)] px-2.5 py-1.5 text-[var(--c-text-secondary)] hover:bg-white/5"
                   >
