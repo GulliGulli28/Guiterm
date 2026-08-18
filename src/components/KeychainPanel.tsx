@@ -205,6 +205,7 @@ export function KeychainPanel({ workspace, onAddKey, onGenerateKey, onDeleteKey,
                   {mode === "import" ? "Enregistrer" : "Générer"}
                 </button>
                 <button
+                  aria-label="Annuler la saisie"
                   onClick={resetForm}
                   className="flex items-center justify-center rounded-md bg-[var(--c-bg2)] px-2.5 py-1.5 text-[var(--c-text-secondary)] hover:bg-white/5"
                 >

@@ -1,4 +1,4 @@
-import { useEffect } from "react";
+import { useModalSurface } from "../hooks/useModalSurface";
 
 /** A per-row action that is *not* "pick this one" — showing a container's
  * logs, stopping it. Kept out of `onPick` so a row can offer several verbs
@@ -33,18 +33,12 @@ interface ConnectionPickerModalProps {
  * than a single connectable thing — same chrome for a real, loading list
  * and a stubbed, example one. */
 export function ConnectionPickerModal({ title, warning, loading, error, items, onPick, onClose }: ConnectionPickerModalProps) {
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
+  const { ref, dialogProps } = useModalSurface({ onClose, label: "Choisir une connexion" });
 
   return (
     <>
       <div className="fixed inset-0 z-30 bg-black/50" onClick={onClose} />
-      <div className="fixed left-1/2 top-1/2 z-40 w-[360px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-lg bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]">
+      <div ref={ref} {...dialogProps} className="fixed left-1/2 top-1/2 z-40 w-[360px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-lg bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]">
         <div className="border-b border-[var(--c-border)] px-4 py-3">
           <p className="text-[14px] font-medium text-[var(--c-text)]">{title}</p>
           {warning && <p className="mt-1 text-[11px] leading-relaxed text-amber-300">⚠ {warning}</p>}

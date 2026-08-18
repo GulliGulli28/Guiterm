@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useModalSurface } from "../hooks/useModalSurface";
 
 export interface PaletteCommand {
   id: string;
@@ -13,6 +14,7 @@ interface CommandPaletteProps {
 }
 
 export function CommandPalette({ commands, onClose }: CommandPaletteProps) {
+  const { ref, dialogProps } = useModalSurface({ onClose, label: "Palette de commandes" });
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -35,6 +37,8 @@ export function CommandPalette({ commands, onClose }: CommandPaletteProps) {
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 pt-[15vh]" onClick={onClose}>
       <div
+        ref={ref}
+        {...dialogProps}
         className="w-full max-w-lg overflow-hidden rounded-lg bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]"
         onClick={(e) => e.stopPropagation()}
       >

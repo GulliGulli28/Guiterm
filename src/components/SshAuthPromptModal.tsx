@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useModalSurface } from "../hooks/useModalSurface";
 import type { SshAuthPrompt } from "../lib/types";
 
 interface SshAuthPromptModalProps {
@@ -19,6 +20,7 @@ interface SshAuthPromptModalProps {
  * are always reachable: submitting, or cancelling (which fails that one
  * connection immediately rather than letting it wait out its timeout). */
 export function SshAuthPromptModal({ prompt, onSubmit, onCancel }: SshAuthPromptModalProps) {
+  const { ref, dialogProps } = useModalSurface<HTMLFormElement>({ label: "Authentification du serveur" });
   const [answers, setAnswers] = useState<string[]>(() => prompt.request.prompts.map(() => ""));
   const firstFieldRef = useRef<HTMLInputElement>(null);
 
@@ -35,6 +37,8 @@ export function SshAuthPromptModal({ prompt, onSubmit, onCancel }: SshAuthPrompt
   return (
     <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 p-6">
       <form
+        ref={ref}
+        {...dialogProps}
         className="w-full max-w-md space-y-4 rounded-xl bg-[var(--c-bg2)] p-5 shadow-[var(--shadow-md)]"
         onSubmit={(e) => { e.preventDefault(); submit(); }}
       >

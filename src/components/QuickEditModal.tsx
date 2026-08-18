@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { useModalSurface } from "../hooks/useModalSurface";
 import { IconClose } from "./ui-icons";
 
 interface QuickEditModalProps {
@@ -12,28 +13,20 @@ interface QuickEditModalProps {
 }
 
 export function QuickEditModal({ fileName, content, loading, saving, error, onSave, onClose }: QuickEditModalProps) {
+  const { ref, dialogProps } = useModalSurface({ onClose, label: "Édition rapide" });
   const [value, setValue] = useState(content);
 
   // `content` arrives asynchronously (after the read completes) — sync it once loaded.
   useEffect(() => { if (!loading) setValue(content); }, [content, loading]);
 
-  // Same no-confirmation close as the backdrop click / X button below — Escape
-  // is just another way to trigger the same onClose, not a new discard path.
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onClose]);
 
   return (
     <>
       <div className="fixed inset-0 z-30 bg-black/60" onClick={onClose} />
-      <div className="fixed inset-8 z-40 flex flex-col overflow-hidden rounded-lg bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]">
+      <div ref={ref} {...dialogProps} className="fixed inset-8 z-40 flex flex-col overflow-hidden rounded-lg bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]">
         <div className="flex items-center justify-between border-b border-[var(--c-border)] px-4 py-2.5">
           <p className="truncate font-mono text-[13px] font-medium text-[var(--c-text)]">{fileName}</p>
-          <button onClick={onClose} className="flex shrink-0 items-center rounded p-1 text-[var(--c-text-muted)] hover:bg-white/5 hover:text-[var(--c-text)]">
+          <button aria-label="Fermer l'éditeur" onClick={onClose} className="flex shrink-0 items-center rounded p-1 text-[var(--c-text-muted)] hover:bg-white/5 hover:text-[var(--c-text)]">
             <IconClose size={14} />
           </button>
         </div>

@@ -98,6 +98,7 @@ function TunnelForm({
           {busy ? "…" : submitLabel}
         </button>
         <button
+          aria-label="Annuler la saisie"
           onClick={onCancel}
           className="flex items-center justify-center rounded-md bg-[var(--c-bg2)] px-2.5 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
         >

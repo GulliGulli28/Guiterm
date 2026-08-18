@@ -1,4 +1,5 @@
-import { useEffect, useState } from "react";
+import { useState } from "react";
+import { useModalSurface } from "../hooks/useModalSurface";
 import { IconShield } from "./ui-icons";
 
 interface VaultUnlockModalProps {
@@ -13,15 +14,8 @@ interface VaultUnlockModalProps {
  * after auto-lock). Until unlocked, stored passwords/passphrases can't be read,
  * so connections needing them will fail — but the host list stays visible. */
 export function VaultUnlockModal({ error, submitting, onDismiss, onSubmit }: VaultUnlockModalProps) {
+  const { ref, dialogProps } = useModalSurface({ onClose: onDismiss ?? undefined, label: "Déverrouiller le coffre" });
   const [password, setPassword] = useState("");
-
-  useEffect(() => {
-    const onKeyDown = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && onDismiss) onDismiss();
-    };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
-  }, [onDismiss]);
 
   const submit = () => {
     if (password && !submitting) onSubmit(password);
@@ -30,7 +24,7 @@ export function VaultUnlockModal({ error, submitting, onDismiss, onSubmit }: Vau
   return (
     <>
       <div className="fixed inset-0 z-[60] bg-black/70" onClick={() => onDismiss?.()} />
-      <div className="fixed left-1/2 top-1/2 z-[61] w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-lg bg-[var(--c-bg2)] p-5 shadow-[var(--shadow-lg)]">
+      <div ref={ref} {...dialogProps} className="fixed left-1/2 top-1/2 z-[61] w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-lg bg-[var(--c-bg2)] p-5 shadow-[var(--shadow-lg)]">
         <div className="flex items-center gap-2.5">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]">
             <IconShield size={18} />
