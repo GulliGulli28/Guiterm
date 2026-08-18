@@ -9,6 +9,8 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-08-18
+
 ### Added
 - The remote mouse cursor now shows in the embedded RDP preview, and changes
   shape as the remote side does — a text bar over a field, a resize arrow on a
@@ -17,6 +19,30 @@ This changelog starts 2026-07-21 — for earlier versions, see
   the remote picture, so it stays exactly under your hand instead of trailing
   the connection. One case it cannot follow: an application that moves the
   pointer itself, which a window on your desktop is not allowed to do.
+- The window reopens where you left it, at the size you left it, maximised
+  included — instead of returning to the same middling rectangle every time.
+
+### Changed
+- The app is quicker to become usable: the terminal engine, which is the
+  single largest piece of it, is no longer loaded before the window appears.
+  It loads when you actually open a terminal.
+- The Docker and Kubernetes counters shown beside a host stop asking while the
+  window is hidden, and space out their questions to a machine that isn't
+  answering — a host that is switched off is retried every few minutes rather
+  than every thirty seconds. Each of those checks opens a real connection, so
+  this is traffic and load spared on the far end, not just on yours.
+- Windows now shows a publisher for the app in its list of installed
+  applications, where the field used to be empty.
+
+### Fixed
+- Error messages coming from the connection layer are now in French like the
+  rest of the app. Some appeared in English, and one of them quoted an
+  internal function name at you.
+- Keyboard focus is visible again in the twenty-six places that removed the
+  outline without putting anything in its place.
+- Tab no longer walks out of an open dialog onto the controls hidden behind
+  it. Dialogs also announce themselves as dialogs to assistive software, and
+  closing one puts the focus back on the button that opened it.
 
 ## [3.0.0] - 2026-08-17
 
