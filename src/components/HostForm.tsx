@@ -859,7 +859,7 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
               }}
               onBlur={addTag}
               placeholder="Ajouter une étiquette…"
-              className="min-w-[8rem] flex-1 bg-transparent text-sm text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none"
+              className="min-w-[8rem] flex-1 bg-transparent text-sm text-[var(--c-text)] placeholder:text-[var(--c-text-muted)]"
             />
           </div>
         </Field>

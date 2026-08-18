@@ -360,7 +360,7 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
                           <select
                             value={reassigning.to}
                             onChange={(e) => setReassigning({ from: profile.name, to: e.target.value })}
-                            className="mt-1 w-full rounded bg-[var(--c-bg2)] px-1.5 py-1 text-[11px] text-[var(--c-text)] focus:outline-none"
+                            className="mt-1 w-full rounded bg-[var(--c-bg2)] px-1.5 py-1 text-[11px] text-[var(--c-text)]"
                           >
                             <option value="">— choisir un profil —</option>
                             {profiles

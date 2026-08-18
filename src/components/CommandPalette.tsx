@@ -50,7 +50,7 @@ export function CommandPalette({ commands, onClose }: CommandPaletteProps) {
             if (e.key === "Enter") { e.preventDefault(); runAt(activeIndex); }
           }}
           placeholder="Tapez une commande… (se connecter, fermer l'onglet, paramètres…)"
-          className="w-full border-b border-[var(--c-border)] bg-transparent px-4 py-3 text-[14px] text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none"
+          className="w-full border-b border-[var(--c-border)] bg-transparent px-4 py-3 text-[14px] text-[var(--c-text)] placeholder:text-[var(--c-text-muted)]"
         />
         <div className="sidebar-scroll max-h-80 overflow-y-auto py-1">
           {filtered.length === 0 && <p className="px-4 py-6 text-center text-sm text-[var(--c-text-muted)]">Aucun résultat</p>}

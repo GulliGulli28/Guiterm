@@ -137,7 +137,7 @@ function SnippetForm({
             onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) submit(); }}
             placeholder={"#!/bin/bash\n\n# Votre script ici…"}
             rows={6}
-            className="w-full resize-none overflow-hidden bg-transparent px-2.5 py-2 font-mono text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] focus:outline-none"
+            className="w-full resize-none overflow-hidden bg-transparent px-2.5 py-2 font-mono text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-faint)]"
           />
         </div>
       ) : (
@@ -155,7 +155,7 @@ function SnippetForm({
               onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) submit(); }}
               placeholder={"install-package nginx\n\ntarget ram: > 80\nrestart-service nginx"}
               rows={6}
-              className="w-full resize-none overflow-hidden bg-transparent px-2.5 py-2 font-mono text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] focus:outline-none"
+              className="w-full resize-none overflow-hidden bg-transparent px-2.5 py-2 font-mono text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-faint)]"
             />
           </div>
           <DslCheatSheet />

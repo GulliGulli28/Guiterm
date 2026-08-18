@@ -58,7 +58,7 @@ export function BroadcastBar({ targets, selectedIds, onChangeSelected, liveSyncM
           }}
           placeholder={selectedIds.size > 0 ? `Diffuser vers ${selectedIds.size} terminal(aux)…` : "Aucune cible sélectionnée"}
           disabled={targets.length === 0}
-          className="min-w-0 flex-1 bg-transparent font-mono text-sm text-amber-100 placeholder:font-sans placeholder:text-amber-300/50 focus:outline-none disabled:cursor-not-allowed"
+          className="min-w-0 flex-1 bg-transparent font-mono text-sm text-amber-100 placeholder:font-sans placeholder:text-amber-300/50 disabled:cursor-not-allowed"
         />
       )}
 

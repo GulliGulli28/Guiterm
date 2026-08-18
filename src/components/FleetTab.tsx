@@ -671,7 +671,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
               value={filter}
               onChange={(e) => setFilter(e.target.value)}
               placeholder="Filtrer (nom, groupe, profil AWS…)"
-              className="w-full bg-transparent text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] focus:outline-none"
+              className="w-full bg-transparent text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-faint)]"
             />
           </div>
         </div>
@@ -743,7 +743,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
                   <input
                     type="number" min={0} max={100} value={filters.ram.value}
                     onChange={(e) => setFilters((p) => ({ ...p, ram: { ...p.ram, value: Number(e.target.value) } }))}
-                    className="w-12 rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1 py-0.5 text-center text-[var(--c-text)] focus:border-[var(--c-accent)] focus:outline-none"
+                    className="w-12 rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1 py-0.5 text-center text-[var(--c-text)] focus:border-[var(--c-accent)]"
                   />
                   <span>%</span>
                 </label>
@@ -753,7 +753,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
                   <input
                     type="number" min={1} value={filters.cpu.value}
                     onChange={(e) => setFilters((p) => ({ ...p, cpu: { ...p.cpu, value: Number(e.target.value) } }))}
-                    className="w-12 rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1 py-0.5 text-center text-[var(--c-text)] focus:border-[var(--c-accent)] focus:outline-none"
+                    className="w-12 rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1 py-0.5 text-center text-[var(--c-text)] focus:border-[var(--c-accent)]"
                   />
                 </label>
                 <label className="flex items-center gap-1.5">
@@ -762,7 +762,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
                   <input
                     type="number" min={0} step={0.1} value={filters.load1.value}
                     onChange={(e) => setFilters((p) => ({ ...p, load1: { ...p.load1, value: Number(e.target.value) } }))}
-                    className="w-12 rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1 py-0.5 text-center text-[var(--c-text)] focus:border-[var(--c-accent)] focus:outline-none"
+                    className="w-12 rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1 py-0.5 text-center text-[var(--c-text)] focus:border-[var(--c-accent)]"
                   />
                 </label>
                 <label className="flex items-center gap-1.5">
@@ -771,7 +771,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
                   <input
                     type="number" min={0} value={filters.uptimeDays.value}
                     onChange={(e) => setFilters((p) => ({ ...p, uptimeDays: { ...p.uptimeDays, value: Number(e.target.value) } }))}
-                    className="w-12 rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1 py-0.5 text-center text-[var(--c-text)] focus:border-[var(--c-accent)] focus:outline-none"
+                    className="w-12 rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1 py-0.5 text-center text-[var(--c-text)] focus:border-[var(--c-accent)]"
                   />
                   <span>jours</span>
                 </label>
@@ -781,7 +781,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
                   <input
                     type="text" value={filters.os.value} placeholder="ubuntu…"
                     onChange={(e) => setFilters((p) => ({ ...p, os: { ...p.os, value: e.target.value } }))}
-                    className="w-full min-w-0 rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1.5 py-0.5 text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] focus:border-[var(--c-accent)] focus:outline-none"
+                    className="w-full min-w-0 rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1.5 py-0.5 text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] focus:border-[var(--c-accent)]"
                   />
                 </label>
                 <button
@@ -889,7 +889,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
                   rows={2}
                   placeholder="Commande à exécuter sur les cibles sélectionnées…  (Ctrl+Entrée)"
                   spellCheck={false}
-                  className="min-h-[2.5rem] flex-1 resize-y rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-3 py-2 font-mono text-sm text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] focus:border-[var(--c-accent)] focus:outline-none"
+                  className="min-h-[2.5rem] flex-1 resize-y rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-3 py-2 font-mono text-sm text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] focus:border-[var(--c-accent)]"
                 />
                 <button
                   onClick={run}
@@ -909,7 +909,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
                     rows={5}
                     placeholder={"install-package nginx\n\ntarget ram: > 80\nrestart-service nginx"}
                     spellCheck={false}
-                    className="min-h-[2.5rem] flex-1 resize-y rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-3 py-2 font-mono text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] focus:border-[var(--c-accent)] focus:outline-none"
+                    className="min-h-[2.5rem] flex-1 resize-y rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-3 py-2 font-mono text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] focus:border-[var(--c-accent)]"
                   />
                   {/* Reads the program as wanted state instead of as actions:
                       same text, opposite direction. Read-only on the hosts —
@@ -1013,7 +1013,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
                     onChange={(e) => setAiIntent(e.target.value)}
                     onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); generateWithAi(); } }}
                     placeholder="Décrire en français ce qu'ajouter/changer, et laisser l'IA écrire les lignes…"
-                    className="min-w-0 flex-1 bg-transparent text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] focus:outline-none"
+                    className="min-w-0 flex-1 bg-transparent text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-faint)]"
                   />
                   <button
                     onClick={generateWithAi}
@@ -1062,7 +1062,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
                       onChange={(e) => updateGroupCommand(i, e.target.value)}
                       rows={g.command.split("\n").length}
                       spellCheck={false}
-                      className="w-full resize-y rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-2 py-1.5 font-mono text-xs text-[var(--c-text)] focus:border-[var(--c-accent)] focus:outline-none"
+                      className="w-full resize-y rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-2 py-1.5 font-mono text-xs text-[var(--c-text)] focus:border-[var(--c-accent)]"
                     />
                   ) : (
                     <p className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-200">

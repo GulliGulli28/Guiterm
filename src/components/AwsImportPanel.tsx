@@ -401,7 +401,7 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError,
             </div>
             <div className="flex items-center gap-2">
               <span className="text-xs font-medium text-[var(--c-text-muted)]">Connexion SSH</span>
-              <select value={authKind} onChange={(e) => setAuthKind(e.target.value as AuthKind)} className="rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text)] focus:outline-none">
+              <select value={authKind} onChange={(e) => setAuthKind(e.target.value as AuthKind)} className="rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text)]">
                 <option value="privateKey">Clé privée</option>
                 <option value="agent">Agent SSH</option>
                 <option value="password">Mot de passe</option>
@@ -413,7 +413,7 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError,
                 <select
                   value={keyId}
                   onChange={(e) => { setKeyId(e.target.value as KeyId | ""); if (e.target.value) setKeyPath(""); }}
-                  className="flex-1 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text)] focus:outline-none"
+                  className="flex-1 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text)]"
                 >
                   <option value="">— clé par chemin de fichier —</option>
                   {workspace.keychain.map((key) => <option key={key.id} value={key.id}>{key.name}</option>)}
@@ -424,7 +424,7 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError,
                       value={keyPath}
                       onChange={(e) => setKeyPath(e.target.value)}
                       placeholder="C:\\Users\\…\\ma-keypair.pem"
-                      className="flex-[2] rounded-md bg-[var(--c-bg3)] px-2 py-1 font-mono text-xs text-[var(--c-text)] placeholder:font-sans placeholder:text-[var(--c-text-muted)] focus:outline-none"
+                      className="flex-[2] rounded-md bg-[var(--c-bg3)] px-2 py-1 font-mono text-xs text-[var(--c-text)] placeholder:font-sans placeholder:text-[var(--c-text-muted)]"
                     />
                     <button onClick={pickKeyFile} className="shrink-0 rounded-md border border-[var(--c-border)] px-2 py-1 text-xs text-[var(--c-text-secondary)] hover:border-[var(--c-accent)]">
                       Parcourir…
@@ -439,7 +439,7 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError,
                 value={secret}
                 onChange={(e) => setSecret(e.target.value)}
                 placeholder={authKind === "password" ? "Mot de passe" : "Passphrase de la clé (optionnelle)"}
-                className="w-full rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none"
+                className="w-full rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-muted)]"
               />
             )}
           </div>
@@ -449,7 +449,7 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError,
           {tagKeys.length > 0 && (
             <label className="flex items-center gap-1.5">
               <span className="text-[11px] text-[var(--c-text-muted)]">Dossier depuis le tag</span>
-              <select value={groupTagKey} onChange={(e) => setGroupTagKey(e.target.value)} className="rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text)] focus:outline-none">
+              <select value={groupTagKey} onChange={(e) => setGroupTagKey(e.target.value)} className="rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text)]">
                 <option value="">aucun</option>
                 {tagKeys.map((key) => <option key={key} value={key}>{key}</option>)}
               </select>

@@ -37,3 +37,7 @@ tracing-subscriber = "0.3"
 # the oldest version `plist` (also pulled in by tauri) still accepts.
 time = "=0.3.47"
 tauri-plugin-opener = "2"
+# Retient taille, position et état maximisé de la fenêtre d'un lancement à
+# l'autre. Sans lui, `tauri.conf.json` réimpose 1280x800 à chaque démarrage —
+# ce qui, sur un écran large ou en multi-écran, se remarque tous les jours.
+tauri-plugin-window-state = "2"

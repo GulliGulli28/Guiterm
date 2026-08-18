@@ -50,6 +50,11 @@ fn main() {
         // — see `commands::remote_edit`. Separate from the shell plugin,
         // whose own `open` is deprecated in favour of this one.
         .plugin(tauri_plugin_opener::init())
+        // Restaure la géométrie de la fenêtre au lancement et la sauvegarde à
+        // la fermeture. Enregistré ici plutôt que dans `setup` : le plugin
+        // doit voir la fenêtre naître pour la repositionner avant qu'elle
+        // s'affiche, sinon on verrait un saut.
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .manage(app_state)
         .setup(|app| {
             if let Some(window) = app.get_webview_window("main")

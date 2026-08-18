@@ -296,7 +296,7 @@ export function AwsDatabaseImportPanel({ workspace, onWorkspaceUpdate, onClose, 
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 placeholder="appliqué aux connexions importées"
-                className="flex-1 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none"
+                className="flex-1 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-muted)]"
               />
             </div>
           </div>

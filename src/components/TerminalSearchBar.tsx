@@ -34,7 +34,7 @@ export function TerminalSearchBar({ onSearch, onClose }: TerminalSearchBarProps)
           if (e.key === "Escape") { e.preventDefault(); onClose(); }
         }}
         placeholder="Rechercher dans le terminal…"
-        className="w-48 bg-transparent font-mono text-xs text-[var(--c-text)] placeholder:font-sans placeholder:text-[var(--c-text-muted)] focus:outline-none"
+        className="w-48 bg-transparent font-mono text-xs text-[var(--c-text)] placeholder:font-sans placeholder:text-[var(--c-text-muted)]"
       />
       <button
         onClick={() => { setCaseSensitive((v) => !v); search(value, "next"); }}

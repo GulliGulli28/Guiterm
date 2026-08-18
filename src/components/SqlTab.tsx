@@ -628,7 +628,7 @@ export function SqlTab({ connection, hosts, onError }: SqlTabProps) {
                 }}
                 placeholder="SELECT * FROM ..."
                 spellCheck={false}
-                className="absolute inset-0 h-full w-full resize-none whitespace-pre-wrap break-words bg-transparent px-2 py-1.5 font-mono text-[13px] leading-[1.5] text-transparent caret-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none"
+                className="absolute inset-0 h-full w-full resize-none whitespace-pre-wrap break-words bg-transparent px-2 py-1.5 font-mono text-[13px] leading-[1.5] text-transparent caret-[var(--c-text)] placeholder:text-[var(--c-text-muted)]"
               />
             </div>
             <div className="flex items-center gap-2">

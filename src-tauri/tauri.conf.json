@@ -28,9 +28,23 @@
   "bundle": {
     "active": true,
     "targets": "all",
+    "publisher": "GulliGulli28",
+    "copyright": "Copyright © 2026 GulliGulli28 — MIT",
+    "category": "DeveloperTool",
+    "shortDescription": "Client SSH/SFTP de bureau, local d'abord",
+    "longDescription": "Client SSH/SFTP de bureau pour ceux qui vivent dans un terminal : exec Docker et Kubernetes, aperçu RDP intégré, client SQL, opérations de flotte et coffre à secrets chiffré en option. Aucun compte cloud obligatoire, aucun abonnement.",
     "createUpdaterArtifacts": true,
-    "icon": ["icons/32x32.png", "icons/128x128.png", "icons/128x128@2x.png", "icons/icon.png", "icons/icon.ico", "icons/icon.icns"],
-    "externalBin": ["binaries/rdp-sidecar"]
+    "icon": [
+      "icons/32x32.png",
+      "icons/128x128.png",
+      "icons/128x128@2x.png",
+      "icons/icon.png",
+      "icons/icon.ico",
+      "icons/icon.icns"
+    ],
+    "externalBin": [
+      "binaries/rdp-sidecar"
+    ]
   },
   "plugins": {
     "updater": {

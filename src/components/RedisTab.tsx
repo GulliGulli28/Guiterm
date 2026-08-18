@@ -194,7 +194,7 @@ export function RedisTab({ connection, onError }: RedisTabProps) {
               value={pattern}
               onChange={(e) => onPatternChange(e.target.value)}
               placeholder="Rechercher (motif ou sous-chaîne)…"
-              className="w-full bg-transparent text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] focus:outline-none"
+              className="w-full bg-transparent text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-faint)]"
             />
           </div>
         </div>

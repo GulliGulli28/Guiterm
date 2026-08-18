@@ -125,3 +125,32 @@ body,
   opacity: 0.5;
   box-shadow: none;
 }
+
+/* ── Focus clavier visible ──────────────────────────────────────────────────
+ *
+ * 40 composants posent `outline-none` pour supprimer le halo par défaut du
+ * navigateur, qui apparaît aussi au clic souris et alourdit l'interface. Effet
+ * de bord : plus rien n'indiquait où se trouvait le focus en tabulant.
+ *
+ * `:focus-visible` répond aux deux besoins à la fois — le navigateur ne le
+ * déclenche qu'à la navigation clavier, jamais au clic. Rien ne change donc à
+ * la souris.
+ *
+ * Placé après `@tailwind utilities` volontairement : `.outline-none` et
+ * `:focus-visible` ont la même spécificité (une classe), donc c'est l'ordre
+ * source qui tranche. Déplacer ce bloc plus haut le rendrait silencieusement
+ * inopérant.
+ */
+:focus-visible {
+  outline: 2px solid var(--c-accent-hover);
+  outline-offset: 2px;
+}
+
+/* Le terminal et le canvas RDP gardent leur propre indication de focus (curseur
+ * qui clignote, bordure d'onglet actif) et occupent toute la surface : un
+ * liseré de 2 px tout autour n'apporterait rien et découperait l'image. */
+.xterm:focus-visible,
+.xterm-helper-textarea:focus-visible,
+canvas:focus-visible {
+  outline: none;
+}
