@@ -9,6 +9,8 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+## [3.1.0] - 2026-08-20
+
 ### Added
 - Queries you run against a database are remembered. The "Historique" button
   beside "Exécuter" lists them, most recent first, each with when it ran and
@@ -17,6 +19,12 @@ This changelog starts 2026-07-21 — for earlier versions, see
   is usually worth running against another. Only queries that actually
   succeeded are kept — a typo is not something you want offered back — and a
   table's preview doesn't count, since you clicked it rather than wrote it.
+- Adaptive snippets can be written in plain French instead of the small
+  targeting language. The "Décrire en français…" field, which until now lived
+  only in the Fleet tab, is now in the snippet editor too — so building a
+  reusable action across a mixed fleet no longer means knowing the grammar by
+  heart. What the assistant writes is still that language and never shell, and
+  it goes through the same parser as anything typed by hand before you see it.
 - Hosts and the things that go through them are no longer separate lists. A
   host's menu now shows what depends on it — databases reached through its
   tunnel, Docker and Kubernetes hosts it relays for, port forwards saved on
@@ -27,10 +35,6 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
   Nothing new is stored for this: your connections already recorded which
   host they travel through. Only nothing ever read it in that direction.
-
-## [3.1.0] - 2026-08-18
-
-### Added
 - The remote mouse cursor now shows in the embedded RDP preview, and changes
   shape as the remote side does — a text bar over a field, a resize arrow on a
   window edge, nothing at all where the application hides it. It is drawn by
@@ -54,6 +58,13 @@ This changelog starts 2026-07-21 — for earlier versions, see
   applications, where the field used to be empty.
 
 ### Fixed
+- RDP servers that your own Windows client reaches without complaint no longer
+  fail here with "Une connexion existante a dû être fermée par l'hôte distant".
+  The preview now uses the operating system's own TLS stack — the same one
+  Remote Desktop uses — rather than a stricter library that refuses a family of
+  encryption suites some Windows servers still negotiate. Those servers close
+  the connection outright instead of explaining themselves, which is why the
+  error said so little.
 - Error messages coming from the connection layer are now in French like the
   rest of the app. Some appeared in English, and one of them quoted an
   internal function name at you.
