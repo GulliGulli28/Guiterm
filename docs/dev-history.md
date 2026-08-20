@@ -556,6 +556,42 @@ décoder ironrdp en `PointerBitmapTarget::Accelerated`, c'est-à-dire du RGBA
 **non prémultiplié** — exactement ce que `putImageData` attend. Basculer ce
 drapeau assombrirait silencieusement tout bord semi-transparent.
 
+### TLS : native-tls et non rustls (2026-08-20)
+
+Un serveur Windows réel (un WSUS joignable par mstsc, pas par l'app) échouait
+sur `passage en TLS : Une connexion existante a dû être fermée par l'hôte
+distant. (os error 10054)`. Diagnostic mené en sondant le serveur, parce
+qu'aucune hypothèse ne tenait toute seule :
+
+1. Négociation X.224 : le serveur retient bien `CredSSP/NLA`. Ce n'est donc pas
+   un refus de protocole.
+2. Versions TLS acceptées, testées via SChannel : **1.2, 1.1, 1.0 oui, 1.3
+   non** — et un refus de 1.3 se manifeste par exactement ce message. Fausse
+   piste cependant : annoncer 1.3 *à côté* de 1.2 fonctionne parfaitement, le
+   serveur redescend.
+3. Rejeu du ClientHello exact de rustls (capturé dans ses traces) : refusé.
+   Variantes sans TLS 1.3, et avec un `key_share` P-256 au lieu de X25519 :
+   refusées aussi. Ni la version, ni la courbe.
+4. **La suite négociée par SChannel est `ECDHE_RSA_AES256_CBC_SHA384`** —
+   du **CBC**. Or rustls ne propose, par choix de conception, aucune suite CBC :
+   il n'y a donc aucun recouvrement, et ce serveur ferme la connexion sans même
+   envoyer d'alerte `handshake_failure`, d'où le `10054` nu.
+
+**Piège rencontré pendant le diagnostic, à ne pas refaire** : les ClientHello
+fabriqués à la main pour isoler une suite étaient **malformés** (longueur du
+champ `signature_algorithms` fausse), et échouaient donc *quelle que soit* la
+suite testée. Un serveur public a répondu `decode_error`, ce qui l'a révélé —
+**valider l'instrument avant de lire ses mesures**, sans quoi on conclut
+« aucune suite ne marche » alors qu'on n'a rien mesuré.
+
+Correctif : `ironrdp-tls` passe de la feature `rustls` à `native-tls`. Sous
+Windows cela revient à **SChannel**, la pile qu'utilise mstsc — un client RDP
+doit joindre ce que le client RDP du système joint. Sous Linux cela devient
+OpenSSL. Validé en relançant le vrai sidecar contre le serveur : TLS passe,
+CredSSP/NTLM se déroule, et le serveur répond `0xc000006d`
+(STATUS_LOGON_FAILURE) au faux mot de passe utilisé pour la sonde — soit
+exactement le comportement attendu.
+
 ### Limites connues restantes
 
 - **Molette approximative** — chaque `wheel` envoie un cran fixe (±120) dans

@@ -10,6 +10,13 @@ This changelog starts 2026-07-21 — for earlier versions, see
 ## [Unreleased]
 
 ### Added
+- Queries you run against a database are remembered. The "Historique" button
+  beside "Exécuter" lists them, most recent first, each with when it ran and
+  which connection it ran on; clicking one puts it back in the editor. The
+  list is shared across connections, because a query written for one database
+  is usually worth running against another. Only queries that actually
+  succeeded are kept — a typo is not something you want offered back — and a
+  table's preview doesn't count, since you clicked it rather than wrote it.
 - Hosts and the things that go through them are no longer separate lists. A
   host's menu now shows what depends on it — databases reached through its
   tunnel, Docker and Kubernetes hosts it relays for, port forwards saved on
