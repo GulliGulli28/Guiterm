@@ -104,6 +104,12 @@ pub struct AppState {
     /// Same, for SSH terminals — one list shared across all hosts (each entry
     /// records the host of its most recent use).
     pub ssh_history: Mutex<Vec<termius_core::command_history::CommandEntry>>,
+    /// Requêtes SQL déjà exécutées, la plus récente en dernier. Même stockage
+    /// que les deux ci-dessus — `command_history` ne suppose rien d'un shell,
+    /// et sa déduplication (une requête rejouée remonte au lieu d'être
+    /// dupliquée) est exactement ce qu'on veut d'un historique de requêtes.
+    /// Le champ `host` d'une entrée porte ici le **libellé de la connexion**.
+    pub sql_history: Mutex<Vec<termius_core::command_history::CommandEntry>>,
     /// Past fleet runs (audit trail), newest first — persisted to `fleet_history.json`.
     pub fleet_history: Mutex<Vec<termius_core::fleet_history::FleetRun>>,
     /// In-flight keyboard-interactive (MFA) prompts, keyed by the id sent to

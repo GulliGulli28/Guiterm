@@ -1,6 +1,11 @@
 //! Persistence of command-history files. One file per source (local terminal,
-//! SSH terminals) — kept separate since commands relevant on the local machine
-//! rarely apply to a remote host and vice versa. Separate from
+//! SSH terminals, requêtes SQL) — kept separate since commands relevant on the
+//! local machine rarely apply to a remote host and vice versa, et une requête
+//! SQL n'a rien à faire dans les suggestions d'un shell.
+//!
+//! Rien ici ne suppose un shell : c'est ce qui a permis à l'historique SQL de
+//! réutiliser ce module sans y toucher, déduplication comprise — rejouer une
+//! requête la remonte au lieu d'en écrire une deuxième copie. Separate from
 //! `workspace.json` too: this is behavioral/derived data, not part of the
 //! user's configured workspace.
 //!
@@ -35,8 +40,11 @@ pub struct CommandEntry {
     /// migrated from the pre-timestamp format, which genuinely have no date.
     #[serde(default)]
     pub at_ms: Option<u64>,
-    /// The host label this ran on, for the SSH history. `None` for the local
-    /// terminal (whose "host" is this machine) and for migrated entries.
+    /// Where this ran, as a **label** and jamais un id : le libellé de l'hôte
+    /// pour l'historique SSH, celui de la connexion pour l'historique SQL
+    /// (ajouté le 2026-08-18, qui réutilise ce module tel quel). `None` pour le
+    /// terminal local — dont « l'hôte » est cette machine — et pour les entrées
+    /// migrées de l'ancien format.
     #[serde(default)]
     pub host: Option<String>,
 }

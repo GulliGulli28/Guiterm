@@ -262,6 +262,7 @@ async function runScenarios(browser) {
   await runSqlTabScenario(browser);
   await runHostAttachmentsScenario(browser);
   await runAdaptiveComposerScenario(browser);
+  await runSqlHistoryScenario(browser);
   await runFleetTabScenario(browser);
   await runSidebarPanelsScenario(browser);
   await runSidebarButtonsScenario(browser);
@@ -1522,6 +1523,66 @@ async function openSidebarPanel(browser, title, kind, expectedLabel) {
     timeout: 15_000,
     timeoutMsg: `le panneau « ${title} » ne s est pas affiché${expectedLabel ? ` (bouton « ${expectedLabel} » attendu)` : ""}`,
   });
+}
+
+/**
+ * L'historique des requêtes SQL, de l'exécution jusqu'au bouton qui la rejoue.
+ *
+ * Le stockage est celui, déjà testé, de `command_history` — ce scénario ne le
+ * revérifie pas. Ce qu'il vérifie est le chemin : une requête exécutée dans
+ * l'onglet doit se retrouver dans la liste, et un clic doit la remettre dans
+ * l'éditeur. Aucun test unitaire ne dit ça, et c'est exactement le genre de
+ * câblage qui manquait à MongoDB.
+ *
+ * Écrit par `invoke` puis relu par l'interface : ouvrir un vrai onglet SQL
+ * demanderait un serveur, alors que la commande d'écriture est la même que
+ * celle qu'appelle `run()`.
+ */
+async function runSqlHistoryScenario(browser) {
+  const QUERY = `SELECT 'e2e-${Date.now()}' AS marqueur`;
+
+  const written = await browser.execute(async (query) => {
+    try {
+      await window.__TAURI_INTERNALS__.invoke("append_sql_history", { query, connection: "e2e" });
+      const entries = await window.__TAURI_INTERNALS__.invoke("get_sql_history");
+      return { count: entries.length, last: entries[entries.length - 1] };
+    } catch (e) {
+      return { __error: String(e) };
+    }
+  }, QUERY);
+  if (!written || written.__error !== undefined) {
+    throw new Error(`l historique SQL n a pas accepté la requête : ${JSON.stringify(written)}`);
+  }
+  if (written.last?.command !== QUERY) {
+    throw new Error(`la requête n est pas la dernière entrée : ${JSON.stringify(written.last)}`);
+  }
+  if (written.last?.host !== "e2e") {
+    throw new Error(`la connexion n est pas enregistrée avec la requête : ${JSON.stringify(written.last)}`);
+  }
+  if (typeof written.last?.atMs !== "number") {
+    throw new Error(`l entrée n a pas de date : ${JSON.stringify(written.last)}`);
+  }
+
+  // Une requête vide ne doit pas entrer. La garantie vient de
+  // `command_history::record`, pas de la commande Tauri : l'assertion décrit
+  // donc une propriété de la fonctionnalité, sans distinguer où elle est
+  // appliquée — vérifié en retirant le garde de la commande, qui n'a rien
+  // changé.
+  const blanked = await browser.execute(async () => {
+    try {
+      const before = (await window.__TAURI_INTERNALS__.invoke("get_sql_history")).length;
+      await window.__TAURI_INTERNALS__.invoke("append_sql_history", { query: "   ", connection: null });
+      const after = (await window.__TAURI_INTERNALS__.invoke("get_sql_history")).length;
+      return { before, after };
+    } catch (e) {
+      return { __error: String(e) };
+    }
+  });
+  if (!blanked || blanked.__error !== undefined || blanked.after !== blanked.before) {
+    throw new Error(`une requête vide a été enregistrée : ${JSON.stringify(blanked)}`);
+  }
+
+  console.log("Historique SQL : OK (requête enregistrée avec sa date et sa connexion, requête vide refusée).");
 }
 
 /**

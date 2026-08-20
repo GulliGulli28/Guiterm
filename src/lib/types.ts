@@ -879,6 +879,22 @@ export type ActivityKind = "fleetRun" | "command" | "recording";
 /** One entry in the unified activity timeline. Mirrors
  * `termius_core::activity::ActivityEvent` — a flat shape on purpose: the
  * table, the filters and the export all want the same columns. */
+/** Une entrée d'historique de commandes — miroir de
+ * `termius_core::command_history::CommandEntry`.
+ *
+ * Utilisée pour l'historique de requêtes SQL. Les deux historiques de shell
+ * passent, eux, par des `string[]` : leur unique lecteur est le ghost-text, qui
+ * n'a besoin ni de la date ni de la cible. */
+export interface CommandEntry {
+  command: string;
+  /** Millisecondes epoch de la dernière exécution. `null` pour une entrée
+   * migrée de l'ancien format, qui n'a réellement aucune date. */
+  atMs: number | null;
+  /** Libellé — de l'hôte pour l'historique SSH, de la connexion pour le SQL.
+   * `null` quand la cible n'a pas de nom (terminal local, entrée migrée). */
+  host: string | null;
+}
+
 export interface ActivityEvent {
   kind: ActivityKind;
   /** Unix epoch milliseconds. `null` for command entries migrated from the

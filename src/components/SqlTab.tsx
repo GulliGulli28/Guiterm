@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../lib/api";
-import { sqlEngineLabel, type ColumnInfo, type Host, type QueryResult, type SqlConnection, type TableInfo } from "../lib/types";
+import { sqlEngineLabel, type ColumnInfo, type CommandEntry, type Host, type QueryResult, type SqlConnection, type TableInfo } from "../lib/types";
+import { formatRelativeTime } from "../lib/format";
 import { useResizablePane } from "../hooks/useResizablePane";
 import { ResultTable } from "./ResultTable";
 import { SqlExportPanel } from "./SqlExportPanel";
@@ -128,6 +129,15 @@ export function SqlTab({ connection, hosts, onError }: SqlTabProps) {
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<QueryResult | null>(null);
   const [queryError, setQueryError] = useState<string | null>(null);
+  const [history, setHistory] = useState<CommandEntry[]>([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+
+  // Chargé à l'ouverture de l'onglet et après chaque requête réussie. La liste
+  // est partagée par toutes les connexions — une requête écrite pour une base
+  // sert souvent sur une autre — et chaque entrée dit sur laquelle elle a
+  // tourné.
+  const loadHistory = () => { api.sqlHistory().then(setHistory).catch(() => {}); };
+  useEffect(loadHistory, []);
 
   // Everything the "Exporter" tab needs lives in `SqlExportPanel` — see its
   // doc comment. It stays mounted while another sub-tab shows, so a selection
@@ -353,7 +363,17 @@ export function SqlTab({ connection, hosts, onError }: SqlTabProps) {
     setQueryError(null);
     const isMutation = MUTATING_SQL_RE.test(query);
     api.runSqlQuery(sessionIdRef.current, query, selected?.schema ?? null)
-      .then((res) => { setResult(res); if (isMutation) refreshAfterMutation(); })
+      .then((res) => {
+        setResult(res);
+        if (isMutation) refreshAfterMutation();
+        // Enregistrée seulement si elle a abouti : une requête refusée pour
+        // faute de frappe n'a pas sa place dans ce qu'on propose de rejouer.
+        // `.catch` avalé — échouer à écrire l'historique ne doit pas faire
+        // passer une requête réussie pour un échec.
+        api.appendSqlHistory(query, connection.label)
+          .then(loadHistory)
+          .catch(() => {});
+      })
       .catch((e) => { setQueryError(String(e)); setResult(null); })
       .finally(() => setRunning(false));
   };
@@ -639,8 +659,37 @@ export function SqlTab({ connection, hosts, onError }: SqlTabProps) {
               >
                 <IconPlay size={11} /> {running ? "Exécution…" : "Exécuter"}
               </button>
+              <button
+                onClick={() => setHistoryOpen((v) => !v)}
+                disabled={history.length === 0}
+                title="Requêtes déjà exécutées, la plus récente en premier"
+                className="flex items-center gap-1.5 rounded-md border border-[var(--c-border)] px-2.5 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Historique{history.length > 0 ? ` (${history.length})` : ""}
+              </button>
               <span className="text-[11px] text-[var(--c-text-faint)]">Ctrl+Entrée pour exécuter</span>
             </div>
+            {historyOpen && history.length > 0 && (
+              <div className="max-h-48 overflow-y-auto rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)]">
+                {[...history].reverse().map((entry, i) => (
+                  <button
+                    key={`${entry.atMs ?? "?"}-${i}`}
+                    onClick={() => { setQuery(entry.command); setHistoryOpen(false); }}
+                    title="Reprendre cette requête dans l'éditeur"
+                    className="flex w-full flex-col items-start gap-0.5 border-b border-[var(--c-border)] px-2.5 py-1.5 text-left last:border-b-0 hover:bg-white/5"
+                  >
+                    <span className="w-full truncate font-mono text-[11px] text-[var(--c-text)]">{entry.command}</span>
+                    <span className="text-[10px] text-[var(--c-text-muted)]">
+                      {/* « date inconnue » plutôt qu'une date inventée : une
+                          entrée migrée de l'ancien format n'en a réellement
+                          aucune, et l'epoch mentirait. */}
+                      {entry.atMs === null ? "date inconnue" : formatRelativeTime(entry.atMs)}
+                      {entry.host ? ` · ${entry.host}` : ""}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* `overflow-hidden`, not `overflow-auto`: `ResultTable` owns the
