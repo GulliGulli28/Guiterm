@@ -9,6 +9,53 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+### Added
+- Files and folders can be dragged from one transfer panel to the other with
+  the mouse. Dropping in the empty part of the far panel copies into the
+  folder it is showing; dropping onto one of its folders copies inside that
+  folder, without having to open it first. A drag started on a selected line
+  carries the whole selection. Letting go inside your own panel, anywhere but
+  on a folder, does nothing — that is the "actually, no" gesture.
+- Folder sizes, on demand. The "—" in a folder's Taille column is now a
+  button that computes what the folder actually holds, and "Σ Tailles"
+  computes every folder in the current listing. It is deliberately not
+  automatic: this is a full recursive measurement per folder, which on a large
+  tree takes real time. The work happens where the files are — a single
+  command on the host rather than one network round trip per file — so
+  measuring a remote folder costs about what typing `du` there would.
+- A selection can be archived, as .tar.gz or .zip, from the "Archiver" button.
+  The archive is created on the spot, on the machine holding the files, so
+  archiving a remote folder transfers nothing across the network. An existing
+  archive of the same name is never overwritten — with .zip that matters more
+  than it sounds, since zip would have added to the old archive rather than
+  replaced it, quietly mixing two backups. Note that .zip on a remote host
+  needs the `zip` command, which minimal servers and most containers don't
+  ship; the error says so when it is missing.
+- Searching in a transfer panel. The field that used to say "Aller à" now
+  filters the current folder as you type, and pressing Enter searches
+  recursively below it — on the host itself, not by listing folders one by
+  one. Opening a result takes you to the folder holding it, with the result
+  already ticked. Every search is bounded in depth, in results and in time,
+  and says when what came back is only part of the answer.
+
+### Changed
+- The path shown above a transfer panel is now clickable, one level at a time,
+  which is what the "Aller à" field mostly got used for. Going up three
+  folders is a click rather than a retyped absolute path.
+
+### Fixed
+- Transfer panel columns line up. The header and the rows each carried their
+  own set of widths, and rows carried a varying number of action buttons where
+  the header reserved room for one, so a line without an edit button shifted
+  all of its columns relative to the line above it. On top of that the date
+  column had a fixed width while the panel's font size goes up to 20px, which
+  is why "Modifié" spilled over "Type" at larger sizes. Columns now come from
+  one shared grid, sized from your font size, and Modifié/Type step aside when
+  the panel is genuinely too narrow for them.
+- "Dossier parent" goes to the parent folder instead of jumping to the root of
+  the disk. It looked for the last "/" in the path, and a local panel on
+  Windows opens on something like `C:\Users\vous`, which contains none.
+
 ## [3.1.0] - 2026-08-20
 
 ### Added
