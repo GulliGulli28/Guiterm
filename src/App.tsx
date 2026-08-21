@@ -493,7 +493,7 @@ export default function App() {
   // mémoïsation : cet objet n'est pas une prop d'un composant mémoïsé, il est
   // consommé immédiatement par des fonctions de rendu.
   const moduleContext: AppContext = {
-    workspace, preferences, reportError, pushNotification, refreshWorkspace,
+    workspace, preferences, updatePreferences, reportError, pushNotification, refreshWorkspace,
     closeTab, notifyLongCommand, mirrorInput,
     // La table des poignées reste ici : la palette, le broadcast, le zoom et
     // la recherche terminal l'interrogent. Les modules n'ont le droit que d'y

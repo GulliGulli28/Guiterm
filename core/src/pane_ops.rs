@@ -324,6 +324,31 @@ pub fn archive_file_name(base: &str, format: ArchiveFormat) -> String {
     }
 }
 
+/// Le format d'une archive d'après son nom, pour savoir quoi lancer dessus —
+/// et pour ne proposer « Extraire » que sur un fichier qui en est une.
+pub fn archive_format_of(name: &str) -> Option<ArchiveFormat> {
+    let lower = name.to_lowercase();
+    if lower.ends_with(".tar.gz") || lower.ends_with(".tgz") {
+        Some(ArchiveFormat::TarGz)
+    } else if lower.ends_with(".zip") {
+        Some(ArchiveFormat::Zip)
+    } else {
+        None
+    }
+}
+
+/// Nom du dossier proposé pour l'extraction : celui de l'archive sans son
+/// extension. `sauvegarde.tar.gz` → `sauvegarde`.
+pub fn archive_base_name(name: &str) -> String {
+    let lower = name.to_lowercase();
+    for suffix in [".tar.gz", ".tgz", ".zip"] {
+        if lower.ends_with(suffix) {
+            return name[..name.len() - suffix.len()].to_string();
+        }
+    }
+    name.to_string()
+}
+
 /// `$1` = chemin de l'archive, `$2` = dossier de travail, puis un argument par
 /// entrée à archiver. `tar` est lancé depuis le dossier de travail pour que
 /// l'archive contienne des chemins relatifs (`dossier/fichier`) et non le
@@ -389,6 +414,83 @@ pub async fn archive(
             Ok(())
         }
     }
+}
+
+/// `$1` = dossier de destination (créé au besoin), `$2` = chemin de l'archive.
+pub const UNTAR_GZ_SCRIPT: &str = r#"
+dest=$1
+arc=$2
+mkdir -p -- "$dest" || exit 1
+tar -xzf "$arc" -C "$dest"
+"#;
+
+/// Même forme que [`UNTAR_GZ_SCRIPT`]. `unzip` est un utilitaire distinct de
+/// `zip` et peut manquer indépendamment de lui — vérifié pour le dire plutôt
+/// que de laisser remonter un « not found » du shell.
+pub const UNZIP_SCRIPT: &str = r#"
+dest=$1
+arc=$2
+command -v unzip >/dev/null 2>&1 || { echo "la commande unzip n'est pas disponible sur cet hôte" >&2; exit 3; }
+mkdir -p -- "$dest" || exit 1
+unzip -q -o "$arc" -d "$dest"
+"#;
+
+/// Extrait `archive_name` (de `cwd`) dans `cwd/dest_name`, ou directement dans
+/// `cwd` si `dest_name` est vide. Comme [`archive`], le travail a lieu là où
+/// est le fichier : rien ne transite par le réseau.
+pub async fn extract(
+    exec: &PaneExec,
+    cwd: &str,
+    archive_name: &str,
+    dest_name: Option<&str>,
+) -> anyhow::Result<()> {
+    crate::sftp::ensure_safe_component(archive_name)?;
+    let format = archive_format_of(archive_name)
+        .ok_or_else(|| anyhow::anyhow!("« {archive_name} » n'est pas une archive reconnue (.tar.gz, .tgz ou .zip)"))?;
+    let dest = match dest_name {
+        Some(name) if !name.trim().is_empty() => {
+            let name = name.trim();
+            crate::sftp::ensure_safe_component(name)?;
+            crate::sftp::join(cwd, name)
+        }
+        _ => cwd.to_string(),
+    };
+    let archive_path = crate::sftp::join(cwd, archive_name);
+
+    match exec {
+        PaneExec::Local => {
+            let dest = std::path::PathBuf::from(dest);
+            let archive_path = std::path::PathBuf::from(archive_path);
+            tokio::task::spawn_blocking(move || local_extract(&archive_path, &dest, format)).await?
+        }
+        PaneExec::Shell(shell) => {
+            let script = match format {
+                ArchiveFormat::TarGz => UNTAR_GZ_SCRIPT,
+                ArchiveFormat::Zip => UNZIP_SCRIPT,
+            };
+            shell.run(script, &[&dest, &archive_path]).await?;
+            Ok(())
+        }
+    }
+}
+
+/// Les deux bibliothèques refusent d'elles-mêmes d'écrire hors du dossier de
+/// destination (`tar::Archive::unpack` ignore les entrées qui remontent,
+/// `zip::ZipArchive::extract` s'appuie sur `enclosed_name`) — ce qui compte,
+/// une archive pouvant venir de n'importe où et contenir `../../.ssh/authorized_keys`.
+fn local_extract(archive_path: &Path, dest: &Path, format: ArchiveFormat) -> anyhow::Result<()> {
+    std::fs::create_dir_all(dest)?;
+    let file = std::fs::File::open(archive_path)?;
+    match format {
+        ArchiveFormat::TarGz => {
+            let mut archive = tar::Archive::new(flate2::read::GzDecoder::new(file));
+            archive.unpack(dest)?;
+        }
+        ArchiveFormat::Zip => {
+            zip::ZipArchive::new(file)?.extract(dest)?;
+        }
+    }
+    Ok(())
 }
 
 fn local_archive(
@@ -624,6 +726,60 @@ mod tests {
         );
     }
 
+    #[test]
+    fn an_archive_is_recognised_by_its_extension() {
+        assert_eq!(archive_format_of("sauvegarde.tar.gz"), Some(ArchiveFormat::TarGz));
+        assert_eq!(archive_format_of("SAUVEGARDE.TGZ"), Some(ArchiveFormat::TarGz));
+        assert_eq!(archive_format_of("sauvegarde.zip"), Some(ArchiveFormat::Zip));
+        assert_eq!(archive_format_of("notes.md"), None);
+        // `.gz` seul n'est pas une archive : c'est un fichier compressé, qu'on
+        // ne sait pas « extraire » en une arborescence.
+        assert_eq!(archive_format_of("journal.gz"), None);
+
+        assert_eq!(archive_base_name("sauvegarde.tar.gz"), "sauvegarde");
+        assert_eq!(archive_base_name("sauvegarde.zip"), "sauvegarde");
+        assert_eq!(archive_base_name("notes.md"), "notes.md");
+    }
+
+    /// Le vrai aller-retour : ce que l'archivage écrit, l'extraction doit
+    /// savoir le relire — dans les deux formats.
+    #[tokio::test]
+    async fn archive_then_extract_gives_the_tree_back() {
+        for (format, name) in [(ArchiveFormat::TarGz, "tout.tar.gz"), (ArchiveFormat::Zip, "tout.zip")] {
+            let dir = tempfile::tempdir().unwrap();
+            std::fs::create_dir(dir.path().join("projet")).unwrap();
+            std::fs::write(dir.path().join("projet/a.txt"), b"bonjour").unwrap();
+            let cwd = dir.path().to_string_lossy().to_string();
+
+            archive(&PaneExec::Local, &cwd, &["projet".into()], name, format).await.unwrap();
+            std::fs::remove_dir_all(dir.path().join("projet")).unwrap();
+
+            extract(&PaneExec::Local, &cwd, name, Some("restaure")).await.unwrap();
+            assert_eq!(
+                std::fs::read_to_string(dir.path().join("restaure/projet/a.txt")).unwrap(),
+                "bonjour",
+                "format {format:?}"
+            );
+
+            // Sans dossier de destination, l'extraction se fait sur place.
+            extract(&PaneExec::Local, &cwd, name, None).await.unwrap();
+            assert!(dir.path().join("projet/a.txt").exists(), "format {format:?}");
+        }
+    }
+
+    #[tokio::test]
+    async fn extract_refuses_what_is_not_an_archive() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("notes.md"), b"x").unwrap();
+        let cwd = dir.path().to_string_lossy().to_string();
+        let error = extract(&PaneExec::Local, &cwd, "notes.md", None).await.unwrap_err().to_string();
+        assert!(error.contains("n'est pas une archive"), "message français attendu : {error}");
+        assert!(
+            extract(&PaneExec::Local, &cwd, "a.zip", Some("../evasion")).await.is_err(),
+            "un dossier de destination qui remonte doit être refusé"
+        );
+    }
+
     #[tokio::test]
     async fn local_archive_writes_a_readable_zip() {
         let dir = tempfile::tempdir().unwrap();
@@ -767,6 +923,40 @@ mod shell_script_tests {
         );
         assert!(ok, "stderr : {stderr}");
         assert!(out.exists());
+    }
+
+    /// L'archive écrite par le script est relue par le script : c'est
+    /// l'aller-retour que fait un utilisateur qui archive sur un hôte puis
+    /// extrait ailleurs sur le même hôte.
+    #[test]
+    fn tar_gz_scripts_round_trip_through_the_shell() {
+        let dir = tree();
+        let out = dir.path().join("tout.tar.gz");
+        let (ok, _, stderr) = run(
+            TAR_GZ_SCRIPT,
+            &[&out.to_string_lossy(), &dir.path().to_string_lossy(), "./projet"],
+        );
+        assert!(ok, "archivage — stderr : {stderr}");
+
+        let dest = dir.path().join("restaure");
+        let (ok, _, stderr) = run(UNTAR_GZ_SCRIPT, &[&dest.to_string_lossy(), &out.to_string_lossy()]);
+        assert!(ok, "extraction — stderr : {stderr}");
+        assert!(dest.join("projet/nginx.conf").exists(), "l'arborescence doit être revenue");
+    }
+
+    #[test]
+    fn unzip_script_says_which_command_is_missing_when_it_is() {
+        let dir = tree();
+        let dest = dir.path().join("restaure");
+        let arc = dir.path().join("absente.zip");
+        let (ok, _, stderr) = run(UNZIP_SCRIPT, &[&dest.to_string_lossy(), &arc.to_string_lossy()]);
+        assert!(!ok, "une archive inexistante ne doit pas réussir");
+        if !has("unzip") {
+            assert!(
+                stderr.contains("la commande unzip n'est pas disponible"),
+                "l'absence d'`unzip` doit se dire en français : {stderr}"
+            );
+        }
     }
 
     #[test]

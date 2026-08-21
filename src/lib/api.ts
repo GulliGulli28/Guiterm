@@ -430,6 +430,10 @@ export const api = {
    * archive existante. */
   paneArchive: (paneId: string, cwd: string, names: string[], archiveName: string, format: ArchiveFormat) =>
     invoke<PaneListed>("pane_archive", { paneId, cwd, names, archiveName, format }),
+  /** Extrait une archive du panneau, sur place. `destName` vide (ou absent) =
+   * extraire dans le dossier courant ; sinon dans un sous-dossier de ce nom. */
+  paneExtract: (paneId: string, cwd: string, name: string, destName?: string) =>
+    invoke<PaneListed>("pane_extract", { paneId, cwd, name, destName }),
   readPaneFile: (paneId: string, cwd: string, name: string) => invoke<string>("read_pane_file", { paneId, cwd, name }),
   writePaneFile: (paneId: string, cwd: string, name: string, content: string) => invoke<void>("write_pane_file", { paneId, cwd, name, content }),
   /** Fetches a remote file into a private temp copy and hands that copy to

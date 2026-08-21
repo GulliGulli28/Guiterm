@@ -88,6 +88,9 @@ window.__renderPane = async ({ fontSize, width }) => {
       onDirSize={() => Promise.resolve(0)}
       onFind={() => Promise.resolve({ paths: [], truncated: false })}
       onArchive={noop}
+      onExtract={noop}
+      showHidden
+      onToggleHidden={noop}
       onDragStart={noop}
       justDraggedRef={{ current: false }}
       dragging={false}

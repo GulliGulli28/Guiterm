@@ -362,6 +362,25 @@ pub async fn pane_archive(
     Ok(PaneListed { cwd, entries })
 }
 
+/// Extrait une archive du panneau, sur place. `dest_name` vide = extraire dans
+/// le dossier courant ; sinon dans un sous-dossier de ce nom, créé au besoin.
+#[tauri::command]
+pub async fn pane_extract(
+    state: State<'_, AppState>,
+    pane_id: String,
+    cwd: String,
+    name: String,
+    dest_name: Option<String>,
+) -> Result<PaneListed, String> {
+    let exec = pane_exec(&state, &pane_id)?;
+    pane_ops::extract(&exec, &cwd, &name, dest_name.as_deref())
+        .await
+        .map_err(|e| e.to_string())?;
+    let reference = pane_ref(&state, &pane_id)?;
+    let entries = transfer::list(&reference, &cwd).await.map_err(|e| e.to_string())?;
+    Ok(PaneListed { cwd, entries })
+}
+
 #[tauri::command]
 pub async fn pane_chmod(
     state: State<'_, AppState>,

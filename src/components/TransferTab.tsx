@@ -111,6 +111,9 @@ interface TransferTabProps {
   host: Host;
   workspace: Workspace;
   preferences?: AppPreferences;
+  /** Pour la bascule « fichiers cachés », qui se retient d'une session à
+   * l'autre plutôt que d'être à recliquer à chaque onglet ouvert. */
+  onPreferencesChange?: (next: AppPreferences) => void;
   onError: (message: string) => void;
   /** Fires after a successful `pushToRdp` — the RDP clipboard push has no
    * other visible effect (nothing lands in either file pane), so without
@@ -126,7 +129,7 @@ interface TransferTabProps {
   k8sContainerName?: string | null;
 }
 
-export function TransferTab({ host, workspace, preferences, onError, onPushed, dockerContainerId, k8sPodName, k8sContainerName }: TransferTabProps) {
+export function TransferTab({ host, workspace, preferences, onPreferencesChange, onError, onPushed, dockerContainerId, k8sPodName, k8sContainerName }: TransferTabProps) {
   // RDP hosts have no file-listing backend at all — the right panel is the
   // live embedded view itself (`RdpTab`) instead of a browsable pane, and
   // dropping entries from the left panel onto it pushes them onto the
@@ -352,6 +355,16 @@ export function TransferTab({ host, workspace, preferences, onError, onPushed, d
     } catch (e) { onError(String(e)); }
   };
 
+  const extract = async (side: Side, name: string, destName: string) => {
+    const paneId = paneIds.current[side];
+    if (!paneId) return;
+    try {
+      const result = await api.paneExtract(paneId, state[side].cwd, name, destName || undefined);
+      dispatch({ type: "listed", side, result });
+      onPushed?.(destName ? `« ${name} » extraite dans ${destName}.` : `« ${name} » extraite dans ${state[side].cwd}.`);
+    } catch (e) { onError(String(e)); }
+  };
+
   // ── Quick-edit a small text file in place ────────────────────────────────
   const [editing, setEditing] = useState<EditingFile | null>(null);
 
@@ -528,6 +541,11 @@ export function TransferTab({ host, workspace, preferences, onError, onPushed, d
     onDirSize: dirSize,
     onFind: findIn,
     onArchive: archive,
+    onExtract: extract,
+    showHidden: preferences?.sftpShowHidden ?? true,
+    onToggleHidden: onPreferencesChange && preferences
+      ? () => onPreferencesChange({ ...preferences, sftpShowHidden: !(preferences.sftpShowHidden ?? true) })
+      : undefined,
     onDragStart: beginDrag,
     justDraggedRef: draggedRef,
     dragging: drag !== null,
@@ -662,6 +680,11 @@ interface PaneViewProps {
   onDirSize: (side: Side, path: string) => Promise<number>;
   onFind: (side: Side, root: string, pattern: string) => Promise<PaneFindOutcome>;
   onArchive: (side: Side, names: string[], archiveName: string, format: ArchiveFormat) => void;
+  onExtract: (side: Side, name: string, destName: string) => void;
+  showHidden: boolean;
+  /** Absent quand le panneau n'a pas de quoi enregistrer la préférence — la
+   * bascule n'est alors pas affichée plutôt que d'être sans effet. */
+  onToggleHidden?: () => void;
   onDragStart: (side: Side, entries: Entry[], event: React.MouseEvent) => void;
   justDraggedRef: React.MutableRefObject<boolean>;
   dragging: boolean;
@@ -713,8 +736,8 @@ const SHOW_TYPE_ABOVE = 330;
  * d'entrée : dans l'app, un panneau se rend toujours via `TransferTab`. */
 export function PaneView({
   side, pane, workspace, fontSize, onNavigate, onSourceChange, onCopy, onMkdir, onCreateFile, onRename,
-  onRemove, onChmod, onEdit, onOpenInEditor, onDirSize, onFind, onArchive, onDragStart, justDraggedRef,
-  dragging, dropTarget, isRdpPush,
+  onRemove, onChmod, onEdit, onOpenInEditor, onDirSize, onFind, onArchive, onExtract, showHidden,
+  onToggleHidden, onDragStart, justDraggedRef, dragging, dropTarget, isRdpPush,
 }: PaneViewProps) {
   const [query, setQuery] = useState("");
   const [find, setFind] = useState<FindState | null>(null);
@@ -731,6 +754,8 @@ export function PaneView({
   const [chmodTarget, setChmodTarget] = useState<string | null>(null);
   const [chmodValue, setChmodValue] = useState("755");
   const [archiving, setArchiving] = useState(false);
+  const [extracting, setExtracting] = useState<string | null>(null);
+  const [extractDest, setExtractDest] = useState("");
   const [archiveName, setArchiveName] = useState("");
   const [archiveFormat, setArchiveFormat] = useState<ArchiveFormat>("tarGz");
   const [dirSizes, setDirSizes] = useState<Record<string, DirSize>>({});
@@ -799,7 +824,9 @@ export function PaneView({
   );
 
   const needle = query.trim().toLowerCase();
-  const visible = needle ? sorted.filter((e) => e.name.toLowerCase().includes(needle)) : sorted;
+  const shown = showHidden ? sorted : sorted.filter((e) => !e.name.startsWith("."));
+  const visible = needle ? shown.filter((e) => e.name.toLowerCase().includes(needle)) : shown;
+  const hiddenCount = sorted.length - shown.length;
 
   /** Ce qu'on veut voir coché en arrivant dans le dossier — utilisé quand on
    * ouvre un résultat de recherche : le panneau descend dans son dossier et
@@ -877,6 +904,24 @@ export function PaneView({
       onArchive(side, selectedEntries.map((e) => e.name), name, archiveFormat);
     }
     setArchiving(false);
+  };
+
+  /** Le nom du fichier sans son extension d'archive : c'est le dossier que
+   * l'on veut neuf fois sur dix, plutôt que déverser cinq cents fichiers dans
+   * le dossier courant. Miroir de `pane_ops::archive_base_name`. */
+  const archiveBaseName = (name: string) => name.replace(/\.(tar\.gz|tgz|zip)$/i, "");
+  const isArchive = (name: string) => /\.(tar\.gz|tgz|zip)$/i.test(name);
+
+  const startExtract = () => {
+    const entry = selectedEntries[0];
+    if (!entry || entry.isDir || !isArchive(entry.name)) return;
+    setExtractDest(archiveBaseName(entry.name));
+    setExtracting(entry.name);
+  };
+
+  const submitExtract = () => {
+    if (extracting) onExtract(side, extracting, extractDest.trim());
+    setExtracting(null);
   };
 
   // ── Taille des dossiers, à la demande ────────────────────────────────────
@@ -1112,6 +1157,23 @@ export function PaneView({
                   <IconClose size={11} />
                 </button>
               </div>
+            ) : extracting ? (
+              <div className="flex flex-1 items-center gap-1">
+                <span className="shrink-0 truncate text-xs text-[var(--c-text-secondary)]">Extraire {extracting} dans :</span>
+                <input
+                  autoFocus
+                  value={extractDest}
+                  onChange={(e) => setExtractDest(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") submitExtract(); if (e.key === "Escape") setExtracting(null); }}
+                  placeholder="ce dossier-ci"
+                  title="Vide : extraire directement dans le dossier courant"
+                  className="min-w-0 flex-1 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                />
+                <button onClick={submitExtract} className="rounded-md bg-[var(--c-accent)] px-2 py-1 text-xs text-white hover:bg-[var(--c-accent-hover)]">Extraire</button>
+                <button aria-label="Retirer de la liste" onClick={() => setExtracting(null)} className="rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text-secondary)] hover:bg-white/5">
+                  <IconClose size={11} />
+                </button>
+              </div>
             ) : (
               <>
                 <button
@@ -1151,6 +1213,26 @@ export function PaneView({
                     className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
                   >
                     <IconShield size={12} /> Permissions
+                  </button>
+                )}
+                {onToggleHidden && (
+                  <button
+                    onClick={onToggleHidden}
+                    title={showHidden
+                      ? `Masquer les fichiers cachés${hiddenCount > 0 ? "" : " (aucun ici)"}`
+                      : `Afficher les fichiers cachés${hiddenCount > 0 ? ` (${hiddenCount} masqué(s) ici)` : ""}`}
+                    className={`flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] hover:bg-white/5 hover:text-[var(--c-text)] ${showHidden ? "text-[var(--c-text-secondary)]" : "text-[var(--c-text-faint)]"}`}
+                  >
+                    {showHidden ? "👁" : "🙈"} Cachés{!showHidden && hiddenCount > 0 ? ` (${hiddenCount})` : ""}
+                  </button>
+                )}
+                {selectedEntries.length === 1 && !selectedEntries[0].isDir && isArchive(selectedEntries[0].name) && (
+                  <button
+                    onClick={startExtract}
+                    title="Extraire cette archive ici — l'extraction a lieu sur place, rien ne transite par le réseau"
+                    className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+                  >
+                    📦 Extraire
                   </button>
                 )}
                 {selectedEntries.length > 0 && (

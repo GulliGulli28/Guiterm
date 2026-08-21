@@ -23,6 +23,11 @@ import type { SidebarPanelKind } from "../lib/sidebarButtons";
 export interface AppContext {
   workspace: Workspace;
   preferences: AppPreferences;
+  /** Écrire une préférence depuis un onglet — pour les réglages qui se
+   * changent là où ils s'appliquent plutôt que dans le panneau Réglages (la
+   * bascule « fichiers cachés » d'un panneau de transfert). Le lecteur et
+   * l'écrivain vont ensemble ; c'est la seule raison d'ajouter un champ ici. */
+  updatePreferences: (p: AppPreferences) => void;
   /** Bannière d'état + notification d'erreur. Prend un message déjà formulé
    * pour l'utilisateur, pas une exception. */
   reportError: (message: string) => void;

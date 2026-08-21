@@ -77,6 +77,11 @@ export interface AppPreferences {
   terminalFontFamily: string;
   terminalFontSize: number;
   sftpFontSize: number;
+  /** Afficher les fichiers commençant par un point dans les panneaux de
+   * transfert. Vrai par défaut : c'est le comportement qui existait avant que
+   * la bascule existe, et un client SSH sert précisément souvent à aller
+   * chercher un `.env` ou un `.ssh/`. */
+  sftpShowHidden: boolean;
   uiAccent: UiAccent;
   uiBg: UiBg;
   colorMode: ColorMode;
@@ -269,6 +274,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   terminalFontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
   terminalFontSize: 14,
   sftpFontSize: 13,
+  sftpShowHidden: true,
   uiAccent: "violet",
   uiBg: "aurora",
   colorMode: "dark",
