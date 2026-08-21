@@ -175,8 +175,14 @@ plateformes sans modification.
 unitaires purs (`npm run test`, vitest — piège Node : vitest ≥ 4 exige Node
 ≥ 20, ce WSL est en 18.19, utiliser `vitest@^2`) pour la logique découplée
 de React/xterm/Tauri ; rendu DOM réel dans un Chromium headless (Playwright,
-sans Tauri) pour ce qui dépend du DOM produit par xterm.js — voir
-`scripts/visual-check-ghost-text.*`. Aucune des deux ne couvre ce qui passe
+sans Tauri) pour ce qui dépend de la **géométrie** ou d'un **geste**, que ni
+`tsc` ni vitest ne peuvent voir faute de moteur de rendu — voir
+`scripts/visual-check-ghost-text.*` (positionnement sur la grille xterm) et
+`npm run check:transfer` (`visual-check-transfer-{columns,dnd}.*` : alignement
+des colonnes du panneau de transfert à plusieurs tailles de police, et vrai
+glisser-déposer à la souris entre deux panneaux). Un composant peut y être
+monté seul s'il ne parle à Tauri que par ses callbacks — c'est pour ça que
+`PaneView` est exporté. Aucune de ces techniques ne couvre ce qui passe
 par `invoke(...)` (`window.__TAURI__` n'existe que dans la vraie webview
 Tauri) — c'est exactement ce que `npm run test:e2e` couvre.
 

@@ -1704,3 +1704,102 @@ persistées.
 d'intégration demanderait une configuration PAM dédiée. La logique de décision
 est couverte par les tests unitaires ci-dessus, le reste est du câblage
 vérifié par compilation, clippy et E2E.
+
+## Panneau de transfert : colonnes, navigation, glisser-déposer, taille des dossiers, archivage (2026-08-21)
+
+Cinq points remontés d'un coup après la 3.1.0, tous dans l'onglet de
+transfert. Trois bugs et deux manques, mais un fil commun : ce qui n'était
+vérifié par aucun test était exactement ce qui ne marchait pas.
+
+**1. Colonnes désalignées.** L'en-tête et les lignes empilaient chacun leur
+propre jeu de largeurs Tailwind (`w-32`, `w-12`, `w-14`) — mêmes chiffres,
+mais l'en-tête sans `shrink-0` et les lignes portant *un nombre variable* de
+boutons d'action (0 à 3 selon dossier/fichier/taille du fichier) alors que
+l'en-tête n'en réservait qu'un. Une ligne sans bouton d'édition décalait donc
+toutes ses colonnes par rapport à sa voisine. À quoi s'ajoutait une largeur
+de date fixe (128 px) tandis que la police du panneau est réglable jusqu'à
+20 px : au-delà de ~14 px, « 20/08/2026 14:32 » débordait sur *Type*, sans
+`overflow-hidden` pour le retenir.
+
+Corrigé par **une seule grille CSS partagée** par l'en-tête et les lignes
+(`gridStyle`, calculée une fois dans `PaneView`), des largeurs **dérivées de
+la taille de police**, et trois emplacements d'action de largeur fixe,
+remplis ou vides. Les colonnes *Modifié* et *Type* disparaissent sous une
+certaine largeur de panneau, mesurée par un `ResizeObserver` sur le panneau
+lui-même — les points d'arrêt `sm:` de Tailwind regardent la fenêtre, qui est
+large même quand le panneau ne l'est pas, donc le `hidden sm:block` d'avant
+ne se déclenchait jamais.
+
+**2. « Dossier parent » ramenait à la racine.** `parentPath` cherchait le
+dernier `/` d'un chemin. Or le panneau local sous Windows ouvre sur
+`C:\Users\glorin`, qui n'en contient aucun : la fonction rendait `/`, et
+l'app listait la racine du disque. Même symptôme après un « Aller à » relatif
+(le backend renvoyait le chemin tel quel comme `cwd`). Les manipulations de
+chemin sont sorties dans `src/lib/panePath.ts` — fonctions pures, séparateur
+déduit du chemin et non de la plateforme, jamais de remontée au-delà de la
+racine — avec `panePath.test.ts` dont un test vérifie que chaque niveau du
+fil d'Ariane est bien le parent du suivant.
+
+**3. « Aller à » remplacé par « Rechercher ».** Le champ filtre le dossier
+courant au fil de la frappe ; `Entrée` lance une recherche récursive sous le
+dossier courant. La navigation directe qu'assurait « Aller à » est reprise
+par un **fil d'Ariane cliquable** à la place du chemin en texte.
+
+**4. Le glisser-déposer entre panneaux n'avait jamais marché** — il n'avait
+en fait jamais été écrit : aucun `onDragStart` nulle part, seulement le dépôt
+OS venu de l'Explorateur. Et l'écrire avec l'API HTML5 n'aurait rien donné :
+le glisser-déposer OS de Tauri la neutralise pour toute la fenêtre sous
+Windows (piège déjà documenté dans CLAUDE.md). Implémenté à la souris dans
+`src/hooks/usePaneDrag.ts` : seuil de 5 px avant d'armer le geste,
+`elementFromPoint` pour savoir quel panneau — et quel dossier — est sous le
+curseur au lâcher, drapeau `justDragged` pour que le `click` que le
+navigateur émet derrière n'ouvre pas le dossier de départ. Déposer sur un
+dossier copie dedans ; relâcher dans son propre panneau hors d'un dossier ne
+fait rien (le geste « finalement non »).
+
+**5. Taille des dossiers et archivage** — `core/src/pane_ops.rs`. Les deux
+posaient le même problème : avec les seules primitives de
+`RemoteFileClient`, une somme de tailles coûte un aller-retour SFTP par
+fichier, et archiver un dossier distant reviendrait à le rapatrier
+entièrement pour le renvoyer compressé. Chaque opération s'exécute donc **du
+côté où vivent les fichiers** : un petit script `sh` (`du`, `find`,
+`tar`/`zip`) pour un panneau SSH/Docker/K8s, l'équivalent Rust pour le
+panneau local (Windows n'a pas de `sh`). D'où le trait `ShellExec`, implémenté
+par `SshShellExec` (un canal `exec` sur la connexion SSH qui porte déjà le
+sous-système SFTP — pas de deuxième connexion) et par les clients Docker/K8s,
+qui savaient déjà lancer un `sh -c` de cette forme pour lister un dossier. Le
+panneau garde les deux vues du même objet (`Pane::exec` à côté de
+`Pane::client`) : `Arc<dyn RemoteFileClient>` ne se re-transtype pas en
+`Arc<dyn ShellExec>`, alors qu'à l'ouverture le type concret se coerce vers
+les deux.
+
+Choix assumés : la taille d'un dossier n'est calculée **qu'à la demande** (un
+`du` complet par dossier, jamais lancé d'office sur un listing) ; `du -sb`
+avec repli sur `du -sk` (busybox et les `du` BSD ignorent `-b`) ; l'archive
+refuse d'écraser un fichier existant, ce que `zip` ferait pire qu'écraser —
+il *ajoute* à l'archive déjà là ; les noms d'entrée sont préfixés `./` plutôt
+que protégés par un `--` que busybox ne comprend pas toujours.
+
+**Ce qui a été mis sous test, et pourquoi.** Le fil rouge de ce lot : chaque
+bug corrigé était d'une catégorie qu'aucun outil du dépôt ne regardait.
+
+- Les scripts `sh` ne sont pas du Rust : rien à la compilation ne dit s'ils
+  tournent. `pane_ops.rs` les passe au `sh` de la machine (dash sous Ubuntu,
+  POSIX strict, plus proche d'un busybox de conteneur que bash) avec les mêmes
+  paramètres positionnels qu'en production, et compare au résultat de
+  l'implémentation Rust locale. Y compris le nom de fichier qui commence par
+  un tiret, le vrai piège du préfixe `./`.
+- L'alignement des colonnes est de la mise en page : ni `tsc` ni vitest (pas
+  de moteur de rendu) ne peuvent le voir. `scripts/visual-check-transfer-columns.mjs`
+  monte un vrai `PaneView` dans Chromium (sans Tauri — le composant ne parle à
+  `invoke` que par ses callbacks) et mesure la géométrie réelle des cellules à
+  cinq combinaisons police × largeur.
+- Un glisser-déposer est un geste : il se lit très bien et ne marche pas pour
+  autant. `scripts/visual-check-transfer-dnd.mjs` presse, déplace et relâche
+  vraiment la souris sur deux panneaux montés avec le hook de production.
+
+Les deux contrôles Playwright tournent avec `npm run check:transfer`. Chacun
+a été validé en réintroduisant temporairement le bug qu'il est censé attraper
+(largeur de date fixe → colonne rognée signalée ; règle du même panneau
+retirée → dépôt parasite signalé) : un test qui ne casse jamais ne prouve
+rien.

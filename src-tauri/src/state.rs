@@ -3,6 +3,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex};
 use termius_core::model::{PortForwardId, Workspace};
 use termius_core::mongo_client::MongoSession;
+use termius_core::pane_ops::ShellExec;
 use termius_core::port_forward::ActiveForward;
 use termius_core::redis_client::RedisSession;
 use termius_core::sftp::RemoteFileClient;
@@ -45,6 +46,15 @@ pub struct Pane {
     #[allow(dead_code)]
     pub connection: Option<SshLease>,
     pub client: Option<Arc<dyn RemoteFileClient>>,
+    /// Comment lancer un script `sh` du côté où vivent les fichiers du
+    /// panneau — `None` pour le panneau local (Windows n'a pas de `sh`, ces
+    /// opérations s'y font en Rust). Rangé ici plutôt que dérivé de `client`
+    /// : `Arc<dyn RemoteFileClient>` ne se re-transtype pas en
+    /// `Arc<dyn ShellExec>`, alors qu'à l'ouverture du panneau le type concret
+    /// est encore connu et se coerce vers les deux. Voir
+    /// `termius_core::pane_ops` pour ce que ça permet (taille d'un dossier,
+    /// recherche récursive, archivage — tous exécutés sur place).
+    pub exec: Option<Arc<dyn ShellExec>>,
 }
 
 pub struct ForwardSession {

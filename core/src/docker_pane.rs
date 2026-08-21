@@ -96,6 +96,18 @@ impl DockerPaneClient {
     }
 }
 
+/// La même `sh -c` que les opérations de fichiers ci-dessous, exposée à
+/// `crate::pane_ops` : c'est ce qui permet à un « calculer la taille », une
+/// recherche ou un archivage de s'exécuter DANS le conteneur au lieu de
+/// rapatrier son arborescence entière.
+#[async_trait::async_trait]
+impl crate::pane_ops::ShellExec for DockerPaneClient {
+    async fn run(&self, script: &str, args: &[&str]) -> anyhow::Result<String> {
+        let out = self.run_script(script, args).await?;
+        Ok(String::from_utf8_lossy(&out).into_owned())
+    }
+}
+
 #[async_trait::async_trait]
 impl RemoteFileClient for DockerPaneClient {
     async fn list(&self, path: &str) -> anyhow::Result<Vec<Entry>> {

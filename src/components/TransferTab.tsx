@@ -3,15 +3,20 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, onTransferDone, onTransferError, onTransferProgress } from "../lib/api";
 import type { AppPreferences } from "../lib/preferences";
-import type { Entry, Host, PaneListed, PaneOpened, PaneSource, PaneState, RemoteEditListed, Workspace } from "../lib/types";
-import { IconFolder, IconEdit, IconExternal, IconTrash, IconShield, IconClose } from "./ui-icons";
+import type { ArchiveFormat, Entry, Host, PaneFindOutcome, PaneListed, PaneOpened, PaneSource, PaneState, RemoteEditListed, Workspace } from "../lib/types";
+import { IconFolder, IconEdit, IconExternal, IconTrash, IconShield, IconClose, IconSearch } from "./ui-icons";
 import { QuickEditModal } from "./QuickEditModal";
 import { RdpTab } from "./RdpTab";
 import { useResizablePane } from "../hooks/useResizablePane";
 import { useContainerPicker } from "../hooks/useContainerPicker";
+import { baseName, breadcrumbs, containingDir, joinPath, parentPath } from "../lib/panePath";
+import { usePaneDrag } from "../hooks/usePaneDrag";
+import type { PaneDropTarget, PaneSide } from "../hooks/usePaneDrag";
 
-type Side = "left" | "right";
+type Side = PaneSide;
 type PanesState = Record<Side, PaneState>;
+
+const otherSide = (side: Side): Side => (side === "left" ? "right" : "left");
 
 // Files above this size don't get a quick-edit button — they'd be unwieldy
 // in a plain textarea and this isn't meant to replace a real editor.
@@ -69,8 +74,7 @@ function fileTypeLabel(entry: Entry): string {
   return ext ? ext.toUpperCase() : "Fichier";
 }
 
-function formatSize(bytes: number, isDir: boolean): string {
-  if (isDir) return "—";
+function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} o`;
   if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} Ko`;
   if (bytes < 1024 * 1024 * 1024) return `${(bytes / 1024 / 1024).toFixed(1)} Mo`;
@@ -85,7 +89,7 @@ function formatDate(ts?: number): string {
   });
 }
 
-function sortEntries(entries: Entry[], key: SortKey, dir: SortDir): Entry[] {
+function sortEntries(entries: Entry[], key: SortKey, dir: SortDir, sizeOf: (entry: Entry) => number): Entry[] {
   const dirs = entries.filter((e) => e.isDir);
   const files = entries.filter((e) => !e.isDir);
 
@@ -95,7 +99,7 @@ function sortEntries(entries: Entry[], key: SortKey, dir: SortDir): Entry[] {
       case "name":     v = a.name.toLowerCase().localeCompare(b.name.toLowerCase()); break;
       case "modified": v = (a.modified ?? 0) - (b.modified ?? 0); break;
       case "type":     v = fileTypeLabel(a).localeCompare(fileTypeLabel(b)) || a.name.toLowerCase().localeCompare(b.name.toLowerCase()); break;
-      case "size":     v = a.size - b.size; break;
+      case "size":     v = sizeOf(a) - sizeOf(b); break;
     }
     return dir === "asc" ? v : -v;
   };
@@ -194,21 +198,35 @@ export function TransferTab({ host, workspace, preferences, onError, onPushed, d
     await openPaneFor(side, source);
   };
 
-  const copy = async (side: Side, entries: Entry[]) => {
-    const destSide: Side = side === "left" ? "right" : "left";
+  /** Copie `entries` du panneau `side` vers `destCwd` sur `destSide`. La
+   * destination est explicite (et non « l'autre panneau, dans son dossier
+   * courant ») pour le glisser-déposer, qui peut viser un sous-dossier
+   * précis du listing d'en face. */
+  const copyTo = async (side: Side, entries: Entry[], destSide: Side, destCwd: string) => {
     const sourceId = paneIds.current[side];
     const destId = paneIds.current[destSide];
     if (!sourceId || !destId || entries.length === 0) return;
     try {
       let result: PaneListed | null = null;
       for (const entry of entries) {
-        result = await api.copyEntry(sourceId, state[side].cwd, entry, destId, state[destSide].cwd);
+        result = await api.copyEntry(sourceId, stateRef.current[side].cwd, entry, destId, destCwd);
       }
-      if (result) dispatch({ type: "listed", side: destSide, result });
+      // `copyEntry` rend le listing du dossier de destination : c'est le bon
+      // quand on a déposé dans le dossier courant, mais pas quand on a déposé
+      // dans un sous-dossier — le panneau ne doit pas y descendre tout seul.
+      if (destCwd === stateRef.current[destSide].cwd) {
+        if (result) dispatch({ type: "listed", side: destSide, result });
+      } else {
+        const refreshed = await api.listPane(destId, stateRef.current[destSide].cwd);
+        dispatch({ type: "listed", side: destSide, result: refreshed });
+      }
     } catch (e) {
       onError(String(e));
     }
   };
+
+  const copy = (side: Side, entries: Entry[]) =>
+    copyTo(side, entries, otherSide(side), state[otherSide(side)].cwd);
 
   // Makes `entries` (files and/or whole folders, from any pane kind — a
   // remote source is downloaded to a temp file server-side first, see
@@ -248,6 +266,20 @@ export function TransferTab({ host, workspace, preferences, onError, onPushed, d
     else copy(side, entries);
   };
 
+  // ── Glisser-déposer interne, à la souris ─────────────────────────────────
+  // Toute la mécanique du geste est dans `usePaneDrag` (voir son commentaire
+  // pour pourquoi ce n'est pas l'API HTML5) ; ici, seulement ce qu'un dépôt
+  // veut dire dans un onglet de transfert.
+  const { drag, begin: beginDrag, justDraggedRef: draggedRef } = usePaneDrag({
+    paneRefs: { left: leftPaneRef, right: rightPaneRef },
+    onDrop: (source, entries, target) => {
+      if (isRdpTarget && target.side === "right") { pushToRdp(source, entries); return; }
+      const destCwd = target.dir
+        ? joinPath(stateRef.current[target.side].cwd, target.dir)
+        : stateRef.current[target.side].cwd;
+      copyTo(source, entries, target.side, destCwd);
+    },
+  });
 
   const mkdir = async (side: Side, name: string) => {
     const paneId = paneIds.current[side];
@@ -292,6 +324,31 @@ export function TransferTab({ host, workspace, preferences, onError, onPushed, d
     try {
       const result = await api.paneChmod(paneId, state[side].cwd, name, mode);
       dispatch({ type: "listed", side, result });
+    } catch (e) { onError(String(e)); }
+  };
+
+  /** Taille récursive d'un dossier, calculée là où il vit. Rejette plutôt que
+   * de rendre 0 : le panneau distingue « pas encore calculé » de « n'a pas
+   * pu l'être ». */
+  const dirSize = (side: Side, path: string): Promise<number> => {
+    const paneId = paneIds.current[side];
+    if (!paneId) return Promise.reject(new Error("Panneau non ouvert."));
+    return api.paneDirSize(paneId, path);
+  };
+
+  const findIn = (side: Side, root: string, pattern: string): Promise<PaneFindOutcome> => {
+    const paneId = paneIds.current[side];
+    if (!paneId) return Promise.reject(new Error("Panneau non ouvert."));
+    return api.paneFind(paneId, root, pattern);
+  };
+
+  const archive = async (side: Side, names: string[], archiveName: string, format: ArchiveFormat) => {
+    const paneId = paneIds.current[side];
+    if (!paneId) return;
+    try {
+      const result = await api.paneArchive(paneId, state[side].cwd, names, archiveName, format);
+      dispatch({ type: "listed", side, result });
+      onPushed?.(`Archive créée dans ${state[side].cwd}.`);
     } catch (e) { onError(String(e)); }
   };
 
@@ -454,11 +511,34 @@ export function TransferTab({ host, workspace, preferences, onError, onPushed, d
   const fontSize = preferences?.sftpFontSize ?? 13;
   const activeTransfers = Object.values(transfers);
 
+  const paneProps = (side: Side) => ({
+    side,
+    pane: state[side],
+    workspace,
+    fontSize,
+    onNavigate: navigate,
+    onSourceChange: changeSource,
+    onMkdir: mkdir,
+    onCreateFile: createFile,
+    onRename: rename,
+    onRemove: remove,
+    onChmod: chmod,
+    onEdit: openEdit,
+    onOpenInEditor: openInEditor,
+    onDirSize: dirSize,
+    onFind: findIn,
+    onArchive: archive,
+    onDragStart: beginDrag,
+    justDraggedRef: draggedRef,
+    dragging: drag !== null,
+    dropTarget: drag && drag.target?.side === side ? drag.target : null,
+  });
+
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       <div ref={containerRef} className="flex min-h-0 flex-1">
         <div ref={leftPaneRef} style={{ width: `${divider.value}%` }} className="flex min-h-0 shrink-0 flex-col overflow-hidden">
-          <PaneView side="left" pane={state.left} workspace={workspace} fontSize={fontSize} onNavigate={navigate} onSourceChange={changeSource} onCopy={copyOrPushToRdp} onMkdir={mkdir} onCreateFile={createFile} onRename={rename} onRemove={remove} onChmod={chmod} onEdit={openEdit} onOpenInEditor={openInEditor} isRdpPush={isRdpTarget} />
+          <PaneView {...paneProps("left")} onCopy={copyOrPushToRdp} isRdpPush={isRdpTarget} />
         </div>
         <div
           onMouseDown={divider.onMouseDown}
@@ -468,12 +548,29 @@ export function TransferTab({ host, workspace, preferences, onError, onPushed, d
         </div>
         <div ref={rightPaneRef} className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {isRdpTarget ? (
-            <RdpTab host={host} isActive={true} preferences={preferences} onSessionId={(id) => { rdpSessionIdRef.current = id; }} />
+            <div className={`flex min-h-0 flex-1 flex-col ${drag && drag.target?.side === "right" ? "ring-2 ring-inset ring-[var(--c-accent)]" : ""}`}>
+              <RdpTab host={host} isActive={true} preferences={preferences} onSessionId={(id) => { rdpSessionIdRef.current = id; }} />
+            </div>
           ) : (
-            <PaneView side="right" pane={state.right} workspace={workspace} fontSize={fontSize} onNavigate={navigate} onSourceChange={changeSource} onCopy={copy} onMkdir={mkdir} onCreateFile={createFile} onRename={rename} onRemove={remove} onChmod={chmod} onEdit={openEdit} onOpenInEditor={openInEditor} />
+            <PaneView {...paneProps("right")} onCopy={copy} />
           )}
         </div>
       </div>
+
+      {/* Vignette qui suit le curseur pendant un glisser interne. */}
+      {drag && (
+        <div
+          className="pointer-events-none fixed z-50 rounded-md border border-[var(--c-accent)] bg-[var(--c-bg2)] px-2 py-1 text-xs text-[var(--c-text)] shadow-lg"
+          style={{ left: drag.x + 14, top: drag.y + 14 }}
+        >
+          {drag.entries.length === 1 ? drag.entries[0].name : `${drag.entries.length} éléments`}
+          {drag.target && (
+            <span className="ml-1 text-[var(--c-text-muted)]">
+              → {drag.target.dir ?? (drag.target.side === "left" ? "panneau gauche" : isRdpTarget ? "session RDP" : "panneau droit")}
+            </span>
+          )}
+        </div>
+      )}
 
       {remoteEdits.length > 0 && (
         <div className="max-h-32 shrink-0 space-y-1 overflow-y-auto border-t border-[var(--c-border)] bg-[var(--c-bg2)] p-2">
@@ -547,17 +644,6 @@ export function TransferTab({ host, workspace, preferences, onError, onPushed, d
   );
 }
 
-function parentPath(path: string): string {
-  const trimmed = path.replace(/\/+$/, "");
-  const idx = trimmed.lastIndexOf("/");
-  if (idx <= 0) return "/";
-  return trimmed.slice(0, idx);
-}
-
-function joinPath(base: string, segment: string): string {
-  return base.endsWith("/") ? `${base}${segment}` : `${base}/${segment}`;
-}
-
 interface PaneViewProps {
   side: Side;
   pane: PaneState;
@@ -573,6 +659,13 @@ interface PaneViewProps {
   onChmod: (side: Side, name: string, mode: number) => void;
   onEdit: (side: Side, name: string) => void;
   onOpenInEditor: (side: Side, name: string) => void;
+  onDirSize: (side: Side, path: string) => Promise<number>;
+  onFind: (side: Side, root: string, pattern: string) => Promise<PaneFindOutcome>;
+  onArchive: (side: Side, names: string[], archiveName: string, format: ArchiveFormat) => void;
+  onDragStart: (side: Side, entries: Entry[], event: React.MouseEvent) => void;
+  justDraggedRef: React.MutableRefObject<boolean>;
+  dragging: boolean;
+  dropTarget: PaneDropTarget | null;
   /** True for the left pane when the other side is a live RDP view — the
    * "copy" action pushes to the remote clipboard instead of a file pane, so
    * the button labels say so instead of implying a normal file copy. */
@@ -589,7 +682,7 @@ function ColHeader({
   return (
     <button
       onClick={() => onSort(colKey)}
-      className={`flex items-center gap-0.5 whitespace-nowrap text-left text-[11px] font-medium transition-colors hover:text-[var(--c-text)] ${active ? "text-[var(--c-accent-text)]" : "text-[var(--c-text-muted)]"} ${className ?? ""}`}
+      className={`flex items-center gap-0.5 overflow-hidden whitespace-nowrap text-left text-[11px] font-medium transition-colors hover:text-[var(--c-text)] ${active ? "text-[var(--c-accent-text)]" : "text-[var(--c-text-muted)]"} ${className ?? ""}`}
     >
       {label}
       <span className="text-[9px] opacity-80">{active ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</span>
@@ -597,8 +690,34 @@ function ColHeader({
   );
 }
 
-function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange, onCopy, onMkdir, onCreateFile, onRename, onRemove, onChmod, onEdit, onOpenInEditor, isRdpPush }: PaneViewProps) {
-  const [gotoPath, setGotoPath] = useState("");
+/** Taille d'un dossier : inconnue tant qu'on ne l'a pas demandée (voir
+ * `pane_dir_size` — c'est un `du` complet, jamais lancé d'office). */
+type DirSize = number | "loading" | "error";
+
+type FindState =
+  | { pattern: string; status: "running" }
+  | { pattern: string; status: "done"; outcome: PaneFindOutcome }
+  | { pattern: string; status: "failed"; error: string };
+
+/** Largeurs de colonne sous lesquelles une colonne coûte plus qu'elle
+ * n'apporte : le panneau est redimensionnable, et une date de 16 caractères
+ * dans 60 pixels débordait sur la colonne d'à côté. Mesuré sur le panneau,
+ * pas sur la fenêtre — `sm:` de Tailwind regarde la fenêtre, qui est large
+ * même quand le panneau ne l'est pas. */
+const SHOW_MODIFIED_ABOVE = 430;
+const SHOW_TYPE_ABOVE = 330;
+
+/** Exporté pour `scripts/visual-check-transfer-columns.mjs`, qui le rend dans
+ * un vrai navigateur pour mesurer l'alignement des colonnes — la seule chose
+ * qui puisse le vérifier, puisque c'est de la mise en page. Pas un point
+ * d'entrée : dans l'app, un panneau se rend toujours via `TransferTab`. */
+export function PaneView({
+  side, pane, workspace, fontSize, onNavigate, onSourceChange, onCopy, onMkdir, onCreateFile, onRename,
+  onRemove, onChmod, onEdit, onOpenInEditor, onDirSize, onFind, onArchive, onDragStart, justDraggedRef,
+  dragging, dropTarget, isRdpPush,
+}: PaneViewProps) {
+  const [query, setQuery] = useState("");
+  const [find, setFind] = useState<FindState | null>(null);
   const [sortKey, setSortKey] = useState<SortKey>("name");
   const [sortDir, setSortDir] = useState<SortDir>("asc");
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -611,11 +730,46 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [chmodTarget, setChmodTarget] = useState<string | null>(null);
   const [chmodValue, setChmodValue] = useState("755");
+  const [archiving, setArchiving] = useState(false);
+  const [archiveName, setArchiveName] = useState("");
+  const [archiveFormat, setArchiveFormat] = useState<ArchiveFormat>("tarGz");
+  const [dirSizes, setDirSizes] = useState<Record<string, DirSize>>({});
   const copyLabel = side === "left" ? "→" : "←";
   // chmod has a real backend for both SFTP and Docker-exec panes (the latter
   // shells out to `chmod` — see `core::docker_pane::DockerPaneClient`), just
   // not for the local filesystem.
   const supportsChmod = pane.source.kind !== "local";
+
+  // Largeur réelle du panneau, pour décider quelles colonnes tiennent.
+  const rootRef = useRef<HTMLDivElement>(null);
+  const [width, setWidth] = useState(0);
+  useEffect(() => {
+    const el = rootRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => setWidth(entry.contentRect.width));
+    observer.observe(el);
+    setWidth(el.getBoundingClientRect().width);
+    return () => observer.disconnect();
+  }, []);
+
+  const showModified = width === 0 || width >= SHOW_MODIFIED_ABOVE;
+  const showType = width === 0 || width >= SHOW_TYPE_ABOVE;
+
+  /** Une seule grille pour l'en-tête et pour les lignes : c'est ce qui garantit
+   * que les colonnes restent alignées. L'ancienne version empilait des
+   * largeurs Tailwind des deux côtés — mêmes chiffres, mais l'en-tête sans
+   * `shrink-0` et les lignes avec un nombre variable de boutons d'action, donc
+   * un décalage dès qu'une ligne portait un bouton de plus qu'une autre. */
+  const columns = useMemo(() => {
+    const parts = ["1.1rem", "minmax(0,1fr)"];
+    if (showModified) parts.push(`${Math.round(fontSize * 9)}px`);
+    if (showType) parts.push(`${Math.round(fontSize * 4.8)}px`);
+    parts.push(`${Math.round(fontSize * 5.4)}px`);
+    parts.push("70px");
+    return parts.join(" ");
+  }, [fontSize, showModified, showType]);
+
+  const gridStyle = { display: "grid", gridTemplateColumns: columns, alignItems: "center", columnGap: "4px" } as const;
 
   // Docker exec repurposes a saved host as a daemon entry point, not a
   // single connectable thing — picking it in the source selector below
@@ -633,9 +787,31 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
     else { setSortKey(key); setSortDir("asc"); }
   };
 
-  const sorted = useMemo(() => sortEntries(pane.entries, sortKey, sortDir), [pane.entries, sortKey, sortDir]);
+  const sizeOf = (entry: Entry): number => {
+    const known = dirSizes[joinPath(pane.cwd, entry.name)];
+    return typeof known === "number" ? known : entry.size;
+  };
 
-  useEffect(() => { setSelected(new Set()); }, [pane.cwd]);
+  const sorted = useMemo(
+    () => sortEntries(pane.entries, sortKey, sortDir, sizeOf),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [pane.entries, sortKey, sortDir, dirSizes, pane.cwd],
+  );
+
+  const needle = query.trim().toLowerCase();
+  const visible = needle ? sorted.filter((e) => e.name.toLowerCase().includes(needle)) : sorted;
+
+  /** Ce qu'on veut voir coché en arrivant dans le dossier — utilisé quand on
+   * ouvre un résultat de recherche : le panneau descend dans son dossier et
+   * le résultat est déjà sélectionné, sinon il faudrait le retrouver à l'œil
+   * dans un listing entier. */
+  const pendingSelect = useRef<string | null>(null);
+  useEffect(() => {
+    setSelected(pendingSelect.current ? new Set([pendingSelect.current]) : new Set());
+    pendingSelect.current = null;
+    setQuery("");
+    setFind(null);
+  }, [pane.cwd]);
 
   // While the Docker container picker is open, keep the dropdown showing
   // the host the user just picked (not the still-unchanged `pane.source`)
@@ -689,8 +865,75 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
     setChmodTarget(null);
   };
 
+  const startArchive = () => {
+    if (selectedEntries.length === 0) return;
+    setArchiveName(selectedEntries.length === 1 ? selectedEntries[0].name : baseName(pane.cwd) || "archive");
+    setArchiving(true);
+  };
+
+  const submitArchive = () => {
+    const name = archiveName.trim();
+    if (name && selectedEntries.length > 0) {
+      onArchive(side, selectedEntries.map((e) => e.name), name, archiveFormat);
+    }
+    setArchiving(false);
+  };
+
+  // ── Taille des dossiers, à la demande ────────────────────────────────────
+  const computeDirSize = async (entry: Entry) => {
+    const path = joinPath(pane.cwd, entry.name);
+    setDirSizes((prev) => (prev[path] === "loading" ? prev : { ...prev, [path]: "loading" }));
+    try {
+      const size = await onDirSize(side, path);
+      setDirSizes((prev) => ({ ...prev, [path]: size }));
+    } catch {
+      setDirSizes((prev) => ({ ...prev, [path]: "error" }));
+    }
+  };
+
+  const computeAllDirSizes = async () => {
+    // En série : un `du` par dossier, tous lancés d'un coup sur la même
+    // connexion SSH n'irait pas plus vite et saturerait l'hôte.
+    for (const entry of visible.filter((e) => e.isDir && !e.isSymlink)) {
+      await computeDirSize(entry);
+    }
+  };
+
+  // ── Recherche récursive ──────────────────────────────────────────────────
+  const runFind = async () => {
+    const pattern = query.trim();
+    if (!pattern) return;
+    setFind({ pattern, status: "running" });
+    try {
+      const outcome = await onFind(side, pane.cwd, pattern);
+      setFind({ pattern, status: "done", outcome });
+    } catch (e) {
+      setFind({ pattern, status: "failed", error: String(e) });
+    }
+  };
+
+  const openHit = (path: string) => {
+    pendingSelect.current = baseName(path);
+    const parent = containingDir(path);
+    if (parent === pane.cwd) {
+      // Déjà dans le bon dossier : `pane.cwd` ne change pas, donc l'effet qui
+      // applique `pendingSelect` ne partira pas — le faire ici.
+      setSelected(new Set([baseName(path)]));
+      pendingSelect.current = null;
+      setFind(null);
+      setQuery("");
+      return;
+    }
+    onNavigate(side, parent);
+  };
+
+  const dropHighlight = dropTarget && !dropTarget.dir;
+
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    // `min-w-0` : sans lui, la grille des lignes impose sa largeur minimale au
+    // panneau, qui déborde alors de son conteneur (rogné par l'`overflow-hidden`
+    // du parent) au lieu de comprimer la colonne « Nom ».
+    <div ref={rootRef} className={`flex min-h-0 w-full min-w-0 flex-1 flex-col ${dropHighlight ? "ring-2 ring-inset ring-[var(--c-accent)]" : ""}`}>
       {/* Source selector */}
       <div className="flex items-center gap-2 border-b border-[var(--c-border)] p-2">
         <select
@@ -730,7 +973,9 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
 
       {pane.status === "open" && (
         <>
-          {/* Navigation bar */}
+          {/* Navigation bar : fil d'Ariane cliquable — chaque niveau y ramène
+              directement, ce que l'ancien champ « Aller à » demandait de
+              retaper à la main. */}
           <div className="flex items-center gap-2 border-b border-[var(--c-border)] px-2 py-1.5">
             <button
               onClick={() => onNavigate(side, parentPath(pane.cwd))}
@@ -739,23 +984,44 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
             >
               ↑
             </button>
-            <span className="min-w-0 flex-1 truncate font-mono text-xs text-[var(--c-text-secondary)]" title={pane.cwd}>
-              {pane.cwd}
-            </span>
+            <div className="flex min-w-0 flex-1 items-center overflow-x-auto whitespace-nowrap font-mono text-xs text-[var(--c-text-secondary)]" title={pane.cwd}>
+              {breadcrumbs(pane.cwd).map((crumb, index, all) => (
+                <span key={crumb.path} className="flex items-center">
+                  {index > 0 && <span className="px-0.5 text-[var(--c-text-faint)]">/</span>}
+                  <button
+                    onClick={() => onNavigate(side, crumb.path)}
+                    disabled={index === all.length - 1}
+                    className={`rounded px-1 py-0.5 ${index === all.length - 1 ? "text-[var(--c-text)]" : "hover:bg-white/5 hover:text-[var(--c-text)]"}`}
+                  >
+                    {crumb.label}
+                  </button>
+                </span>
+              ))}
+            </div>
             <div className="flex shrink-0 items-center gap-1">
-              <input
-                value={gotoPath}
-                onChange={(e) => setGotoPath(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter") { onNavigate(side, gotoPath); setGotoPath(""); } }}
-                placeholder="Aller à…"
-                className="w-28 rounded-md bg-[var(--c-bg3)] px-2 py-0.5 font-mono text-xs text-[var(--c-text)] placeholder:font-sans placeholder:text-[var(--c-text-faint)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
-              />
-              <button
-                onClick={() => { onNavigate(side, gotoPath); setGotoPath(""); }}
-                className="rounded-md bg-[var(--c-bg3)] px-2 py-0.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
-              >
-                OK
-              </button>
+              <div className="relative">
+                <IconSearch size={11} className="pointer-events-none absolute left-1.5 top-1/2 -translate-y-1/2 text-[var(--c-text-faint)]" />
+                <input
+                  value={query}
+                  onChange={(e) => setQuery(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") runFind();
+                    if (e.key === "Escape") { setQuery(""); setFind(null); }
+                  }}
+                  placeholder="Rechercher…"
+                  title="Filtre ce dossier au fil de la frappe. Entrée : recherche récursive sous le dossier courant."
+                  className="w-32 rounded-md bg-[var(--c-bg3)] py-0.5 pl-6 pr-2 text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                />
+              </div>
+              {(query || find) && (
+                <button
+                  onClick={() => { setQuery(""); setFind(null); }}
+                  title="Effacer la recherche"
+                  className="rounded-md bg-[var(--c-bg3)] px-1.5 py-0.5 text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+                >
+                  <IconClose size={11} />
+                </button>
+              )}
             </div>
           </div>
 
@@ -821,6 +1087,31 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
                   <IconClose size={11} />
                 </button>
               </div>
+            ) : archiving ? (
+              <div className="flex flex-1 items-center gap-1">
+                <span className="shrink-0 text-xs text-[var(--c-text-secondary)]">Archiver {selectedEntries.length} élément(s) :</span>
+                <input
+                  autoFocus
+                  value={archiveName}
+                  onChange={(e) => setArchiveName(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter") submitArchive(); if (e.key === "Escape") setArchiving(false); }}
+                  placeholder="Nom de l'archive"
+                  className="min-w-0 flex-1 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                />
+                <select
+                  value={archiveFormat}
+                  onChange={(e) => setArchiveFormat(e.target.value as ArchiveFormat)}
+                  title="zip demande la commande `zip` sur l'hôte, souvent absente d'un serveur minimal ou d'un conteneur"
+                  className="shrink-0 rounded-md bg-[var(--c-bg3)] px-1 py-1 text-xs text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                >
+                  <option value="tarGz">.tar.gz</option>
+                  <option value="zip">.zip</option>
+                </select>
+                <button onClick={submitArchive} className="rounded-md bg-[var(--c-accent)] px-2 py-1 text-xs text-white hover:bg-[var(--c-accent-hover)]">Créer</button>
+                <button aria-label="Retirer de la liste" onClick={() => setArchiving(false)} className="rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text-secondary)] hover:bg-white/5">
+                  <IconClose size={11} />
+                </button>
+              </div>
             ) : (
               <>
                 <button
@@ -836,6 +1127,13 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
                   className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
                 >
                   <span className="text-[12px] leading-none">📄</span> Nouveau fichier
+                </button>
+                <button
+                  onClick={computeAllDirSizes}
+                  title="Calculer la taille de tous les dossiers affichés (un du par dossier — ça peut prendre du temps sur un gros arbre)"
+                  className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+                >
+                  Σ Tailles
                 </button>
                 {selectedEntries.length === 1 && (
                   <button
@@ -853,6 +1151,15 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
                     className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
                   >
                     <IconShield size={12} /> Permissions
+                  </button>
+                )}
+                {selectedEntries.length > 0 && (
+                  <button
+                    onClick={startArchive}
+                    title="Archiver la sélection dans ce dossier — l'archive est créée sur place, rien ne transite par le réseau"
+                    className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+                  >
+                    🗜 Archiver ({selectedEntries.length})
                   </button>
                 )}
                 {selectedEntries.length > 1 && (
@@ -892,98 +1199,218 @@ function PaneView({ side, pane, workspace, fontSize, onNavigate, onSourceChange,
             )}
           </div>
 
-          {/* Column headers */}
-          <div className="flex items-center gap-1 border-b border-[var(--c-border)] bg-[var(--c-bg3)]/60 px-2 py-1" style={{ fontSize: `${Math.max(10, fontSize - 2)}px` }}>
-            <div className="w-4 shrink-0" />
-            <ColHeader label="Nom"          colKey="name"     sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="flex-1" />
-            <ColHeader label="Modifié"      colKey="modified" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="w-32 hidden sm:flex" />
-            <ColHeader label="Type"         colKey="type"     sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="w-12" />
-            <ColHeader label="Taille"       colKey="size"     sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="w-14 text-right justify-end" />
-            <div className="w-6 shrink-0" />
-          </div>
-
-          {/* File list */}
-          <div className="min-h-0 flex-1 overflow-y-auto" style={{ fontSize: `${fontSize}px` }}>
-            {sorted.map((entry) => (
+          {find ? (
+            <FindResults
+              find={find}
+              cwd={pane.cwd}
+              fontSize={fontSize}
+              onOpen={openHit}
+              onClose={() => setFind(null)}
+            />
+          ) : (
+            <>
+              {/* Column headers */}
               <div
-                key={entry.name}
-                className={`group flex items-center gap-1 px-2 py-[3px] hover:bg-[var(--c-bg2)] ${selected.has(entry.name) ? "bg-[var(--c-accent-dim)]" : ""}`}
+                data-pane-header
+                className="border-b border-[var(--c-border)] bg-[var(--c-bg3)]/60 px-2 py-1"
+                style={{ ...gridStyle, fontSize: `${Math.max(10, fontSize - 2)}px` }}
               >
-                <input
-                  type="checkbox"
-                  checked={selected.has(entry.name)}
-                  onClick={(e) => toggleSelect(entry.name, e)}
-                  onChange={() => {}}
-                  className="h-3.5 w-3.5 shrink-0 accent-[var(--c-accent)]"
-                />
-                {/* Name */}
-                <button
-                  onClick={() => entry.isDir && onNavigate(side, joinPath(pane.cwd, entry.name))}
-                  className={`flex min-w-0 flex-1 items-center gap-1.5 truncate text-left ${
-                    entry.isDir ? "font-medium text-[var(--c-accent-text)]" : "text-[var(--c-text)]"
-                  } ${entry.isDir ? "cursor-pointer" : "cursor-default"}`}
-                >
-                  <span className="shrink-0 text-[13px]">{entry.isDir ? "📁" : "📄"}</span>
-                  <span className="truncate">{entry.name}</span>
-                </button>
-
-                {/* Modified */}
-                <span className="hidden w-32 shrink-0 text-[var(--c-text-muted)] tabular-nums sm:block">
-                  {formatDate(entry.modified)}
-                </span>
-
-                {/* Type */}
-                <span className="w-12 shrink-0 text-[var(--c-text-muted)]">{fileTypeLabel(entry)}</span>
-
-                {/* Size */}
-                <span className="w-14 shrink-0 text-right tabular-nums text-[var(--c-text-muted)]">
-                  {formatSize(entry.size, entry.isDir)}
-                </span>
-
-                {/* Quick edit */}
-                {!entry.isDir && entry.size <= QUICK_EDIT_MAX_SIZE && (
-                  <button
-                    onClick={() => onEdit(side, entry.name)}
-                    title="Éditer le contenu ici"
-                    className="w-6 shrink-0 rounded px-0.5 text-center text-[var(--c-text-faint)] opacity-0 hover:bg-[var(--c-accent)] hover:text-white focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
-                  >
-                    <IconEdit size={12} className="mx-auto" />
-                  </button>
-                )}
-
-                {/* Open in the user's own editor — no size limit, unlike
-                    quick-edit above: the whole point is the files that are too
-                    big, or too worth having a real editor for. */}
-                {!entry.isDir && (
-                  <button
-                    onClick={() => onOpenInEditor(side, entry.name)}
-                    title="Ouvrir dans mon éditeur (renvoyé au retour dans l'app)"
-                    className="w-6 shrink-0 rounded px-0.5 text-center text-[var(--c-text-faint)] opacity-0 hover:bg-[var(--c-accent)] hover:text-white focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
-                  >
-                    <IconExternal size={12} className="mx-auto" />
-                  </button>
-                )}
-
-                {/* Copy button */}
-                <button
-                  onClick={() => onCopy(side, [entry])}
-                  title={
-                    isRdpPush
-                      ? (entry.isDir ? "Envoyer et coller le dossier dans la session RDP" : "Envoyer et coller dans la session RDP")
-                      : (entry.isDir ? "Copier le dossier vers l'autre panneau" : "Copier vers l'autre panneau")
-                  }
-                  className="w-6 shrink-0 rounded px-0.5 text-center text-[var(--c-text-faint)] opacity-0 hover:bg-[var(--c-accent)] hover:text-white focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
-                >
-                  {copyLabel}
-                </button>
+                <div />
+                <ColHeader label="Nom"     colKey="name"     sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />
+                {showModified && <ColHeader label="Modifié" colKey="modified" sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />}
+                {showType && <ColHeader label="Type"        colKey="type"     sortKey={sortKey} sortDir={sortDir} onSort={handleSort} />}
+                <ColHeader label="Taille"  colKey="size"     sortKey={sortKey} sortDir={sortDir} onSort={handleSort} className="justify-end" />
+                <div />
               </div>
-            ))}
-            {pane.entries.length === 0 && (
-              <p className="px-2 py-6 text-center text-xs text-[var(--c-text-muted)]">Dossier vide</p>
-            )}
-          </div>
+
+              {/* File list */}
+              <div className="min-h-0 flex-1 select-none overflow-y-auto" style={{ fontSize: `${fontSize}px` }}>
+                {visible.map((entry) => {
+                  const isDropTarget = dropTarget?.dir === entry.name;
+                  const size = dirSizes[joinPath(pane.cwd, entry.name)];
+                  return (
+                    <div
+                      key={entry.name}
+                      data-pane-row
+                      {...(entry.isDir ? { "data-drop-dir": entry.name, "data-drop-side": side } : {})}
+                      onMouseDown={(e) => {
+                        // Les cases à cocher et les boutons d'action gardent
+                        // leur clic ; le reste de la ligne est une poignée.
+                        if ((e.target as HTMLElement).closest("[data-no-drag]")) return;
+                        const dragged = selected.has(entry.name) && selectedEntries.length > 1 ? selectedEntries : [entry];
+                        onDragStart(side, dragged, e);
+                      }}
+                      className={`group px-2 py-[3px] hover:bg-[var(--c-bg2)] ${selected.has(entry.name) ? "bg-[var(--c-accent-dim)]" : ""} ${isDropTarget ? "outline outline-1 -outline-offset-1 outline-[var(--c-accent)]" : ""}`}
+                      style={gridStyle}
+                    >
+                      <input
+                        type="checkbox"
+                        data-no-drag
+                        checked={selected.has(entry.name)}
+                        onClick={(e) => toggleSelect(entry.name, e)}
+                        onChange={() => {}}
+                        className="h-3.5 w-3.5 accent-[var(--c-accent)]"
+                      />
+                      {/* Name */}
+                      <button
+                        onClick={() => {
+                          if (justDraggedRef.current) return;
+                          if (entry.isDir) onNavigate(side, joinPath(pane.cwd, entry.name));
+                        }}
+                        className={`flex min-w-0 items-center gap-1.5 overflow-hidden text-left ${
+                          entry.isDir ? "font-medium text-[var(--c-accent-text)]" : "text-[var(--c-text)]"
+                        } ${entry.isDir ? "cursor-pointer" : "cursor-default"}`}
+                        title={entry.name}
+                      >
+                        <span className="shrink-0 text-[13px]">{entry.isDir ? "📁" : "📄"}</span>
+                        <span className="truncate">{entry.name}</span>
+                      </button>
+
+                      {/* Modified */}
+                      {showModified && (
+                        <span className="truncate text-[var(--c-text-muted)] tabular-nums">{formatDate(entry.modified)}</span>
+                      )}
+
+                      {/* Type */}
+                      {showType && <span className="truncate text-[var(--c-text-muted)]">{fileTypeLabel(entry)}</span>}
+
+                      {/* Size — un dossier n'en a pas tant qu'on ne l'a pas
+                          demandée : le « — » est le bouton qui la demande. */}
+                      {entry.isDir ? (
+                        <button
+                          data-no-drag
+                          onClick={() => computeDirSize(entry)}
+                          disabled={size === "loading"}
+                          title={
+                            typeof size === "number"
+                              ? `${size.toLocaleString("fr-FR")} octets — recalculer`
+                              : size === "error"
+                                ? "Taille non calculable (dossier illisible ?) — réessayer"
+                                : "Calculer la taille de ce dossier"
+                          }
+                          className={`truncate text-right tabular-nums ${typeof size === "number" ? "text-[var(--c-text-secondary)]" : "text-[var(--c-text-faint)] hover:text-[var(--c-accent-text)]"}`}
+                        >
+                          {size === "loading" ? "…" : size === "error" ? "?" : typeof size === "number" ? formatSize(size) : "—"}
+                        </button>
+                      ) : (
+                        <span className="truncate text-right tabular-nums text-[var(--c-text-muted)]">{formatSize(entry.size)}</span>
+                      )}
+
+                      {/* Actions — trois emplacements de largeur fixe, remplis
+                          ou non : sans ça, une ligne sans bouton d'édition
+                          décalait toutes ses colonnes par rapport aux autres. */}
+                      <div className="flex items-center justify-end gap-0.5">
+                        {!entry.isDir && entry.size <= QUICK_EDIT_MAX_SIZE ? (
+                          <button
+                            data-no-drag
+                            onClick={() => onEdit(side, entry.name)}
+                            title="Éditer le contenu ici"
+                            className="w-[22px] rounded px-0.5 text-center text-[var(--c-text-faint)] opacity-0 hover:bg-[var(--c-accent)] hover:text-white focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+                          >
+                            <IconEdit size={12} className="mx-auto" />
+                          </button>
+                        ) : (
+                          <span className="w-[22px]" />
+                        )}
+
+                        {/* Open in the user's own editor — no size limit, unlike
+                            quick-edit above: the whole point is the files that are too
+                            big, or too worth having a real editor for. */}
+                        {!entry.isDir ? (
+                          <button
+                            data-no-drag
+                            onClick={() => onOpenInEditor(side, entry.name)}
+                            title="Ouvrir dans mon éditeur (renvoyé au retour dans l'app)"
+                            className="w-[22px] rounded px-0.5 text-center text-[var(--c-text-faint)] opacity-0 hover:bg-[var(--c-accent)] hover:text-white focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+                          >
+                            <IconExternal size={12} className="mx-auto" />
+                          </button>
+                        ) : (
+                          <span className="w-[22px]" />
+                        )}
+
+                        <button
+                          data-no-drag
+                          onClick={() => onCopy(side, [entry])}
+                          title={
+                            isRdpPush
+                              ? (entry.isDir ? "Envoyer et coller le dossier dans la session RDP" : "Envoyer et coller dans la session RDP")
+                              : (entry.isDir ? "Copier le dossier vers l'autre panneau" : "Copier vers l'autre panneau")
+                          }
+                          className="w-[22px] rounded px-0.5 text-center text-[var(--c-text-faint)] opacity-0 hover:bg-[var(--c-accent)] hover:text-white focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+                        >
+                          {copyLabel}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+                {pane.entries.length === 0 && (
+                  <p className="px-2 py-6 text-center text-xs text-[var(--c-text-muted)]">Dossier vide</p>
+                )}
+                {pane.entries.length > 0 && visible.length === 0 && (
+                  <p className="px-2 py-6 text-center text-xs text-[var(--c-text-muted)]">
+                    Rien qui contienne « {query.trim()} » dans ce dossier.
+                    <br />
+                    <span className="text-[var(--c-text-faint)]">Entrée : chercher dans les sous-dossiers.</span>
+                  </p>
+                )}
+              </div>
+            </>
+          )}
+
+          {dragging && !dropTarget && (
+            <div className="shrink-0 border-t border-[var(--c-border)] px-2 py-0.5 text-center text-[10px] text-[var(--c-text-faint)]">
+              Déposer sur l'autre panneau — ou sur un de ses dossiers pour copier dedans
+            </div>
+          )}
         </>
       )}
+    </div>
+  );
+}
+
+/** Résultats d'une recherche récursive : une liste de chemins, à la place du
+ * listing. Ouvrir un résultat va dans le dossier qui le contient et l'y
+ * sélectionne — c'est là qu'on veut être pour en faire quelque chose. */
+function FindResults({
+  find, cwd, fontSize, onOpen, onClose,
+}: {
+  find: FindState;
+  cwd: string;
+  fontSize: number;
+  onOpen: (path: string) => void;
+  onClose: () => void;
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      <div className="flex items-center gap-2 border-b border-[var(--c-border)] bg-[var(--c-bg3)]/60 px-2 py-1 text-[11px] text-[var(--c-text-muted)]">
+        <span className="min-w-0 flex-1 truncate">
+          {find.status === "running" && `Recherche de « ${find.pattern} » sous ${cwd}…`}
+          {find.status === "failed" && <span className="text-rose-300">Échec : {find.error}</span>}
+          {find.status === "done" &&
+            `${find.outcome.paths.length} résultat(s) pour « ${find.pattern} »${find.outcome.truncated ? " — liste tronquée" : ""}`}
+        </span>
+        <button onClick={onClose} className="shrink-0 rounded px-2 py-0.5 hover:bg-white/5 hover:text-[var(--c-text)]">
+          Revenir au dossier
+        </button>
+      </div>
+      <div className="min-h-0 flex-1 overflow-y-auto" style={{ fontSize: `${fontSize}px` }}>
+        {find.status === "done" &&
+          find.outcome.paths.map((path) => (
+            <button
+              key={path}
+              onClick={() => onOpen(path)}
+              title={`Aller dans le dossier qui contient ${path}`}
+              className="block w-full truncate px-2 py-[3px] text-left font-mono text-[var(--c-text-secondary)] hover:bg-[var(--c-bg2)] hover:text-[var(--c-text)]"
+            >
+              {path.startsWith(cwd) ? path.slice(cwd.length).replace(/^[\\/]+/, "") : path}
+            </button>
+          ))}
+        {find.status === "done" && find.outcome.paths.length === 0 && (
+          <p className="px-2 py-6 text-center text-xs text-[var(--c-text-muted)]">Aucun résultat.</p>
+        )}
+      </div>
     </div>
   );
 }

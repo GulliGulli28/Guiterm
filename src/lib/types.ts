@@ -793,6 +793,21 @@ export interface PaneListed {
   entries: Entry[];
 }
 
+/** Résultat d'une recherche récursive dans un panneau — miroir de
+ * `termius_core::pane_ops::FindOutcome`. `truncated` dit que la limite a été
+ * atteinte : la liste est réelle mais incomplète, et le panneau le montre
+ * plutôt que de la présenter comme exhaustive. */
+export interface PaneFindOutcome {
+  paths: string[];
+  truncated: boolean;
+}
+
+/** Format d'archive du bouton « Archiver » — miroir de
+ * `termius_core::pane_ops::ArchiveFormat`. `tarGz` marche partout ; `zip`
+ * dépend de la commande `zip`, souvent absente d'un serveur minimal ou d'un
+ * conteneur (l'erreur le dit alors explicitement). */
+export type ArchiveFormat = "tarGz" | "zip";
+
 /** A remote file currently open in the user's own editor, via a private local
  * copy — see `termius_core::remote_edit`. Distinct from the quick-edit modal,
  * which reads and writes the file in place with no copy involved. */

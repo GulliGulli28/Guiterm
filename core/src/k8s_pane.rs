@@ -85,6 +85,16 @@ impl K8sPaneClient {
     }
 }
 
+/// Même rôle que l'implémentation jumelle de `docker_pane` : `crate::pane_ops`
+/// lance `du`/`find`/`tar` dans le pod plutôt que d'en rapatrier l'arborescence.
+#[async_trait::async_trait]
+impl crate::pane_ops::ShellExec for K8sPaneClient {
+    async fn run(&self, script: &str, args: &[&str]) -> anyhow::Result<String> {
+        let out = self.run_script(script, args).await?;
+        Ok(String::from_utf8_lossy(&out).into_owned())
+    }
+}
+
 #[async_trait::async_trait]
 impl RemoteFileClient for K8sPaneClient {
     async fn list(&self, path: &str) -> anyhow::Result<Vec<Entry>> {

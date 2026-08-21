@@ -9,6 +9,7 @@ use termius_core::docker_pane::DockerPaneClient;
 use termius_core::k8s;
 use termius_core::k8s_pane::K8sPaneClient;
 use termius_core::model::HostId;
+use termius_core::pane_ops::{self, ArchiveFormat, FindOutcome, PaneExec, ShellExec, SshShellExec};
 use termius_core::sftp::{Entry, RemoteFileClient, SftpClient};
 use termius_core::ssh_pool;
 use termius_core::transfer::{self, PaneRef};
@@ -73,6 +74,7 @@ pub async fn open_pane(
                 Pane {
                     connection: None,
                     client: None,
+                    exec: None,
                 },
             );
             Ok(PaneOpened {
@@ -93,11 +95,18 @@ pub async fn open_pane(
             );
             let cwd = client.home_dir().await.map_err(|e| e.to_string())?;
             let entries = client.list(&cwd).await.map_err(|e| e.to_string())?;
+            // Les opérations récursives (taille, recherche, archivage) partent
+            // sur un canal `exec` de cette même connexion — le sous-système
+            // SFTP n'exécute rien, et rouvrir une connexion pour un `du`
+            // gaspillerait un TCP + poignée de main + auth (voir
+            // `termius_core::pane_ops`).
+            let exec: Arc<dyn ShellExec> = Arc::new(SshShellExec::new(connection.connection()));
             state.panes.lock_recover().insert(
                 pane_id.clone(),
                 Pane {
                     connection: Some(connection),
                     client: Some(client),
+                    exec: Some(exec),
                 },
             );
             Ok(PaneOpened {
@@ -110,7 +119,10 @@ pub async fn open_pane(
             let workspace = state.workspace.lock_recover().clone();
             let host = workspace.host(host_id).cloned().ok_or_else(|| "hôte inconnu".to_string())?;
             let docker = docker::connect_for_host(&workspace, &host).await.map_err(|e| e.to_string())?;
-            let client: Arc<dyn RemoteFileClient> = Arc::new(DockerPaneClient::new(docker, container_id));
+            let pane_client = Arc::new(DockerPaneClient::new(docker, container_id));
+            // Le même objet vu par ses deux traits (voir `Pane::exec`).
+            let exec: Arc<dyn ShellExec> = pane_client.clone();
+            let client: Arc<dyn RemoteFileClient> = pane_client;
             // No SFTP-equivalent "home directory" query for an arbitrary
             // container — `/` is always a valid starting point, unlike
             // guessing at a user's home which may not even exist in a
@@ -122,6 +134,7 @@ pub async fn open_pane(
                 Pane {
                     connection: None,
                     client: Some(client),
+                    exec: Some(exec),
                 },
             );
             Ok(PaneOpened {
@@ -134,8 +147,11 @@ pub async fn open_pane(
             let workspace = state.workspace.lock_recover().clone();
             let host = workspace.host(host_id).cloned().ok_or_else(|| "hôte inconnu".to_string())?;
             let client_conn = k8s::connect(&host.address).await.map_err(|e| e.to_string())?;
-            let client: Arc<dyn RemoteFileClient> =
+            let pane_client =
                 Arc::new(K8sPaneClient::new(client_conn, host.username.clone(), pod_name, container_name));
+            // Même raison que l'arm Docker ci-dessus.
+            let exec: Arc<dyn ShellExec> = pane_client.clone();
+            let client: Arc<dyn RemoteFileClient> = pane_client;
             // Same reasoning as the Docker arm: no SFTP-equivalent "home
             // directory" query for an arbitrary pod, `/` always exists.
             let cwd = "/".to_string();
@@ -145,6 +161,7 @@ pub async fn open_pane(
                 Pane {
                     connection: None,
                     client: Some(client),
+                    exec: Some(exec),
                 },
             );
             Ok(PaneOpened {
@@ -270,6 +287,78 @@ pub async fn pane_remove(
     let entries = transfer::list(&reference, &cwd)
         .await
         .map_err(|e| e.to_string())?;
+    Ok(PaneListed { cwd, entries })
+}
+
+/// Comment lancer un script `sh` du côté du panneau — voir `Pane::exec`.
+fn pane_exec(state: &AppState, pane_id: &str) -> Result<PaneExec, String> {
+    let panes = state.panes.lock_recover();
+    let pane = panes.get(pane_id).ok_or_else(|| "pane inconnu".to_string())?;
+    Ok(match &pane.exec {
+        Some(exec) => PaneExec::Shell(exec.clone()),
+        None => PaneExec::Local,
+    })
+}
+
+/// Taille récursive d'un dossier — à la demande, jamais pour tout un listing
+/// d'office : c'est un `du` complet par dossier, qui sur `/` ou un gros arbre
+/// se compte en secondes (voir `termius_core::pane_ops::dir_size`).
+#[tauri::command]
+pub async fn pane_dir_size(
+    state: State<'_, AppState>,
+    pane_id: String,
+    path: String,
+) -> Result<u64, String> {
+    let exec = pane_exec(&state, &pane_id)?;
+    pane_ops::dir_size(&exec, &path).await.map_err(|e| e.to_string())
+}
+
+/// Recherche récursive par nom sous `root`, bornée en profondeur, en nombre
+/// de résultats et en durée. Rend des chemins, pas des entrées : ce que
+/// l'interface en fait, c'est naviguer jusqu'au dossier qui les contient.
+#[tauri::command]
+pub async fn pane_find(
+    state: State<'_, AppState>,
+    pane_id: String,
+    root: String,
+    pattern: String,
+) -> Result<FindOutcome, String> {
+    let exec = pane_exec(&state, &pane_id)?;
+    pane_ops::find(&exec, &root, &pattern).await.map_err(|e| e.to_string())
+}
+
+/// Archive `names` (fichiers et/ou dossiers de `cwd`) dans `cwd`, du côté du
+/// panneau — rien ne transite par le réseau. Rend le listing rafraîchi, comme
+/// les autres commandes qui modifient le dossier courant.
+#[tauri::command]
+pub async fn pane_archive(
+    state: State<'_, AppState>,
+    pane_id: String,
+    cwd: String,
+    names: Vec<String>,
+    archive_name: String,
+    format: ArchiveFormat,
+) -> Result<PaneListed, String> {
+    let base = archive_name.trim();
+    if base.is_empty() {
+        return Err("Indiquer un nom d'archive.".to_string());
+    }
+    let file_name = pane_ops::archive_file_name(base, format);
+    let reference = pane_ref(&state, &pane_id)?;
+
+    // Écraser une archive existante perdrait son contenu sans prévenir — et
+    // `zip` ferait pire, il ajouterait à l'archive déjà là plutôt que de la
+    // remplacer, produisant un fichier qui mélange deux sauvegardes.
+    let before = transfer::list(&reference, &cwd).await.map_err(|e| e.to_string())?;
+    if before.iter().any(|e| e.name == file_name) {
+        return Err(format!("« {file_name} » existe déjà dans ce dossier."));
+    }
+
+    let exec = pane_exec(&state, &pane_id)?;
+    pane_ops::archive(&exec, &cwd, &names, &file_name, format)
+        .await
+        .map_err(|e| e.to_string())?;
+    let entries = transfer::list(&reference, &cwd).await.map_err(|e| e.to_string())?;
     Ok(PaneListed { cwd, entries })
 }
 
