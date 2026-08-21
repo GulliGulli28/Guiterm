@@ -38,17 +38,20 @@ try {
   await page.waitForSelector("[data-pane='right'] [data-pane-row]");
   await mkdir(outDir, { recursive: true });
 
+  const row = (side, name) => `[data-pane='${side}'] [data-row-name="${name}"]`;
+  // Recalculé juste avant chaque geste, jamais réutilisé d'un scénario à
+  // l'autre : sélectionner fait apparaître des boutons dans la barre du
+  // panneau, et une coordonnée prise avant ne désigne plus la même ligne.
   const centre = async (selector) => {
     const box = await page.locator(selector).first().boundingBox();
     if (!box) throw new Error(`introuvable : ${selector}`);
     return { x: box.x + box.width / 2, y: box.y + box.height / 2 };
   };
-  const row = (side, name) => `[data-pane='${side}'] [data-pane-row]:has-text("${name}")`;
   const drops = () => page.evaluate(() => window.__drops);
   const reset = () => page.evaluate(() => { window.__drops = []; });
 
   // 1. Un clic simple (appui/relâchement sans bouger) n'est pas un glisser.
-  const notes = await centre(row("left", "notes.md"));
+  let notes = await centre(row("left", "notes.md"));
   await page.mouse.move(notes.x, notes.y);
   await page.mouse.down();
   await page.mouse.up();
@@ -58,6 +61,7 @@ try {
   //    vide, donc son dossier courant).
   await reset();
   const vide = await page.locator("[data-pane='right']").boundingBox();
+  notes = await centre(row("left", "notes.md"));
   await page.mouse.move(notes.x, notes.y);
   await page.mouse.down();
   await page.mouse.move(notes.x + 40, notes.y + 10, { steps: 5 });
@@ -79,6 +83,7 @@ try {
   // 3. Déposer sur un dossier du panneau d'en face vise ce dossier.
   await reset();
   const depot = await centre(row("right", "depot"));
+  notes = await centre(row("left", "notes.md"));
   await page.mouse.move(notes.x, notes.y);
   await page.mouse.down();
   await page.mouse.move(depot.x, depot.y, { steps: 10 });
@@ -90,6 +95,7 @@ try {
   //    action — sinon un geste abandonné déclencherait une copie.
   await reset();
   const rapport = await centre(row("left", "rapport.pdf"));
+  notes = await centre(row("left", "notes.md"));
   await page.mouse.move(notes.x, notes.y);
   await page.mouse.down();
   await page.mouse.move(rapport.x, rapport.y, { steps: 6 });
@@ -100,6 +106,7 @@ try {
   //    dedans.
   await reset();
   const projet = await centre(row("left", "projet"));
+  notes = await centre(row("left", "notes.md"));
   await page.mouse.move(notes.x, notes.y);
   await page.mouse.down();
   await page.mouse.move(projet.x, projet.y, { steps: 6 });

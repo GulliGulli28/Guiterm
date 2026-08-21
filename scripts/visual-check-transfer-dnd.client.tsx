@@ -32,10 +32,14 @@ declare global {
   interface Window {
     __drops: { source: PaneSide; names: string[]; target: PaneDropTarget }[];
     __dragging: boolean;
+    /** Les navigations demandées — c'est ainsi qu'on vérifie qu'un simple clic
+     * n'ouvre pas un dossier et qu'un double-clic, si. */
+    __navigations: { side: PaneSide; path: string }[];
   }
 }
 window.__drops = [];
 window.__dragging = false;
+window.__navigations = [];
 
 function Harness() {
   const left = useRef<HTMLDivElement>(null);
@@ -53,7 +57,7 @@ function Harness() {
     pane: panes[side],
     workspace,
     fontSize: 13,
-    onNavigate: noop,
+    onNavigate: (navSide: PaneSide, path: string) => { window.__navigations.push({ side: navSide, path }); },
     onSourceChange: noop,
     onCopy: noop,
     onMkdir: noop,

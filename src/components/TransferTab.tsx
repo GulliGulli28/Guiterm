@@ -871,9 +871,12 @@ export function PaneView({
   const pendingSelect = useRef<string | null>(null);
   useEffect(() => {
     setSelected(pendingSelect.current ? new Set([pendingSelect.current]) : new Set());
+    setAnchor(pendingSelect.current);
+    setFocusName(pendingSelect.current);
     pendingSelect.current = null;
     setQuery("");
     setFind(null);
+    setMenu(null);
   }, [pane.cwd]);
 
   // While the Docker container picker is open, keep the dropdown showing
@@ -882,14 +885,122 @@ export function PaneView({
   // container is actually chosen (`onSourceChange` hasn't fired yet).
   const sourceValue = dockerPickerHost ? dockerPickerHost.id : k8sPickerHost ? k8sPickerHost.id : pane.source.kind === "local" ? "local" : pane.source.hostId;
 
+  /** Dernière ligne cliquée : point de départ d'une sélection à Maj+clic. */
+  const [anchor, setAnchor] = useState<string | null>(null);
+  /** La ligne qui porte le « curseur » du clavier — celle qu'Entrée ouvre.
+   * Distincte de l'ancre : avec Maj+flèche, le curseur avance pendant que
+   * l'ancre reste où la sélection a commencé. Les deux ne se séparent que
+   * là ; tout clic les remet ensemble, sans quoi Entrée ouvrirait une ligne
+   * que l'utilisateur ne regarde plus. */
+  const [focusName, setFocusName] = useState<string | null>(null);
+  const listRef = useRef<HTMLDivElement>(null);
+
   const toggleSelect = (name: string, e: React.MouseEvent) => {
     e.stopPropagation();
+    setAnchor(name);
+    setFocusName(name);
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(name)) next.delete(name);
       else next.add(name);
       return next;
     });
+  };
+
+  /** Les noms de `visible` entre deux lignes, bornes comprises et dans
+   * n'importe quel ordre — Maj+clic se fait aussi bien vers le haut. */
+  const rangeBetween = (from: string, to: string): string[] => {
+    const start = visible.findIndex((e) => e.name === from);
+    const end = visible.findIndex((e) => e.name === to);
+    if (start < 0 || end < 0) return [to];
+    const [low, high] = start <= end ? [start, end] : [end, start];
+    return visible.slice(low, high + 1).map((e) => e.name);
+  };
+
+  /** Le clic sur une ligne, aux conventions de tous les gestionnaires de
+   * fichiers : simple = sélectionner celle-ci seule, Ctrl = ajouter/retirer,
+   * Maj = étendre depuis la dernière. Ouvrir se fait au double-clic (ou avec
+   * Entrée) — sans quoi il n'y a pas de geste libre pour sélectionner. */
+  const clickRow = (entry: Entry, e: React.MouseEvent) => {
+    if (justDraggedRef.current) return;
+    if (e.shiftKey && anchor) {
+      const range = rangeBetween(anchor, entry.name);
+      setSelected(new Set(e.ctrlKey || e.metaKey ? [...selected, ...range] : range));
+      setFocusName(entry.name);
+      return;
+    }
+    setAnchor(entry.name);
+    setFocusName(entry.name);
+    if (e.ctrlKey || e.metaKey) {
+      setSelected((prev) => {
+        const next = new Set(prev);
+        if (next.has(entry.name)) next.delete(entry.name);
+        else next.add(entry.name);
+        return next;
+      });
+      return;
+    }
+    setSelected(new Set([entry.name]));
+  };
+
+  const openEntry = (entry: Entry) => {
+    if (entry.isDir) onNavigate(side, joinPath(pane.cwd, entry.name));
+  };
+
+  const refresh = () => onNavigate(side, pane.cwd);
+
+  /** Déplace la ligne courante de `delta`, en sélectionnant au passage —
+   * Maj étend la sélection au lieu de la remplacer. */
+  const moveAnchor = (delta: number | "first" | "last", extend: boolean) => {
+    if (visible.length === 0) return;
+    const current = anchor ? visible.findIndex((e) => e.name === anchor) : -1;
+    const index =
+      delta === "first" ? 0
+      : delta === "last" ? visible.length - 1
+      : Math.min(visible.length - 1, Math.max(0, (current < 0 ? 0 : current + delta)));
+    const target = visible[index];
+    if (!target) return;
+    if (extend && anchor) setSelected(new Set(rangeBetween(anchor, target.name)));
+    else { setSelected(new Set([target.name])); setAnchor(target.name); }
+    setFocusName(target.name);
+    listRef.current?.querySelector(`[data-row-name="${CSS.escape(target.name)}"]`)?.scrollIntoView({ block: "nearest" });
+  };
+
+  const onListKeyDown = (e: React.KeyboardEvent) => {
+    // Ne pas voler les touches d'un champ de saisie du panneau (recherche,
+    // nom de dossier, chmod…).
+    if ((e.target as HTMLElement).closest("input, select, textarea")) return;
+    const cursor = focusName ?? anchor;
+    switch (e.key) {
+      case "ArrowDown": e.preventDefault(); moveAnchor(1, e.shiftKey); break;
+      case "ArrowUp": e.preventDefault(); moveAnchor(-1, e.shiftKey); break;
+      case "Home": e.preventDefault(); moveAnchor("first", e.shiftKey); break;
+      case "End": e.preventDefault(); moveAnchor("last", e.shiftKey); break;
+      case "Enter": {
+        e.preventDefault();
+        const entry = visible.find((x) => x.name === cursor);
+        if (entry) openEntry(entry);
+        break;
+      }
+      case "Backspace": e.preventDefault(); onNavigate(side, parentPath(pane.cwd)); break;
+      case "F5": e.preventDefault(); refresh(); break;
+      case "Delete": if (selectedEntries.length > 0) { e.preventDefault(); setConfirmDelete(true); } break;
+      case "Escape": e.preventDefault(); setSelected(new Set()); setQuery(""); setFind(null); break;
+      case " ": {
+        if (!cursor) break;
+        e.preventDefault();
+        setSelected((prev) => {
+          const next = new Set(prev);
+          if (next.has(cursor)) next.delete(cursor);
+          else next.add(cursor);
+          return next;
+        });
+        break;
+      }
+      case "a": case "A":
+        if (e.ctrlKey || e.metaKey) { e.preventDefault(); setSelected(new Set(visible.map((x) => x.name))); }
+        break;
+    }
   };
 
   const selectedEntries = sorted.filter((e) => selected.has(e.name));
@@ -958,6 +1069,19 @@ export function PaneView({
   const submitExtract = () => {
     if (extracting) onExtract(side, extracting, extractDest.trim());
     setExtracting(null);
+  };
+
+  /** Menu contextuel : la position du clic et la ligne visée. Fermé au
+   * prochain clic, à Échap, ou dès qu'on navigue. */
+  const [menu, setMenu] = useState<{ x: number; y: number; entry: Entry } | null>(null);
+
+  const openMenu = (entry: Entry, e: React.MouseEvent) => {
+    e.preventDefault();
+    // Clic droit sur une ligne hors sélection : elle devient la sélection,
+    // comme partout ailleurs — sinon l'action porterait sur autre chose que
+    // ce qu'on vient de désigner.
+    if (!selected.has(entry.name)) { setSelected(new Set([entry.name])); setAnchor(entry.name); setFocusName(entry.name); }
+    setMenu({ x: e.clientX, y: e.clientY, entry });
   };
 
   // ── Taille des dossiers, à la demande ────────────────────────────────────
@@ -1080,6 +1204,13 @@ export function PaneView({
               ))}
             </div>
             <div className="flex shrink-0 items-center gap-1">
+              <button
+                onClick={refresh}
+                title="Rafraîchir (F5)"
+                className="rounded px-1.5 py-0.5 text-sm text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+              >
+                ⟳
+              </button>
               <div className="relative">
                 <IconSearch size={11} className="pointer-events-none absolute left-1.5 top-1/2 -translate-y-1/2 text-[var(--c-text-faint)]" />
                 <input
@@ -1106,8 +1237,12 @@ export function PaneView({
             </div>
           </div>
 
-          {/* Action toolbar */}
-          <div className="flex flex-wrap items-center gap-1 border-b border-[var(--c-border)] px-2 py-1">
+          {/* Barre d'actions — sur une seule ligne qui défile, jamais sur
+              deux. Les boutons de sélection (Renommer, Archiver, Supprimer…)
+              apparaissent au premier clic : à retour à la ligne, la barre
+              grandissait et poussait toute la liste vers le bas sous le
+              curseur, faisant rater la ligne suivante qu'on visait. */}
+          <div className="flex shrink-0 items-center gap-1 overflow-x-auto whitespace-nowrap border-b border-[var(--c-border)] px-2 py-1">
             {creatingFolder ? (
               <div className="flex flex-1 items-center gap-1">
                 <input
@@ -1342,7 +1477,14 @@ export function PaneView({
               </div>
 
               {/* File list */}
-              <div className="min-h-0 flex-1 select-none overflow-y-auto" style={{ fontSize: `${fontSize}px` }}>
+              <div
+                ref={listRef}
+                tabIndex={0}
+                onKeyDown={onListKeyDown}
+                aria-label="Liste des fichiers"
+                className="min-h-0 flex-1 select-none overflow-y-auto focus:outline-none focus-visible:ring-1 focus-visible:ring-inset focus-visible:ring-[var(--c-accent)]"
+                style={{ fontSize: `${fontSize}px` }}
+              >
                 {visible.map((entry) => {
                   const isDropTarget = dropTarget?.dir === entry.name;
                   const size = dirSizes[joinPath(pane.cwd, entry.name)];
@@ -1350,7 +1492,11 @@ export function PaneView({
                     <div
                       key={entry.name}
                       data-pane-row
+                      data-row-name={entry.name}
                       {...(entry.isDir ? { "data-drop-dir": entry.name, "data-drop-side": side } : {})}
+                      onClick={(e) => clickRow(entry, e)}
+                      onDoubleClick={() => openEntry(entry)}
+                      onContextMenu={(e) => openMenu(entry, e)}
                       onMouseDown={(e) => {
                         // Les cases à cocher et les boutons d'action gardent
                         // leur clic ; le reste de la ligne est une poignée.
@@ -1358,7 +1504,7 @@ export function PaneView({
                         const dragged = selected.has(entry.name) && selectedEntries.length > 1 ? selectedEntries : [entry];
                         onDragStart(side, dragged, e);
                       }}
-                      className={`group px-2 py-[3px] hover:bg-[var(--c-bg2)] ${selected.has(entry.name) ? "bg-[var(--c-accent-dim)]" : ""} ${isDropTarget ? "outline outline-1 -outline-offset-1 outline-[var(--c-accent)]" : ""}`}
+                      className={`group cursor-default px-2 py-[3px] hover:bg-[var(--c-bg2)] ${selected.has(entry.name) ? "bg-[var(--c-accent-dim)]" : ""} ${focusName === entry.name ? "ring-1 ring-inset ring-[var(--c-accent)]/60" : ""} ${isDropTarget ? "outline outline-1 -outline-offset-1 outline-[var(--c-accent)]" : ""}`}
                       style={gridStyle}
                     >
                       <input
@@ -1369,20 +1515,18 @@ export function PaneView({
                         onChange={() => {}}
                         className="h-3.5 w-3.5 accent-[var(--c-accent)]"
                       />
-                      {/* Name */}
-                      <button
-                        onClick={() => {
-                          if (justDraggedRef.current) return;
-                          if (entry.isDir) onNavigate(side, joinPath(pane.cwd, entry.name));
-                        }}
+                      {/* Nom — plus un bouton : le clic sélectionne (comme
+                          dans tout gestionnaire de fichiers), le double-clic
+                          ouvre, et Entrée fait pareil au clavier. */}
+                      <span
                         className={`flex min-w-0 items-center gap-1.5 overflow-hidden text-left ${
                           entry.isDir ? "font-medium text-[var(--c-accent-text)]" : "text-[var(--c-text)]"
-                        } ${entry.isDir ? "cursor-pointer" : "cursor-default"}`}
-                        title={entry.name}
+                        }`}
+                        title={entry.isDir ? `${entry.name} — double-cliquer pour ouvrir` : entry.name}
                       >
                         <span className="shrink-0 text-[13px]">{entry.isDir ? "📁" : "📄"}</span>
                         <span className="truncate">{entry.name}</span>
-                      </button>
+                      </span>
 
                       {/* Modified */}
                       {showModified && (
@@ -1397,7 +1541,7 @@ export function PaneView({
                       {entry.isDir ? (
                         <button
                           data-no-drag
-                          onClick={() => computeDirSize(entry)}
+                          onClick={(e) => { e.stopPropagation(); computeDirSize(entry); }}
                           disabled={size === "loading"}
                           title={
                             typeof size === "number"
@@ -1421,7 +1565,7 @@ export function PaneView({
                         {!entry.isDir && entry.size <= QUICK_EDIT_MAX_SIZE ? (
                           <button
                             data-no-drag
-                            onClick={() => onEdit(side, entry.name)}
+                            onClick={(e) => { e.stopPropagation(); onEdit(side, entry.name); }}
                             title="Éditer le contenu ici"
                             className="w-[22px] rounded px-0.5 text-center text-[var(--c-text-faint)] opacity-0 hover:bg-[var(--c-accent)] hover:text-white focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
                           >
@@ -1437,7 +1581,7 @@ export function PaneView({
                         {!entry.isDir ? (
                           <button
                             data-no-drag
-                            onClick={() => onOpenInEditor(side, entry.name)}
+                            onClick={(e) => { e.stopPropagation(); onOpenInEditor(side, entry.name); }}
                             title="Ouvrir dans mon éditeur (renvoyé au retour dans l'app)"
                             className="w-[22px] rounded px-0.5 text-center text-[var(--c-text-faint)] opacity-0 hover:bg-[var(--c-accent)] hover:text-white focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
                           >
@@ -1449,7 +1593,7 @@ export function PaneView({
 
                         <button
                           data-no-drag
-                          onClick={() => onCopy(side, [entry])}
+                          onClick={(e) => { e.stopPropagation(); onCopy(side, [entry]); }}
                           title={
                             isRdpPush
                               ? (entry.isDir ? "Envoyer et coller le dossier dans la session RDP" : "Envoyer et coller dans la session RDP")
@@ -1475,6 +1619,40 @@ export function PaneView({
                 )}
               </div>
             </>
+          )}
+
+          {menu && (
+            <ContextMenu
+              x={menu.x}
+              y={menu.y}
+              onClose={() => setMenu(null)}
+              items={[
+                ...(menu.entry.isDir
+                  ? [
+                      { label: "Ouvrir", run: () => openEntry(menu.entry) },
+                      { label: "Calculer la taille", run: () => computeDirSize(menu.entry) },
+                    ]
+                  : [
+                      ...(menu.entry.size <= QUICK_EDIT_MAX_SIZE
+                        ? [{ label: "Éditer ici", run: () => onEdit(side, menu.entry.name) }]
+                        : []),
+                      { label: "Ouvrir dans mon éditeur", run: () => onOpenInEditor(side, menu.entry.name) },
+                    ]),
+                {
+                  label: isRdpPush
+                    ? `Envoyer dans la session RDP (${selectedEntries.length || 1})`
+                    : `${copyLabel} Copier vers l'autre panneau (${selectedEntries.length || 1})`,
+                  run: () => onCopy(side, selectedEntries.length > 0 ? selectedEntries : [menu.entry]),
+                },
+                { label: "Renommer", run: startRename, disabled: selectedEntries.length !== 1 },
+                ...(supportsChmod ? [{ label: "Permissions", run: () => { setChmodTarget(menu.entry.name); setChmodValue(menu.entry.permissions != null ? (menu.entry.permissions & 0o777).toString(8) : "755"); } }] : []),
+                { label: `Archiver (${selectedEntries.length || 1})`, run: startArchive },
+                ...(!menu.entry.isDir && isArchive(menu.entry.name)
+                  ? [{ label: "Extraire", run: startExtract }]
+                  : []),
+                { label: `Supprimer (${selectedEntries.length || 1})`, run: () => setConfirmDelete(true), danger: true },
+              ]}
+            />
           )}
 
           {dragging && !dropTarget && (
@@ -1611,6 +1789,70 @@ function ConflictModal({
           </button>
         </div>
       </div>
+    </div>
+  );
+}
+
+/** Menu contextuel du clic droit. Positionné au curseur, replié dans la
+ * fenêtre s'il déborde, fermé au moindre clic ailleurs, à Échap ou au
+ * défilement — un menu resté ouvert au-dessus d'une liste qui a bougé
+ * désignerait autre chose que ce qu'il annonce. */
+function ContextMenu({
+  x, y, items, onClose,
+}: {
+  x: number;
+  y: number;
+  items: { label: string; run: () => void; disabled?: boolean; danger?: boolean }[];
+  onClose: () => void;
+}) {
+  const ref = useRef<HTMLDivElement>(null);
+  const [position, setPosition] = useState({ x, y });
+
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    const rect = el.getBoundingClientRect();
+    setPosition({
+      x: Math.min(x, window.innerWidth - rect.width - 8),
+      y: Math.min(y, window.innerHeight - rect.height - 8),
+    });
+  }, [x, y]);
+
+  useEffect(() => {
+    const close = () => onClose();
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
+    window.addEventListener("mousedown", close);
+    window.addEventListener("wheel", close);
+    window.addEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("mousedown", close);
+      window.removeEventListener("wheel", close);
+      window.removeEventListener("keydown", onKey);
+    };
+  }, [onClose]);
+
+  return (
+    <div
+      ref={ref}
+      data-context-menu
+      style={{ left: position.x, top: position.y }}
+      onMouseDown={(e) => e.stopPropagation()}
+      className="fixed z-50 min-w-44 rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] py-1 text-xs shadow-xl"
+    >
+      {items.map((item) => (
+        <button
+          key={item.label}
+          disabled={item.disabled}
+          onClick={() => { item.run(); onClose(); }}
+          className={`block w-full px-3 py-1 text-left disabled:opacity-40 disabled:hover:bg-transparent ${
+            item.danger
+              ? "text-rose-400 hover:bg-rose-900/40 hover:text-rose-300"
+              : "text-[var(--c-text-secondary)] hover:bg-[var(--c-accent)] hover:text-white"
+          }`}
+        >
+          {item.label}
+        </button>
+      ))}
     </div>
   );
 }
