@@ -805,6 +805,17 @@ export interface PaneFindOutcome {
   truncated: boolean;
 }
 
+/** Ce que l'utilisateur choisit quand un nom est déjà pris à destination —
+ * miroir de `commands::sftp::ConflictPolicy`. Ne concerne que les entrées
+ * désignées : plus profond, un dossier recopié par-dessus un autre fusionne. */
+export type ConflictPolicy = "overwrite" | "keepBoth" | "skip";
+
+/** Une entrée dont le nom existe déjà à destination. */
+export interface CopyConflict {
+  name: string;
+  isDir: boolean;
+}
+
 /** Format d'archive du bouton « Archiver » — miroir de
  * `termius_core::pane_ops::ArchiveFormat`. `tarGz` marche partout ; `zip`
  * dépend de la commande `zip`, souvent absente d'un serveur minimal ou d'un

@@ -3,12 +3,13 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, onTransferDone, onTransferError, onTransferProgress } from "../lib/api";
 import type { AppPreferences } from "../lib/preferences";
-import type { ArchiveFormat, Entry, Host, PaneFindOutcome, PaneListed, PaneOpened, PaneSource, PaneState, RemoteEditListed, Workspace } from "../lib/types";
+import type { ArchiveFormat, ConflictPolicy, CopyConflict, Entry, Host, PaneFindOutcome, PaneListed, PaneOpened, PaneSource, PaneState, RemoteEditListed, Workspace } from "../lib/types";
 import { IconFolder, IconEdit, IconExternal, IconTrash, IconShield, IconClose, IconSearch } from "./ui-icons";
 import { QuickEditModal } from "./QuickEditModal";
 import { RdpTab } from "./RdpTab";
 import { useResizablePane } from "../hooks/useResizablePane";
 import { useContainerPicker } from "../hooks/useContainerPicker";
+import { useModalSurface } from "../hooks/useModalSurface";
 import { baseName, breadcrumbs, containingDir, joinPath, parentPath } from "../lib/panePath";
 import { usePaneDrag } from "../hooks/usePaneDrag";
 import type { PaneDropTarget, PaneSide } from "../hooks/usePaneDrag";
@@ -211,12 +212,12 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
    * les dépôts venus de l'Explorateur, barre de progression et bouton Annuler
    * compris, et le rafraîchissement des deux panneaux à la fin est déjà
    * branché sur `transfer-done`. */
-  const copyTo = async (side: Side, entries: Entry[], destSide: Side, destCwd: string) => {
+  const copyTo = async (side: Side, entries: Entry[], destSide: Side, destCwd: string, conflict: ConflictPolicy = "overwrite") => {
     const sourceId = paneIds.current[side];
     const destId = paneIds.current[destSide];
     if (!sourceId || !destId || entries.length === 0) return;
     try {
-      const id = await api.copyEntries(sourceId, stateRef.current[side].cwd, entries, destId, destCwd);
+      const id = await api.copyEntries(sourceId, stateRef.current[side].cwd, entries, destId, destCwd, conflict);
       const label = entries.length === 1 ? entries[0].name : `${entries.length} éléments`;
       setTransfers((prev) => ({ ...prev, [id]: { id, fileName: label, bytesDone: 0, bytesTotal: 0, status: "active" } }));
     } catch (e) {
@@ -224,8 +225,28 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
     }
   };
 
+  /** Une copie demandée par l'utilisateur : on regarde d'abord ce qui existe
+   * déjà à l'arrivée. Sans ça, le SFTP ouvre sa cible en création-troncature
+   * et le fichier d'en face disparaît sans un mot — le seul endroit de cet
+   * onglet qui pouvait faire perdre des données. */
+  const askThenCopy = async (side: Side, entries: Entry[], destSide: Side, destCwd: string) => {
+    const destId = paneIds.current[destSide];
+    if (!destId || entries.length === 0) return;
+    try {
+      const conflicts = await api.checkCopyConflicts(destId, destCwd, entries.map((e) => e.name));
+      if (conflicts.length === 0) { copyTo(side, entries, destSide, destCwd); return; }
+      setConflict({ side, entries, destSide, destCwd, conflicts });
+    } catch (e) {
+      onError(String(e));
+    }
+  };
+
+  const [conflict, setConflict] = useState<
+    { side: Side; entries: Entry[]; destSide: Side; destCwd: string; conflicts: CopyConflict[] } | null
+  >(null);
+
   const copy = (side: Side, entries: Entry[]) =>
-    copyTo(side, entries, otherSide(side), state[otherSide(side)].cwd);
+    askThenCopy(side, entries, otherSide(side), state[otherSide(side)].cwd);
 
   // Makes `entries` (files and/or whole folders, from any pane kind — a
   // remote source is downloaded to a temp file server-side first, see
@@ -276,7 +297,7 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
       const destCwd = target.dir
         ? joinPath(stateRef.current[target.side].cwd, target.dir)
         : stateRef.current[target.side].cwd;
-      copyTo(source, entries, target.side, destCwd);
+      askThenCopy(source, entries, target.side, destCwd);
     },
   });
 
@@ -647,6 +668,19 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
             );
           })}
         </div>
+      )}
+
+      {conflict && (
+        <ConflictModal
+          conflicts={conflict.conflicts}
+          total={conflict.entries.length}
+          destCwd={conflict.destCwd}
+          onChoose={(policy) => {
+            copyTo(conflict.side, conflict.entries, conflict.destSide, conflict.destCwd, policy);
+            setConflict(null);
+          }}
+          onCancel={() => setConflict(null)}
+        />
       )}
 
       {editing && (
@@ -1494,6 +1528,88 @@ function FindResults({
         {find.status === "done" && find.outcome.paths.length === 0 && (
           <p className="px-2 py-6 text-center text-xs text-[var(--c-text-muted)]">Aucun résultat.</p>
         )}
+      </div>
+    </div>
+  );
+}
+
+/** Ce qui se passe quand un nom est déjà pris à destination. Une modale
+ * plutôt qu'un choix persistant dans les réglages : la bonne réponse dépend
+ * de ce qu'on est en train de faire, et l'ancienne (écraser, sans le dire)
+ * était la seule façon de perdre des données dans cet onglet.
+ *
+ * Les trois choix s'appliquent à toutes les entrées en conflit du lot — pas
+ * une question par fichier, qui rendrait une copie de dossier impraticable. */
+function ConflictModal({
+  conflicts, total, destCwd, onChoose, onCancel,
+}: {
+  conflicts: CopyConflict[];
+  total: number;
+  destCwd: string;
+  onChoose: (policy: ConflictPolicy) => void;
+  onCancel: () => void;
+}) {
+  const shown = conflicts.slice(0, 6);
+  const folders = conflicts.filter((c) => c.isDir).length;
+  // Comme les six autres boîtes de l'app : rôle de dialogue, Échap, focus
+  // piégé puis rendu (voir `useModalSurface`).
+  const { ref, dialogProps } = useModalSurface({ onClose: onCancel, label: "Éléments déjà présents à destination" });
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6" onClick={onCancel}>
+      <div
+        ref={ref}
+        {...dialogProps}
+        className="w-full max-w-lg rounded-lg border border-[var(--c-border)] bg-[var(--c-bg2)] p-4 shadow-xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <p className="text-sm text-[var(--c-text)]">
+          {conflicts.length === 1
+            ? `« ${conflicts[0].name} » existe déjà dans ${destCwd}.`
+            : `${conflicts.length} des ${total} éléments existent déjà dans ${destCwd}.`}
+        </p>
+        <ul className="mt-2 max-h-32 overflow-y-auto rounded-md bg-[var(--c-bg3)] px-3 py-2 font-mono text-xs text-[var(--c-text-secondary)]">
+          {shown.map((c) => (
+            <li key={c.name} className="truncate">{c.isDir ? "📁" : "📄"} {c.name}</li>
+          ))}
+          {conflicts.length > shown.length && (
+            <li className="text-[var(--c-text-faint)]">… et {conflicts.length - shown.length} autre(s)</li>
+          )}
+        </ul>
+        {folders > 0 && (
+          <p className="mt-2 text-xs text-[var(--c-text-muted)]">
+            Un dossier remplacé est <em>fusionné</em> : ce qu'il contient déjà reste, les fichiers de même nom sont
+            remplacés.
+          </p>
+        )}
+        <div className="mt-4 flex flex-wrap justify-end gap-2">
+          <button
+            onClick={onCancel}
+            className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
+          >
+            Annuler
+          </button>
+          <button
+            onClick={() => onChoose("skip")}
+            title="Ne pas copier ces entrées-là ; les autres passent"
+            className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
+          >
+            Ignorer
+          </button>
+          <button
+            onClick={() => onChoose("keepBoth")}
+            title="Copier à côté sous un nom libre — « rapport (2).pdf »"
+            className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs text-[var(--c-text)] hover:bg-white/5"
+          >
+            Garder les deux
+          </button>
+          <button
+            autoFocus
+            onClick={() => onChoose("overwrite")}
+            className="rounded-md bg-[var(--c-accent)] px-3 py-1.5 text-xs text-white hover:bg-[var(--c-accent-hover)]"
+          >
+            Remplacer
+          </button>
+        </div>
       </div>
     </div>
   );

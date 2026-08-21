@@ -197,27 +197,68 @@ pub async fn copy_entry(
     dest_cwd: &str,
     progress: &mut CopyProgress<'_>,
 ) -> anyhow::Result<()> {
+    copy_entry_as(source, source_cwd, entry, dest, dest_cwd, &entry.name, progress).await
+}
+
+/// Comme [`copy_entry`], mais sous un autre nom à l'arrivée — ce que demande
+/// « garder les deux » quand le nom est déjà pris à destination (voir
+/// [`free_name`]).
+pub async fn copy_entry_as(
+    source: &PaneRef,
+    source_cwd: &str,
+    entry: &Entry,
+    dest: &PaneRef,
+    dest_cwd: &str,
+    dest_name: &str,
+    progress: &mut CopyProgress<'_>,
+) -> anyhow::Result<()> {
     sftp::ensure_safe_component(&entry.name)?;
+    sftp::ensure_safe_component(dest_name)?;
     progress.check_cancelled()?;
     // A symlink is copied as-is (its target's content for a file), never
     // descended into: following a symlink-to-directory would recurse into a tree
     // that may live entirely outside what the user asked to copy.
     if entry.is_dir && !entry.is_symlink {
-        return copy_dir(source, source_cwd, &entry.name, dest, dest_cwd, progress).await;
+        return copy_dir(source, source_cwd, &entry.name, dest, dest_cwd, dest_name, progress).await;
     }
-    copy_file(source, source_cwd, entry, dest, dest_cwd, progress).await
+    copy_file(source, source_cwd, entry, dest, dest_cwd, dest_name, progress).await
+}
+
+/// Un nom libre à destination, quand celui d'origine est déjà pris :
+/// `rapport.pdf` → `rapport (2).pdf`. L'extension est conservée, sinon le
+/// fichier n'est plus reconnu par le programme qui l'ouvre — y compris les
+/// doubles extensions que ce même panneau sait produire (`.tar.gz`).
+pub fn free_name(taken: &[String], name: &str) -> String {
+    const DOUBLE: [&str; 3] = [".tar.gz", ".tar.bz2", ".tar.xz"];
+    let lower = name.to_lowercase();
+    let (stem, extension) = if let Some(suffix) = DOUBLE.iter().find(|s| lower.ends_with(*s)) {
+        name.split_at(name.len() - suffix.len())
+    } else {
+        // Un nom qui commence par un point est entièrement un nom (`.env`),
+        // pas une extension.
+        match name.rfind('.').filter(|index| *index > 0) {
+            Some(index) => name.split_at(index),
+            None => (name, ""),
+        }
+    };
+    (2..)
+        .map(|n| format!("{stem} ({n}){extension}"))
+        .find(|candidate| !taken.iter().any(|t| t == candidate))
+        .unwrap_or_else(|| name.to_string())
 }
 
 /// Un fichier (ou un lien symbolique, copié tel quel), avec report de
 /// progression cumulatif — le seul endroit qui parle aux quatre combinaisons
 /// local/distant, appelé aussi bien pour une entrée choisie que pour chaque
 /// fichier d'une arborescence.
+#[allow(clippy::too_many_arguments)]
 async fn copy_file(
     source: &PaneRef,
     source_cwd: &str,
     entry: &Entry,
     dest: &PaneRef,
     dest_cwd: &str,
+    dest_name: &str,
     progress: &mut CopyProgress<'_>,
 ) -> anyhow::Result<()> {
     progress.check_cancelled()?;
@@ -226,12 +267,12 @@ async fn copy_file(
     let result = match (source, dest) {
         (PaneRef::Local, PaneRef::Local) => {
             let src = sftp::join(source_cwd, &entry.name);
-            let dst = sftp::join(dest_cwd, &entry.name);
+            let dst = sftp::join(dest_cwd, dest_name);
             tokio::fs::copy(src, dst).await.map(|_| ()).map_err(anyhow::Error::from)
         }
         (PaneRef::Local, PaneRef::Remote(dst_client)) => {
             let local = std::path::PathBuf::from(sftp::join(source_cwd, &entry.name));
-            let remote = sftp::join(dest_cwd, &entry.name);
+            let remote = sftp::join(dest_cwd, dest_name);
             let report = &mut *progress.report;
             let mut on_progress = |done: u64, _total: u64| report(base + done, &relative);
             dst_client
@@ -240,7 +281,7 @@ async fn copy_file(
         }
         (PaneRef::Remote(src_client), PaneRef::Local) => {
             let remote = sftp::join(source_cwd, &entry.name);
-            let local = std::path::PathBuf::from(sftp::join(dest_cwd, &entry.name));
+            let local = std::path::PathBuf::from(sftp::join(dest_cwd, dest_name));
             let report = &mut *progress.report;
             let mut on_progress = |done: u64, _total: u64| report(base + done, &relative);
             src_client
@@ -255,6 +296,7 @@ async fn copy_file(
                 entry.size,
                 dst_client.as_ref(),
                 dest_cwd,
+                dest_name,
             )
             .await
         }
@@ -264,19 +306,22 @@ async fn copy_file(
     Ok(())
 }
 
+#[allow(clippy::too_many_arguments)]
 fn copy_dir<'a>(
     source: &'a PaneRef,
     source_dir: &'a str,
     name: &'a str,
     dest: &'a PaneRef,
     dest_dir: &'a str,
+    dest_name: &'a str,
     progress: &'a mut CopyProgress<'_>,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send + 'a>> {
     Box::pin(async move {
         sftp::ensure_safe_component(name)?;
+        sftp::ensure_safe_component(dest_name)?;
         progress.check_cancelled()?;
         let src_path = sftp::join(source_dir, name);
-        let dst_path = sftp::join(dest_dir, name);
+        let dst_path = sftp::join(dest_dir, dest_name);
 
         // Le dossier de destination peut déjà exister — recopier par-dessus
         // une arborescence déjà là est une fusion, pas une erreur. `mkdir`
@@ -309,9 +354,9 @@ fn copy_dir<'a>(
             progress.check_cancelled()?;
             // Don't descend into a symlinked directory (see `copy_entry`).
             if child.is_dir && !child.is_symlink {
-                copy_dir(source, &src_path, &child.name, dest, &dst_path, progress).await?;
+                copy_dir(source, &src_path, &child.name, dest, &dst_path, &child.name, progress).await?;
             } else {
-                copy_file(source, &src_path, &child, dest, &dst_path, progress).await?;
+                copy_file(source, &src_path, &child, dest, &dst_path, &child.name, progress).await?;
             }
         }
         Ok(())
@@ -327,9 +372,10 @@ async fn copy_remote_to_remote_file(
     size: u64,
     dst: &dyn RemoteFileClient,
     dest_cwd: &str,
+    dest_name: &str,
 ) -> anyhow::Result<()> {
     let tmp = download_client_to_fresh_temp(src, source_cwd, name, size).await?;
-    let remote_dst = sftp::join(dest_cwd, name);
+    let remote_dst = sftp::join(dest_cwd, dest_name);
     let upload_result = dst
         .upload(&tmp, &remote_dst, &never_cancel(), &mut no_progress)
         .await;
@@ -389,6 +435,46 @@ mod tests {
         std::fs::write(dir.path().join("projet/sous/b.bin"), vec![0u8; 2000]).unwrap();
         std::fs::create_dir(dir.path().join("cible")).unwrap();
         dir
+    }
+
+    #[test]
+    fn a_free_name_keeps_the_extension() {
+        let taken = vec!["rapport.pdf".to_string(), "rapport (2).pdf".to_string()];
+        assert_eq!(free_name(&taken, "rapport.pdf"), "rapport (3).pdf");
+        assert_eq!(free_name(&taken, "autre.pdf"), "autre (2).pdf");
+        // Doubles extensions : celles que ce panneau sait produire.
+        assert_eq!(free_name(&[], "sauvegarde.tar.gz"), "sauvegarde (2).tar.gz");
+        // Un nom qui commence par un point est un nom, pas une extension.
+        assert_eq!(free_name(&[], ".env"), ".env (2)");
+        // Un dossier n'a pas d'extension à préserver.
+        assert_eq!(free_name(&[], "projet"), "projet (2)");
+    }
+
+    #[tokio::test]
+    async fn copying_under_another_name_leaves_the_original_alone() {
+        let dir = tree();
+        let source_cwd = dir.path().to_string_lossy().to_string();
+        let dest_cwd = dir.path().join("cible").to_string_lossy().to_string();
+        std::fs::write(dir.path().join("cible/a.bin"), b"deja la").unwrap();
+
+        let cancel = AtomicBool::new(false);
+        let mut report = |_done: u64, _path: &str| {};
+        let mut progress = CopyProgress { cancel: &cancel, report: &mut report, done: 0 };
+        copy_entry_as(
+            &PaneRef::Local,
+            &dir.path().join("projet").to_string_lossy(),
+            &entry("a.bin", false, 1000),
+            &PaneRef::Local,
+            &dest_cwd,
+            "a (2).bin",
+            &mut progress,
+        )
+        .await
+        .unwrap();
+
+        assert_eq!(std::fs::read_to_string(dir.path().join("cible/a.bin")).unwrap(), "deja la");
+        assert_eq!(std::fs::metadata(dir.path().join("cible/a (2).bin")).unwrap().len(), 1000);
+        let _ = source_cwd;
     }
 
     /// Ce que la barre de progression montre : un total qui monte une seule

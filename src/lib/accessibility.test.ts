@@ -67,6 +67,12 @@ describe("sémantique des fenêtres modales", () => {
     "components/ConnectionPickerModal.tsx",
     "components/QuickEditModal.tsx",
     "components/SshAuthPromptModal.tsx",
+    // Pas un fichier « Modal » : l'onglet de transfert porte la boîte qui
+    // demande quoi faire d'un nom déjà pris à destination. Listé ici pour la
+    // même raison que les autres — la liste s'appuie sur le hook, pas sur le
+    // nom du fichier, précisément parce que chercher les modales par leur nom
+    // en avait laissé passer seize.
+    "components/TransferTab.tsx",
     "components/VaultUnlockModal.tsx",
   ];
 

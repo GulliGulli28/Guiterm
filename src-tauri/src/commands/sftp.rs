@@ -217,6 +217,52 @@ pub async fn list_pane(
     Ok(PaneListed { cwd: path, entries })
 }
 
+/// Ce que l'utilisateur choisit quand un nom est déjà pris à destination.
+///
+/// La question ne se pose qu'au **premier niveau** — les entrées qu'il a
+/// désignées. Plus profond, une arborescence recopiée par-dessus une autre
+/// fusionne et remplace fichier par fichier : poser la question pour chaque
+/// fichier d'un arbre de dix mille rendrait la copie impraticable, et
+/// « fusionner » est ce qu'on attend d'un dossier qu'on recopie.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ConflictPolicy {
+    /// Remplacer (pour un dossier : fusionner dedans).
+    Overwrite,
+    /// Copier à côté, sous un nom libre — `rapport (2).pdf`.
+    KeepBoth,
+    /// Ne pas copier cette entrée-là.
+    Skip,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CopyConflict {
+    pub name: String,
+    /// Un dossier et un fichier ne posent pas la même question : l'un
+    /// fusionnerait, l'autre serait remplacé.
+    pub is_dir: bool,
+}
+
+/// Les noms de `names` déjà présents dans `dest_cwd`. Appelé avant une copie
+/// pour pouvoir demander plutôt qu'écraser en silence — c'est ce que faisait
+/// l'envoi jusqu'ici, le SFTP ouvrant sa cible en création-troncature.
+#[tauri::command]
+pub async fn check_copy_conflicts(
+    state: State<'_, AppState>,
+    dest_pane_id: String,
+    dest_cwd: String,
+    names: Vec<String>,
+) -> Result<Vec<CopyConflict>, String> {
+    let dest = pane_ref(&state, &dest_pane_id)?;
+    let existing = transfer::list(&dest, &dest_cwd).await.map_err(|e| e.to_string())?;
+    Ok(existing
+        .into_iter()
+        .filter(|entry| names.iter().any(|name| name == &entry.name))
+        .map(|entry| CopyConflict { name: entry.name, is_dir: entry.is_dir })
+        .collect())
+}
+
 /// Copie `entries` de `source_cwd` vers `dest_cwd`, en tâche de fond.
 ///
 /// Rend un identifiant de transfert **tout de suite** au lieu d'attendre la
@@ -228,6 +274,9 @@ pub async fn list_pane(
 ///
 /// Tout le lot porte un seul identifiant : c'est un geste de l'utilisateur,
 /// pas n copies indépendantes, et une barre par fichier n'apprendrait rien.
+// Sept paramètres nommés plutôt qu'une structure : c'est la signature que voit
+// le frontend, et un objet imbriqué de plus n'y apporterait rien.
+#[allow(clippy::too_many_arguments)]
 #[tauri::command]
 pub async fn copy_entries(
     app: AppHandle,
@@ -237,6 +286,7 @@ pub async fn copy_entries(
     entries: Vec<Entry>,
     dest_pane_id: String,
     dest_cwd: String,
+    conflict: ConflictPolicy,
 ) -> Result<String, String> {
     let source = pane_ref(&state, &source_pane_id)?;
     let dest = pane_ref(&state, &dest_pane_id)?;
@@ -258,7 +308,7 @@ pub async fn copy_entries(
         // taille déjà connue pour un fichier. Au pire on ne sait pas, et la
         // barre reste indéterminée plutôt que fausse.
         let total = batch_total(&source_exec, &source_cwd, &entries).await;
-        let result = copy_batch(&source, &source_cwd, &entries, &dest, &dest_cwd, total, &id, &app_handle, &cancel).await;
+        let result = copy_batch(&source, &source_cwd, &entries, &dest, &dest_cwd, conflict, total, &id, &app_handle, &cancel).await;
         match result {
             Ok(()) => {
                 let _ = app_handle.emit("transfer-done", TransferDoneEvent { transfer_id: id.clone() });
@@ -300,6 +350,7 @@ async fn copy_batch(
     entries: &[Entry],
     dest: &PaneRef,
     dest_cwd: &str,
+    conflict: ConflictPolicy,
     total: u64,
     transfer_id: &str,
     app: &AppHandle,
@@ -330,9 +381,28 @@ async fn copy_batch(
         );
     };
 
+    // Le listing de destination sert à deux choses : savoir ce qui existe déjà,
+    // et trouver un nom libre pour « garder les deux ». Lu une fois pour tout
+    // le lot, et tenu à jour au fur et à mesure — deux fichiers du même lot
+    // peuvent viser le même nom libre.
+    let mut taken: Vec<String> = match conflict {
+        ConflictPolicy::Overwrite => Vec::new(),
+        _ => transfer::list(dest, dest_cwd)
+            .await
+            .map(|entries| entries.into_iter().map(|e| e.name).collect())
+            .unwrap_or_default(),
+    };
+
     let mut progress = transfer::CopyProgress { cancel, report: &mut report, done: 0 };
     for entry in entries {
-        transfer::copy_entry(source, source_cwd, entry, dest, dest_cwd, &mut progress).await?;
+        let clashes = taken.iter().any(|name| name == &entry.name);
+        let dest_name = match (conflict, clashes) {
+            (_, false) | (ConflictPolicy::Overwrite, _) => entry.name.clone(),
+            (ConflictPolicy::Skip, true) => continue,
+            (ConflictPolicy::KeepBoth, true) => transfer::free_name(&taken, &entry.name),
+        };
+        taken.push(dest_name.clone());
+        transfer::copy_entry_as(source, source_cwd, entry, dest, dest_cwd, &dest_name, &mut progress).await?;
     }
     Ok(())
 }
