@@ -410,8 +410,13 @@ export const api = {
   openPane: (source: PaneSource) => invoke<PaneOpened>("open_pane", { source }),
   closePane: (paneId: string) => invoke<void>("close_pane", { paneId }),
   listPane: (paneId: string, path: string) => invoke<PaneListed>("list_pane", { paneId, path }),
-  copyEntry: (sourcePaneId: string, sourceCwd: string, entry: Entry, destPaneId: string, destCwd: string) =>
-    invoke<PaneListed>("copy_entry", { sourcePaneId, sourceCwd, entry, destPaneId, destCwd }),
+  /** Copie `entries` vers l'autre panneau, en tâche de fond. Rend un
+   * identifiant de transfert tout de suite : la suite arrive par
+   * `transfer-progress`/`transfer-done`/`transfer-error`, et `cancelTransfer`
+   * l'interrompt. Un seul identifiant pour tout le lot — c'est un geste, pas
+   * n copies indépendantes. */
+  copyEntries: (sourcePaneId: string, sourceCwd: string, entries: Entry[], destPaneId: string, destCwd: string) =>
+    invoke<string>("copy_entries", { sourcePaneId, sourceCwd, entries, destPaneId, destCwd }),
   paneMkdir: (paneId: string, cwd: string, name: string) => invoke<PaneListed>("pane_mkdir", { paneId, cwd, name }),
   paneRename: (paneId: string, cwd: string, oldName: string, newName: string) => invoke<PaneListed>("pane_rename", { paneId, cwd, oldName, newName }),
   paneRemove: (paneId: string, cwd: string, entries: Entry[]) => invoke<PaneListed>("pane_remove", { paneId, cwd, entries }),

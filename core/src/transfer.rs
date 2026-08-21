@@ -6,20 +6,57 @@ use crate::sftp::{self, Entry, RemoteFileClient};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 
-/// Copies between two already-open panes never support mid-transfer cancellation
-/// (only OS drag-and-drop uploads/downloads do) — a flag that's never set.
+/// Les chemins qui ne rapportent rien : la résolution d'une entrée en fichier
+/// local temporaire pour le presse-papiers RDP, et le relais des copies
+/// distant→distant. Le suivi d'une copie demandée par l'utilisateur passe,
+/// lui, par [`CopyProgress`].
 fn never_cancel() -> AtomicBool {
     AtomicBool::new(false)
 }
 
-/// No-op progress sink for the copy paths below, none of which surface
-/// per-chunk progress to the UI (only OS drag-and-drop uploads do, via
-/// `commands/sftp.rs::upload_one`) — a plain function rather than a closure
-/// literal at each call site, since [`RemoteFileClient`]'s `download`/
-/// `upload` need `&mut (dyn FnMut(u64, u64) + Send)`, not `impl FnMut`
-/// (trait methods with a generic parameter aren't object-safe, and
-/// [`PaneRef::Remote`] holds its client behind `Arc<dyn RemoteFileClient>`).
+/// Puits de progression vide — une fonction nommée plutôt qu'une fermeture
+/// littérale à chaque appel, puisque `download`/`upload` de
+/// [`RemoteFileClient`] veulent `&mut (dyn FnMut(u64, u64) + Send)` et non
+/// `impl FnMut` (une méthode de trait générique n'est pas objet-sûre, et
+/// [`PaneRef::Remote`] tient son client derrière `Arc<dyn RemoteFileClient>`).
 fn no_progress(_done: u64, _total: u64) {}
+
+/// Suivi d'une copie entre panneaux : de quoi l'arrêter en route, et de quoi
+/// dire où elle en est.
+///
+/// Copier 4 Go d'un hôte à l'autre n'affichait rien et ne s'interrompait pas :
+/// toutes les copies passaient un drapeau d'annulation jamais levé et un puits
+/// de progression vide. Le total est cumulatif sur **tout le lot** (et non
+/// remis à zéro à chaque fichier), pour que la barre avance une fois du début
+/// à la fin plutôt que de repartir en arrière à chaque nouveau fichier.
+pub struct CopyProgress<'a> {
+    pub cancel: &'a AtomicBool,
+    /// `(octets copiés depuis le début du lot, chemin du fichier en cours)`.
+    pub report: &'a mut (dyn FnMut(u64, &str) + Send),
+    /// Octets déjà comptés pour les fichiers terminés.
+    pub done: u64,
+}
+
+impl CopyProgress<'_> {
+    fn cancelled(&self) -> bool {
+        self.cancel.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// Vérifie l'annulation avant d'entamer une nouvelle entrée : les copies
+    /// locales (`tokio::fs::copy`) et les créations de dossier n'ont pas de
+    /// point d'interruption interne, contrairement aux transferts en morceaux.
+    fn check_cancelled(&self) -> anyhow::Result<()> {
+        if self.cancelled() {
+            anyhow::bail!("transfert annulé");
+        }
+        Ok(())
+    }
+
+    fn finished_file(&mut self, size: u64, path: &str) {
+        self.done += size;
+        (self.report)(self.done, path);
+    }
+}
 
 #[derive(Clone)]
 pub enum PaneRef {
@@ -158,33 +195,56 @@ pub async fn copy_entry(
     entry: &Entry,
     dest: &PaneRef,
     dest_cwd: &str,
+    progress: &mut CopyProgress<'_>,
 ) -> anyhow::Result<()> {
     sftp::ensure_safe_component(&entry.name)?;
+    progress.check_cancelled()?;
     // A symlink is copied as-is (its target's content for a file), never
     // descended into: following a symlink-to-directory would recurse into a tree
     // that may live entirely outside what the user asked to copy.
     if entry.is_dir && !entry.is_symlink {
-        return copy_dir(source, source_cwd, &entry.name, dest, dest_cwd).await;
+        return copy_dir(source, source_cwd, &entry.name, dest, dest_cwd, progress).await;
     }
-    match (source, dest) {
+    copy_file(source, source_cwd, entry, dest, dest_cwd, progress).await
+}
+
+/// Un fichier (ou un lien symbolique, copié tel quel), avec report de
+/// progression cumulatif — le seul endroit qui parle aux quatre combinaisons
+/// local/distant, appelé aussi bien pour une entrée choisie que pour chaque
+/// fichier d'une arborescence.
+async fn copy_file(
+    source: &PaneRef,
+    source_cwd: &str,
+    entry: &Entry,
+    dest: &PaneRef,
+    dest_cwd: &str,
+    progress: &mut CopyProgress<'_>,
+) -> anyhow::Result<()> {
+    progress.check_cancelled()?;
+    let relative = sftp::join(source_cwd, &entry.name);
+    let base = progress.done;
+    let result = match (source, dest) {
         (PaneRef::Local, PaneRef::Local) => {
             let src = sftp::join(source_cwd, &entry.name);
             let dst = sftp::join(dest_cwd, &entry.name);
-            tokio::fs::copy(src, dst).await?;
-            Ok(())
+            tokio::fs::copy(src, dst).await.map(|_| ()).map_err(anyhow::Error::from)
         }
         (PaneRef::Local, PaneRef::Remote(dst_client)) => {
             let local = std::path::PathBuf::from(sftp::join(source_cwd, &entry.name));
             let remote = sftp::join(dest_cwd, &entry.name);
+            let report = &mut *progress.report;
+            let mut on_progress = |done: u64, _total: u64| report(base + done, &relative);
             dst_client
-                .upload(&local, &remote, &never_cancel(), &mut no_progress)
+                .upload(&local, &remote, progress.cancel, &mut on_progress)
                 .await
         }
         (PaneRef::Remote(src_client), PaneRef::Local) => {
             let remote = sftp::join(source_cwd, &entry.name);
             let local = std::path::PathBuf::from(sftp::join(dest_cwd, &entry.name));
+            let report = &mut *progress.report;
+            let mut on_progress = |done: u64, _total: u64| report(base + done, &relative);
             src_client
-                .download(&remote, &local, entry.size, &never_cancel(), &mut no_progress)
+                .download(&remote, &local, entry.size, progress.cancel, &mut on_progress)
                 .await
         }
         (PaneRef::Remote(src_client), PaneRef::Remote(dst_client)) => {
@@ -198,7 +258,10 @@ pub async fn copy_entry(
             )
             .await
         }
-    }
+    };
+    result?;
+    progress.finished_file(entry.size, &relative);
+    Ok(())
 }
 
 fn copy_dir<'a>(
@@ -207,19 +270,26 @@ fn copy_dir<'a>(
     name: &'a str,
     dest: &'a PaneRef,
     dest_dir: &'a str,
+    progress: &'a mut CopyProgress<'_>,
 ) -> std::pin::Pin<Box<dyn std::future::Future<Output = anyhow::Result<()>> + Send + 'a>> {
     Box::pin(async move {
         sftp::ensure_safe_component(name)?;
+        progress.check_cancelled()?;
         let src_path = sftp::join(source_dir, name);
         let dst_path = sftp::join(dest_dir, name);
 
-        // Create destination directory
+        // Le dossier de destination peut déjà exister — recopier par-dessus
+        // une arborescence déjà là est une fusion, pas une erreur. `mkdir`
+        // d'un dossier existant échoue en SFTP (là où `create_dir_all` local
+        // ne dit rien), ce qui faisait échouer toute la copie.
         match dest {
             PaneRef::Local => {
                 tokio::fs::create_dir_all(&dst_path).await?;
             }
             PaneRef::Remote(client) => {
-                client.make_dir(&dst_path).await?;
+                if client.make_dir(&dst_path).await.is_err() && client.list(&dst_path).await.is_err() {
+                    anyhow::bail!("impossible de créer le dossier de destination {dst_path}");
+                }
             }
         }
 
@@ -236,40 +306,12 @@ fn copy_dir<'a>(
 
         for child in entries {
             sftp::ensure_safe_component(&child.name)?;
+            progress.check_cancelled()?;
             // Don't descend into a symlinked directory (see `copy_entry`).
             if child.is_dir && !child.is_symlink {
-                copy_dir(source, &src_path, &child.name, dest, &dst_path).await?;
+                copy_dir(source, &src_path, &child.name, dest, &dst_path, progress).await?;
             } else {
-                match (source, dest) {
-                    (PaneRef::Local, PaneRef::Local) => {
-                        let s = sftp::join(&src_path, &child.name);
-                        let d = sftp::join(&dst_path, &child.name);
-                        tokio::fs::copy(s, d).await?;
-                    }
-                    (PaneRef::Local, PaneRef::Remote(dc)) => {
-                        let local = std::path::PathBuf::from(sftp::join(&src_path, &child.name));
-                        let remote = sftp::join(&dst_path, &child.name);
-                        dc.upload(&local, &remote, &never_cancel(), &mut no_progress)
-                            .await?;
-                    }
-                    (PaneRef::Remote(sc), PaneRef::Local) => {
-                        let remote = sftp::join(&src_path, &child.name);
-                        let local = std::path::PathBuf::from(sftp::join(&dst_path, &child.name));
-                        sc.download(&remote, &local, child.size, &never_cancel(), &mut no_progress)
-                            .await?;
-                    }
-                    (PaneRef::Remote(sc), PaneRef::Remote(dc)) => {
-                        copy_remote_to_remote_file(
-                            sc.as_ref(),
-                            &src_path,
-                            &child.name,
-                            child.size,
-                            dc.as_ref(),
-                            &dst_path,
-                        )
-                        .await?;
-                    }
-                }
+                copy_file(source, &src_path, &child, dest, &dst_path, progress).await?;
             }
         }
         Ok(())
@@ -334,6 +376,82 @@ pub async fn resolve_local_path(pane: &PaneRef, source_cwd: &str, entry: &Entry)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn entry(name: &str, is_dir: bool, size: u64) -> Entry {
+        Entry { name: name.to_string(), is_dir, is_symlink: false, size, modified: None, permissions: None }
+    }
+
+    /// Un arbre `projet/` : un fichier à la racine, un dans un sous-dossier.
+    fn tree() -> tempfile::TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::create_dir_all(dir.path().join("projet/sous")).unwrap();
+        std::fs::write(dir.path().join("projet/a.bin"), vec![0u8; 1000]).unwrap();
+        std::fs::write(dir.path().join("projet/sous/b.bin"), vec![0u8; 2000]).unwrap();
+        std::fs::create_dir(dir.path().join("cible")).unwrap();
+        dir
+    }
+
+    /// Ce que la barre de progression montre : un total qui monte une seule
+    /// fois du début à la fin du lot. Avant, chaque fichier repartait de zéro
+    /// — ou plutôt : rien n'était rapporté du tout.
+    #[tokio::test]
+    async fn copy_reports_one_cumulative_total_across_a_whole_tree() {
+        let dir = tree();
+        let source_cwd = dir.path().to_string_lossy().to_string();
+        let dest_cwd = dir.path().join("cible").to_string_lossy().to_string();
+
+        let cancel = AtomicBool::new(false);
+        let mut seen: Vec<(u64, String)> = Vec::new();
+        {
+            let mut report = |done: u64, path: &str| seen.push((done, path.to_string()));
+            let mut progress = CopyProgress { cancel: &cancel, report: &mut report, done: 0 };
+            copy_entry(&PaneRef::Local, &source_cwd, &entry("projet", true, 4096), &PaneRef::Local, &dest_cwd, &mut progress)
+                .await
+                .unwrap();
+            assert_eq!(progress.done, 3000, "le total porte sur tous les fichiers de l'arbre");
+        }
+
+        assert_eq!(seen.len(), 2, "un report par fichier terminé : {seen:?}");
+        assert!(seen.windows(2).all(|w| w[0].0 < w[1].0), "le total ne redescend jamais : {seen:?}");
+        assert_eq!(seen.last().unwrap().0, 3000);
+        assert!(dir.path().join("cible/projet/sous/b.bin").exists(), "l'arbre est bien copié");
+    }
+
+    #[tokio::test]
+    async fn a_cancelled_copy_stops_and_says_so() {
+        let dir = tree();
+        let source_cwd = dir.path().to_string_lossy().to_string();
+        let dest_cwd = dir.path().join("cible").to_string_lossy().to_string();
+
+        let cancel = AtomicBool::new(true);
+        let mut report = |_done: u64, _path: &str| {};
+        let mut progress = CopyProgress { cancel: &cancel, report: &mut report, done: 0 };
+        let error = copy_entry(&PaneRef::Local, &source_cwd, &entry("projet", true, 4096), &PaneRef::Local, &dest_cwd, &mut progress)
+            .await
+            .unwrap_err()
+            .to_string();
+        assert!(error.contains("annulé"), "message français attendu : {error}");
+        assert!(!dir.path().join("cible/projet/a.bin").exists(), "rien ne doit avoir été copié");
+    }
+
+    /// Recopier un dossier là où il est déjà est une fusion, pas une erreur.
+    /// Localement ça marchait déjà ; côté SFTP le `mkdir` échouait sur un
+    /// dossier existant et faisait échouer toute la copie.
+    #[tokio::test]
+    async fn copying_a_folder_twice_merges_instead_of_failing() {
+        let dir = tree();
+        let source_cwd = dir.path().to_string_lossy().to_string();
+        let dest_cwd = dir.path().join("cible").to_string_lossy().to_string();
+        let cancel = AtomicBool::new(false);
+
+        for _ in 0..2 {
+            let mut report = |_done: u64, _path: &str| {};
+            let mut progress = CopyProgress { cancel: &cancel, report: &mut report, done: 0 };
+            copy_entry(&PaneRef::Local, &source_cwd, &entry("projet", true, 4096), &PaneRef::Local, &dest_cwd, &mut progress)
+                .await
+                .expect("une deuxième copie au même endroit doit fusionner");
+        }
+    }
 
     #[tokio::test]
     async fn read_text_local_rejects_oversized_file() {

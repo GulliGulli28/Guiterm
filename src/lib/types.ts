@@ -763,6 +763,9 @@ export interface TransferProgressEvent {
   transferId: string;
   bytesDone: number;
   bytesTotal: number;
+  /** Ce qui est en train de passer — absent des vieux événements, présent
+   * pour les copies entre panneaux et les dépôts depuis l'Explorateur. */
+  label?: string | null;
 }
 
 export type PaneSource =

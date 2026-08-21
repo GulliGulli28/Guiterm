@@ -136,7 +136,7 @@ fn main() {
             commands::sftp::open_pane,
             commands::sftp::close_pane,
             commands::sftp::list_pane,
-            commands::sftp::copy_entry,
+            commands::sftp::copy_entries,
             commands::sftp::pane_mkdir,
             commands::sftp::pane_rename,
             commands::sftp::pane_remove,

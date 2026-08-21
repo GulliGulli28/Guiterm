@@ -203,26 +203,22 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
 
   /** Copie `entries` du panneau `side` vers `destCwd` sur `destSide`. La
    * destination est explicite (et non « l'autre panneau, dans son dossier
-   * courant ») pour le glisser-déposer, qui peut viser un sous-dossier
-   * précis du listing d'en face. */
+   * courant ») pour le glisser-déposer, qui peut viser un sous-dossier précis
+   * du listing d'en face.
+   *
+   * Ne bloque pas : le backend rend un identifiant de transfert tout de suite
+   * et la copie se raconte ensuite en événements — c'est le même chemin que
+   * les dépôts venus de l'Explorateur, barre de progression et bouton Annuler
+   * compris, et le rafraîchissement des deux panneaux à la fin est déjà
+   * branché sur `transfer-done`. */
   const copyTo = async (side: Side, entries: Entry[], destSide: Side, destCwd: string) => {
     const sourceId = paneIds.current[side];
     const destId = paneIds.current[destSide];
     if (!sourceId || !destId || entries.length === 0) return;
     try {
-      let result: PaneListed | null = null;
-      for (const entry of entries) {
-        result = await api.copyEntry(sourceId, stateRef.current[side].cwd, entry, destId, destCwd);
-      }
-      // `copyEntry` rend le listing du dossier de destination : c'est le bon
-      // quand on a déposé dans le dossier courant, mais pas quand on a déposé
-      // dans un sous-dossier — le panneau ne doit pas y descendre tout seul.
-      if (destCwd === stateRef.current[destSide].cwd) {
-        if (result) dispatch({ type: "listed", side: destSide, result });
-      } else {
-        const refreshed = await api.listPane(destId, stateRef.current[destSide].cwd);
-        dispatch({ type: "listed", side: destSide, result: refreshed });
-      }
+      const id = await api.copyEntries(sourceId, stateRef.current[side].cwd, entries, destId, destCwd);
+      const label = entries.length === 1 ? entries[0].name : `${entries.length} éléments`;
+      setTransfers((prev) => ({ ...prev, [id]: { id, fileName: label, bytesDone: 0, bytesTotal: 0, status: "active" } }));
     } catch (e) {
       onError(String(e));
     }
@@ -483,9 +479,10 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
             if (!paneId) return;
             api.uploadPaths(paneId, cwd, paths)
               .then((ids) => {
-                for (const id of ids) {
-                  setTransfers((prev) => ({ ...prev, [id]: { id, fileName: "…", bytesDone: 0, bytesTotal: 0, status: "active" } }));
-                }
+                ids.forEach((id, index) => {
+                  const name = paths[index]?.split(/[\\/]/).pop() ?? "…";
+                  setTransfers((prev) => ({ ...prev, [id]: { id, fileName: name, bytesDone: 0, bytesTotal: 0, status: "active" } }));
+                });
               })
               .catch((e) => onError(String(e)));
             return;
@@ -503,8 +500,10 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
     let unlistenDone: (() => void) | undefined;
     let unlistenError: (() => void) | undefined;
     (async () => {
-      unlistenProgress = await onTransferProgress(({ transferId, bytesDone, bytesTotal }) => {
-        setTransfers((prev) => (prev[transferId] ? { ...prev, [transferId]: { ...prev[transferId], bytesDone, bytesTotal } } : prev));
+      unlistenProgress = await onTransferProgress(({ transferId, bytesDone, bytesTotal, label }) => {
+        setTransfers((prev) => (prev[transferId]
+          ? { ...prev, [transferId]: { ...prev[transferId], bytesDone, bytesTotal, fileName: label || prev[transferId].fileName } }
+          : prev));
       });
       unlistenDone = await onTransferDone((transferId) => {
         setTransfers((prev) => (prev[transferId] ? { ...prev, [transferId]: { ...prev[transferId], status: "done" } } : prev));
@@ -623,11 +622,14 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
       {activeTransfers.length > 0 && (
         <div className="max-h-32 shrink-0 space-y-1 overflow-y-auto border-t border-[var(--c-border)] bg-[var(--c-bg2)] p-2">
           {activeTransfers.map((t) => {
-            const pct = t.bytesTotal > 0 ? Math.round((t.bytesDone / t.bytesTotal) * 100) : t.status === "done" ? 100 : 0;
+            // Borné à 100 : le total vient d'un `du` par dossier, qu'un
+            // sous-dossier illisible peut sous-estimer — mieux vaut une barre
+            // qui sature qu'une barre qui déborde.
+            const pct = t.bytesTotal > 0 ? Math.min(100, Math.round((t.bytesDone / t.bytesTotal) * 100)) : t.status === "done" ? 100 : 0;
             return (
               <div key={t.id} className="flex items-center gap-2 text-xs">
-                <span className="w-40 shrink-0 truncate text-[var(--c-text-secondary)]">
-                  {t.status === "error" ? `Échec : ${t.error}` : t.status === "done" ? "Terminé" : "Envoi…"}
+                <span className="w-56 shrink-0 truncate text-[var(--c-text-secondary)]" title={t.fileName}>
+                  {t.status === "error" ? `Échec : ${t.error}` : t.status === "done" ? "Terminé" : t.fileName || "Transfert…"}
                 </span>
                 <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--c-bg3)]">
                   <div

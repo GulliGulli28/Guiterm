@@ -104,7 +104,7 @@ pub async fn open_pane(
             state.panes.lock_recover().insert(
                 pane_id.clone(),
                 Pane {
-                    connection: Some(connection),
+                    connection: Some(Arc::new(connection)),
                     client: Some(client),
                     exec: Some(exec),
                 },
@@ -185,6 +185,14 @@ pub struct PaneListed {
     pub entries: Vec<Entry>,
 }
 
+/// Le bail SSH d'un panneau, à garder le temps d'une opération lancée en tâche
+/// de fond — sans quoi fermer l'onglet pendant une copie fermerait la
+/// connexion sous le transfert en cours. `None` pour un panneau local, Docker
+/// ou K8s : rien à tenir de ce côté-là (voir `state::Pane`).
+fn pane_lease(state: &AppState, pane_id: &str) -> Option<Arc<termius_core::ssh_pool::SshLease>> {
+    state.panes.lock_recover().get(pane_id)?.connection.clone()
+}
+
 pub(crate) fn pane_ref(state: &AppState, pane_id: &str) -> Result<PaneRef, String> {
     let panes = state.panes.lock_recover();
     let pane = panes
@@ -209,27 +217,124 @@ pub async fn list_pane(
     Ok(PaneListed { cwd: path, entries })
 }
 
+/// Copie `entries` de `source_cwd` vers `dest_cwd`, en tâche de fond.
+///
+/// Rend un identifiant de transfert **tout de suite** au lieu d'attendre la
+/// fin : la copie alimente ensuite `transfer-progress` / `transfer-done` /
+/// `transfer-error`, comme un dépôt venu de l'Explorateur, et peut être
+/// annulée par `cancel_transfer`. Avant, l'appel restait en vol jusqu'au
+/// dernier octet — sans barre, sans annulation, et l'interface ne savait rien
+/// dire pendant qu'un dossier de plusieurs gigaoctets traversait.
+///
+/// Tout le lot porte un seul identifiant : c'est un geste de l'utilisateur,
+/// pas n copies indépendantes, et une barre par fichier n'apprendrait rien.
 #[tauri::command]
-pub async fn copy_entry(
+pub async fn copy_entries(
+    app: AppHandle,
     state: State<'_, AppState>,
     source_pane_id: String,
     source_cwd: String,
-    entry: Entry,
+    entries: Vec<Entry>,
     dest_pane_id: String,
     dest_cwd: String,
-) -> Result<PaneListed, String> {
+) -> Result<String, String> {
     let source = pane_ref(&state, &source_pane_id)?;
     let dest = pane_ref(&state, &dest_pane_id)?;
-    transfer::copy_entry(&source, &source_cwd, &entry, &dest, &dest_cwd)
-        .await
-        .map_err(|e| e.to_string())?;
-    let entries = transfer::list(&dest, &dest_cwd)
-        .await
-        .map_err(|e| e.to_string())?;
-    Ok(PaneListed {
-        cwd: dest_cwd,
-        entries,
-    })
+    let source_exec = pane_exec(&state, &source_pane_id)?;
+
+    let transfer_id = Uuid::new_v4().to_string();
+    let cancel = Arc::new(AtomicBool::new(false));
+    state.transfers.lock_recover().insert(transfer_id.clone(), cancel.clone());
+
+    // Tenus pour la durée de la copie, pas seulement pour celle de l'appel.
+    let leases = (pane_lease(&state, &source_pane_id), pane_lease(&state, &dest_pane_id));
+
+    let app_handle = app.clone();
+    let id = transfer_id.clone();
+    tokio::spawn(async move {
+        let _leases = leases;
+        // Le total d'abord, pour que la barre veuille dire quelque chose : un
+        // `du` par dossier sélectionné (une seule commande côté hôte), la
+        // taille déjà connue pour un fichier. Au pire on ne sait pas, et la
+        // barre reste indéterminée plutôt que fausse.
+        let total = batch_total(&source_exec, &source_cwd, &entries).await;
+        let result = copy_batch(&source, &source_cwd, &entries, &dest, &dest_cwd, total, &id, &app_handle, &cancel).await;
+        match result {
+            Ok(()) => {
+                let _ = app_handle.emit("transfer-done", TransferDoneEvent { transfer_id: id.clone() });
+            }
+            Err(e) => {
+                let _ = app_handle.emit(
+                    "transfer-error",
+                    TransferErrorEvent { transfer_id: id.clone(), message: e.to_string() },
+                );
+            }
+        }
+        app_handle.state::<AppState>().transfers.lock_recover().remove(&id);
+    });
+
+    Ok(transfer_id)
+}
+
+/// Somme des octets à copier. Au mieux : un `du` par dossier, exécuté sur
+/// l'hôte source (voir `pane_ops::dir_size`). Un dossier dont la taille est
+/// refusée compte pour zéro plutôt que de faire échouer la copie qui, elle,
+/// marcherait très bien.
+async fn batch_total(exec: &PaneExec, cwd: &str, entries: &[Entry]) -> u64 {
+    let mut total = 0u64;
+    for entry in entries {
+        if entry.is_dir && !entry.is_symlink {
+            let path = termius_core::sftp::join(cwd, &entry.name);
+            total += pane_ops::dir_size(exec, &path).await.unwrap_or(0);
+        } else {
+            total += entry.size;
+        }
+    }
+    total
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn copy_batch(
+    source: &PaneRef,
+    source_cwd: &str,
+    entries: &[Entry],
+    dest: &PaneRef,
+    dest_cwd: &str,
+    total: u64,
+    transfer_id: &str,
+    app: &AppHandle,
+    cancel: &AtomicBool,
+) -> anyhow::Result<()> {
+    let app_for_report = app.clone();
+    let id_for_report = transfer_id.to_string();
+    // Une émission par morceau reçu serait un événement tous les 256 Ko : on
+    // n'en garde qu'un par tranche de 1 %, ou dès qu'on change de fichier —
+    // au-delà, ce sont des messages que l'interface jette.
+    let mut last_emitted = 0u64;
+    let mut last_label = String::new();
+    let mut report = move |done: u64, label: &str| {
+        let step = (total / 100).max(256 * 1024);
+        if done < last_emitted + step && label == last_label && done != total {
+            return;
+        }
+        last_emitted = done;
+        last_label = label.to_string();
+        let _ = app_for_report.emit(
+            "transfer-progress",
+            TransferProgressEvent {
+                transfer_id: id_for_report.clone(),
+                bytes_done: done,
+                bytes_total: total,
+                label: Some(label.to_string()),
+            },
+        );
+    };
+
+    let mut progress = transfer::CopyProgress { cancel, report: &mut report, done: 0 };
+    for entry in entries {
+        transfer::copy_entry(source, source_cwd, entry, dest, dest_cwd, &mut progress).await?;
+    }
+    Ok(())
 }
 
 #[tauri::command]
@@ -434,6 +539,9 @@ struct TransferProgressEvent {
     transfer_id: String,
     bytes_done: u64,
     bytes_total: u64,
+    /// Ce qui est en train de passer — sans lui, une copie de dossier n'est
+    /// qu'une barre qui avance sans dire de quoi.
+    label: Option<String>,
 }
 
 #[derive(Serialize, Clone)]
@@ -476,8 +584,12 @@ pub async fn upload_paths(
         let cwd = cwd.clone();
         let app_handle = app.clone();
         let id_for_task = transfer_id.clone();
+        // Même raison que pour `copy_entries` : l'envoi survit à la fermeture
+        // de l'onglet, le bail doit lui survivre aussi.
+        let lease = pane_lease(&state, &pane_id);
 
         tokio::spawn(async move {
+            let _lease = lease;
             let result = upload_one(
                 &reference,
                 &cwd,
@@ -539,6 +651,7 @@ async fn upload_one(
             let remote_path = termius_core::sftp::join(dest_cwd, &name);
             let transfer_id = transfer_id.to_string();
             let app = app.clone();
+            let label = name.clone();
             let mut on_progress = move |done, total| {
                 let _ = app.emit(
                     "transfer-progress",
@@ -546,6 +659,7 @@ async fn upload_one(
                         transfer_id: transfer_id.clone(),
                         bytes_done: done,
                         bytes_total: total,
+                        label: Some(label.clone()),
                     },
                 );
             };

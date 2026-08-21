@@ -43,8 +43,12 @@ pub struct TerminalSession {
 /// `termius_core::docker::connect_via_ssh`'s doc comment), so `None` there
 /// isn't a leak.
 pub struct Pane {
-    #[allow(dead_code)]
-    pub connection: Option<SshLease>,
+    /// Derrière un `Arc` pour qu'une copie lancée en tâche de fond puisse en
+    /// garder une part le temps de finir : depuis que `copy_entries` rend la
+    /// main tout de suite, l'onglet peut être fermé pendant le transfert, et
+    /// lâcher le dernier bail fermerait la connexion SSH sous le canal SFTP
+    /// en cours d'utilisation (voir `ssh_pool::SshLease`).
+    pub connection: Option<Arc<SshLease>>,
     pub client: Option<Arc<dyn RemoteFileClient>>,
     /// Comment lancer un script `sh` du côté où vivent les fichiers du
     /// panneau — `None` pour le panneau local (Windows n'a pas de `sh`, ces
