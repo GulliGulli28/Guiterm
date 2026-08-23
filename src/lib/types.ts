@@ -808,11 +808,30 @@ export interface PaneFindOutcome {
 /** Une ligne d'un diff de contenu — miroir de
  * `termius_core::file_diff::DiffLine`. Les numéros commencent à 1 et l'un des
  * deux manque selon le côté : une ligne supprimée n'existe pas à droite. */
+/** Un fichier désigné pour une comparaison de contenu : son panneau et son
+ * chemin relatif au dossier affiché par ce panneau. Les deux côtés d'une
+ * comparaison sont deux `DiffPick` indépendants — même nom, même panneau et
+ * même dossier ne sont jamais exigés. */
+export interface DiffPick {
+  side: "left" | "right";
+  path: string;
+}
+
+/** Un morceau de ligne : `emphasis` marque ce qui a réellement changé quand
+ * la ligne existe des deux côtés sous une forme voisine. */
+export interface DiffSegment {
+  text: string;
+  emphasis: boolean;
+}
+
 export interface DiffLine {
   kind: "equal" | "deleted" | "inserted";
   leftNo?: number | null;
   rightNo?: number | null;
   text: string;
+  /** Vide pour une ligne de contexte, et pour une ligne qui a changé de bout
+   * en bout : il n'y a alors rien à souligner dedans. */
+  segments: DiffSegment[];
 }
 
 /** Un passage modifié avec son contexte. Les zones identiques trop longues

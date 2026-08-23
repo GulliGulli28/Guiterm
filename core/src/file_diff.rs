@@ -37,6 +37,15 @@ pub enum LineKind {
     Inserted,
 }
 
+/// Un morceau de ligne. `emphasis` marque ce qui a réellement changé quand la
+/// ligne existe des deux côtés sous une forme voisine — le reste est commun.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiffSegment {
+    pub text: String,
+    pub emphasis: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct DiffLine {
@@ -46,6 +55,11 @@ pub struct DiffLine {
     /// Numéro de ligne à droite, absent pour une ligne supprimée.
     pub right_no: Option<usize>,
     pub text: String,
+    /// Le découpage de `text` en parties communes et parties modifiées. Vide
+    /// pour une ligne de contexte, et vide aussi quand la ligne a changé de
+    /// bout en bout — dans les deux cas il n'y a rien à distinguer dedans, la
+    /// couleur de la ligne le dit déjà.
+    pub segments: Vec<DiffSegment>,
 }
 
 /// Un passage modifié, avec son contexte. Les blocs sont séparés par des
@@ -80,7 +94,7 @@ pub fn diff_text(left: &str, right: &str) -> FileDiff {
     'groups: for group in diff.grouped_ops(CONTEXT_LINES) {
         let mut lines = Vec::new();
         for op in group {
-            for change in diff.iter_changes(&op) {
+            for change in diff.iter_inline_changes(&op) {
                 if rendered >= MAX_DIFF_LINES {
                     truncated = true;
                     if !lines.is_empty() {
@@ -93,6 +107,22 @@ pub fn diff_text(left: &str, right: &str) -> FileDiff {
                     similar::ChangeTag::Delete => LineKind::Deleted,
                     similar::ChangeTag::Insert => LineKind::Inserted,
                 };
+                let mut text = String::new();
+                let mut segments = Vec::new();
+                for (emphasis, part) in change.iter_strings_lossy() {
+                    let part = part.trim_end_matches(['\n', '\r']);
+                    text.push_str(part);
+                    if kind != LineKind::Equal && !part.is_empty() {
+                        segments.push(DiffSegment { text: part.to_string(), emphasis });
+                    }
+                }
+                // Un seul morceau, souligné ou non, n'apprend rien de plus que
+                // la ligne elle-même — qui est déjà colorée. C'est le cas
+                // d'une ligne entièrement différente, ou d'une ligne ajoutée
+                // sans contrepartie.
+                if segments.len() == 1 {
+                    segments.clear();
+                }
                 lines.push(DiffLine {
                     kind,
                     // `similar` compte à partir de 0 ; les éditeurs et
@@ -100,7 +130,8 @@ pub fn diff_text(left: &str, right: &str) -> FileDiff {
                     // que l'utilisateur va retrouver dans son fichier.
                     left_no: change.old_index().map(|i| i + 1),
                     right_no: change.new_index().map(|i| i + 1),
-                    text: change.to_string_lossy().trim_end_matches(['\n', '\r']).to_string(),
+                    text,
+                    segments,
                 });
                 rendered += 1;
             }
@@ -158,6 +189,52 @@ mod tests {
         assert_eq!(changed[0].right_no, None, "une ligne supprimée n'existe pas à droite");
         assert_eq!(changed[1].right_no, Some(2));
         assert_eq!(changed[1].left_no, None);
+    }
+
+    /// Le point de la comparaison au mot : sur une ligne longue dont un
+    /// détail a bougé, savoir que « la ligne a changé » ne sert à rien.
+    #[test]
+    fn a_small_change_inside_a_long_line_is_pinpointed() {
+        let diff = diff_text(
+            "listen 127.0.0.1:8080 default_server;\n",
+            "listen 127.0.0.1:9090 default_server;\n",
+        );
+        let deleted = diff.hunks[0].lines.iter().find(|l| l.kind == LineKind::Deleted).unwrap();
+        let emphasised: Vec<&str> = deleted.segments.iter().filter(|s| s.emphasis).map(|s| s.text.as_str()).collect();
+        assert!(
+            emphasised.iter().any(|part| part.contains("8080")),
+            "la partie qui a changé doit être isolée : {:?}",
+            deleted.segments
+        );
+        assert!(
+            deleted.segments.iter().any(|s| !s.emphasis && s.text.contains("listen")),
+            "et le reste de la ligne rester commun : {:?}",
+            deleted.segments
+        );
+        // Recoller les morceaux redonne la ligne : rien n'est perdu en route.
+        assert_eq!(
+            deleted.segments.iter().map(|s| s.text.as_str()).collect::<String>(),
+            deleted.text
+        );
+    }
+
+    /// Une ligne entièrement différente n'a rien à souligner dedans : la
+    /// signaler morceau par morceau ne ferait qu'ajouter du bruit.
+    #[test]
+    fn a_wholly_different_line_has_nothing_to_pinpoint() {
+        let diff = diff_text("alpha\n", "zoulou\n");
+        for line in diff.hunks[0].lines.iter().filter(|l| l.kind != LineKind::Equal) {
+            assert!(line.segments.is_empty(), "obtenu : {:?}", line.segments);
+            assert!(!line.text.is_empty());
+        }
+    }
+
+    #[test]
+    fn context_lines_carry_no_segments() {
+        let diff = diff_text("un\ndeux\ntrois\n", "un\nDEUX\ntrois\n");
+        for line in diff.hunks[0].lines.iter().filter(|l| l.kind == LineKind::Equal) {
+            assert!(line.segments.is_empty(), "une ligne de contexte n'a rien de modifié");
+        }
     }
 
     /// Ce qui distingue un diff d'une comparaison ligne par ligne : une

@@ -3,7 +3,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, onTransferDone, onTransferError, onTransferProgress } from "../lib/api";
 import type { AppPreferences } from "../lib/preferences";
-import type { ArchiveFormat, ConflictPolicy, CopyConflict, Entry, FileDiff, Host, PaneComparison, PaneDiskSpace, PaneFindOutcome, SyncItem, PaneListed, PaneOpened, PaneSource, PaneState, RemoteEditListed, Workspace } from "../lib/types";
+import type { ArchiveFormat, ConflictPolicy, CopyConflict, DiffHunk, DiffLine, DiffPick, Entry, FileDiff, Host, PaneComparison, PaneDiskSpace, PaneFindOutcome, SyncItem, PaneListed, PaneOpened, PaneSource, PaneState, RemoteEditListed, Workspace } from "../lib/types";
 import { IconFolder, IconEdit, IconExternal, IconTrash, IconShield, IconClose, IconSearch } from "./ui-icons";
 import { QuickEditModal } from "./QuickEditModal";
 import { RdpTab } from "./RdpTab";
@@ -431,29 +431,48 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
     }
   };
 
-  /** Comparaison du contenu de deux fichiers. Vit ici comme la comparaison
-   * d'arborescences : elle porte sur les deux panneaux. */
+  // ── Comparaison du contenu de deux fichiers ──────────────────────────────
+  // En deux temps, comme tout comparateur de fichiers : on désigne un
+  // premier fichier, puis un second. Rien n'oblige les deux à porter le même
+  // nom, ni même à être dans des panneaux différents — comparer deux
+  // versions posées côte à côte dans le même dossier est un usage aussi
+  // courant que comparer les deux côtés.
+  const [diffPick, setDiffPick] = useState<DiffPick | null>(null);
+
   const [fileDiff, setFileDiff] = useState<
-    | { path: string; status: "running" }
-    | { path: string; status: "done"; diff: FileDiff }
-    | { path: string; status: "failed"; error: string }
+    | { left: DiffPick; right: DiffPick; status: "running" }
+    | { left: DiffPick; right: DiffPick; status: "done"; diff: FileDiff }
+    | { left: DiffPick; right: DiffPick; status: "failed"; error: string }
     | null
   >(null);
 
-  /** `leftPath`/`rightPath` sont relatifs au dossier de chaque panneau : le
-   * même chemin des deux côtés quand il vient de la comparaison
-   * d'arborescences, un simple nom quand il vient d'un fichier sélectionné. */
-  const diffFiles = async (leftPath: string, rightPath: string) => {
-    const leftId = paneIds.current.left;
-    const rightId = paneIds.current.right;
-    if (!leftId || !rightId) { onError("Les deux panneaux doivent être ouverts pour comparer deux fichiers."); return; }
-    setFileDiff({ path: leftPath, status: "running" });
+  /** Chaque côté porte son panneau et son chemin (relatif au dossier de ce
+   * panneau), donc n'importe quelle paire de fichiers est comparable. */
+  const runDiff = async (left: DiffPick, right: DiffPick) => {
+    const leftId = paneIds.current[left.side];
+    const rightId = paneIds.current[right.side];
+    if (!leftId || !rightId) { onError("Panneau non ouvert."); return; }
+    setDiffPick(null);
+    setFileDiff({ left, right, status: "running" });
     try {
-      const diff = await api.diffPaneFiles(leftId, state.left.cwd, leftPath, rightId, state.right.cwd, rightPath);
-      setFileDiff({ path: leftPath, status: "done", diff });
+      const diff = await api.diffPaneFiles(
+        leftId, stateRef.current[left.side].cwd, left.path,
+        rightId, stateRef.current[right.side].cwd, right.path,
+      );
+      setFileDiff({ left, right, status: "done", diff });
     } catch (e) {
-      setFileDiff({ path: leftPath, status: "failed", error: String(e) });
+      setFileDiff({ left, right, status: "failed", error: String(e) });
     }
+  };
+
+  /** Le clic « Comparer » d'un fichier : il arme la comparaison la première
+   * fois, la lance la seconde. Re-cliquer le fichier déjà armé le désarme —
+   * c'est le geste naturel pour annuler. */
+  const pickForDiff = (side: Side, path: string) => {
+    const pick: DiffPick = { side, path };
+    if (!diffPick) { setDiffPick(pick); return; }
+    if (diffPick.side === side && diffPick.path === path) { setDiffPick(null); return; }
+    runDiff(diffPick, pick);
   };
 
   // ── Quick-edit a small text file in place ────────────────────────────────
@@ -636,7 +655,9 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
     onDiskSpace: diskSpace,
     onOpenTerminal: onOpenTerminal ? (path: string) => onOpenTerminal(state[side].source, path) : undefined,
     onCompare: isRdpTarget ? undefined : comparePanes,
-    onDiffFile: isRdpTarget ? undefined : (name: string) => diffFiles(name, name),
+    onPickForDiff: isRdpTarget ? undefined : (name: string) => pickForDiff(side, name),
+    diffPick: diffPick && diffPick.side === side ? diffPick.path : null,
+    diffArmed: diffPick !== null,
     onFind: findIn,
     onArchive: archive,
     onExtract: extract,
@@ -676,7 +697,36 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
       </div>
 
       {fileDiff && (
-        <FileDiffModal state={fileDiff} fontSize={fontSize} onClose={() => setFileDiff(null)} />
+        <FileDiffModal
+          state={fileDiff}
+          fontSize={fontSize}
+          labelOf={(pick) => `${pick.side === "left" ? "gauche" : "droite"} · ${pick.path}`}
+          view={preferences?.transferDiffView ?? "unified"}
+          onViewChange={(view) => {
+            if (onPreferencesChange && preferences) onPreferencesChange({ ...preferences, transferDiffView: view });
+          }}
+          onSwap={() => runDiff(fileDiff.right, fileDiff.left)}
+          onClose={() => setFileDiff(null)}
+        />
+      )}
+
+      {/* Un fichier attend son vis-à-vis : dit lequel, et comment renoncer. */}
+      {diffPick && !fileDiff && (
+        <div className="flex shrink-0 items-center gap-2 border-t border-[var(--c-border)] bg-[var(--c-bg2)] px-3 py-1.5 text-xs">
+          <span className="text-[var(--c-accent-text)]">⇄ Comparer</span>
+          <span className="min-w-0 flex-1 truncate font-mono text-[var(--c-text-secondary)]" title={diffPick.path}>
+            {diffPick.path}
+          </span>
+          <span className="shrink-0 text-[var(--c-text-muted)]">
+            choisissez le second fichier — n'importe où, même nom non requis
+          </span>
+          <button
+            onClick={() => setDiffPick(null)}
+            className="shrink-0 rounded-md bg-[var(--c-bg3)] px-2 py-0.5 text-[var(--c-text-secondary)] hover:bg-white/5"
+          >
+            Annuler
+          </button>
+        </div>
       )}
 
       {comparison && (
@@ -686,7 +736,7 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
           rightCwd={state.right.cwd}
           fontSize={fontSize}
           onSync={syncPaths}
-          onDiff={(path) => diffFiles(path, path)}
+          onDiff={(path) => runDiff({ side: "left", path }, { side: "right", path })}
           onClose={() => setComparison(null)}
           onRetry={comparePanes}
         />
@@ -819,9 +869,14 @@ interface PaneViewProps {
   /** Absent quand il n'y a pas deux arborescences à comparer (cible RDP, ou
    * panneau monté seul par un contrôle). */
   onCompare?: () => void;
-  /** Compare ce fichier avec celui du même nom dans le dossier affiché en
-   * face. Absent pour les mêmes raisons qu'`onCompare`. */
-  onDiffFile?: (name: string) => void;
+  /** Désigne ce fichier pour une comparaison de contenu — le premier appel
+   * arme, le second compare. Absent pour les mêmes raisons qu'`onCompare`. */
+  onPickForDiff?: (name: string) => void;
+  /** Le fichier de ce panneau qui est armé, s'il est de ce côté-ci. */
+  diffPick: string | null;
+  /** Un fichier est armé, quelque part : le menu propose alors « comparer
+   * avec » plutôt que « sélectionner pour comparer ». */
+  diffArmed: boolean;
   onFind: (side: Side, root: string, pattern: string) => Promise<PaneFindOutcome>;
   onArchive: (side: Side, names: string[], archiveName: string, format: ArchiveFormat) => void;
   onExtract: (side: Side, name: string, destName: string) => void;
@@ -880,7 +935,7 @@ const SHOW_TYPE_ABOVE = 330;
  * d'entrée : dans l'app, un panneau se rend toujours via `TransferTab`. */
 export function PaneView({
   side, pane, workspace, fontSize, onNavigate, onSourceChange, onCopy, onMkdir, onCreateFile, onRename,
-  onRemove, onChmod, onEdit, onOpenInEditor, onDirSize, onDiskSpace, onOpenTerminal, onCompare, onDiffFile, onFind, onArchive, onExtract, showHidden,
+  onRemove, onChmod, onEdit, onOpenInEditor, onDirSize, onDiskSpace, onOpenTerminal, onCompare, onPickForDiff, diffPick, diffArmed, onFind, onArchive, onExtract, showHidden,
   onToggleHidden, onDragStart, justDraggedRef, dragging, dropTarget, isRdpPush,
 }: PaneViewProps) {
   const [query, setQuery] = useState("");
@@ -1665,7 +1720,7 @@ export function PaneView({
                         const dragged = selected.has(entry.name) && selectedEntries.length > 1 ? selectedEntries : [entry];
                         onDragStart(side, dragged, e);
                       }}
-                      className={`group cursor-default px-2 py-[3px] hover:bg-[var(--c-bg2)] ${selected.has(entry.name) ? "bg-[var(--c-accent-dim)]" : ""} ${focusName === entry.name ? "ring-1 ring-inset ring-[var(--c-accent)]/60" : ""} ${isDropTarget ? "outline outline-1 -outline-offset-1 outline-[var(--c-accent)]" : ""}`}
+                      className={`group cursor-default px-2 py-[3px] hover:bg-[var(--c-bg2)] ${selected.has(entry.name) ? "bg-[var(--c-accent-dim)]" : ""} ${focusName === entry.name ? "ring-1 ring-inset ring-[var(--c-accent)]/60" : ""} ${diffPick === entry.name ? "ring-1 ring-inset ring-amber-400/80" : ""} ${isDropTarget ? "outline outline-1 -outline-offset-1 outline-[var(--c-accent)]" : ""}`}
                       style={gridStyle}
                     >
                       <input
@@ -1801,8 +1856,16 @@ export function PaneView({
                         ? [{ label: "Éditer ici", run: () => onEdit(side, menu.entry.name) }]
                         : []),
                       { label: "Ouvrir dans mon éditeur", run: () => onOpenInEditor(side, menu.entry.name) },
-                      ...(onDiffFile
-                        ? [{ label: "Comparer avec l'autre panneau", run: () => onDiffFile(menu.entry.name) }]
+                      ...(onPickForDiff
+                        ? [{
+                            label:
+                              diffPick === menu.entry.name
+                                ? "Ne plus comparer ce fichier"
+                                : diffArmed
+                                  ? "Comparer avec le fichier retenu"
+                                  : "Comparer avec un autre fichier…",
+                            run: () => onPickForDiff(menu.entry.name),
+                          }]
                         : []),
                     ]),
                 {
@@ -2222,41 +2285,87 @@ export function ComparisonPanel({
   );
 }
 
-/** Le contenu de deux fichiers, ligne à ligne.
+/** Exporté pour `scripts/visual-check-transfer-filediff.mjs` — même raison
+ * que `PaneView` et `ComparisonPanel` : parcourir les modifications, changer
+ * de lecture et voir le mot souligné sont des interactions.
  *
- * Format unifié (les deux versions l'une sous l'autre) plutôt que côte à
- * côte : dans un panneau de transfert la largeur est déjà partagée en deux,
- * et deux colonnes de code de plus donneraient quarante caractères par
- * version. Les numéros des deux fichiers restent affichés, c'est ce qui
- * permet de retrouver la ligne dans son éditeur. */
-function FileDiffModal({
-  state, fontSize, onClose,
+ * Le contenu de deux fichiers, ligne à ligne.
+ *
+ * Les deux chemins sont affichés côte à côte en tête : rien n'oblige les
+ * fichiers comparés à porter le même nom, et sans ça on ne saurait pas ce
+ * qu'on regarde. `↔` échange les deux côtés — on les désigne souvent dans
+ * l'ordre inverse de celui qu'on voulait.
+ *
+ * Deux lectures possibles, retenue d'une fois sur l'autre : unifiée (les
+ * versions l'une sous l'autre, comme `diff -u`) et côte à côte. La première
+ * tient dans n'importe quelle largeur, la seconde se lit mieux quand la
+ * fenêtre est grande — aucune des deux n'est bonne partout, d'où le choix. */
+export function FileDiffModal({
+  state, fontSize, labelOf, view, onViewChange, onSwap, onClose,
 }: {
   state:
-    | { path: string; status: "running" }
-    | { path: string; status: "done"; diff: FileDiff }
-    | { path: string; status: "failed"; error: string };
+    | { left: DiffPick; right: DiffPick; status: "running" }
+    | { left: DiffPick; right: DiffPick; status: "done"; diff: FileDiff }
+    | { left: DiffPick; right: DiffPick; status: "failed"; error: string };
   fontSize: number;
+  labelOf: (pick: DiffPick) => string;
+  view: "unified" | "split";
+  onViewChange: (view: "unified" | "split") => void;
+  onSwap: () => void;
   onClose: () => void;
 }) {
-  const { ref, dialogProps } = useModalSurface({ onClose, label: `Comparaison de ${state.path}` });
+  const { ref, dialogProps } = useModalSurface({ onClose, label: "Comparaison de deux fichiers" });
+  const bodyRef = useRef<HTMLDivElement>(null);
+  const [hunkIndex, setHunkIndex] = useState(0);
+  const hunks = state.status === "done" ? state.diff.hunks : [];
+
+  const goToHunk = (index: number) => {
+    if (hunks.length === 0) return;
+    const next = (index + hunks.length) % hunks.length;
+    setHunkIndex(next);
+    bodyRef.current?.querySelector(`[data-hunk="${next}"]`)?.scrollIntoView({ block: "start", behavior: "smooth" });
+  };
+
+  // Les modifications se parcourent au clavier, sans quitter la lecture pour
+  // aller chercher un bouton — c'est ce qu'on fait dans un diff un peu long.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === "n" || (e.key === "ArrowDown" && e.altKey)) { e.preventDefault(); goToHunk(hunkIndex + 1); }
+      if (e.key === "p" || (e.key === "ArrowUp" && e.altKey)) { e.preventDefault(); goToHunk(hunkIndex - 1); }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hunkIndex, hunks.length]);
+
+  const changedLines =
+    state.status === "done"
+      ? state.diff.hunks.reduce((sum, h) => sum + h.lines.filter((l) => l.kind !== "equal").length, 0)
+      : 0;
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6" onClick={onClose}>
       <div
         ref={ref}
         {...dialogProps}
         onClick={(e) => e.stopPropagation()}
-        className="flex h-full max-h-[80vh] w-full max-w-4xl flex-col rounded-lg border border-[var(--c-border)] bg-[var(--c-bg2)] shadow-xl"
+        className="flex h-full max-h-[85vh] w-full max-w-6xl flex-col rounded-lg border border-[var(--c-border)] bg-[var(--c-bg2)] shadow-xl"
       >
-        <div className="flex items-center gap-2 border-b border-[var(--c-border)] px-3 py-2">
-          <span className="min-w-0 flex-1 truncate font-mono text-xs text-[var(--c-text)]" title={state.path}>
-            {state.path}
+        {/* Les deux fichiers, nommés. */}
+        <div className="flex items-center gap-2 border-b border-[var(--c-border)] px-3 py-2 text-xs">
+          <span className="min-w-0 flex-1 truncate font-mono text-rose-200" title={labelOf(state.left)}>
+            − {labelOf(state.left)}
           </span>
-          {state.status === "done" && (
-            <span className="shrink-0 text-[11px] text-[var(--c-text-muted)]">
-              {state.diff.leftLines} ligne(s) à gauche · {state.diff.rightLines} à droite
-            </span>
-          )}
+          <button
+            onClick={onSwap}
+            title="Échanger les deux côtés"
+            className="shrink-0 rounded px-2 py-0.5 text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+          >
+            ↔
+          </button>
+          <span className="min-w-0 flex-1 truncate text-right font-mono text-emerald-200" title={labelOf(state.right)}>
+            + {labelOf(state.right)}
+          </span>
           <button aria-label="Fermer la comparaison" onClick={onClose} className="shrink-0 rounded px-2 py-0.5 text-[var(--c-text-secondary)] hover:bg-white/5">
             <IconClose size={12} />
           </button>
@@ -2271,46 +2380,67 @@ function FileDiffModal({
 
         {state.status === "done" && (
           <>
-            {state.diff.identical && (
+            <div className="flex flex-wrap items-center gap-2 border-b border-[var(--c-border)] px-3 py-1.5 text-[11px]">
+              <span className="text-[var(--c-text-secondary)]">
+                {state.diff.identical
+                  ? "Contenu identique"
+                  : `${changedLines} ligne(s) modifiée(s) en ${hunks.length} passage(s)`}
+              </span>
+              <span className="text-[var(--c-text-faint)]">
+                {state.diff.leftLines} ↔ {state.diff.rightLines} lignes
+              </span>
+              <span className="flex-1" />
+              {hunks.length > 1 && (
+                <span className="flex items-center gap-1">
+                  <button data-hunk-prev onClick={() => goToHunk(hunkIndex - 1)} title="Modification précédente (p)" className="rounded bg-[var(--c-bg3)] px-2 py-0.5 text-[var(--c-text-secondary)] hover:bg-white/5">
+                    ▲
+                  </button>
+                  <span className="tabular-nums text-[var(--c-text-muted)]">{hunkIndex + 1}/{hunks.length}</span>
+                  <button data-hunk-next onClick={() => goToHunk(hunkIndex + 1)} title="Modification suivante (n)" className="rounded bg-[var(--c-bg3)] px-2 py-0.5 text-[var(--c-text-secondary)] hover:bg-white/5">
+                    ▼
+                  </button>
+                </span>
+              )}
+              <span className="flex items-center gap-1">
+                <button
+                  data-diff-view="unified"
+                  onClick={() => onViewChange("unified")}
+                  className={`rounded px-2 py-0.5 ${view === "unified" ? "bg-[var(--c-accent)] text-white" : "bg-[var(--c-bg3)] text-[var(--c-text-secondary)] hover:bg-white/5"}`}
+                >
+                  Unifié
+                </button>
+                <button
+                  data-diff-view="split"
+                  onClick={() => onViewChange("split")}
+                  className={`rounded px-2 py-0.5 ${view === "split" ? "bg-[var(--c-accent)] text-white" : "bg-[var(--c-bg3)] text-[var(--c-text-secondary)] hover:bg-white/5"}`}
+                >
+                  Côte à côte
+                </button>
+              </span>
+            </div>
+
+            {state.diff.identical ? (
               <p className="flex flex-1 items-center justify-center text-sm text-[var(--c-text-muted)]">
                 Les deux fichiers ont exactement le même contenu.
               </p>
-            )}
-            {!state.diff.identical && (
-              <div className="min-h-0 flex-1 overflow-auto font-mono" style={{ fontSize: `${Math.max(10, fontSize - 1)}px` }} data-file-diff>
-                {state.diff.hunks.map((hunk, index) => (
-                  <div key={index} className="border-b border-[var(--c-border)] last:border-0">
+            ) : (
+              <div
+                ref={bodyRef}
+                data-file-diff={view}
+                className="min-h-0 flex-1 overflow-auto font-mono"
+                style={{ fontSize: `${Math.max(10, fontSize - 1)}px` }}
+              >
+                {hunks.map((hunk, index) => (
+                  <div key={index} data-hunk={index} className="border-b border-[var(--c-border)] last:border-0">
                     {index > 0 && (
                       <div className="bg-[var(--c-bg3)]/60 px-3 py-0.5 text-[10px] text-[var(--c-text-faint)]">⋯</div>
                     )}
-                    {hunk.lines.map((line, lineIndex) => (
-                      <div
-                        key={lineIndex}
-                        data-diff-kind={line.kind}
-                        className={`flex gap-2 px-2 ${
-                          line.kind === "deleted"
-                            ? "bg-rose-950/40 text-rose-200"
-                            : line.kind === "inserted"
-                              ? "bg-emerald-950/40 text-emerald-200"
-                              : "text-[var(--c-text-secondary)]"
-                        }`}
-                      >
-                        <span className="w-10 shrink-0 select-none text-right text-[var(--c-text-faint)] tabular-nums">
-                          {line.leftNo ?? ""}
-                        </span>
-                        <span className="w-10 shrink-0 select-none text-right text-[var(--c-text-faint)] tabular-nums">
-                          {line.rightNo ?? ""}
-                        </span>
-                        <span className="w-3 shrink-0 select-none">
-                          {line.kind === "deleted" ? "-" : line.kind === "inserted" ? "+" : " "}
-                        </span>
-                        <span className="whitespace-pre">{line.text || " "}</span>
-                      </div>
-                    ))}
+                    {view === "unified" ? <UnifiedHunk hunk={hunk} /> : <SplitHunk hunk={hunk} />}
                   </div>
                 ))}
               </div>
             )}
+
             {state.diff.truncated && (
               <p className="shrink-0 border-t border-[var(--c-border)] px-3 py-1.5 text-[11px] text-amber-400">
                 Trop de différences : l'affichage s'arrête ici, le reste n'est pas montré.
@@ -2320,5 +2450,92 @@ function FileDiffModal({
         )}
       </div>
     </div>
+  );
+}
+
+/** Le texte d'une ligne, avec la partie réellement modifiée soulignée quand
+ * le backend a su l'isoler (`segments`). Sur une ligne longue dont un port a
+ * changé, c'est ce qui évite de relire la ligne pour trouver quoi. */
+function DiffText({ line }: { line: DiffLine }) {
+  if (line.segments.length === 0) return <span className="whitespace-pre">{line.text || " "}</span>;
+  return (
+    <span className="whitespace-pre">
+      {line.segments.map((segment, index) => (
+        <span
+          key={index}
+          className={segment.emphasis ? (line.kind === "deleted" ? "rounded-sm bg-rose-500/30" : "rounded-sm bg-emerald-500/30") : ""}
+        >
+          {segment.text}
+        </span>
+      ))}
+    </span>
+  );
+}
+
+const LINE_BG: Record<DiffLine["kind"], string> = {
+  deleted: "bg-rose-950/40 text-rose-200",
+  inserted: "bg-emerald-950/40 text-emerald-200",
+  equal: "text-[var(--c-text-secondary)]",
+};
+
+function UnifiedHunk({ hunk }: { hunk: DiffHunk }) {
+  return (
+    <>
+      {hunk.lines.map((line, index) => (
+        <div key={index} data-diff-kind={line.kind} className={`flex gap-2 px-2 ${LINE_BG[line.kind]}`}>
+          <span className="w-10 shrink-0 select-none text-right text-[var(--c-text-faint)] tabular-nums">{line.leftNo ?? ""}</span>
+          <span className="w-10 shrink-0 select-none text-right text-[var(--c-text-faint)] tabular-nums">{line.rightNo ?? ""}</span>
+          <span className="w-3 shrink-0 select-none">
+            {line.kind === "deleted" ? "-" : line.kind === "inserted" ? "+" : " "}
+          </span>
+          <DiffText line={line} />
+        </div>
+      ))}
+    </>
+  );
+}
+
+/** Les deux versions en colonnes. Les lignes supprimées et ajoutées d'un même
+ * passage sont appariées dans l'ordre : c'est ce qui met la ligne d'avant en
+ * face de la ligne d'après, au lieu de deux colonnes qui glissent l'une par
+ * rapport à l'autre dès la première modification. */
+function SplitHunk({ hunk }: { hunk: DiffHunk }) {
+  const rows: { left: DiffLine | null; right: DiffLine | null }[] = [];
+  let pendingDeletes: DiffLine[] = [];
+  let pendingInserts: DiffLine[] = [];
+
+  const flush = () => {
+    for (let i = 0; i < Math.max(pendingDeletes.length, pendingInserts.length); i += 1) {
+      rows.push({ left: pendingDeletes[i] ?? null, right: pendingInserts[i] ?? null });
+    }
+    pendingDeletes = [];
+    pendingInserts = [];
+  };
+
+  for (const line of hunk.lines) {
+    if (line.kind === "deleted") pendingDeletes.push(line);
+    else if (line.kind === "inserted") pendingInserts.push(line);
+    else { flush(); rows.push({ left: line, right: line }); }
+  }
+  flush();
+
+  const cell = (line: DiffLine | null, side: "left" | "right") => (
+    <div className={`flex min-w-0 flex-1 gap-2 px-2 ${line ? LINE_BG[line.kind] : "bg-[var(--c-bg3)]/30"}`}>
+      <span className="w-10 shrink-0 select-none text-right text-[var(--c-text-faint)] tabular-nums">
+        {(side === "left" ? line?.leftNo : line?.rightNo) ?? ""}
+      </span>
+      {line ? <DiffText line={line} /> : <span> </span>}
+    </div>
+  );
+
+  return (
+    <>
+      {rows.map((row, index) => (
+        <div key={index} data-diff-kind={row.left?.kind ?? row.right?.kind} className="flex gap-px">
+          {cell(row.left, "left")}
+          {cell(row.right, "right")}
+        </div>
+      ))}
+    </>
   );
 }

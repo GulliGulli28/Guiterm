@@ -72,6 +72,8 @@ function Harness() {
     onFind: () => Promise.resolve({ paths: [], truncated: false }),
     onArchive: noop,
     onExtract: noop,
+    diffPick: null,
+    diffArmed: false,
     showHidden: true,
     onToggleHidden: noop,
     onDragStart: begin,

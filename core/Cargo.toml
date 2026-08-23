@@ -61,7 +61,10 @@ fs4 = { version = "1", default-features = false, features = ["sync"] }
 # main pour le voir dériver sur les cas tordus ne se justifie pas.
 # `default-features = false` + `text` : seul le diff de texte sert, pas les
 # variantes bytes/unicode-segmentation.
-similar = { version = "3", default-features = false, features = ["std", "text"] }
+# `inline` : le diff au mot à l'intérieur d'une ligne modifiée. Sans lui on
+# sait qu'une ligne a changé, pas où — sur une ligne de 200 caractères dont
+# un port a bougé, c'est toute la différence entre voir et chercher.
+similar = { version = "3", default-features = false, features = ["std", "text", "inline"] }
 # `docker::connect_via_ssh`: speaks the Docker Engine API over a `russh` exec
 # channel (`docker system dial-stdio`) instead of a socket/TCP connection —
 # same major version bollard itself resolves (`hyper = "1.3"`, `hyper-util =

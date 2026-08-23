@@ -82,6 +82,11 @@ export interface AppPreferences {
    * la bascule existe, et un client SSH sert précisément souvent à aller
    * chercher un `.env` ou un `.ssh/`. */
   sftpShowHidden: boolean;
+  /** Affichage de la comparaison de deux fichiers : `unified` met les deux
+   * versions l'une sous l'autre, `split` les met côte à côte. Retenu d'une
+   * fois sur l'autre — c'est une habitude de lecture, pas un choix par
+   * fichier. */
+  transferDiffView: "unified" | "split";
   uiAccent: UiAccent;
   uiBg: UiBg;
   colorMode: ColorMode;
@@ -275,6 +280,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   terminalFontSize: 14,
   sftpFontSize: 13,
   sftpShowHidden: true,
+  transferDiffView: "unified",
   uiAccent: "violet",
   uiBg: "aurora",
   colorMode: "dark",
