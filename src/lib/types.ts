@@ -848,10 +848,10 @@ export interface SyncItem {
   modified?: number | null;
 }
 
-/** Espace du système de fichiers d'un panneau distant — miroir de
- * `termius_core::pane_ops::DiskSpace`. Jamais renseigné pour le panneau
- * local : il n'y a pas d'API portable pour ça, et l'explorateur de fichiers
- * de la machine le dit déjà. */
+/** Espace du système de fichiers d'un panneau — miroir de
+ * `termius_core::pane_ops::DiskSpace`. `null` quand la mesure n'aboutit pas
+ * (chemin disparu, `df` absent d'un conteneur minimal) : l'interface
+ * n'affiche alors rien. */
 export interface PaneDiskSpace {
   totalBytes: number;
   freeBytes: number;

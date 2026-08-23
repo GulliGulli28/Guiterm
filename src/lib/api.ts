@@ -454,8 +454,8 @@ export const api = {
    * identifiant de transfert, progression et annulation par événements. */
   syncPaths: (sourcePaneId: string, sourceCwd: string, destPaneId: string, destCwd: string, items: SyncItem[]) =>
     invoke<string>("sync_paths", { sourcePaneId, sourceCwd, destPaneId, destCwd, items }),
-  /** Espace du système de fichiers qui porte `path`. `null` pour le panneau
-   * local, où ce n'est pas mesuré. */
+  /** Espace du système de fichiers qui porte `path`, panneau local compris.
+   * `null` quand la mesure n'aboutit pas. */
   paneDiskSpace: (paneId: string, path: string) => invoke<PaneDiskSpace | null>("pane_disk_space", { paneId, path }),
   readPaneFile: (paneId: string, cwd: string, name: string) => invoke<string>("read_pane_file", { paneId, cwd, name }),
   writePaneFile: (paneId: string, cwd: string, name: string, content: string) => invoke<void>("write_pane_file", { paneId, cwd, name, content }),

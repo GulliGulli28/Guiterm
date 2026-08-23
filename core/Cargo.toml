@@ -48,6 +48,13 @@ flate2 = "1"
 # `deflate` only: the other compression methods (bzip2, zstd, lzma) each pull
 # their own C or Rust codec in for a format nothing here writes.
 zip = { version = "4", default-features = false, features = ["deflate"] }
+# `pane_ops::disk_space` pour le panneau local : `statvfs` sous Unix,
+# `GetDiskFreeSpaceExW` sous Windows, derrière une seule fonction. La
+# bibliothèque standard n'expose rien pour l'espace libre, et les deux appels
+# système sont du `unsafe` spécifique à chaque plateforme qu'on préfère ne pas
+# écrire ici. `default-features = false` : seule l'API synchrone sert, les
+# variantes tokio/async-std/smol tireraient un runtime de plus.
+fs4 = { version = "1", default-features = false, features = ["sync"] }
 # `docker::connect_via_ssh`: speaks the Docker Engine API over a `russh` exec
 # channel (`docker system dial-stdio`) instead of a socket/TCP connection —
 # same major version bollard itself resolves (`hyper = "1.3"`, `hyper-util =

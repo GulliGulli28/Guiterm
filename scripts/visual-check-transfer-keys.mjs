@@ -3,10 +3,10 @@
 // Même raison d'être que le contrôle du glisser-déposer, et même montage
 // (la page de `visual-check-transfer-dnd.html`, qui monte deux vrais
 // panneaux sans Tauri) : ce sont des interactions, elles se lisent très bien
-// et ne marchent pas pour autant. Le point le plus délicat est le changement
-// de convention — le simple clic sélectionne désormais au lieu d'ouvrir, et
-// c'est le double-clic qui ouvre. Une régression là-dessus se verrait tout de
-// suite à l'usage mais aucun test sans navigateur ne l'attraperait.
+// et ne marchent pas pour autant. Le point délicat est la cohabitation de
+// deux gestes sur le même clic : un dossier s'ouvre au premier clic, mais
+// Ctrl et Maj doivent sélectionner sans jamais ouvrir — sinon étendre une
+// sélection à travers un dossier changerait de dossier en cours de route.
 //
 // Usage : node scripts/visual-check-transfer-keys.mjs
 import { createServer } from "vite";
@@ -49,23 +49,25 @@ try {
   await page.click(row("notes.md"));
   check(JSON.stringify(await selection()) === JSON.stringify(["notes.md"]), `clic simple : ${JSON.stringify(await selection())}`);
 
-  // 2. Et il n'ouvre rien, même sur un dossier — c'est le changement de
-  //    convention qu'il faut tenir.
+  // 2. Un dossier s'ouvre au premier clic.
   await resetNav();
   await page.click(row("projet"));
-  check((await navigations()).length === 0, "un simple clic sur un dossier ne doit pas l'ouvrir");
-  check(JSON.stringify(await selection()) === JSON.stringify(["projet"]), "le clic sur un dossier le sélectionne");
-
-  // 3. Le double-clic, si.
-  await page.dblclick(row("projet"));
   const opened = await navigations();
-  check(
-    opened.some((n) => n.path.endsWith("projet")),
-    `le double-clic doit ouvrir le dossier : ${JSON.stringify(opened)}`,
-  );
+  check(opened.some((n) => n.path.endsWith("projet")), `clic sur un dossier : ${JSON.stringify(opened)}`);
 
-  // 4. Maj+clic étend depuis la dernière ligne cliquée.
-  await page.click(row("projet"));
+  // 3. Mais Ctrl+clic le sélectionne sans y entrer — sans quoi on ne pourrait
+  //    plus archiver ni copier un dossier.
+  await resetNav();
+  await page.click(row("projet"), { modifiers: ["ControlOrMeta"] });
+  check((await navigations()).length === 0, "Ctrl+clic sur un dossier ne doit pas l'ouvrir");
+  check((await selection()).includes("projet"), `Ctrl+clic sélectionne : ${JSON.stringify(await selection())}`);
+
+  // 4. Maj+clic étend depuis la dernière ligne cliquée, sans ouvrir non plus.
+  await resetNav();
+  await page.click(row("rapport.pdf"));
+  await page.click(row("projet"), { modifiers: ["Shift"] });
+  check((await navigations()).length === 0, "Maj+clic à travers un dossier ne doit pas l'ouvrir");
+  await page.click(row("projet"), { modifiers: ["ControlOrMeta"] });
   await page.click(row("rapport.pdf"), { modifiers: ["Shift"] });
   check((await selection()).length === 3, `Maj+clic : ${JSON.stringify(await selection())}`);
 
@@ -81,16 +83,18 @@ try {
   await page.keyboard.press("Escape");
   check((await selection()).length === 0, `Échap : ${JSON.stringify(await selection())}`);
 
-  // 7. Les flèches déplacent la sélection d'une ligne.
-  await page.click(row("projet"));
+  // 7. Les flèches déplacent la sélection d'une ligne, sans rien ouvrir.
+  await resetNav();
+  await page.click(row("projet"), { modifiers: ["ControlOrMeta"] });
   await page.keyboard.press("ArrowDown");
+  check((await navigations()).length === 0, "les flèches ne doivent pas ouvrir de dossier");
   check(JSON.stringify(await selection()) === JSON.stringify(["notes.md"]), `flèche bas : ${JSON.stringify(await selection())}`);
   await page.keyboard.press("Shift+ArrowDown");
   check((await selection()).length === 2, `Maj+flèche étend : ${JSON.stringify(await selection())}`);
 
   // 8. Entrée ouvre la ligne courante ; Retour arrière remonte d'un dossier.
   await resetNav();
-  await page.click(row("projet"));
+  await page.click(row("projet"), { modifiers: ["ControlOrMeta"] });
   await page.keyboard.press("Enter");
   await page.keyboard.press("Backspace");
   const keyNav = await navigations();

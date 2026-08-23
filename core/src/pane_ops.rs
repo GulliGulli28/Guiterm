@@ -169,21 +169,33 @@ pub struct DiskSpace {
     pub free_bytes: u64,
 }
 
-/// Espace du système de fichiers qui porte `path`.
+/// Espace du système de fichiers qui porte `path`, des deux côtés.
 ///
-/// Seulement pour un panneau distant : côté local, il n'existe pas d'API
-/// portable dans la bibliothèque standard, et ajouter une dépendance pour
-/// afficher ce que l'explorateur de fichiers de la machine dit déjà ne le
-/// vaut pas. Le besoin réel est de savoir si **le serveur** a la place avant
-/// d'y envoyer dix gigaoctets.
+/// Côté distant c'est `df` ; côté local, `statvfs`/`GetDiskFreeSpaceExW` via
+/// `fs4` (la bibliothèque standard n'expose rien pour l'espace libre). Les
+/// deux panneaux répondent donc à la même question — savoir si la place
+/// manque là où on envoie, mais aussi là d'où on rapatrie.
 pub async fn disk_space(exec: &PaneExec, path: &str) -> anyhow::Result<DiskSpace> {
     match exec {
-        PaneExec::Local => anyhow::bail!("l'espace disque n'est pas mesuré pour le panneau local"),
+        PaneExec::Local => {
+            let path = std::path::PathBuf::from(path);
+            tokio::task::spawn_blocking(move || local_disk_space(&path)).await?
+        }
         PaneExec::Shell(shell) => {
             let out = shell.run(DISK_SPACE_SCRIPT, &[path]).await?;
             parse_disk_space(&out)
         }
     }
+}
+
+/// `fs4` interroge le système de fichiers qui porte `path`, comme `df` le
+/// fait de son côté. « Disponible » et non « libre » : sous Unix les deux
+/// diffèrent (des blocs sont réservés au superutilisateur), et c'est bien la
+/// place réellement utilisable qu'on veut annoncer.
+fn local_disk_space(path: &Path) -> anyhow::Result<DiskSpace> {
+    let total = fs4::total_space(path)?;
+    let free = fs4::available_space(path)?;
+    Ok(DiskSpace { total_bytes: total, free_bytes: free })
 }
 
 pub fn parse_disk_space(output: &str) -> anyhow::Result<DiskSpace> {
@@ -757,6 +769,19 @@ mod tests {
         assert_eq!(parse_dir_size("du: skipping\n12345\n").unwrap(), 12345);
         assert!(parse_dir_size("").is_err());
         assert!(parse_dir_size("pas un nombre").is_err());
+    }
+
+    #[tokio::test]
+    async fn local_disk_space_answers_for_a_real_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let space = disk_space(&PaneExec::Local, &dir.path().to_string_lossy()).await.unwrap();
+        assert!(space.total_bytes > 0, "un disque monté a une taille : {space:?}");
+        assert!(space.free_bytes <= space.total_bytes, "obtenu : {space:?}");
+
+        assert!(
+            disk_space(&PaneExec::Local, &dir.path().join("absent").to_string_lossy()).await.is_err(),
+            "un chemin inexistant doit remonter une erreur, pas un espace nul"
+        );
     }
 
     #[test]

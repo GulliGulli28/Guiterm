@@ -652,19 +652,19 @@ async fn sync_batch(
     Ok(())
 }
 
-/// Espace du système de fichiers qui porte `path`, pour un panneau distant.
-/// Rend `None` pour le panneau local (voir `pane_ops::disk_space`) plutôt
-/// qu'une erreur : l'interface n'affiche simplement rien.
+/// Espace du système de fichiers qui porte `path`. `None` quand la mesure
+/// échoue (chemin qui vient de disparaître, `df` absent d'un conteneur
+/// minimal) : l'interface n'affiche alors rien, plutôt que de faire remonter
+/// une erreur pour une information d'appoint que personne n'a demandée
+/// explicitement.
 #[tauri::command]
 pub async fn pane_disk_space(
     state: State<'_, AppState>,
     pane_id: String,
     path: String,
 ) -> Result<Option<pane_ops::DiskSpace>, String> {
-    match pane_exec(&state, &pane_id)? {
-        PaneExec::Local => Ok(None),
-        exec => pane_ops::disk_space(&exec, &path).await.map(Some).map_err(|e| e.to_string()),
-    }
+    let exec = pane_exec(&state, &pane_id)?;
+    Ok(pane_ops::disk_space(&exec, &path).await.ok())
 }
 
 /// Extrait une archive du panneau, sur place. `dest_name` vide = extraire dans

@@ -991,10 +991,17 @@ export function PaneView({
     return visible.slice(low, high + 1).map((e) => e.name);
   };
 
-  /** Le clic sur une ligne, aux conventions de tous les gestionnaires de
-   * fichiers : simple = sélectionner celle-ci seule, Ctrl = ajouter/retirer,
-   * Maj = étendre depuis la dernière. Ouvrir se fait au double-clic (ou avec
-   * Entrée) — sans quoi il n'y a pas de geste libre pour sélectionner. */
+  /** Le clic sur une ligne.
+   *
+   * **Un dossier s'ouvre au premier clic** : c'est le geste qu'on a dans les
+   * doigts ici, et le double-clic l'avait remplacé le temps d'un lot. Pour
+   * sélectionner un dossier sans y entrer, il reste sa case à cocher,
+   * Ctrl+clic et Maj+clic — tous trois sélectionnent et n'ouvrent jamais,
+   * sans quoi étendre une sélection à travers un dossier changerait de
+   * dossier en cours de route.
+   *
+   * Un fichier n'a rien à ouvrir : le clic le sélectionne, Ctrl ajoute ou
+   * retire, Maj étend depuis la dernière ligne cliquée. */
   const clickRow = (entry: Entry, e: React.MouseEvent) => {
     if (justDraggedRef.current) return;
     if (e.shiftKey && anchor) {
@@ -1014,6 +1021,7 @@ export function PaneView({
       });
       return;
     }
+    if (entry.isDir) { openEntry(entry); return; }
     setSelected(new Set([entry.name]));
   };
 
@@ -1161,7 +1169,7 @@ export function PaneView({
   /** Espace du système de fichiers du panneau. Rechargé à chaque changement de
    * dossier (un `df` est immédiat, contrairement au `du` d'un arbre) et remis
    * à jour après un transfert — c'est justement là qu'on veut savoir s'il
-   * reste de la place. `null` pour le panneau local, où ce n'est pas mesuré. */
+   * reste de la place. `null` quand la mesure n'aboutit pas. */
   const [disk, setDisk] = useState<PaneDiskSpace | null>(null);
   useEffect(() => {
     if (pane.status !== "open" || !pane.cwd) return;
@@ -1461,13 +1469,15 @@ export function PaneView({
                 >
                   <span className="text-[12px] leading-none">📄</span> Nouveau fichier
                 </button>
-                <button
-                  onClick={computeAllDirSizes}
-                  title="Calculer la taille de tous les dossiers affichés (un du par dossier — ça peut prendre du temps sur un gros arbre)"
-                  className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
-                >
-                  Σ Tailles
-                </button>
+                {visible.some((e) => e.isDir && !e.isSymlink) && (
+                  <button
+                    onClick={computeAllDirSizes}
+                    title="Calculer la taille de tous les dossiers affichés (un du par dossier — ça peut prendre du temps sur un gros arbre)"
+                    className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+                  >
+                    Σ Tailles
+                  </button>
+                )}
                 {selectedEntries.length === 1 && (
                   <button
                     onClick={startRename}
@@ -1613,7 +1623,6 @@ export function PaneView({
                       data-row-name={entry.name}
                       {...(entry.isDir ? { "data-drop-dir": entry.name, "data-drop-side": side } : {})}
                       onClick={(e) => clickRow(entry, e)}
-                      onDoubleClick={() => openEntry(entry)}
                       onContextMenu={(e) => openMenu(entry, e)}
                       onMouseDown={(e) => {
                         // Les cases à cocher et les boutons d'action gardent
@@ -1640,7 +1649,7 @@ export function PaneView({
                         className={`flex min-w-0 items-center gap-1.5 overflow-hidden text-left ${
                           entry.isDir ? "font-medium text-[var(--c-accent-text)]" : "text-[var(--c-text)]"
                         }`}
-                        title={entry.isDir ? `${entry.name} — double-cliquer pour ouvrir` : entry.name}
+                        title={entry.isDir ? `${entry.name} — cliquer pour ouvrir, Ctrl+clic pour sélectionner` : entry.name}
                       >
                         <span className="shrink-0 text-[13px]">{entry.isDir ? "📁" : "📄"}</span>
                         <span className="truncate">{entry.name}</span>
