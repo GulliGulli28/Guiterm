@@ -537,6 +537,21 @@ pub async fn pane_archive(
     Ok(PaneListed { cwd, entries })
 }
 
+/// Espace du système de fichiers qui porte `path`, pour un panneau distant.
+/// Rend `None` pour le panneau local (voir `pane_ops::disk_space`) plutôt
+/// qu'une erreur : l'interface n'affiche simplement rien.
+#[tauri::command]
+pub async fn pane_disk_space(
+    state: State<'_, AppState>,
+    pane_id: String,
+    path: String,
+) -> Result<Option<pane_ops::DiskSpace>, String> {
+    match pane_exec(&state, &pane_id)? {
+        PaneExec::Local => Ok(None),
+        exec => pane_ops::disk_space(&exec, &path).await.map(Some).map_err(|e| e.to_string()),
+    }
+}
+
 /// Extrait une archive du panneau, sur place. `dest_name` vide = extraire dans
 /// le dossier courant ; sinon dans un sous-dossier de ce nom, créé au besoin.
 #[tauri::command]

@@ -805,6 +805,15 @@ export interface PaneFindOutcome {
   truncated: boolean;
 }
 
+/** Espace du système de fichiers d'un panneau distant — miroir de
+ * `termius_core::pane_ops::DiskSpace`. Jamais renseigné pour le panneau
+ * local : il n'y a pas d'API portable pour ça, et l'explorateur de fichiers
+ * de la machine le dit déjà. */
+export interface PaneDiskSpace {
+  totalBytes: number;
+  freeBytes: number;
+}
+
 /** Ce que l'utilisateur choisit quand un nom est déjà pris à destination —
  * miroir de `commands::sftp::ConflictPolicy`. Ne concerne que les entrées
  * désignées : plus profond, un dossier recopié par-dessus un autre fusionne. */

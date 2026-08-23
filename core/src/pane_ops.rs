@@ -147,6 +147,57 @@ fn local_dir_size(root: &Path) -> anyhow::Result<u64> {
     Ok(total)
 }
 
+// ── Espace disque du dossier courant ────────────────────────────────────────
+
+/// `df` du système de fichiers qui porte `$1`, en octets : total puis
+/// disponible.
+///
+/// `-P` (format POSIX) garantit une ligne par système de fichiers — sans lui,
+/// un nom de périphérique long est replié sur deux lignes et les colonnes ne
+/// sont plus là où on les attend. `-k` pour des blocs de 1 Ko, la seule unité
+/// que toutes les implémentations partagent. Repli sans `-P` pour les `df`
+/// qui ne le connaissent pas (busybox selon la version).
+pub const DISK_SPACE_SCRIPT: &str = r#"
+out=$(df -Pk -- "$1" 2>/dev/null) || out=$(df -k -- "$1" 2>/dev/null) || exit 1
+echo "$out" | awk 'NR > 1 && NF >= 4 { total = $2; free = $4 } END { if (total == "") exit 1; print total, free }'
+"#;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DiskSpace {
+    pub total_bytes: u64,
+    pub free_bytes: u64,
+}
+
+/// Espace du système de fichiers qui porte `path`.
+///
+/// Seulement pour un panneau distant : côté local, il n'existe pas d'API
+/// portable dans la bibliothèque standard, et ajouter une dépendance pour
+/// afficher ce que l'explorateur de fichiers de la machine dit déjà ne le
+/// vaut pas. Le besoin réel est de savoir si **le serveur** a la place avant
+/// d'y envoyer dix gigaoctets.
+pub async fn disk_space(exec: &PaneExec, path: &str) -> anyhow::Result<DiskSpace> {
+    match exec {
+        PaneExec::Local => anyhow::bail!("l'espace disque n'est pas mesuré pour le panneau local"),
+        PaneExec::Shell(shell) => {
+            let out = shell.run(DISK_SPACE_SCRIPT, &[path]).await?;
+            parse_disk_space(&out)
+        }
+    }
+}
+
+pub fn parse_disk_space(output: &str) -> anyhow::Result<DiskSpace> {
+    let line = output.trim().lines().next_back().unwrap_or_default();
+    let mut fields = line.split_whitespace();
+    let total: u64 = fields.next().and_then(|v| v.parse().ok()).unwrap_or(0);
+    let free: u64 = fields.next().and_then(|v| v.parse().ok()).unwrap_or(0);
+    if total == 0 {
+        anyhow::bail!("espace disque illisible : {:?}", output.trim());
+    }
+    // `df -k` compte en blocs de 1 Ko.
+    Ok(DiskSpace { total_bytes: total * 1024, free_bytes: free * 1024 })
+}
+
 // ── Recherche récursive par nom ─────────────────────────────────────────────
 
 /// Profondeur maximale de la recherche, même raison que
@@ -580,6 +631,15 @@ mod tests {
     }
 
     #[test]
+    fn disk_space_is_read_in_kilobyte_blocks() {
+        let space = parse_disk_space("102400 51200\n").unwrap();
+        assert_eq!(space.total_bytes, 100 * 1024 * 1024);
+        assert_eq!(space.free_bytes, 50 * 1024 * 1024);
+        assert!(parse_disk_space("").is_err());
+        assert!(parse_disk_space("df: /absent: No such file").is_err());
+    }
+
+    #[test]
     fn a_plain_pattern_gets_wildcards_unless_it_has_them() {
         assert_eq!(globbed("nginx.conf"), "*nginx.conf*");
         assert_eq!(globbed("*.conf"), "*.conf");
@@ -864,6 +924,22 @@ mod shell_script_tests {
         let (ok, _, stderr) = run(DIR_SIZE_SCRIPT, &[&dir.path().join("absent").to_string_lossy()]);
         assert!(!ok, "un dossier inexistant ne doit pas rendre une taille");
         assert!(stderr.contains("impossible de calculer"), "message français attendu : {stderr}");
+    }
+
+    #[test]
+    fn disk_space_script_reads_this_machines_df() {
+        let dir = tree();
+        let (ok, stdout, stderr) = run(DISK_SPACE_SCRIPT, &[&dir.path().to_string_lossy()]);
+        assert!(ok, "stderr : {stderr}");
+        let space = parse_disk_space(&stdout).expect("sortie lisible");
+        assert!(space.total_bytes > 0 && space.free_bytes <= space.total_bytes, "obtenu : {space:?}");
+    }
+
+    #[test]
+    fn disk_space_script_fails_on_a_missing_path() {
+        let dir = tempfile::tempdir().unwrap();
+        let (ok, _, _) = run(DISK_SPACE_SCRIPT, &[&dir.path().join("absent").to_string_lossy()]);
+        assert!(!ok, "un chemin inexistant ne doit pas rendre un espace");
     }
 
     #[test]

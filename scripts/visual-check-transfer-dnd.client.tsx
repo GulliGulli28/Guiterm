@@ -68,6 +68,7 @@ function Harness() {
     onEdit: noop,
     onOpenInEditor: noop,
     onDirSize: () => Promise.resolve(0),
+    onDiskSpace: () => Promise.resolve(null),
     onFind: () => Promise.resolve({ paths: [], truncated: false }),
     onArchive: noop,
     onExtract: noop,

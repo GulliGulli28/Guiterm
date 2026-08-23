@@ -3,7 +3,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, onTransferDone, onTransferError, onTransferProgress } from "../lib/api";
 import type { AppPreferences } from "../lib/preferences";
-import type { ArchiveFormat, ConflictPolicy, CopyConflict, Entry, Host, PaneFindOutcome, PaneListed, PaneOpened, PaneSource, PaneState, RemoteEditListed, Workspace } from "../lib/types";
+import type { ArchiveFormat, ConflictPolicy, CopyConflict, Entry, Host, PaneDiskSpace, PaneFindOutcome, PaneListed, PaneOpened, PaneSource, PaneState, RemoteEditListed, Workspace } from "../lib/types";
 import { IconFolder, IconEdit, IconExternal, IconTrash, IconShield, IconClose, IconSearch } from "./ui-icons";
 import { QuickEditModal } from "./QuickEditModal";
 import { RdpTab } from "./RdpTab";
@@ -356,6 +356,12 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
     return api.paneDirSize(paneId, path);
   };
 
+  const diskSpace = (side: Side, path: string): Promise<PaneDiskSpace | null> => {
+    const paneId = paneIds.current[side];
+    if (!paneId) return Promise.resolve(null);
+    return api.paneDiskSpace(paneId, path);
+  };
+
   const findIn = (side: Side, root: string, pattern: string): Promise<PaneFindOutcome> => {
     const paneId = paneIds.current[side];
     if (!paneId) return Promise.reject(new Error("Panneau non ouvert."));
@@ -559,6 +565,7 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
     onEdit: openEdit,
     onOpenInEditor: openInEditor,
     onDirSize: dirSize,
+    onDiskSpace: diskSpace,
     onFind: findIn,
     onArchive: archive,
     onExtract: extract,
@@ -714,6 +721,7 @@ interface PaneViewProps {
   onEdit: (side: Side, name: string) => void;
   onOpenInEditor: (side: Side, name: string) => void;
   onDirSize: (side: Side, path: string) => Promise<number>;
+  onDiskSpace: (side: Side, path: string) => Promise<PaneDiskSpace | null>;
   onFind: (side: Side, root: string, pattern: string) => Promise<PaneFindOutcome>;
   onArchive: (side: Side, names: string[], archiveName: string, format: ArchiveFormat) => void;
   onExtract: (side: Side, name: string, destName: string) => void;
@@ -772,7 +780,7 @@ const SHOW_TYPE_ABOVE = 330;
  * d'entrée : dans l'app, un panneau se rend toujours via `TransferTab`. */
 export function PaneView({
   side, pane, workspace, fontSize, onNavigate, onSourceChange, onCopy, onMkdir, onCreateFile, onRename,
-  onRemove, onChmod, onEdit, onOpenInEditor, onDirSize, onFind, onArchive, onExtract, showHidden,
+  onRemove, onChmod, onEdit, onOpenInEditor, onDirSize, onDiskSpace, onFind, onArchive, onExtract, showHidden,
   onToggleHidden, onDragStart, justDraggedRef, dragging, dropTarget, isRdpPush,
 }: PaneViewProps) {
   const [query, setQuery] = useState("");
@@ -1084,6 +1092,23 @@ export function PaneView({
     setMenu({ x: e.clientX, y: e.clientY, entry });
   };
 
+  /** Espace du système de fichiers du panneau. Rechargé à chaque changement de
+   * dossier (un `df` est immédiat, contrairement au `du` d'un arbre) et remis
+   * à jour après un transfert — c'est justement là qu'on veut savoir s'il
+   * reste de la place. `null` pour le panneau local, où ce n'est pas mesuré. */
+  const [disk, setDisk] = useState<PaneDiskSpace | null>(null);
+  useEffect(() => {
+    if (pane.status !== "open" || !pane.cwd) return;
+    let cancelled = false;
+    onDiskSpace(side, pane.cwd)
+      .then((space) => { if (!cancelled) setDisk(space); })
+      .catch(() => { if (!cancelled) setDisk(null); });
+    return () => { cancelled = true; };
+    // `pane.entries` en dépendance : le listing change après un envoi, une
+    // suppression ou une archive — les moments exactement où l'espace bouge.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [side, pane.status, pane.cwd, pane.entries]);
+
   // ── Taille des dossiers, à la demande ────────────────────────────────────
   const computeDirSize = async (entry: Entry) => {
     const path = joinPath(pane.cwd, entry.name);
@@ -1204,6 +1229,15 @@ export function PaneView({
               ))}
             </div>
             <div className="flex shrink-0 items-center gap-1">
+              {disk && disk.totalBytes > 0 && (
+                <span
+                  title={`${formatSize(disk.freeBytes)} libres sur ${formatSize(disk.totalBytes)} — système de fichiers de ${pane.cwd}`}
+                  className={`shrink-0 tabular-nums ${disk.freeBytes / disk.totalBytes < 0.1 ? "text-amber-400" : "text-[var(--c-text-faint)]"}`}
+                  style={{ fontSize: `${Math.max(9, fontSize - 3)}px` }}
+                >
+                  {formatSize(disk.freeBytes)} libres
+                </span>
+              )}
               <button
                 onClick={refresh}
                 title="Rafraîchir (F5)"

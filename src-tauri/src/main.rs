@@ -146,6 +146,7 @@ fn main() {
             commands::sftp::pane_find,
             commands::sftp::pane_archive,
             commands::sftp::pane_extract,
+            commands::sftp::pane_disk_space,
             commands::sftp::read_pane_file,
             commands::sftp::write_pane_file,
             commands::sftp::upload_paths,
