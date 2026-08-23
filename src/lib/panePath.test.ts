@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { baseName, breadcrumbs, joinPath, parentPath, pathSeparator } from "./panePath";
+import { baseName, breadcrumbs, cdCommand, joinPath, parentPath, pathSeparator } from "./panePath";
 
 // Le bug réel : dans un panneau local sous Windows, « dossier parent » depuis
 // `C:\Users\glorin` (le dossier d'ouverture) ne remontait pas d'un cran, il
@@ -90,5 +90,23 @@ describe("baseName", () => {
     expect(baseName("/var/log/nginx.conf")).toBe("nginx.conf");
     expect(baseName("C:\\Users\\glorin\\notes.txt")).toBe("notes.txt");
     expect(baseName("/var/log/")).toBe("log");
+  });
+});
+
+describe("cdCommand", () => {
+  it("protège un chemin POSIX en apostrophes", () => {
+    expect(cdCommand("/var/log")).toBe("cd '/var/log'");
+    // Une espace, un `$`, une apostrophe : le chemin doit arriver intact.
+    expect(cdCommand("/srv/mes projets")).toBe("cd '/srv/mes projets'");
+    expect(cdCommand("/srv/$HOME")).toBe("cd '/srv/$HOME'");
+    expect(cdCommand("/srv/l'appli")).toBe("cd '/srv/l'\\''appli'");
+  });
+
+  it("utilise des guillemets doubles sous Windows, et /d seulement pour cmd", () => {
+    expect(cdCommand("C:\\Users\\glorin")).toBe('cd "C:\\Users\\glorin"');
+    expect(cdCommand("C:\\Users\\glorin", "powershell.exe")).toBe('cd "C:\\Users\\glorin"');
+    // Sans /d, cmd ne change pas de lecteur.
+    expect(cdCommand("D:\\travail", "C:\\Windows\\System32\\cmd.exe")).toBe('cd /d "D:\\travail"');
+    expect(cdCommand("D:\\travail", "cmd")).toBe('cd /d "D:\\travail"');
   });
 });

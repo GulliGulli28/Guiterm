@@ -53,6 +53,10 @@ interface TerminalTabProps {
   /** Called when a command that ran a while finishes and this terminal isn't
    * what the user is looking at — see `lib/longCommand.ts`. */
   onLongCommand?: (command: string, durationMs: number, where: string) => void;
+  /** Envoyée une fois la session ouverte — un `cd` quand l'onglet vient d'un
+   * panneau de transfert. Jamais rejouée sur une reconnexion : elle
+   * appartient à l'ouverture de l'onglet, pas à la session. */
+  initialCommand?: string;
   /** When set, execs into this Docker container on `host` instead of opening an SSH shell. */
   dockerContainerId?: string;
   /** When set, execs into this pod (and, if given, container) on `host`
@@ -62,7 +66,7 @@ interface TerminalTabProps {
   k8sContainerName?: string | null;
 }
 
-export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(function TerminalTab({ host, isActive, preferences, onDisconnect, onInputData, onLongCommand, dockerContainerId, k8sPodName, k8sContainerName }, ref) {
+export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(function TerminalTab({ host, isActive, preferences, onDisconnect, onInputData, onLongCommand, initialCommand, dockerContainerId, k8sPodName, k8sContainerName }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -296,6 +300,17 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
         fit.fit();
         api.resizeTerminal(id, term.cols, term.rows).catch(() => {});
         ghost.remeasure();
+
+        // Le délai, comme dans `LocalTerminalTab` : le shell distant n'a pas
+        // encore écrit son invite au moment où la session s'ouvre, et une
+        // commande envoyée avant se perd dans l'initialisation.
+        if (initialCommand && !isRetry) {
+          setTimeout(() => {
+            if (!disposed && sessionIdRef.current === id) {
+              api.writeTerminal(id, new TextEncoder().encode(initialCommand + "\r")).catch(() => {});
+            }
+          }, 400);
+        }
       } catch (e) {
         if (disposed) return;
         if (isRetry) {

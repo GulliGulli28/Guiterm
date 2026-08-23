@@ -878,6 +878,10 @@ export type TabMeta =
       hostId: HostId;
       label: string;
       status?: "connected" | "placeholder";
+      /** Envoyée une fois la session ouverte — un `cd` quand l'onglet a été
+       * ouvert depuis un panneau de transfert (« Terminal ici »). Même
+       * mécanisme que `local-terminal` plus bas. */
+      initialCommand?: string;
       dockerContainerId?: string;
       k8sPodName?: string;
       k8sContainerName?: string | null;

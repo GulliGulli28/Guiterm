@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { check as checkForUpdate } from "@tauri-apps/plugin-updater";
 import { api, onSshAuthPrompt } from "./lib/api";
-import type { AwsSsoSession, GroupId, Host, HostId, SqlConnection, SshAuthPrompt, TabMeta, VaultStatus, Workspace } from "./lib/types";
+import type { AwsSsoSession, GroupId, Host, HostId, PaneSource, SqlConnection, SshAuthPrompt, TabMeta, VaultStatus, Workspace } from "./lib/types";
 import { isHostBoundTab } from "./lib/types";
 import { Sidebar } from "./components/Sidebar";
 import { HostForm } from "./components/HostForm";
@@ -13,6 +13,7 @@ import { TabLoadingFallback } from "./components/TabLoadingFallback";
 
 import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, loadPreferences, savePreferences } from "./lib/preferences";
 import { resolveVisiblePanel, type SidebarPanelKind } from "./lib/sidebarButtons";
+import { cdCommand } from "./lib/panePath";
 import { renderModuleTab } from "./modules/registry";
 import type { AppContext, SidebarActions } from "./modules/types";
 // Lazy : `SplitPane` monte un terminal, donc importe xterm. Eager, il
@@ -280,6 +281,29 @@ export default function App() {
     activeTabRecording, startActiveRecording, stopActiveRecording,
   } = useTabs({ workspace, preferences, terminalRefs, pushNotification, reportError, refreshWorkspace });
 
+  /** « Ouvrir un terminal ici », depuis un panneau de transfert : même cible
+   * (locale, hôte SSH, conteneur Docker, pod K8s) et un `cd` vers le dossier
+   * affiché. La commande est envoyée par l'onglet lui-même une fois la session
+   * ouverte — voir `initialCommand` dans `TerminalTab`/`LocalTerminalTab`. */
+  const openTerminalIn = useCallback((source: PaneSource, cwd: string) => {
+    if (source.kind === "local") {
+      openLocalTerminal(cdCommand(cwd, preferences.defaultLocalShell));
+      return;
+    }
+    const host = workspace?.hosts.find((h) => h.id === source.hostId);
+    if (!host) { reportError("Hôte introuvable pour ouvrir un terminal."); return; }
+    openTab(
+      "terminal",
+      host,
+      source.kind === "docker" ? source.containerId : undefined,
+      source.kind === "k8s" ? source.podName : undefined,
+      source.kind === "k8s" ? source.containerName : undefined,
+      cdCommand(cwd),
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [workspace?.hosts, preferences.defaultLocalShell, openLocalTerminal, openTab]);
+
+
   const {
     broadcastMode, setBroadcastMode,
     broadcastTargets, broadcastSelected, setBroadcastSelected,
@@ -493,7 +517,7 @@ export default function App() {
   // mémoïsation : cet objet n'est pas une prop d'un composant mémoïsé, il est
   // consommé immédiatement par des fonctions de rendu.
   const moduleContext: AppContext = {
-    workspace, preferences, updatePreferences, reportError, pushNotification, refreshWorkspace,
+    workspace, preferences, updatePreferences, openTerminalIn, reportError, pushNotification, refreshWorkspace,
     closeTab, notifyLongCommand, mirrorInput,
     // La table des poignées reste ici : la palette, le broadcast, le zoom et
     // la recherche terminal l'interrogent. Les modules n'ont le droit que d'y

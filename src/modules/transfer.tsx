@@ -19,6 +19,7 @@ export const transferModule = defineModule({
           workspace={ctx.workspace}
           preferences={ctx.preferences}
           onPreferencesChange={ctx.updatePreferences}
+          onOpenTerminal={ctx.openTerminalIn}
           onError={ctx.reportError}
           onPushed={(message) => ctx.pushNotification("success", message)}
           dockerContainerId={tab.dockerContainerId}

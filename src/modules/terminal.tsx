@@ -36,6 +36,7 @@ export const terminalModule = defineModule({
           dockerContainerId={tab.dockerContainerId}
           k8sPodName={tab.k8sPodName}
           k8sContainerName={tab.k8sContainerName}
+          initialCommand={tab.initialCommand}
           ref={(handle) => ctx.registerTerminalHandle(tab.id, handle)}
         />
       );

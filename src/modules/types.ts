@@ -4,7 +4,7 @@ import type { NotificationKind } from "../lib/notifications";
 import type { AppPreferences } from "../lib/preferences";
 import type {
   AwsSessionAlert, AwsSsoSession, Group, GroupId, Host, HostId, KeyAlgorithm, KeyId,
-  PortForwardId, PortForwardKind, SnippetId, SqlConnection, TabMeta, VaultStatus, Workspace,
+  PaneSource, PortForwardId, PortForwardKind, SnippetId, SqlConnection, TabMeta, VaultStatus, Workspace,
 } from "../lib/types";
 import type { SidebarPanelKind } from "../lib/sidebarButtons";
 
@@ -28,6 +28,11 @@ export interface AppContext {
    * bascule « fichiers cachés » d'un panneau de transfert). Le lecteur et
    * l'écrivain vont ensemble ; c'est la seule raison d'ajouter un champ ici. */
   updatePreferences: (p: AppPreferences) => void;
+  /** Ouvre un terminal sur la cible d'un panneau de transfert, dans le dossier
+   * indiqué. Le pendant, côté fichiers, du lien hôte ↔ base de données ajouté
+   * en 3.1.0 : ce sont deux vues de la même machine, et passer de l'une à
+   * l'autre demandait de rouvrir une connexion à la main. */
+  openTerminalIn: (source: PaneSource, cwd: string) => void;
   /** Bannière d'état + notification d'erreur. Prend un message déjà formulé
    * pour l'utilisateur, pas une exception. */
   reportError: (message: string) => void;

@@ -28,7 +28,7 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
   const [tabs, setTabs] = useState<TabMeta[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
 
-  const openTab = useCallback((kind: "terminal" | "transfer" | "rdp-view", host: Host, dockerContainerId?: string, k8sPodName?: string, k8sContainerName?: string | null) => {
+  const openTab = useCallback((kind: "terminal" | "transfer" | "rdp-view", host: Host, dockerContainerId?: string, k8sPodName?: string, k8sContainerName?: string | null, initialCommand?: string) => {
     const id = `tab-${nextTabId++}`;
     const label = kind === "transfer"
       ? `Transfert : ${host.label}`
@@ -39,13 +39,16 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
           : k8sPodName
             ? `${host.label} : ${k8sPodName}`
             : host.label;
-    setTabs((prev) => [...prev, { id, kind, hostId: host.id, label, dockerContainerId, k8sPodName, k8sContainerName }]);
+    setTabs((prev) => [...prev, { id, kind, hostId: host.id, label, dockerContainerId, k8sPodName, k8sContainerName, initialCommand }]);
     setActiveTabId(id);
   }, []);
 
   const openLocalTerminal = useCallback((initialCommand?: string, shell?: string | null) => {
     const id = `tab-${nextTabId++}`;
-    const label = initialCommand ? `ssh ${initialCommand.replace(/^ssh\s+/, "")}` : "Terminal local";
+    // Le libellé ne vaut que pour la voie « quickSSH » : une commande
+    // initiale peut aussi être un simple `cd` (onglet ouvert depuis un
+    // panneau de transfert), qui n'a rien à faire dans le titre.
+    const label = initialCommand?.startsWith("ssh ") ? `ssh ${initialCommand.slice(4)}` : "Terminal local";
     setTabs((prev) => [...prev, { id, kind: "local-terminal", label, initialCommand, shell: shell ?? preferences.defaultLocalShell }]);
     setActiveTabId(id);
   }, [preferences.defaultLocalShell]);

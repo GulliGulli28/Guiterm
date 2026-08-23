@@ -82,3 +82,22 @@ export function breadcrumbs(path: string): Crumb[] {
   }
   return crumbs;
 }
+
+/** La commande qui amène un terminal dans `cwd`.
+ *
+ * Le guillemetage dépend du shell qui va la lire, pas de la plateforme du
+ * chemin : un chemin POSIX part dans un `sh` distant, un chemin Windows dans
+ * le shell local. En apostrophes pour POSIX (rien n'y est interprété, donc un
+ * chemin contenant `$` ou une espace passe intact) ; en guillemets doubles
+ * pour Windows, les seuls que `cmd` et PowerShell comprennent tous les deux.
+ *
+ * `cd /d` pour `cmd` uniquement : sans lui, `cd D:\travail` depuis `C:` ne
+ * change pas de lecteur — il enregistre juste le dossier courant de `D:` et
+ * ne bouge pas. PowerShell, lui, ne connaît pas ce commutateur. */
+export function cdCommand(cwd: string, shell?: string | null): string {
+  if (pathSeparator(cwd) === "/") {
+    return `cd '${cwd.replace(/'/g, `'\\''`)}'`;
+  }
+  const isCmd = /(^|[\\/])cmd(\.exe)?$/i.test((shell ?? "").trim());
+  return `cd ${isCmd ? "/d " : ""}"${cwd}"`;
+}

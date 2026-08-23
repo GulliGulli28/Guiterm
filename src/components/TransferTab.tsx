@@ -115,6 +115,9 @@ interface TransferTabProps {
   /** Pour la bascule « fichiers cachés », qui se retient d'une session à
    * l'autre plutôt que d'être à recliquer à chaque onglet ouvert. */
   onPreferencesChange?: (next: AppPreferences) => void;
+  /** « Ouvrir un terminal ici » : même cible que le panneau, dans le dossier
+   * affiché. */
+  onOpenTerminal?: (source: PaneSource, cwd: string) => void;
   onError: (message: string) => void;
   /** Fires after a successful `pushToRdp` — the RDP clipboard push has no
    * other visible effect (nothing lands in either file pane), so without
@@ -130,7 +133,7 @@ interface TransferTabProps {
   k8sContainerName?: string | null;
 }
 
-export function TransferTab({ host, workspace, preferences, onPreferencesChange, onError, onPushed, dockerContainerId, k8sPodName, k8sContainerName }: TransferTabProps) {
+export function TransferTab({ host, workspace, preferences, onPreferencesChange, onOpenTerminal, onError, onPushed, dockerContainerId, k8sPodName, k8sContainerName }: TransferTabProps) {
   // RDP hosts have no file-listing backend at all — the right panel is the
   // live embedded view itself (`RdpTab`) instead of a browsable pane, and
   // dropping entries from the left panel onto it pushes them onto the
@@ -566,6 +569,7 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
     onOpenInEditor: openInEditor,
     onDirSize: dirSize,
     onDiskSpace: diskSpace,
+    onOpenTerminal: onOpenTerminal ? (path: string) => onOpenTerminal(state[side].source, path) : undefined,
     onFind: findIn,
     onArchive: archive,
     onExtract: extract,
@@ -722,6 +726,10 @@ interface PaneViewProps {
   onOpenInEditor: (side: Side, name: string) => void;
   onDirSize: (side: Side, path: string) => Promise<number>;
   onDiskSpace: (side: Side, path: string) => Promise<PaneDiskSpace | null>;
+  /** Absent quand l'onglet n'a pas de quoi ouvrir un onglet (le contrôle
+   * Playwright, qui monte un panneau seul) — le bouton n'est alors pas
+   * affiché plutôt que d'être sans effet. */
+  onOpenTerminal?: (path: string) => void;
   onFind: (side: Side, root: string, pattern: string) => Promise<PaneFindOutcome>;
   onArchive: (side: Side, names: string[], archiveName: string, format: ArchiveFormat) => void;
   onExtract: (side: Side, name: string, destName: string) => void;
@@ -780,7 +788,7 @@ const SHOW_TYPE_ABOVE = 330;
  * d'entrée : dans l'app, un panneau se rend toujours via `TransferTab`. */
 export function PaneView({
   side, pane, workspace, fontSize, onNavigate, onSourceChange, onCopy, onMkdir, onCreateFile, onRename,
-  onRemove, onChmod, onEdit, onOpenInEditor, onDirSize, onDiskSpace, onFind, onArchive, onExtract, showHidden,
+  onRemove, onChmod, onEdit, onOpenInEditor, onDirSize, onDiskSpace, onOpenTerminal, onFind, onArchive, onExtract, showHidden,
   onToggleHidden, onDragStart, justDraggedRef, dragging, dropTarget, isRdpPush,
 }: PaneViewProps) {
   const [query, setQuery] = useState("");
@@ -1420,6 +1428,15 @@ export function PaneView({
                     <IconShield size={12} /> Permissions
                   </button>
                 )}
+                {onOpenTerminal && (
+                  <button
+                    onClick={() => onOpenTerminal(pane.cwd)}
+                    title="Ouvrir un terminal sur cette machine, dans ce dossier"
+                    className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+                  >
+                    <span className="text-[12px] leading-none">▮</span> Terminal ici
+                  </button>
+                )}
                 {onToggleHidden && (
                   <button
                     onClick={onToggleHidden}
@@ -1665,6 +1682,9 @@ export function PaneView({
                   ? [
                       { label: "Ouvrir", run: () => openEntry(menu.entry) },
                       { label: "Calculer la taille", run: () => computeDirSize(menu.entry) },
+                      ...(onOpenTerminal
+                        ? [{ label: "Terminal dans ce dossier", run: () => onOpenTerminal(joinPath(pane.cwd, menu.entry.name)) }]
+                        : []),
                     ]
                   : [
                       ...(menu.entry.size <= QUICK_EDIT_MAX_SIZE
