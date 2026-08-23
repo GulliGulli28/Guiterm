@@ -37,11 +37,39 @@ This changelog starts 2026-07-21 — for earlier versions, see
   one. Opening a result takes you to the folder holding it, with the result
   already ticked. Every search is bounded in depth, in results and in time,
   and says when what came back is only part of the answer.
+- Copying between panels shows what it is doing. It used to be a silence: the
+  panel froze until the last byte, with no progress, no name, and a Cancel
+  button that only ever worked for files dropped from the Explorer. A copy now
+  runs in the background with one bar for the whole batch — measured up front,
+  one `du` per selected folder rather than a network round trip per file — the
+  name of what is going through, and a Cancel that stops it.
+- Archives can be extracted where they are, from the "Extraire" button that
+  appears when you select a .tar.gz, .tgz or .zip. It offers the archive's own
+  name as the folder to extract into, since dumping five hundred files into
+  the current folder is rarely what you meant; clearing that field extracts in
+  place. Like archiving, nothing crosses the network to do it. Extracting a
+  .zip on a remote host needs `unzip`, and says so when it is missing.
+- Dotfiles can be hidden, with the "Cachés" button in the panel toolbar. It
+  stays as you left it. The default is still to show them: this is an SSH
+  client, and going after a `.env` or an `.ssh/` is half of why you open the
+  panel.
+- Files can be selected the way they can in any file manager: click to select
+  one, Ctrl-click to add or remove, Shift-click to extend. The keyboard works
+  too — arrows and Home/End to move, Space to tick, Ctrl+A for everything,
+  Enter to open, Backspace to go up, Delete to remove, Escape to clear, F5 to
+  refresh (there is also a ⟳ button next to the path now).
+- Right-clicking a line opens a menu with what applies to it — open or edit,
+  copy across, rename, permissions, archive, extract, delete — instead of
+  making you find the button in the toolbar.
 
 ### Changed
 - The path shown above a transfer panel is now clickable, one level at a time,
   which is what the "Aller à" field mostly got used for. Going up three
   folders is a click rather than a retyped absolute path.
+- **Opening a folder in a transfer panel is now a double-click**, single click
+  having become "select". There was no way to select a folder without opening
+  it before, which is what made a selection model impossible; Enter opens it
+  from the keyboard.
 
 ### Fixed
 - Transfer panel columns line up. The header and the rows each carried their
@@ -55,6 +83,22 @@ This changelog starts 2026-07-21 — for earlier versions, see
 - "Dossier parent" goes to the parent folder instead of jumping to the root of
   the disk. It looked for the last "/" in the path, and a local panel on
   Windows opens on something like `C:\Users\vous`, which contains none.
+- Copying a file onto one of the same name at the destination no longer
+  replaces it without a word. The panel now says which entries are already
+  there and offers to replace, keep both (`rapport (2).pdf`, extension
+  preserved), skip them, or call the whole thing off. This was the one thing
+  in the panel that could lose data, and it applied to files dropped from the
+  Explorer too. Note that the question is asked about the entries you picked;
+  deeper inside a folder being copied over another, files of the same name are
+  still replaced — which is what merging a folder means.
+- Copying a folder onto a folder of the same name works instead of failing.
+  Locally it merged; over SFTP it stopped at "cannot create directory", since
+  the folder was already there.
+- Closing a transfer tab while a copy is running no longer pulls the SSH
+  connection out from under it.
+- The transfer panel's toolbar no longer grows a second line when you select
+  something, which pushed the whole listing down — under the cursor, right
+  before the next click.
 
 ## [3.1.0] - 2026-08-20
 
