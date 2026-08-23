@@ -11,6 +11,17 @@ fn main() {
     // background log writer down, so `let _ = ...` here would discard every
     // line the app goes on to emit. Held until `main` returns.
     let _log_guard = termius_core::logging::init();
+    // Une ligne au démarrage et une à l'arrêt : sans elles, le journal ne
+    // distingue pas une application fermée proprement d'une application tuée
+    // (rebuild du binaire, fin de session Windows, plantage sans rapport
+    // d'erreur). Un démarrage qui n'est pas précédé d'un arrêt est la trace
+    // d'une fermeture qui n'a pas été demandée — la question « pourquoi
+    // s'est-elle fermée ? » n'était pas répondable avant ça.
+    tracing::info!(
+        "démarrage de Guiterm v{} (pid {})",
+        env!("CARGO_PKG_VERSION"),
+        std::process::id()
+    );
 
     let workspace = match termius_core::store::load_resilient() {
         Ok(termius_core::store::LoadOutcome::Loaded(ws)) => ws,
@@ -278,6 +289,15 @@ fn main() {
             commands::command_history::get_ssh_history,
             commands::command_history::append_ssh_history,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while running tauri application")
+        .run(|_app, event| {
+            // `Exit` est émis une fois la boucle d'événements terminée, quelle
+            // que soit la façon dont la fermeture a été demandée (dernière
+            // fenêtre fermée, quitter, arrêt de session). Un `kill` n'y passe
+            // jamais, et c'est précisément ce qui les distingue.
+            if matches!(event, tauri::RunEvent::Exit) {
+                tracing::info!("arrêt de Guiterm demandé — fermeture propre");
+            }
+        });
 }
