@@ -99,7 +99,20 @@ try {
     check(sent[0].bytes === 620, `tailles prises du bon côté : ${sent[0].bytes} au lieu de 620`);
   }
 
-  // 5. Tout décocher désactive le bouton d'envoi.
+  // 5. Le bouton de diff n'existe que pour les fichiers présents des deux
+  //    côtés : il n'y a rien à comparer avec un fichier qui n'existe pas.
+  check(await page.locator("[data-diff-open]").count() === 3, `boutons de diff : ${await page.locator("[data-diff-open]").count()}`);
+  check(await page.locator("[data-diff-open='journal.log']").count() === 0, "pas de diff pour un fichier absent d'un côté");
+  await page.click("[data-diff-open='data.bin']");
+  await settle();
+  const opened = (await syncs()).filter((s) => s.direction === "diff");
+  check(
+    opened.length === 1 && opened[0].paths[0] === "data.bin",
+    `ouverture du diff : ${JSON.stringify(opened)}`,
+  );
+
+
+  // 6. Tout décocher désactive le bouton d'envoi.
   await page.click("text=Tout décocher");
   await settle();
   check(await page.locator("[data-sync-run]").isDisabled(), "sans rien de coché, l'envoi doit être impossible");

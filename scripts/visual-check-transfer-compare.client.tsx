@@ -43,6 +43,7 @@ function Harness() {
             bytes: items.reduce((sum, i) => sum + i.size, 0),
           });
         }}
+        onDiff={(path: string) => window.__syncs.push({ direction: "diff", paths: [path], bytes: 0 })}
         onClose={() => setOpen(false)}
         onRetry={() => {}}
       />

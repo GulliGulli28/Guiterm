@@ -805,6 +805,32 @@ export interface PaneFindOutcome {
   truncated: boolean;
 }
 
+/** Une ligne d'un diff de contenu — miroir de
+ * `termius_core::file_diff::DiffLine`. Les numéros commencent à 1 et l'un des
+ * deux manque selon le côté : une ligne supprimée n'existe pas à droite. */
+export interface DiffLine {
+  kind: "equal" | "deleted" | "inserted";
+  leftNo?: number | null;
+  rightNo?: number | null;
+  text: string;
+}
+
+/** Un passage modifié avec son contexte. Les zones identiques trop longues
+ * séparent deux blocs au lieu d'être affichées. */
+export interface DiffHunk {
+  lines: DiffLine[];
+}
+
+/** Le résultat d'une comparaison de contenu — miroir de
+ * `termius_core::file_diff::FileDiff`. */
+export interface FileDiff {
+  hunks: DiffHunk[];
+  identical: boolean;
+  truncated: boolean;
+  leftLines: number;
+  rightLines: number;
+}
+
 /** Un fichier vu par l'inventaire d'un panneau — miroir de
  * `termius_core::pane_ops::FileFacts`. `path` est relatif à la racine
  * comparée, toujours séparé par `/`. */

@@ -18,6 +18,7 @@ pub mod docker_pane;
 pub mod drift;
 pub mod export;
 pub mod facts;
+pub mod file_diff;
 pub mod fleet;
 pub mod fleet_history;
 pub mod gcp_inventory;

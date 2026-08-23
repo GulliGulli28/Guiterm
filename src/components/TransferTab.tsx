@@ -3,7 +3,7 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, onTransferDone, onTransferError, onTransferProgress } from "../lib/api";
 import type { AppPreferences } from "../lib/preferences";
-import type { ArchiveFormat, ConflictPolicy, CopyConflict, Entry, Host, PaneComparison, PaneDiskSpace, PaneFindOutcome, SyncItem, PaneListed, PaneOpened, PaneSource, PaneState, RemoteEditListed, Workspace } from "../lib/types";
+import type { ArchiveFormat, ConflictPolicy, CopyConflict, Entry, FileDiff, Host, PaneComparison, PaneDiskSpace, PaneFindOutcome, SyncItem, PaneListed, PaneOpened, PaneSource, PaneState, RemoteEditListed, Workspace } from "../lib/types";
 import { IconFolder, IconEdit, IconExternal, IconTrash, IconShield, IconClose, IconSearch } from "./ui-icons";
 import { QuickEditModal } from "./QuickEditModal";
 import { RdpTab } from "./RdpTab";
@@ -431,6 +431,31 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
     }
   };
 
+  /** Comparaison du contenu de deux fichiers. Vit ici comme la comparaison
+   * d'arborescences : elle porte sur les deux panneaux. */
+  const [fileDiff, setFileDiff] = useState<
+    | { path: string; status: "running" }
+    | { path: string; status: "done"; diff: FileDiff }
+    | { path: string; status: "failed"; error: string }
+    | null
+  >(null);
+
+  /** `leftPath`/`rightPath` sont relatifs au dossier de chaque panneau : le
+   * même chemin des deux côtés quand il vient de la comparaison
+   * d'arborescences, un simple nom quand il vient d'un fichier sélectionné. */
+  const diffFiles = async (leftPath: string, rightPath: string) => {
+    const leftId = paneIds.current.left;
+    const rightId = paneIds.current.right;
+    if (!leftId || !rightId) { onError("Les deux panneaux doivent être ouverts pour comparer deux fichiers."); return; }
+    setFileDiff({ path: leftPath, status: "running" });
+    try {
+      const diff = await api.diffPaneFiles(leftId, state.left.cwd, leftPath, rightId, state.right.cwd, rightPath);
+      setFileDiff({ path: leftPath, status: "done", diff });
+    } catch (e) {
+      setFileDiff({ path: leftPath, status: "failed", error: String(e) });
+    }
+  };
+
   // ── Quick-edit a small text file in place ────────────────────────────────
   const [editing, setEditing] = useState<EditingFile | null>(null);
 
@@ -611,6 +636,7 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
     onDiskSpace: diskSpace,
     onOpenTerminal: onOpenTerminal ? (path: string) => onOpenTerminal(state[side].source, path) : undefined,
     onCompare: isRdpTarget ? undefined : comparePanes,
+    onDiffFile: isRdpTarget ? undefined : (name: string) => diffFiles(name, name),
     onFind: findIn,
     onArchive: archive,
     onExtract: extract,
@@ -649,6 +675,10 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
         </div>
       </div>
 
+      {fileDiff && (
+        <FileDiffModal state={fileDiff} fontSize={fontSize} onClose={() => setFileDiff(null)} />
+      )}
+
       {comparison && (
         <ComparisonPanel
           state={comparison}
@@ -656,6 +686,7 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
           rightCwd={state.right.cwd}
           fontSize={fontSize}
           onSync={syncPaths}
+          onDiff={(path) => diffFiles(path, path)}
           onClose={() => setComparison(null)}
           onRetry={comparePanes}
         />
@@ -788,6 +819,9 @@ interface PaneViewProps {
   /** Absent quand il n'y a pas deux arborescences à comparer (cible RDP, ou
    * panneau monté seul par un contrôle). */
   onCompare?: () => void;
+  /** Compare ce fichier avec celui du même nom dans le dossier affiché en
+   * face. Absent pour les mêmes raisons qu'`onCompare`. */
+  onDiffFile?: (name: string) => void;
   onFind: (side: Side, root: string, pattern: string) => Promise<PaneFindOutcome>;
   onArchive: (side: Side, names: string[], archiveName: string, format: ArchiveFormat) => void;
   onExtract: (side: Side, name: string, destName: string) => void;
@@ -846,7 +880,7 @@ const SHOW_TYPE_ABOVE = 330;
  * d'entrée : dans l'app, un panneau se rend toujours via `TransferTab`. */
 export function PaneView({
   side, pane, workspace, fontSize, onNavigate, onSourceChange, onCopy, onMkdir, onCreateFile, onRename,
-  onRemove, onChmod, onEdit, onOpenInEditor, onDirSize, onDiskSpace, onOpenTerminal, onCompare, onFind, onArchive, onExtract, showHidden,
+  onRemove, onChmod, onEdit, onOpenInEditor, onDirSize, onDiskSpace, onOpenTerminal, onCompare, onDiffFile, onFind, onArchive, onExtract, showHidden,
   onToggleHidden, onDragStart, justDraggedRef, dragging, dropTarget, isRdpPush,
 }: PaneViewProps) {
   const [query, setQuery] = useState("");
@@ -1767,6 +1801,9 @@ export function PaneView({
                         ? [{ label: "Éditer ici", run: () => onEdit(side, menu.entry.name) }]
                         : []),
                       { label: "Ouvrir dans mon éditeur", run: () => onOpenInEditor(side, menu.entry.name) },
+                      ...(onDiffFile
+                        ? [{ label: "Comparer avec l'autre panneau", run: () => onDiffFile(menu.entry.name) }]
+                        : []),
                     ]),
                 {
                   label: isRdpPush
@@ -1998,13 +2035,17 @@ function ContextMenu({
  * qu'on vient chercher. Rien ne part sans un clic — la synchronisation ne
  * copie que ce qui est coché, dans le sens demandé, et ne supprime jamais. */
 export function ComparisonPanel({
-  state, leftCwd, rightCwd, fontSize, onSync, onClose, onRetry,
+  state, leftCwd, rightCwd, fontSize, onSync, onDiff, onClose, onRetry,
 }: {
   state: { status: "running" } | { status: "done"; result: PaneComparison } | { status: "failed"; error: string };
   leftCwd: string;
   rightCwd: string;
   fontSize: number;
   onSync: (direction: Side, items: SyncItem[]) => void;
+  /** Ouvre le diff de contenu d'une ligne présente des deux côtés — « plus
+   * récent » ne dit pas *ce* qui a changé, et c'est souvent la question
+   * suivante. */
+  onDiff: (path: string) => void;
   onClose: () => void;
   onRetry: () => void;
 }) {
@@ -2117,6 +2158,24 @@ export function ComparisonPanel({
                   <span className="w-20 shrink-0 text-right tabular-nums text-[var(--c-text-faint)]" style={{ fontSize: `${Math.max(9, fontSize - 2)}px` }}>
                     {facts ? formatSize(facts.size) : "—"}
                   </span>
+                  {/* Seulement quand le fichier est des deux côtés : il n'y a
+                      rien à comparer avec un fichier qui n'existe pas. */}
+                  {difference.left && difference.right ? (
+                    <button
+                      data-diff-open={difference.path}
+                      // `preventDefault` : la ligne entière est un `<label>`,
+                      // et rien ne garantit qu'un futur remplacement de ce
+                      // bouton par un élément non interactif ne coche pas la
+                      // case au passage.
+                      onClick={(e) => { e.preventDefault(); onDiff(difference.path); }}
+                      title="Voir ce qui diffère dans le contenu"
+                      className="w-6 shrink-0 rounded text-center text-[var(--c-text-faint)] hover:bg-[var(--c-accent)] hover:text-white"
+                    >
+                      ⇄
+                    </button>
+                  ) : (
+                    <span className="w-6 shrink-0" />
+                  )}
                 </label>
               );
             })}
@@ -2159,6 +2218,107 @@ export function ComparisonPanel({
           </div>
         </>
       )}
+    </div>
+  );
+}
+
+/** Le contenu de deux fichiers, ligne à ligne.
+ *
+ * Format unifié (les deux versions l'une sous l'autre) plutôt que côte à
+ * côte : dans un panneau de transfert la largeur est déjà partagée en deux,
+ * et deux colonnes de code de plus donneraient quarante caractères par
+ * version. Les numéros des deux fichiers restent affichés, c'est ce qui
+ * permet de retrouver la ligne dans son éditeur. */
+function FileDiffModal({
+  state, fontSize, onClose,
+}: {
+  state:
+    | { path: string; status: "running" }
+    | { path: string; status: "done"; diff: FileDiff }
+    | { path: string; status: "failed"; error: string };
+  fontSize: number;
+  onClose: () => void;
+}) {
+  const { ref, dialogProps } = useModalSurface({ onClose, label: `Comparaison de ${state.path}` });
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6" onClick={onClose}>
+      <div
+        ref={ref}
+        {...dialogProps}
+        onClick={(e) => e.stopPropagation()}
+        className="flex h-full max-h-[80vh] w-full max-w-4xl flex-col rounded-lg border border-[var(--c-border)] bg-[var(--c-bg2)] shadow-xl"
+      >
+        <div className="flex items-center gap-2 border-b border-[var(--c-border)] px-3 py-2">
+          <span className="min-w-0 flex-1 truncate font-mono text-xs text-[var(--c-text)]" title={state.path}>
+            {state.path}
+          </span>
+          {state.status === "done" && (
+            <span className="shrink-0 text-[11px] text-[var(--c-text-muted)]">
+              {state.diff.leftLines} ligne(s) à gauche · {state.diff.rightLines} à droite
+            </span>
+          )}
+          <button aria-label="Fermer la comparaison" onClick={onClose} className="shrink-0 rounded px-2 py-0.5 text-[var(--c-text-secondary)] hover:bg-white/5">
+            <IconClose size={12} />
+          </button>
+        </div>
+
+        {state.status === "running" && (
+          <p className="flex flex-1 items-center justify-center text-sm text-[var(--c-text-muted)]">Lecture des deux fichiers…</p>
+        )}
+        {state.status === "failed" && (
+          <p className="flex flex-1 items-center justify-center px-6 text-center text-sm text-rose-300">{state.error}</p>
+        )}
+
+        {state.status === "done" && (
+          <>
+            {state.diff.identical && (
+              <p className="flex flex-1 items-center justify-center text-sm text-[var(--c-text-muted)]">
+                Les deux fichiers ont exactement le même contenu.
+              </p>
+            )}
+            {!state.diff.identical && (
+              <div className="min-h-0 flex-1 overflow-auto font-mono" style={{ fontSize: `${Math.max(10, fontSize - 1)}px` }} data-file-diff>
+                {state.diff.hunks.map((hunk, index) => (
+                  <div key={index} className="border-b border-[var(--c-border)] last:border-0">
+                    {index > 0 && (
+                      <div className="bg-[var(--c-bg3)]/60 px-3 py-0.5 text-[10px] text-[var(--c-text-faint)]">⋯</div>
+                    )}
+                    {hunk.lines.map((line, lineIndex) => (
+                      <div
+                        key={lineIndex}
+                        data-diff-kind={line.kind}
+                        className={`flex gap-2 px-2 ${
+                          line.kind === "deleted"
+                            ? "bg-rose-950/40 text-rose-200"
+                            : line.kind === "inserted"
+                              ? "bg-emerald-950/40 text-emerald-200"
+                              : "text-[var(--c-text-secondary)]"
+                        }`}
+                      >
+                        <span className="w-10 shrink-0 select-none text-right text-[var(--c-text-faint)] tabular-nums">
+                          {line.leftNo ?? ""}
+                        </span>
+                        <span className="w-10 shrink-0 select-none text-right text-[var(--c-text-faint)] tabular-nums">
+                          {line.rightNo ?? ""}
+                        </span>
+                        <span className="w-3 shrink-0 select-none">
+                          {line.kind === "deleted" ? "-" : line.kind === "inserted" ? "+" : " "}
+                        </span>
+                        <span className="whitespace-pre">{line.text || " "}</span>
+                      </div>
+                    ))}
+                  </div>
+                ))}
+              </div>
+            )}
+            {state.diff.truncated && (
+              <p className="shrink-0 border-t border-[var(--c-border)] px-3 py-1.5 text-[11px] text-amber-400">
+                Trop de différences : l'affichage s'arrête ici, le reste n'est pas montré.
+              </p>
+            )}
+          </>
+        )}
+      </div>
     </div>
   );
 }

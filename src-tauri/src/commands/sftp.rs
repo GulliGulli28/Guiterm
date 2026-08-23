@@ -10,6 +10,7 @@ use termius_core::k8s;
 use termius_core::k8s_pane::K8sPaneClient;
 use termius_core::model::HostId;
 use termius_core::pane_ops::{self, ArchiveFormat, FindOutcome, PaneExec, ShellExec, SshShellExec};
+use termius_core::file_diff;
 use termius_core::pane_sync;
 use termius_core::sftp::{Entry, RemoteFileClient, SftpClient};
 use termius_core::ssh_pool;
@@ -567,6 +568,57 @@ pub async fn compare_panes(
         &left.map_err(|e| format!("panneau de gauche : {e}"))?,
         &right.map_err(|e| format!("panneau de droite : {e}"))?,
     ))
+}
+
+/// Compare le **contenu** de deux fichiers, un de chaque panneau.
+///
+/// Les chemins sont relatifs au dossier de chaque panneau et peuvent être
+/// imbriqués (`config/nginx.conf`) : ils viennent aussi bien d'une ligne du
+/// panneau de comparaison que d'un fichier sélectionné à la main. Chaque
+/// composant est validé séparément, comme partout ailleurs.
+///
+/// Les fichiers sont lus par le même chemin que l'édition rapide : plafonnés
+/// en taille et refusés s'ils ne sont pas du texte UTF-8 — un diff ligne à
+/// ligne n'a aucun sens sur un binaire, et le message le dit.
+#[tauri::command]
+pub async fn diff_pane_files(
+    state: State<'_, AppState>,
+    left_pane_id: String,
+    left_cwd: String,
+    left_path: String,
+    right_pane_id: String,
+    right_cwd: String,
+    right_path: String,
+) -> Result<file_diff::FileDiff, String> {
+    let left = pane_ref(&state, &left_pane_id)?;
+    let right = pane_ref(&state, &right_pane_id)?;
+    let (left_dir, left_name) = split_relative(&left_cwd, &left_path)?;
+    let (right_dir, right_name) = split_relative(&right_cwd, &right_path)?;
+
+    // En parallèle : deux machines différentes, les faire attendre l'une
+    // l'autre doublerait le temps.
+    let (left_text, right_text) = tokio::join!(
+        transfer::read_text(&left, &left_dir, &left_name),
+        transfer::read_text(&right, &right_dir, &right_name),
+    );
+    Ok(file_diff::diff_text(
+        &left_text.map_err(|e| format!("panneau de gauche : {e}"))?,
+        &right_text.map_err(|e| format!("panneau de droite : {e}"))?,
+    ))
+}
+
+/// `("/srv/app", "config/nginx.conf")` → `("/srv/app/config", "nginx.conf")`,
+/// chaque composant validé au passage.
+fn split_relative(cwd: &str, relative: &str) -> Result<(String, String), String> {
+    let mut components: Vec<&str> = relative.split('/').filter(|c| !c.is_empty()).collect();
+    let name = components.pop().ok_or_else(|| "chemin vide".to_string())?;
+    let mut dir = cwd.to_string();
+    for component in components {
+        termius_core::sftp::ensure_safe_component(component).map_err(|e| e.to_string())?;
+        dir = termius_core::sftp::join(&dir, component);
+    }
+    termius_core::sftp::ensure_safe_component(name).map_err(|e| e.to_string())?;
+    Ok((dir, name.to_string()))
 }
 
 /// Un fichier à synchroniser, tel que l'interface l'a coché. La taille vient
