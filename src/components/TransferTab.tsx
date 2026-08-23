@@ -3,13 +3,14 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, onTransferDone, onTransferError, onTransferProgress } from "../lib/api";
 import type { AppPreferences } from "../lib/preferences";
-import type { ArchiveFormat, ConflictPolicy, CopyConflict, Entry, Host, PaneDiskSpace, PaneFindOutcome, PaneListed, PaneOpened, PaneSource, PaneState, RemoteEditListed, Workspace } from "../lib/types";
+import type { ArchiveFormat, ConflictPolicy, CopyConflict, Entry, Host, PaneComparison, PaneDiskSpace, PaneFindOutcome, SyncItem, PaneListed, PaneOpened, PaneSource, PaneState, RemoteEditListed, Workspace } from "../lib/types";
 import { IconFolder, IconEdit, IconExternal, IconTrash, IconShield, IconClose, IconSearch } from "./ui-icons";
 import { QuickEditModal } from "./QuickEditModal";
 import { RdpTab } from "./RdpTab";
 import { useResizablePane } from "../hooks/useResizablePane";
 import { useContainerPicker } from "../hooks/useContainerPicker";
 import { useModalSurface } from "../hooks/useModalSurface";
+import { DIFFERENCE_LABEL, movesInDirection } from "../lib/paneSync";
 import { baseName, breadcrumbs, containingDir, joinPath, parentPath } from "../lib/panePath";
 import { usePaneDrag } from "../hooks/usePaneDrag";
 import type { PaneDropTarget, PaneSide } from "../hooks/usePaneDrag";
@@ -391,6 +392,45 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
     } catch (e) { onError(String(e)); }
   };
 
+  // ── Comparaison des deux arborescences ───────────────────────────────────
+  /** `null` : pas de comparaison en cours. Vit ici et non dans un panneau —
+   * elle porte sur les deux à la fois. */
+  const [comparison, setComparison] = useState<
+    { status: "running" } | { status: "done"; result: PaneComparison } | { status: "failed"; error: string } | null
+  >(null);
+
+  const comparePanes = async () => {
+    const leftId = paneIds.current.left;
+    const rightId = paneIds.current.right;
+    if (!leftId || !rightId) { onError("Les deux panneaux doivent être ouverts pour comparer."); return; }
+    setComparison({ status: "running" });
+    try {
+      const result = await api.comparePanes(leftId, state.left.cwd, rightId, state.right.cwd);
+      setComparison({ status: "done", result });
+    } catch (e) {
+      setComparison({ status: "failed", error: String(e) });
+    }
+  };
+
+  /** Copie les chemins choisis dans le sens demandé. Rien d'implicite : la
+   * synchronisation ne fait que ce qui est coché, et ne supprime jamais rien. */
+  const syncPaths = async (direction: Side, items: SyncItem[]) => {
+    const sourceSide = direction === "right" ? "left" : "right";
+    const sourceId = paneIds.current[sourceSide];
+    const destId = paneIds.current[direction];
+    if (!sourceId || !destId || items.length === 0) return;
+    try {
+      const id = await api.syncPaths(sourceId, state[sourceSide].cwd, destId, state[direction].cwd, items);
+      setTransfers((prev) => ({
+        ...prev,
+        [id]: { id, fileName: `Synchronisation (${items.length} fichiers)`, bytesDone: 0, bytesTotal: 0, status: "active" },
+      }));
+      setComparison(null);
+    } catch (e) {
+      onError(String(e));
+    }
+  };
+
   // ── Quick-edit a small text file in place ────────────────────────────────
   const [editing, setEditing] = useState<EditingFile | null>(null);
 
@@ -570,6 +610,7 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
     onDirSize: dirSize,
     onDiskSpace: diskSpace,
     onOpenTerminal: onOpenTerminal ? (path: string) => onOpenTerminal(state[side].source, path) : undefined,
+    onCompare: isRdpTarget ? undefined : comparePanes,
     onFind: findIn,
     onArchive: archive,
     onExtract: extract,
@@ -584,7 +625,9 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
   });
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col">
+    // `relative` : le panneau de comparaison se pose par-dessus les deux
+    // listings (voir `ComparisonPanel`), pas à côté.
+    <div className="relative flex min-h-0 flex-1 flex-col">
       <div ref={containerRef} className="flex min-h-0 flex-1">
         <div ref={leftPaneRef} style={{ width: `${divider.value}%` }} className="flex min-h-0 shrink-0 flex-col overflow-hidden">
           <PaneView {...paneProps("left")} onCopy={copyOrPushToRdp} isRdpPush={isRdpTarget} />
@@ -605,6 +648,18 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
           )}
         </div>
       </div>
+
+      {comparison && (
+        <ComparisonPanel
+          state={comparison}
+          leftCwd={state.left.cwd}
+          rightCwd={state.right.cwd}
+          fontSize={fontSize}
+          onSync={syncPaths}
+          onClose={() => setComparison(null)}
+          onRetry={comparePanes}
+        />
+      )}
 
       {/* Vignette qui suit le curseur pendant un glisser interne. */}
       {drag && (
@@ -730,6 +785,9 @@ interface PaneViewProps {
    * Playwright, qui monte un panneau seul) — le bouton n'est alors pas
    * affiché plutôt que d'être sans effet. */
   onOpenTerminal?: (path: string) => void;
+  /** Absent quand il n'y a pas deux arborescences à comparer (cible RDP, ou
+   * panneau monté seul par un contrôle). */
+  onCompare?: () => void;
   onFind: (side: Side, root: string, pattern: string) => Promise<PaneFindOutcome>;
   onArchive: (side: Side, names: string[], archiveName: string, format: ArchiveFormat) => void;
   onExtract: (side: Side, name: string, destName: string) => void;
@@ -788,7 +846,7 @@ const SHOW_TYPE_ABOVE = 330;
  * d'entrée : dans l'app, un panneau se rend toujours via `TransferTab`. */
 export function PaneView({
   side, pane, workspace, fontSize, onNavigate, onSourceChange, onCopy, onMkdir, onCreateFile, onRename,
-  onRemove, onChmod, onEdit, onOpenInEditor, onDirSize, onDiskSpace, onOpenTerminal, onFind, onArchive, onExtract, showHidden,
+  onRemove, onChmod, onEdit, onOpenInEditor, onDirSize, onDiskSpace, onOpenTerminal, onCompare, onFind, onArchive, onExtract, showHidden,
   onToggleHidden, onDragStart, justDraggedRef, dragging, dropTarget, isRdpPush,
 }: PaneViewProps) {
   const [query, setQuery] = useState("");
@@ -1428,6 +1486,15 @@ export function PaneView({
                     <IconShield size={12} /> Permissions
                   </button>
                 )}
+                {onCompare && (
+                  <button
+                    onClick={onCompare}
+                    title="Comparer cette arborescence avec celle de l'autre panneau"
+                    className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+                  >
+                    ⇄ Comparer
+                  </button>
+                )}
                 {onOpenTerminal && (
                   <button
                     onClick={() => onOpenTerminal(pane.cwd)}
@@ -1907,6 +1974,182 @@ function ContextMenu({
           {item.label}
         </button>
       ))}
+    </div>
+  );
+}
+
+/** Exporté pour `scripts/visual-check-transfer-compare.mjs`, qui le monte
+ * seul dans un navigateur — même raison que `PaneView` : cocher, changer de
+ * sens et voir le total suivre sont des interactions, pas du calcul.
+ *
+ * Le résultat d'une comparaison, et de quoi le rattraper.
+ *
+ * Recouvre les deux listings plutôt que d'annoter les lignes : ce qui manque
+ * en face n'apparaît dans aucun des deux listings, et c'est précisément ce
+ * qu'on vient chercher. Rien ne part sans un clic — la synchronisation ne
+ * copie que ce qui est coché, dans le sens demandé, et ne supprime jamais. */
+export function ComparisonPanel({
+  state, leftCwd, rightCwd, fontSize, onSync, onClose, onRetry,
+}: {
+  state: { status: "running" } | { status: "done"; result: PaneComparison } | { status: "failed"; error: string };
+  leftCwd: string;
+  rightCwd: string;
+  fontSize: number;
+  onSync: (direction: Side, items: SyncItem[]) => void;
+  onClose: () => void;
+  onRetry: () => void;
+}) {
+  const differences = state.status === "done" ? state.result.differences : [];
+  const [checked, setChecked] = useState<Set<string>>(new Set());
+  const [direction, setDirection] = useState<Side>("right");
+
+  // À chaque nouvelle comparaison, on pré-coche ce qui part dans le sens
+  // affiché : c'est la réponse attendue neuf fois sur dix, et décocher deux
+  // lignes est plus rapide que cocher quarante.
+  useEffect(() => {
+    setChecked(new Set(differences.filter((d) => movesInDirection(d.kind, direction)).map((d) => d.path)));
+  }, [state.status, direction, differences.length]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const movable = differences.filter((d) => movesInDirection(d.kind, direction));
+  const selected = movable.filter((d) => checked.has(d.path));
+  const items: SyncItem[] = selected.map((d) => {
+    const facts = direction === "right" ? d.left : d.right;
+    return { path: d.path, size: facts?.size ?? 0, modified: facts?.modified ?? null };
+  });
+  const totalBytes = items.reduce((sum, item) => sum + item.size, 0);
+
+  const toggle = (path: string) =>
+    setChecked((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path);
+      else next.add(path);
+      return next;
+    });
+
+  return (
+    <div className="absolute inset-0 z-20 flex flex-col bg-[var(--c-bg)]">
+      <div className="flex items-center gap-2 border-b border-[var(--c-border)] px-3 py-2">
+        <span className="text-sm text-[var(--c-text)]">Comparaison</span>
+        <span className="min-w-0 flex-1 truncate font-mono text-xs text-[var(--c-text-muted)]">
+          {leftCwd} ⇄ {rightCwd}
+        </span>
+        <button onClick={onRetry} title="Relancer la comparaison" className="rounded px-2 py-0.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5">
+          ⟳
+        </button>
+        <button aria-label="Fermer la comparaison" onClick={onClose} className="rounded px-2 py-0.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5">
+          <IconClose size={12} />
+        </button>
+      </div>
+
+      {state.status === "running" && (
+        <p className="flex flex-1 items-center justify-center text-sm text-[var(--c-text-muted)]">
+          Inventaire des deux côtés…
+        </p>
+      )}
+      {state.status === "failed" && (
+        <p className="flex flex-1 items-center justify-center px-6 text-center text-sm text-rose-300">{state.error}</p>
+      )}
+
+      {state.status === "done" && (
+        <>
+          <div className="flex flex-wrap items-center gap-2 border-b border-[var(--c-border)] px-3 py-1.5 text-xs">
+            <span className="text-[var(--c-text-secondary)]">
+              {differences.length === 0
+                ? "Aucune différence"
+                : `${differences.length} différence(s)`}
+              {" · "}
+              <span className="text-[var(--c-text-muted)]">{state.result.identical} fichier(s) identique(s)</span>
+            </span>
+            {state.result.truncated && (
+              <span className="text-amber-400">
+                Trop de fichiers : la comparaison ne couvre qu'une partie de l'arborescence.
+              </span>
+            )}
+            <span className="flex-1" />
+            <button
+              data-direction="right"
+              onClick={() => setDirection("right")}
+              className={`rounded-md px-2 py-1 ${direction === "right" ? "bg-[var(--c-accent)] text-white" : "bg-[var(--c-bg3)] text-[var(--c-text-secondary)] hover:bg-white/5"}`}
+            >
+              Copier vers la droite →
+            </button>
+            <button
+              data-direction="left"
+              onClick={() => setDirection("left")}
+              className={`rounded-md px-2 py-1 ${direction === "left" ? "bg-[var(--c-accent)] text-white" : "bg-[var(--c-bg3)] text-[var(--c-text-secondary)] hover:bg-white/5"}`}
+            >
+              ← Copier vers la gauche
+            </button>
+          </div>
+
+          <div className="min-h-0 flex-1 overflow-y-auto" style={{ fontSize: `${fontSize}px` }} data-comparison-list>
+            {differences.map((difference) => {
+              const movable = movesInDirection(difference.kind, direction);
+              const facts = direction === "right" ? difference.left : difference.right;
+              return (
+                <label
+                  key={difference.path}
+                  data-difference={difference.path}
+                  className={`flex items-center gap-2 px-3 py-[3px] ${movable ? "hover:bg-[var(--c-bg2)]" : "opacity-50"}`}
+                >
+                  <input
+                    type="checkbox"
+                    disabled={!movable}
+                    checked={movable && checked.has(difference.path)}
+                    onChange={() => toggle(difference.path)}
+                    className="h-3.5 w-3.5 shrink-0 accent-[var(--c-accent)]"
+                  />
+                  <span className="min-w-0 flex-1 truncate font-mono text-[var(--c-text)]" title={difference.path}>
+                    {difference.path}
+                  </span>
+                  <span className="shrink-0 text-[var(--c-text-muted)]" style={{ fontSize: `${Math.max(9, fontSize - 2)}px` }}>
+                    {DIFFERENCE_LABEL[difference.kind]}
+                  </span>
+                  <span className="w-20 shrink-0 text-right tabular-nums text-[var(--c-text-faint)]" style={{ fontSize: `${Math.max(9, fontSize - 2)}px` }}>
+                    {facts ? formatSize(facts.size) : "—"}
+                  </span>
+                </label>
+              );
+            })}
+            {differences.length === 0 && (
+              <p className="px-3 py-8 text-center text-xs text-[var(--c-text-muted)]">
+                Les deux arborescences ont le même contenu, à la taille et à la date près.
+              </p>
+            )}
+          </div>
+
+          <div className="flex items-center gap-2 border-t border-[var(--c-border)] px-3 py-2 text-xs">
+            <button
+              onClick={() => setChecked(new Set(movable.map((d) => d.path)))}
+              className="rounded-md bg-[var(--c-bg3)] px-2 py-1 text-[var(--c-text-secondary)] hover:bg-white/5"
+            >
+              Tout cocher
+            </button>
+            <button
+              onClick={() => setChecked(new Set())}
+              className="rounded-md bg-[var(--c-bg3)] px-2 py-1 text-[var(--c-text-secondary)] hover:bg-white/5"
+            >
+              Tout décocher
+            </button>
+            <span className="flex-1 text-[var(--c-text-muted)]">
+              {selected.length} fichier(s) · {formatSize(totalBytes)}
+              {movable.length !== differences.length && (
+                <span className="text-[var(--c-text-faint)]">
+                  {" "}— {differences.length - movable.length} ne part(ent) pas dans ce sens
+                </span>
+              )}
+            </span>
+            <button
+              data-sync-run
+              disabled={items.length === 0}
+              onClick={() => onSync(direction, items)}
+              className="rounded-md bg-[var(--c-accent)] px-3 py-1 text-white hover:bg-[var(--c-accent-hover)] disabled:opacity-40 disabled:hover:bg-[var(--c-accent)]"
+            >
+              {direction === "right" ? "Copier vers la droite →" : "← Copier vers la gauche"}
+            </button>
+          </div>
+        </>
+      )}
     </div>
   );
 }

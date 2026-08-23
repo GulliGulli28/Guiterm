@@ -27,6 +27,14 @@ ls -1a . | while IFS= read -r f; do
 done
 "#;
 
+/// `touch` avec une date d'époque. Best-effort : un `touch` qui ne comprend
+/// pas `@secondes` (busybox ancien, BSD) fera échouer la commande, et
+/// `transfer` traite ça comme « date non reportée » plutôt que comme un échec
+/// de copie — le fichier est là, c'est sa date qui manque.
+pub const SET_MTIME_SCRIPT: &str = r#"
+touch -d "@$2" -- "$1"
+"#;
+
 /// Parses [`LIST_SCRIPT`]'s tab-delimited output. Splits each line into at
 /// most 6 fields (`splitn`), so a filename containing a literal tab is still
 /// captured intact in the final field rather than shifting every column

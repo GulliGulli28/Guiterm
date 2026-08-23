@@ -33,6 +33,7 @@ pub mod local_shell;
 pub mod model;
 pub mod netdiag;
 pub mod pane_ops;
+pub mod pane_sync;
 pub mod port_forward;
 pub mod proxy_command;
 pub mod mongo_client;

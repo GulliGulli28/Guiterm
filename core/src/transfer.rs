@@ -302,8 +302,32 @@ async fn copy_file(
         }
     };
     result?;
+    preserve_modified(dest, dest_cwd, dest_name, entry.modified).await;
     progress.finished_file(entry.size, &relative);
     Ok(())
+}
+
+/// Reporte la date de modification de l'original sur la copie.
+///
+/// **Best-effort, volontairement** : ni SFTP ni `touch` ne sont garantis
+/// d'accepter (droits insuffisants sur un fichier qu'on vient pourtant de
+/// créer, `touch` d'un busybox qui ne comprend pas `@secondes`), et un
+/// fichier correctement copié dont la date n'a pas suivi reste un fichier
+/// correctement copié. Ce qui se dégrade alors, c'est la comparaison
+/// d'arborescences (`crate::pane_sync`), pas la copie.
+async fn preserve_modified(dest: &PaneRef, dest_cwd: &str, dest_name: &str, modified: Option<u64>) {
+    let Some(mtime) = modified.filter(|t| *t > 0) else { return };
+    let path = sftp::join(dest_cwd, dest_name);
+    match dest {
+        PaneRef::Local => {
+            if let Ok(file) = std::fs::File::options().write(true).open(&path) {
+                let _ = file.set_modified(std::time::UNIX_EPOCH + std::time::Duration::from_secs(mtime));
+            }
+        }
+        PaneRef::Remote(client) => {
+            let _ = client.set_modified(&path, mtime).await;
+        }
+    }
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -361,6 +385,69 @@ fn copy_dir<'a>(
         }
         Ok(())
     })
+}
+
+/// Copie un fichier désigné par son **chemin relatif** aux deux racines, en
+/// créant les dossiers manquants à destination.
+///
+/// C'est ce dont la synchronisation a besoin, là où [`copy_entry`] travaille
+/// sur une entrée d'un dossier : une différence porte sur
+/// `config/nginx/site.conf`, dont les deux premiers niveaux n'existent
+/// peut-être pas en face.
+// Deux racines, un chemin, ses métadonnées et le suivi : les regrouper dans
+// une structure ne ferait que déplacer la même liste ailleurs.
+#[allow(clippy::too_many_arguments)]
+pub async fn copy_relative(
+    source: &PaneRef,
+    source_root: &str,
+    dest: &PaneRef,
+    dest_root: &str,
+    relative: &str,
+    size: u64,
+    modified: Option<u64>,
+    progress: &mut CopyProgress<'_>,
+) -> anyhow::Result<()> {
+    progress.check_cancelled()?;
+    let mut components: Vec<&str> = relative.split('/').filter(|c| !c.is_empty()).collect();
+    let name = components.pop().ok_or_else(|| anyhow::anyhow!("chemin vide"))?;
+    for component in &components {
+        sftp::ensure_safe_component(component)?;
+    }
+    sftp::ensure_safe_component(name)?;
+
+    let mut source_cwd = source_root.to_string();
+    let mut dest_cwd = dest_root.to_string();
+    for component in components {
+        source_cwd = sftp::join(&source_cwd, component);
+        dest_cwd = sftp::join(&dest_cwd, component);
+        ensure_dir(dest, &dest_cwd).await?;
+    }
+
+    let entry = Entry {
+        name: name.to_string(),
+        is_dir: false,
+        is_symlink: false,
+        size,
+        modified,
+        permissions: None,
+    };
+    copy_file(source, &source_cwd, &entry, dest, &dest_cwd, name, progress).await
+}
+
+/// Crée un dossier s'il n'existe pas. Un dossier déjà là n'est pas une
+/// erreur — c'est le cas normal quand on synchronise deux arborescences qui
+/// se ressemblent déjà.
+async fn ensure_dir(dest: &PaneRef, path: &str) -> anyhow::Result<()> {
+    match dest {
+        PaneRef::Local => Ok(tokio::fs::create_dir_all(path).await?),
+        PaneRef::Remote(client) => {
+            if client.make_dir(path).await.is_ok() || client.list(path).await.is_ok() {
+                Ok(())
+            } else {
+                anyhow::bail!("impossible de créer le dossier de destination {path}")
+            }
+        }
+    }
 }
 
 /// SFTP has no server-to-server copy, so a remote-to-remote transfer is
@@ -503,6 +590,40 @@ mod tests {
         assert!(dir.path().join("cible/projet/sous/b.bin").exists(), "l'arbre est bien copié");
     }
 
+    /// La date de l'original doit suivre la copie : sans ça, comparer deux
+    /// arborescences juste après les avoir synchronisées annonce que tout ce
+    /// qu'on vient d'envoyer est plus récent à destination.
+    #[tokio::test]
+    async fn a_copy_carries_the_modification_date_over() {
+        let dir = tree();
+        let source_cwd = dir.path().to_string_lossy().to_string();
+        let dest_cwd = dir.path().join("cible").to_string_lossy().to_string();
+        // Une date nettement dans le passé, qu'on ne peut pas confondre avec
+        // l'heure de la copie.
+        let old_time = 1_600_000_000u64;
+
+        let cancel = AtomicBool::new(false);
+        let mut report = |_done: u64, _path: &str| {};
+        let mut progress = CopyProgress { cancel: &cancel, report: &mut report, done: 0 };
+        let mut source = entry("a.bin", false, 1000);
+        source.modified = Some(old_time);
+        copy_entry(
+            &PaneRef::Local,
+            &dir.path().join("projet").to_string_lossy(),
+            &source,
+            &PaneRef::Local,
+            &dest_cwd,
+            &mut progress,
+        )
+        .await
+        .unwrap();
+
+        let copied = std::fs::metadata(dir.path().join("cible/a.bin")).unwrap().modified().unwrap();
+        let seconds = copied.duration_since(std::time::UNIX_EPOCH).unwrap().as_secs();
+        assert_eq!(seconds, old_time, "la copie doit porter la date de l'original");
+        let _ = source_cwd;
+    }
+
     #[tokio::test]
     async fn a_cancelled_copy_stops_and_says_so() {
         let dir = tree();
@@ -537,6 +658,45 @@ mod tests {
                 .await
                 .expect("une deuxième copie au même endroit doit fusionner");
         }
+    }
+
+    /// Ce que la synchronisation demande et que `copy_entry` ne sait pas
+    /// faire : copier `sous/b.bin` là où `sous/` n'existe pas encore en face.
+    #[tokio::test]
+    async fn copy_relative_creates_the_missing_folders() {
+        let dir = tree();
+        let source_root = dir.path().join("projet").to_string_lossy().to_string();
+        let dest_root = dir.path().join("cible").to_string_lossy().to_string();
+
+        let cancel = AtomicBool::new(false);
+        let mut report = |_done: u64, _path: &str| {};
+        let mut progress = CopyProgress { cancel: &cancel, report: &mut report, done: 0 };
+        copy_relative(
+            &PaneRef::Local,
+            &source_root,
+            &PaneRef::Local,
+            &dest_root,
+            "sous/b.bin",
+            2000,
+            Some(1_600_000_000),
+            &mut progress,
+        )
+        .await
+        .unwrap();
+
+        let copied = dir.path().join("cible/sous/b.bin");
+        assert!(copied.exists(), "le sous-dossier manquant doit être créé");
+        assert_eq!(std::fs::metadata(&copied).unwrap().len(), 2000);
+        assert_eq!(progress.done, 2000);
+
+        // Un chemin qui remonte n'est pas un chemin relatif valable.
+        let mut report = |_done: u64, _path: &str| {};
+        let mut progress = CopyProgress { cancel: &cancel, report: &mut report, done: 0 };
+        assert!(
+            copy_relative(&PaneRef::Local, &source_root, &PaneRef::Local, &dest_root, "../evasion.txt", 1, None, &mut progress)
+                .await
+                .is_err()
+        );
     }
 
     #[tokio::test]

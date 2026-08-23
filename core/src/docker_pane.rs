@@ -25,7 +25,7 @@
 //! local file into memory, not while it's actually in flight to the daemon).
 
 use crate::docker::exec_capture;
-use crate::remote_shell_pane::{LIST_SCRIPT, build_single_file_tar, extract_single_file, parse_listing, read_local_file_chunked, split_parent_and_name};
+use crate::remote_shell_pane::{LIST_SCRIPT, SET_MTIME_SCRIPT, build_single_file_tar, extract_single_file, parse_listing, read_local_file_chunked, split_parent_and_name};
 use crate::sftp::{Entry, MAX_EDIT_BYTES, RemoteFileClient};
 use bollard::Docker;
 use bollard::query_parameters::{DownloadFromContainerOptionsBuilder, UploadToContainerOptionsBuilder};
@@ -137,6 +137,11 @@ impl RemoteFileClient for DockerPaneClient {
     async fn set_permissions(&self, path: &str, mode: u32) -> anyhow::Result<()> {
         let mode_str = format!("{mode:o}");
         self.run_script(r#"chmod -- "$1" "$2""#, &[&mode_str, path]).await.map(|_| ())
+    }
+
+    async fn set_modified(&self, path: &str, mtime_secs: u64) -> anyhow::Result<()> {
+        self.run_script(SET_MTIME_SCRIPT, &[path, &mtime_secs.to_string()]).await?;
+        Ok(())
     }
 
     async fn read_to_string(&self, path: &str) -> anyhow::Result<String> {

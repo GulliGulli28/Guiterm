@@ -138,6 +138,8 @@ fn main() {
             commands::sftp::list_pane,
             commands::sftp::copy_entries,
             commands::sftp::check_copy_conflicts,
+            commands::sftp::compare_panes,
+            commands::sftp::sync_paths,
             commands::sftp::pane_mkdir,
             commands::sftp::pane_rename,
             commands::sftp::pane_remove,

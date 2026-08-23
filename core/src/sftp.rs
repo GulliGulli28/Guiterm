@@ -20,6 +20,12 @@ pub trait RemoteFileClient: Send + Sync {
     async fn remove_dir(&self, path: &str) -> anyhow::Result<()>;
     async fn rename(&self, from: &str, to: &str) -> anyhow::Result<()>;
     async fn set_permissions(&self, path: &str, mode: u32) -> anyhow::Result<()>;
+    /// Reporte la date de modification d'un fichier — appelé après une copie
+    /// pour que l'arrivée porte la date de l'original et non celle du
+    /// transfert. Sans ça, comparer deux arborescences juste après les avoir
+    /// synchronisées annonce que tout ce qu'on vient d'envoyer est « plus
+    /// récent à destination » (voir `crate::pane_sync`).
+    async fn set_modified(&self, path: &str, mtime_secs: u64) -> anyhow::Result<()>;
     async fn read_to_string(&self, path: &str) -> anyhow::Result<String>;
     async fn write_string(&self, path: &str, content: &str) -> anyhow::Result<()>;
     /// `on_progress`: `&mut dyn FnMut` rather than `impl FnMut` — trait
@@ -61,6 +67,9 @@ impl RemoteFileClient for SftpClient {
     }
     async fn set_permissions(&self, path: &str, mode: u32) -> anyhow::Result<()> {
         self.set_permissions(path, mode).await
+    }
+    async fn set_modified(&self, path: &str, mtime_secs: u64) -> anyhow::Result<()> {
+        self.set_modified(path, mtime_secs).await
     }
     async fn read_to_string(&self, path: &str) -> anyhow::Result<String> {
         self.read_to_string(path).await
@@ -168,6 +177,21 @@ impl SftpClient {
     pub async fn set_permissions(&self, path: &str, mode: u32) -> anyhow::Result<()> {
         let attrs = Metadata {
             permissions: Some(mode),
+            ..Default::default()
+        };
+        Ok(self.session.set_metadata(path, attrs).await?)
+    }
+
+    /// `SSH_FXP_SETSTAT` avec le couple date d'accès / date de modification —
+    /// SFTP ne permet pas de fixer l'une sans l'autre, les deux prennent donc
+    /// la même valeur. La granularité du protocole est la seconde (`u32`),
+    /// ce qui borne aussi la précision de la comparaison d'arborescences.
+    pub async fn set_modified(&self, path: &str, mtime_secs: u64) -> anyhow::Result<()> {
+        let stamp = u32::try_from(mtime_secs)
+            .map_err(|_| anyhow::anyhow!("date de modification hors des bornes du protocole SFTP"))?;
+        let attrs = Metadata {
+            atime: Some(stamp),
+            mtime: Some(stamp),
             ..Default::default()
         };
         Ok(self.session.set_metadata(path, attrs).await?)

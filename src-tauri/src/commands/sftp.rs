@@ -10,6 +10,7 @@ use termius_core::k8s;
 use termius_core::k8s_pane::K8sPaneClient;
 use termius_core::model::HostId;
 use termius_core::pane_ops::{self, ArchiveFormat, FindOutcome, PaneExec, ShellExec, SshShellExec};
+use termius_core::pane_sync;
 use termius_core::sftp::{Entry, RemoteFileClient, SftpClient};
 use termius_core::ssh_pool;
 use termius_core::transfer::{self, PaneRef};
@@ -343,6 +344,34 @@ async fn batch_total(exec: &PaneExec, cwd: &str, entries: &[Entry]) -> u64 {
     total
 }
 
+/// Le rapporteur de progression partagé par les copies et les
+/// synchronisations. Une émission par morceau reçu serait un événement tous
+/// les 256 Ko : on n'en garde qu'un par tranche de 1 %, ou dès qu'on change de
+/// fichier — au-delà, ce sont des messages que l'interface jette.
+fn progress_reporter(total: u64, transfer_id: &str, app: &AppHandle) -> impl FnMut(u64, &str) + Send {
+    let app = app.clone();
+    let transfer_id = transfer_id.to_string();
+    let mut last_emitted = 0u64;
+    let mut last_label = String::new();
+    move |done: u64, label: &str| {
+        let step = (total / 100).max(256 * 1024);
+        if done < last_emitted + step && label == last_label && done != total {
+            return;
+        }
+        last_emitted = done;
+        last_label = label.to_string();
+        let _ = app.emit(
+            "transfer-progress",
+            TransferProgressEvent {
+                transfer_id: transfer_id.clone(),
+                bytes_done: done,
+                bytes_total: total,
+                label: Some(label.to_string()),
+            },
+        );
+    }
+}
+
 #[allow(clippy::too_many_arguments)]
 async fn copy_batch(
     source: &PaneRef,
@@ -356,30 +385,7 @@ async fn copy_batch(
     app: &AppHandle,
     cancel: &AtomicBool,
 ) -> anyhow::Result<()> {
-    let app_for_report = app.clone();
-    let id_for_report = transfer_id.to_string();
-    // Une émission par morceau reçu serait un événement tous les 256 Ko : on
-    // n'en garde qu'un par tranche de 1 %, ou dès qu'on change de fichier —
-    // au-delà, ce sont des messages que l'interface jette.
-    let mut last_emitted = 0u64;
-    let mut last_label = String::new();
-    let mut report = move |done: u64, label: &str| {
-        let step = (total / 100).max(256 * 1024);
-        if done < last_emitted + step && label == last_label && done != total {
-            return;
-        }
-        last_emitted = done;
-        last_label = label.to_string();
-        let _ = app_for_report.emit(
-            "transfer-progress",
-            TransferProgressEvent {
-                transfer_id: id_for_report.clone(),
-                bytes_done: done,
-                bytes_total: total,
-                label: Some(label.to_string()),
-            },
-        );
-    };
+    let mut report = progress_reporter(total, transfer_id, app);
 
     // Le listing de destination sert à deux choses : savoir ce qui existe déjà,
     // et trouver un nom libre pour « garder les deux ». Lu une fois pour tout
@@ -535,6 +541,115 @@ pub async fn pane_archive(
         .map_err(|e| e.to_string())?;
     let entries = transfer::list(&reference, &cwd).await.map_err(|e| e.to_string())?;
     Ok(PaneListed { cwd, entries })
+}
+
+/// Compare les arborescences des deux panneaux, sous leurs dossiers courants.
+///
+/// Un inventaire par côté — une seule commande chacun, pas un aller-retour
+/// par dossier — puis une comparaison pure (voir `termius_core::pane_sync`).
+/// Les deux inventaires sont lancés en parallèle : ce sont deux machines
+/// différentes, les faire attendre l'une l'autre doublerait le temps.
+#[tauri::command]
+pub async fn compare_panes(
+    state: State<'_, AppState>,
+    left_pane_id: String,
+    left_cwd: String,
+    right_pane_id: String,
+    right_cwd: String,
+) -> Result<pane_sync::Comparison, String> {
+    let left_exec = pane_exec(&state, &left_pane_id)?;
+    let right_exec = pane_exec(&state, &right_pane_id)?;
+    let (left, right) = tokio::join!(
+        pane_ops::inventory(&left_exec, &left_cwd),
+        pane_ops::inventory(&right_exec, &right_cwd),
+    );
+    Ok(pane_sync::compare(
+        &left.map_err(|e| format!("panneau de gauche : {e}"))?,
+        &right.map_err(|e| format!("panneau de droite : {e}"))?,
+    ))
+}
+
+/// Un fichier à synchroniser, tel que l'interface l'a coché. La taille vient
+/// de la comparaison qu'elle vient d'afficher : elle ne sert qu'à donner sa
+/// graduation à la barre de progression, pas à décider quoi copier.
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncItem {
+    pub path: String,
+    pub size: u64,
+    pub modified: Option<u64>,
+}
+
+/// Copie les chemins relatifs cochés d'un panneau vers l'autre, en tâche de
+/// fond — même machinerie que `copy_entries` (identifiant de transfert,
+/// progression, annulation), avec les dossiers manquants créés en chemin.
+#[tauri::command]
+pub async fn sync_paths(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    source_pane_id: String,
+    source_cwd: String,
+    dest_pane_id: String,
+    dest_cwd: String,
+    items: Vec<SyncItem>,
+) -> Result<String, String> {
+    let source = pane_ref(&state, &source_pane_id)?;
+    let dest = pane_ref(&state, &dest_pane_id)?;
+    let leases = (pane_lease(&state, &source_pane_id), pane_lease(&state, &dest_pane_id));
+
+    let transfer_id = Uuid::new_v4().to_string();
+    let cancel = Arc::new(AtomicBool::new(false));
+    state.transfers.lock_recover().insert(transfer_id.clone(), cancel.clone());
+
+    let app_handle = app.clone();
+    let id = transfer_id.clone();
+    tokio::spawn(async move {
+        let _leases = leases;
+        let total: u64 = items.iter().map(|item| item.size).sum();
+        let result = sync_batch(&source, &source_cwd, &dest, &dest_cwd, &items, total, &id, &app_handle, &cancel).await;
+        match result {
+            Ok(()) => { let _ = app_handle.emit("transfer-done", TransferDoneEvent { transfer_id: id.clone() }); }
+            Err(e) => {
+                let _ = app_handle.emit(
+                    "transfer-error",
+                    TransferErrorEvent { transfer_id: id.clone(), message: e.to_string() },
+                );
+            }
+        }
+        app_handle.state::<AppState>().transfers.lock_recover().remove(&id);
+    });
+
+    Ok(transfer_id)
+}
+
+#[allow(clippy::too_many_arguments)]
+async fn sync_batch(
+    source: &PaneRef,
+    source_cwd: &str,
+    dest: &PaneRef,
+    dest_cwd: &str,
+    items: &[SyncItem],
+    total: u64,
+    transfer_id: &str,
+    app: &AppHandle,
+    cancel: &AtomicBool,
+) -> anyhow::Result<()> {
+    let mut report = progress_reporter(total, transfer_id, app);
+    let mut progress = transfer::CopyProgress { cancel, report: &mut report, done: 0 };
+    for item in items {
+        transfer::copy_relative(
+            source,
+            source_cwd,
+            dest,
+            dest_cwd,
+            &item.path,
+            item.size,
+            item.modified,
+            &mut progress,
+        )
+        .await?;
+    }
+    Ok(())
 }
 
 /// Espace du système de fichiers qui porte `path`, pour un panneau distant.

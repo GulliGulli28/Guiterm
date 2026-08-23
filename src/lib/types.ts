@@ -805,6 +805,49 @@ export interface PaneFindOutcome {
   truncated: boolean;
 }
 
+/** Un fichier vu par l'inventaire d'un panneau — miroir de
+ * `termius_core::pane_ops::FileFacts`. `path` est relatif à la racine
+ * comparée, toujours séparé par `/`. */
+export interface PaneFileFacts {
+  path: string;
+  size: number;
+  modified: number;
+}
+
+/** Pourquoi deux arborescences diffèrent sur un fichier — miroir de
+ * `termius_core::pane_sync::DifferenceKind`. `sizeDiffers` est à part : même
+ * date des deux côtés mais pas la même taille, donc aucun « plus récent » à
+ * proposer — souvent une copie interrompue. */
+export type SyncDifferenceKind = "onlyLeft" | "onlyRight" | "newerLeft" | "newerRight" | "sizeDiffers";
+
+export interface SyncDifference {
+  path: string;
+  kind: SyncDifferenceKind;
+  left?: PaneFileFacts | null;
+  right?: PaneFileFacts | null;
+}
+
+/** Le résultat d'une comparaison — miroir de
+ * `termius_core::pane_sync::Comparison`. Ne contient que les différences :
+ * les fichiers identiques sont comptés, pas listés. */
+export interface PaneComparison {
+  differences: SyncDifference[];
+  identical: number;
+  /** Un des deux inventaires a été plafonné : la comparaison ne couvre pas
+   * tout, et l'interface le dit — sans quoi une synchronisation partielle
+   * passerait pour terminée. */
+  truncated: boolean;
+}
+
+/** Un fichier à synchroniser. La taille et la date viennent de la
+ * comparaison déjà affichée ; elles ne servent qu'à graduer la barre de
+ * progression et à reporter la date à l'arrivée. */
+export interface SyncItem {
+  path: string;
+  size: number;
+  modified?: number | null;
+}
+
 /** Espace du système de fichiers d'un panneau distant — miroir de
  * `termius_core::pane_ops::DiskSpace`. Jamais renseigné pour le panneau
  * local : il n'y a pas d'API portable pour ça, et l'explorateur de fichiers

@@ -339,6 +339,135 @@ fn local_find(root: &Path, needle: &str, budget: std::time::Duration) -> anyhow:
     Ok(FindOutcome { paths, truncated })
 }
 
+// ── Inventaire d'une arborescence, pour la comparaison ──────────────────────
+
+/// Profondeur et nombre de fichiers au-delà desquels un inventaire cesse
+/// d'être une réponse. Le plafond est dit à l'utilisateur plutôt que de
+/// rendre une liste tronquée qui passerait pour complète — une comparaison
+/// incomplète présentée comme complète ferait croire à une synchronisation
+/// faite.
+pub const INVENTORY_MAX_DEPTH: u32 = 8;
+pub const INVENTORY_LIMIT: usize = 20_000;
+
+/// Taille, date de modification et chemin relatif de chaque fichier sous
+/// `$1`, en une seule commande — l'alternative (lister dossier par dossier
+/// en SFTP) coûterait un aller-retour par dossier.
+///
+/// `stat -c` en lot (`-exec … +`), même convention que
+/// [`crate::remote_shell_pane::LIST_SCRIPT`] : ce sont les mêmes hôtes.
+/// Les dossiers ne sont pas inventoriés (ils sont créés au besoin par la
+/// copie) et les liens symboliques non plus — les suivre comparerait des
+/// arbres qui vivent ailleurs.
+pub const INVENTORY_SCRIPT: &str = r#"
+cd -- "$1" || exit 1
+find . -maxdepth "$2" -type f -exec stat -c '%s	%Y	%n' {} + 2>/dev/null | head -n "$3"
+"#;
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FileFacts {
+    /// Chemin relatif à la racine inventoriée, séparé par `/`.
+    pub path: String,
+    pub size: u64,
+    /// Secondes depuis l'époque Unix.
+    pub modified: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Inventory {
+    pub files: Vec<FileFacts>,
+    /// Le plafond a été atteint : il y a d'autres fichiers que ceux-là, et
+    /// la comparaison qui en découle est partielle.
+    pub truncated: bool,
+}
+
+pub async fn inventory(exec: &PaneExec, root: &str) -> anyhow::Result<Inventory> {
+    match exec {
+        PaneExec::Local => {
+            let root = std::path::PathBuf::from(root);
+            tokio::task::spawn_blocking(move || local_inventory(&root)).await?
+        }
+        PaneExec::Shell(shell) => {
+            let out = shell
+                .run(
+                    INVENTORY_SCRIPT,
+                    &[root, &INVENTORY_MAX_DEPTH.to_string(), &INVENTORY_LIMIT.to_string()],
+                )
+                .await?;
+            Ok(parse_inventory(&out))
+        }
+    }
+}
+
+/// Lit la sortie de [`INVENTORY_SCRIPT`] : `taille\tdate\t./chemin`.
+///
+/// Découpage en **trois** champs au plus : un nom de fichier contenant une
+/// tabulation reste entier dans le dernier, au lieu de décaler les colonnes —
+/// même précaution que `remote_shell_pane::parse_listing`, pour la même
+/// raison (le serveur contrôle les noms qu'il renvoie).
+pub fn parse_inventory(output: &str) -> Inventory {
+    let mut files = Vec::new();
+    for line in output.lines() {
+        let mut fields = line.splitn(3, '\t');
+        let (Some(size), Some(modified), Some(path)) = (fields.next(), fields.next(), fields.next()) else {
+            continue;
+        };
+        let (Ok(size), Ok(modified)) = (size.trim().parse::<u64>(), modified.trim().parse::<u64>()) else {
+            continue;
+        };
+        let path = path.trim_end_matches('\r').trim_start_matches("./").to_string();
+        if path.is_empty() {
+            continue;
+        }
+        files.push(FileFacts { path, size, modified });
+    }
+    Inventory { truncated: files.len() >= INVENTORY_LIMIT, files }
+}
+
+/// Équivalent local, sur `std::fs` — mêmes bornes, mêmes exclusions.
+fn local_inventory(root: &Path) -> anyhow::Result<Inventory> {
+    let mut files = Vec::new();
+    let mut queue = vec![(root.to_path_buf(), String::new(), 0u32)];
+    let mut first = true;
+    while let Some((dir, prefix, depth)) = queue.pop() {
+        let listing = match std::fs::read_dir(&dir) {
+            Ok(listing) => listing,
+            Err(e) if first => return Err(e.into()),
+            Err(_) => continue,
+        };
+        first = false;
+        for item in listing.flatten() {
+            if files.len() >= INVENTORY_LIMIT {
+                return Ok(Inventory { files, truncated: true });
+            }
+            let Ok(metadata) = item.metadata() else { continue };
+            if metadata.is_symlink() {
+                continue;
+            }
+            let name = item.file_name().to_string_lossy().to_string();
+            // Toujours `/` : c'est un chemin relatif comparé à celui d'en
+            // face, qui vient d'un hôte POSIX.
+            let path = if prefix.is_empty() { name.clone() } else { format!("{prefix}/{name}") };
+            if metadata.is_dir() {
+                if depth + 1 < INVENTORY_MAX_DEPTH {
+                    queue.push((item.path(), path, depth + 1));
+                }
+            } else {
+                let modified = metadata
+                    .modified()
+                    .ok()
+                    .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
+                    .map(|d| d.as_secs())
+                    .unwrap_or(0);
+                files.push(FileFacts { path, size: metadata.len(), modified });
+            }
+        }
+    }
+    let truncated = files.len() >= INVENTORY_LIMIT;
+    Ok(Inventory { files, truncated })
+}
+
 // ── Archivage d'une sélection ───────────────────────────────────────────────
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -640,6 +769,16 @@ mod tests {
     }
 
     #[test]
+    fn inventory_parsing_survives_a_tab_in_a_filename() {
+        let inventory = parse_inventory("12\t1700000000\t./notes.md\n7\t1700000001\t./bizarre\tnom.txt\npas une ligne\n");
+        assert_eq!(inventory.files.len(), 2, "obtenu : {:?}", inventory.files);
+        assert_eq!(inventory.files[0].path, "notes.md");
+        assert_eq!(inventory.files[0].size, 12);
+        assert_eq!(inventory.files[1].path, "bizarre\tnom.txt", "le nom garde sa tabulation");
+        assert!(!inventory.truncated);
+    }
+
+    #[test]
     fn a_plain_pattern_gets_wildcards_unless_it_has_them() {
         assert_eq!(globbed("nginx.conf"), "*nginx.conf*");
         assert_eq!(globbed("*.conf"), "*.conf");
@@ -924,6 +1063,39 @@ mod shell_script_tests {
         let (ok, _, stderr) = run(DIR_SIZE_SCRIPT, &[&dir.path().join("absent").to_string_lossy()]);
         assert!(!ok, "un dossier inexistant ne doit pas rendre une taille");
         assert!(stderr.contains("impossible de calculer"), "message français attendu : {stderr}");
+    }
+
+    /// L'inventaire est ce sur quoi repose toute la comparaison : si le
+    /// script et le parcours Rust ne voient pas la même chose, elle annonce
+    /// des différences qui n'existent pas.
+    #[test]
+    fn inventory_script_and_the_rust_walk_see_the_same_tree() {
+        let dir = tree();
+        let (ok, stdout, stderr) = run(
+            INVENTORY_SCRIPT,
+            &[
+                &dir.path().to_string_lossy(),
+                &INVENTORY_MAX_DEPTH.to_string(),
+                &INVENTORY_LIMIT.to_string(),
+            ],
+        );
+        assert!(ok, "stderr : {stderr}");
+
+        let mut from_shell = parse_inventory(&stdout).files;
+        let mut from_rust = local_inventory(dir.path()).unwrap().files;
+        from_shell.sort_by(|a, b| a.path.cmp(&b.path));
+        from_rust.sort_by(|a, b| a.path.cmp(&b.path));
+
+        assert_eq!(
+            from_shell.iter().map(|f| (&f.path, f.size)).collect::<Vec<_>>(),
+            from_rust.iter().map(|f| (&f.path, f.size)).collect::<Vec<_>>(),
+            "mêmes chemins relatifs, mêmes tailles"
+        );
+        assert!(from_shell.iter().all(|f| f.modified > 0), "les dates doivent être lues : {from_shell:?}");
+        assert!(
+            from_shell.iter().any(|f| f.path == "projet/nginx.conf"),
+            "chemin relatif sans « ./ » : {from_shell:?}"
+        );
     }
 
     #[test]
