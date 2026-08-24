@@ -9,6 +9,23 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+### Added
+- Persistent terminal sessions, per host, off by default. Set "Session
+  persistante" to `tmux` on a host and its terminals run inside a named
+  server-side session: a dropped VPN, a laptop going to sleep, closing the tab,
+  restarting the app or rebooting your machine all reattach to the same screen
+  — working directory, running command and all. Until now a reconnection gave
+  you back *a* shell, not *your* shell.
+- The terminal now says which one you got: "session reprise" when your work is
+  back, and a one-line notice when the host has no `tmux` and the session
+  therefore won't survive. Nothing fails in that case — the connection opens
+  as it always did.
+- Known limitation of this first step: closing a tab detaches the session
+  (that's the point — closing the app must not kill your work), but the app
+  then has no way to list or end it. Sessions are all named `guiterm-…` on the
+  server, and a session manager is the next piece of work. Until it lands,
+  leaving this on for many hosts will leave sessions running.
+
 ### Changed
 - Every field where you pick a host now shows your folders, not a flat list.
   The transfer panel's source selector, the split terminal, the tunnel form,
