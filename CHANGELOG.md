@@ -20,11 +20,16 @@ This changelog starts 2026-07-21 — for earlier versions, see
   back, and a one-line notice when the host has no `tmux` and the session
   therefore won't survive. Nothing fails in that case — the connection opens
   as it always did.
-- Known limitation of this first step: closing a tab detaches the session
-  (that's the point — closing the app must not kill your work), but the app
-  then has no way to list or end it. Sessions are all named `guiterm-…` on the
-  server, and a session manager is the next piece of work. Until it lands,
-  leaving this on for many hosts will leave sessions running.
+- A session manager, in an SSH host's menu under "Sessions": what is still
+  running on that host, since when, how many windows, and whether anyone is
+  attached to it. Click one to reopen it in a tab; "Terminer" closes it for
+  good, after a confirmation that says what that costs. Closing a tab detaches
+  rather than ends the session — that is the point, closing the app must not
+  kill your work — so this is how you get back to a session whose tab is gone,
+  and how you stop the ones you are done with.
+- The manager only ever offers sessions this app opened (`guiterm-…`): your own
+  `tmux` sessions on the same host are never listed, and never closable from
+  here.
 
 ### Changed
 - Every field where you pick a host now shows your folders, not a flat list.
