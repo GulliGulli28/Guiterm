@@ -48,13 +48,25 @@ This changelog starts 2026-07-21 — for earlier versions, see
   are not sent, and — this is the part that matters — the view takes the
   session's own size instead of your window's. Joining at a different size
   resizes the session for everyone working in it, which `tmux attach -r` does
-  *not* prevent. A session wider than your window is cropped rather than scaled
-  down.
+  *not* prevent. A session bigger than your window has its font shrunk to fit,
+  down to a readable floor — so the terminal zoom does nothing on a tab you are
+  only watching.
 - "Partager" copies the exact command a colleague can paste to watch the same
   session from their own terminal. Guiterm invites nobody: joining a session
   needs an SSH account on that host, and there is no relay. Neither "Observer"
   nor "Partager" is a security boundary — anyone with a shell on the host can
   attach with write access — and the manager says so on screen.
+
+- tmux's own status bar is hidden in persistent sessions, so they look like an
+  ordinary terminal rather than sprouting a green bar. Turn it back on in
+  Général → Session if you use tmux windows (Ctrl+B then c) and want to see
+  them. The setting applies on every reconnection, so it also reaches sessions
+  that are already open — and turning it off simply hands the option back to
+  your own `.tmux.conf` instead of forcing the bar on.
+- The shortcut editor now warns that Ctrl+B is tmux's prefix, not just a
+  readline binding. Nothing is broken today — the sidebar shortcut does not
+  intercept it inside a terminal — but binding an app action that does would
+  make every persistent session unusable.
 
 ### Fixed
 - Closing a terminal tab left the remote end attached. The SSH channel was only
