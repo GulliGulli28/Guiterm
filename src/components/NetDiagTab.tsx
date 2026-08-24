@@ -4,6 +4,8 @@ import { describeVerdict, diagRowKey, diagToolKey, diagToolLabel } from "../lib/
 import { fleetTargetKey } from "../lib/types";
 import type { DiagTool, DiagVerdict, HostId, Workspace } from "../lib/types";
 import { useFleetTargets } from "../hooks/useFleetTargets";
+import { buildTargetTree } from "../lib/targetTree";
+import { TargetTreeList } from "./TargetTreeList";
 import { IconPlay, IconSearch } from "./ui-icons";
 
 interface NetDiagTabProps {
@@ -124,20 +126,35 @@ export function NetDiagTab({ workspace, onError, initialSourceId }: NetDiagTabPr
     return () => { pending.then((un) => un()).catch(() => {}); };
   }, []);
 
-  const shown = useMemo(() => {
-    const terms = filter.toLowerCase().split(/\s+/).filter(Boolean);
-    if (terms.length === 0) return selectable;
-    return selectable.filter((t) => {
-      const haystack = `${t.label} ${t.sub}`.toLowerCase();
-      return terms.every((term) => haystack.includes(term));
-    });
-  }, [selectable, filter]);
+  // Rangées dans l'arborescence de dossiers, comme la barre latérale et
+  // l'onglet de flotte — le filtre y couvre aussi les tags de l'hôte porteur
+  // (voir `lib/targetTree.ts`).
+  const { rows: targetRows, visibleKeys } = useMemo(
+    () => buildTargetTree({
+      targets: selectable,
+      hosts: workspace.hosts,
+      groups: workspace.groups,
+      query: filter,
+    }),
+    [selectable, workspace.hosts, workspace.groups, filter],
+  );
 
   const toggle = (key: string) =>
     setSelected((prev) => {
       const next = new Set(prev);
       if (next.has(key)) next.delete(key);
       else next.add(key);
+      return next;
+    });
+
+  /** Cocher/décocher tout un dossier (ou tout un hôte relais) d'un coup. */
+  const toggleKeys = (keys: string[], checked: boolean) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const key of keys) {
+        if (checked) next.add(key);
+        else next.delete(key);
+      }
       return next;
     });
 
@@ -307,10 +324,10 @@ export function NetDiagTab({ workspace, onError, initialSourceId }: NetDiagTabPr
             </div>
             <div className="mt-1.5 flex gap-2">
               <button
-                onClick={() => setSelected(new Set(shown.map((t) => t.key)))}
+                onClick={() => setSelected(new Set(visibleKeys))}
                 className="text-[10px] text-[var(--c-accent-text)] hover:underline"
               >
-                Tout ({shown.length})
+                Tout ({visibleKeys.length})
               </button>
               <button
                 onClick={() => setSelected(new Set())}
@@ -321,23 +338,21 @@ export function NetDiagTab({ workspace, onError, initialSourceId }: NetDiagTabPr
             </div>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto p-1">
-            {shown.map((t) => (
-              <label
-                key={t.key}
-                className="flex cursor-pointer items-center gap-2 rounded px-2 py-1.5 hover:bg-[var(--c-bg3)]"
-              >
-                <input
-                  type="checkbox"
-                  checked={selected.has(t.key)}
-                  onChange={() => toggle(t.key)}
-                  className="accent-[var(--c-accent)]"
-                />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[12px] text-[var(--c-text)]">{t.label}</div>
-                  {t.sub && <div className="truncate text-[10px] text-[var(--c-text-muted)]">{t.sub}</div>}
-                </div>
-              </label>
-            ))}
+            <TargetTreeList
+              rows={targetRows}
+              customIcons={workspace.customIcons}
+              isChecked={(t) => selected.has(t.key)}
+              onToggle={(t) => toggle(t.key)}
+              onToggleKeys={toggleKeys}
+              countChecked={(keys) => keys.reduce((n, key) => n + (selected.has(key) ? 1 : 0), 0)}
+              emptyMessage={filter.trim() ? "Aucune cible ne correspond." : "Aucune cible."}
+              renderTarget={(t) => (
+                <>
+                  <span className="block truncate text-[12px] text-[var(--c-text)]">{t.label}</span>
+                  {t.sub && <span className="block truncate text-[10px] text-[var(--c-text-muted)]">{t.sub}</span>}
+                </>
+              )}
+            />
           </div>
         </div>
 

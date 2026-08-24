@@ -16,6 +16,13 @@ export interface FleetTargetInfo {
    * per-account cut, which targeting by tag can't express. Read out of the
    * host's proxy command; `null` for everything else. */
   profile?: string | null;
+  /** L'hôte enregistré auquel la cible se rattache : elle-même pour un hôte
+   * SSH, l'hôte relais pour un conteneur Docker ou un pod K8s. Absent pour le
+   * terminal local. Sert à ranger la cible dans l'arborescence de dossiers et
+   * à lui prêter les tags de son hôte (`lib/targetTree.ts`) — l'information
+   * était déjà dans `target`, mais seulement sous une forme propre à chaque
+   * variante. */
+  hostId?: HostId | null;
 }
 
 /**
@@ -100,6 +107,7 @@ export function useFleetTargets(workspace: Workspace) {
         key: fleetTargetKey({ kind: "ssh", hostId: h.id }),
         target: { kind: "ssh", hostId: h.id },
         label: h.label,
+        hostId: h.id,
         sub: [groupName(h), h.address].filter(Boolean).join(" · "),
         facts: h.lastFacts,
         lastFactsAtMs: h.lastFactsAtMs,
@@ -112,6 +120,7 @@ export function useFleetTargets(workspace: Workspace) {
           key: fleetTargetKey({ kind: "docker", hostId: h.id, containerId: c.id }),
           target: { kind: "docker", hostId: h.id, containerId: c.id },
           label: c.name,
+          hostId: h.id,
           sub: `${h.label} · ${c.image}`,
           // The host's profile, not the container's: it is how the machine
           // running Docker is reached, same as `compose_adaptive_for_docker`.
@@ -127,6 +136,7 @@ export function useFleetTargets(workspace: Workspace) {
             key: fleetTargetKey({ kind: "k8s", hostId: h.id, podName: p.name, containerName }),
             target: { kind: "k8s", hostId: h.id, podName: p.name, containerName },
             label: containerName ? `${p.name} › ${containerName}` : p.name,
+            hostId: h.id,
             sub: `${h.label} · ${p.namespace}`,
             profile: profileInCommand(h.proxyCommand),
           });

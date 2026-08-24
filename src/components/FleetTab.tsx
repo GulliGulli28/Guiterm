@@ -12,6 +12,8 @@ import { SnippetPicker } from "./SnippetPicker";
 import { IconPlay, IconSearch, IconChevronRight, IconChevronDown, IconRefresh, IconSnippets } from "./ui-icons";
 import { useResizablePane } from "../hooks/useResizablePane";
 import { useFleetTargets } from "../hooks/useFleetTargets";
+import { buildTargetTree } from "../lib/targetTree";
+import { TargetTreeList } from "./TargetTreeList";
 
 function formatTimestamp(ms: number): string {
   return new Date(ms).toLocaleString();
@@ -199,16 +201,18 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
   const [drift, setDrift] = useState<HostDrift[] | null>(null);
   const [checkingDrift, setCheckingDrift] = useState(false);
 
-  const filtered = useMemo(() => {
-    const q = filter.trim().toLowerCase();
-    if (!q) return allTargets;
-    return allTargets.filter(
-      (t) =>
-        t.label.toLowerCase().includes(q)
-        || t.sub.toLowerCase().includes(q)
-        || (t.profile?.toLowerCase().includes(q) ?? false),
-    );
-  }, [allTargets, filter]);
+  // Rangées dans l'arborescence de dossiers plutôt qu'à plat — mêmes dossiers
+  // et mêmes tags que la barre latérale, et le filtre compare maintenant aussi
+  // les tags de l'hôte porteur (voir `lib/targetTree.ts`).
+  const { rows: targetRows, visibleKeys } = useMemo(
+    () => buildTargetTree({
+      targets: allTargets,
+      hosts: workspace.hosts,
+      groups: workspace.groups,
+      query: filter,
+    }),
+    [allTargets, workspace.hosts, workspace.groups, filter],
+  );
 
   /** The distinct AWS profiles present among the targets, for the quick-select
    * row. Empty on a workspace with no imported host, which is what keeps that
@@ -309,7 +313,22 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
       else next.add(key);
       return next;
     });
-  const selectAll = () => setSelected(new Set(filtered.map((t) => t.key)));
+  const selectAll = () => setSelected(new Set(visibleKeys));
+  /** Cocher/décocher tout un dossier (ou tout un hôte relais) d'un coup — ce
+   * que la liste à plat ne pouvait pas offrir faute de savoir ce qu'était un
+   * dossier. Les cibles gérées automatiquement en mode « Langage » ne sont pas
+   * touchées : elles y sont recalculées à chaque frappe. */
+  const toggleKeys = (keys: string[], checked: boolean) =>
+    setSelected((prev) => {
+      const next = new Set(prev);
+      for (const key of keys) {
+        const target = targetsByKey.get(key);
+        if (mode === "intent" && (hasTargetLine || target?.kind !== "ssh")) continue;
+        if (checked) next.add(key);
+        else next.delete(key);
+      }
+      return next;
+    });
   const selectNone = () => setSelected(new Set());
 
   const collectFacts = async (hostIds?: HostId[]) => {
@@ -777,24 +796,26 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
           </div>
         )}
         <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
-          {filtered.map((t) => {
-            const checked = selected.has(t.key);
-            const f = t.facts;
-            // In "Langage" mode, only SSH checkboxes ever become selectable
-            // (Docker exec/K8s exec/local aren't representable in an
-            // adaptive fleet run at all — see `run_adaptive_plan`'s doc
-            // comment), and even those stay auto-managed as long as the
-            // program has a `target` line (see
-            // `hasTargetLine`/`programHasTargetLine`).
-            const autoManaged = mode === "intent" && (hasTargetLine || t.target.kind !== "ssh");
-            return (
-              <label
-                key={t.key}
-                title={autoManaged ? "Sélection automatique en mode Langage" : undefined}
-                className={`flex items-center gap-2.5 rounded-md px-2 py-1.5 ${!autoManaged ? "cursor-pointer" : ""} ${checked ? "bg-[var(--c-accent-dim)]" : !autoManaged ? "hover:bg-[var(--c-bg3)]" : ""}`}
-              >
-                <input type="checkbox" checked={checked} disabled={autoManaged} onChange={() => toggle(t.key)} className="accent-[var(--c-accent)] disabled:opacity-60" />
-                <span className="min-w-0 flex-1">
+          <TargetTreeList
+            rows={targetRows}
+            customIcons={workspace.customIcons}
+            isChecked={(t) => selected.has(t.key)}
+            onToggle={(t) => toggle(t.key)}
+            // En mode « Langage », seules les cases SSH deviennent
+            // sélectionnables (Docker exec/K8s exec/local ne sont pas
+            // représentables dans un run adaptatif — voir le commentaire de
+            // `run_adaptive_plan`), et même celles-là restent pilotées par le
+            // programme tant qu'il porte une ligne `target`
+            // (`hasTargetLine`/`programHasTargetLine`).
+            isDisabled={(t) => mode === "intent" && (hasTargetLine || t.target.kind !== "ssh")}
+            disabledTitle="Sélection automatique en mode Langage"
+            onToggleKeys={mode === "command" ? toggleKeys : undefined}
+            countChecked={(keys) => keys.reduce((n, key) => n + (selected.has(key) ? 1 : 0), 0)}
+            emptyMessage={filter.trim() ? "Aucune cible ne correspond." : "Aucune cible."}
+            renderTarget={(t) => {
+              const f = t.facts;
+              return (
+                <>
                   <span className="block truncate text-sm text-[var(--c-text)]">{t.label}</span>
                   {t.sub && <span className="block truncate text-[11px] text-[var(--c-text-faint)]">{t.sub}</span>}
                   {f && (
@@ -814,10 +835,10 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
                       </span>
                     </span>
                   )}
-                </span>
-              </label>
-            );
-          })}
+                </>
+              );
+            }}
+          />
         </div>
       </aside>
 
