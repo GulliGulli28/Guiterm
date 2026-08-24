@@ -94,6 +94,13 @@ export interface EnvVar {
  *   restricted to `password` in the UI. */
 export type HostKind = "ssh" | "dockerExec" | "k8sExec" | "rdp";
 
+/** Miroir de `termius_core::model::PersistentShellMode`.
+ *
+ * `"tmux"` est du « au mieux » : un hôte sans tmux ouvre un shell ordinaire et
+ * le dit, il n'échoue pas. C'est pour ça qu'il n'y a pas de troisième mode
+ * « auto » — il ferait exactement la même chose. */
+export type PersistentShellMode = "off" | "tmux";
+
 export interface Host {
   id: HostId;
   label: string;
@@ -118,6 +125,11 @@ export interface Host {
   icon?: string;
   keepaliveIntervalSecs?: number | null;
   agentForward?: boolean;
+  /** Est-ce qu'un terminal sur cet hôte tourne dans une session qui survit à
+   * la connexion ? Optionnel côté TypeScript parce qu'un `workspace.json`
+   * écrit avant cette fonctionnalité n'a pas le champ — même raison que les
+   * autres `?` de ce struct. Absent vaut `"off"`. */
+  persistentShell?: PersistentShellMode;
   /** Most recent state collected by a fleet facts-collection run (`collect_facts`)
    * — `null`/absent until at least one such run has included this host. Read-only:
    * only that path ever writes it, never the host edit form. */
@@ -959,6 +971,22 @@ export interface PaneState {
   error?: string;
 }
 
+/** Ce qu'est devenue la session persistante demandée à l'ouverture d'un
+ * terminal. Miroir de `commands::terminal::PersistenceOutcome`. */
+export type PersistenceOutcome = "off" | "unavailable" | "created" | "resumed";
+
+/** Ce que rend `connect_terminal`. C'était un simple identifiant de session ;
+ * la clé s'y est ajoutée parce que **c'est le frontend qui la retient** — elle
+ * ne vaut que si elle survit au processus, et l'onglet est déjà ce qui est
+ * persisté d'un lancement à l'autre. */
+export interface TerminalOpened {
+  sessionId: string;
+  /** `null` quand ce terminal n'est pas persistant. Pas forcément la clé
+   * demandée : une clé inutilisable est remplacée, pas refusée. */
+  sessionKey: string | null;
+  persistence: PersistenceOutcome;
+}
+
 export type TabMeta =
   | {
       id: string;
@@ -973,6 +1001,11 @@ export type TabMeta =
       dockerContainerId?: string;
       k8sPodName?: string;
       k8sContainerName?: string | null;
+      /** La session persistante de cet onglet (`kind: "terminal"` seulement),
+       * telle que le backend l'a nommée à la première connexion. Persistée
+       * avec l'onglet : c'est ce qui fait qu'un redémarrage de l'app retrouve
+       * l'écran laissé, et pas seulement un onglet au bon nom. */
+      sessionKey?: string;
     }
   | { id: string; kind: "local-terminal"; label: string; initialCommand?: string; shell?: string | null; status?: "connected" | "placeholder" }
   | { id: string; kind: "fleet"; label: string; status?: "connected" | "placeholder" }

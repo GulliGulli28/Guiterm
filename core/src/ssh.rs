@@ -649,6 +649,23 @@ pub async fn open_shell(
     rows: u16,
     agent_forward: bool,
 ) -> anyhow::Result<ShellSession> {
+    open_shell_with_command(connection, cols, rows, agent_forward, None).await
+}
+
+/// The same, but running `command` on the PTY instead of the login shell.
+///
+/// Same channel, same PTY request, same pump loop — only `exec` replaces
+/// `request_shell`. That is what lets a terminal run inside a persistent
+/// `tmux` session (see [`crate::persistent_shell`]) without a second copy of
+/// the bridging code: the command still gets a real TTY, still streams raw
+/// bytes, and still receives `window-change` on resize.
+pub async fn open_shell_with_command(
+    connection: &Connection,
+    cols: u16,
+    rows: u16,
+    agent_forward: bool,
+    command: Option<&str>,
+) -> anyhow::Result<ShellSession> {
     let channel = connection.target().channel_open_session().await?;
     if agent_forward {
         channel.agent_forward(false).await?;
@@ -656,7 +673,10 @@ pub async fn open_shell(
     channel
         .request_pty(false, "xterm-256color", cols as u32, rows as u32, 0, 0, &[])
         .await?;
-    channel.request_shell(true).await?;
+    match command {
+        Some(command) => channel.exec(true, command).await?,
+        None => channel.request_shell(true).await?,
+    }
 
     let (input_tx, mut input_rx) = mpsc::channel::<ShellInput>(256);
     let (output_tx, output_rx) = mpsc::channel::<Vec<u8>>(256);

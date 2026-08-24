@@ -385,6 +385,19 @@ limité (pas de curseur rendu, molette approximative), voir
   OS reste actif — implémenter le drag interne à la souris
   (`mousedown`/`mousemove`/`mouseup`) plutôt qu'avec l'API HTML5 Drag and Drop.
 
+- **Un shell distant est neuf à chaque connexion — sauf en session
+  persistante.** `ssh::open_shell` demande un pty puis un shell, donc la
+  reconnexion automatique rétablit *un* terminal, pas *le* terminal. Un hôte
+  réglé sur `persistentShell: "tmux"` (`PersistentShellMode`, désactivé par
+  défaut) exécute à la place `tmux new-session -A -s <clé>`
+  (`core/src/persistent_shell.rs`), sur une clé portée par l'onglet et
+  persistée avec lui. **Conséquence à ne pas rater** : les commandes de
+  démarrage (env + snippets) sont *tapées dans le shell*, donc
+  `register_shell_session` ne les rejoue pas sur un rattachement — sinon elles
+  repartiraient au milieu de la session vivante. Tout y est au conditionnel :
+  hôte sans tmux, sondage en échec ou clé invalide retombent sur le shell
+  ordinaire, jamais sur une erreur de connexion.
+
 - **xterm.js avale les raccourcis clavier.** xterm.js appelle
   `stopPropagation()` sur toute touche qu'il traite lui-même (dès que
   `attachCustomKeyEventHandler` ne renvoie pas explicitement `false`). Un

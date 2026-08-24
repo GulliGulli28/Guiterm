@@ -1906,3 +1906,108 @@ Et un piège corrigé au passage dans un scénario existant :
 `document.querySelector("select")`. Le champ hôte n'étant plus un `<select>`,
 ce sélecteur attrapait celui du *type* de tunnel — la réponse était donc oui
 même sur un workspace vide. Il lit maintenant le workspace.
+
+## Sessions persistantes (tmux) — tranche 1 (2026-08-24)
+
+**Le manque.** `TerminalTab` reconnecte avec un repli exponentiel et écrit
+« [reconnecté] », mais `ssh::open_shell` demandait un pty puis un shell : un
+pty **neuf** à chaque fois. Le dossier courant, le `tail -f` en cours et la
+commande à moitié tapée partaient avec le canal. `tabPersistence` le disait
+sans détour — « never a live session id » —, et rien dans le dépôt ne parlait
+tmux ni screen.
+
+**Le principe, en une ligne.** `channel.exec(true, "tmux new-session -A -s
+<clé>")` à la place de `request_shell`, sur une clé conservée avec l'onglet.
+`open_shell` délègue désormais à `open_shell_with_command`, qui ne diffère que
+par ce `match` : même canal, même demande de pty, même boucle de pompage —
+donc le forward d'agent, le canal binaire de sortie, l'enregistrement
+asciicast et le redimensionnement continuent de marcher sans rien savoir de
+tmux.
+
+### Cinq décisions, et pourquoi
+
+- **Deux modes, pas trois.** `PersistentShellMode` vaut `Off` ou `Tmux`. Un
+  mode « auto » qui voudrait dire « tmux s'il est là » serait exactement
+  `Tmux`, déjà au conditionnel : un hôte sans tmux ouvre un shell ordinaire et
+  le signale, il n'échoue pas.
+- **Défaut `Off`, et ce n'est pas de la prudence de façade.** Un
+  `#[serde(default)]` sur un champ de `Host` s'applique à *tous* les hôtes déjà
+  écrits sur le disque de tous les utilisateurs — contrairement à
+  `DEFAULT_PREFERENCES`, qui ne touche que les nouvelles installations. Un
+  défaut `Tmux` aurait changé le comportement de chaque hôte existant à la
+  mise à jour, en silence. Épinglé par
+  `a_host_saved_before_persistent_sessions_loads_as_off`, qui désérialise un
+  `Host` écrit à la main dans la forme d'un workspace 3.1.1.
+- **Les commandes de démarrage ne sont rejouées qu'à la création.** C'est le
+  point subtil de toute la tranche. `register_shell_session` *tape* les
+  `export` et les snippets dans le shell ; sur un rattachement, elles
+  repartiraient dans la session vivante, par-dessus ce qui est à l'écran. La
+  distinction « ouvrir une connexion » ≠ « ouvrir un shell » n'existait pas
+  tant que les deux étaient la même chose — d'où le drapeau `replay_startup`,
+  faux dans exactement un cas.
+- **Lister les sessions plutôt que `tmux has-session`.** `has-session -t nom`
+  résout sa cible comme n'importe quelle cible tmux : nom exact d'abord, mais
+  préfixe ou motif ensuite selon la version. Deux clés dont l'une préfixe
+  l'autre suffiraient à répondre « oui » pour la mauvaise. Le sondage liste les
+  noms (`list-sessions -F`) et compare en Rust — exact quelle que soit la
+  version, et c'est déjà la liste dont la tranche 2 aura besoin. Un seul
+  aller-retour, en lignes `CLÉ=valeur` comme `facts::PROBE`, donc indifférent
+  au MOTD.
+- **`-A` malgré le sondage.** `new-session -A` crée *ou* rattache selon ce qui
+  existe au moment où il tourne. Le sondage ne décide donc pas de la connexion
+  — seulement du rejeu des commandes de démarrage — et une session ouverte
+  entre les deux est rattachée au lieu d'échouer.
+
+**Ce que valide une clé qu'on génère soi-même.** `is_valid_session_key`
+existe pour deux raisons : la clé fait l'aller-retour par le `localStorage` du
+frontend, et **tmux interdit `.` et `:` dans un nom de session** (il les lit
+comme les séparateurs `session:fenêtre.panneau`). Une clé qui en contient ne
+produit pas une erreur franche mais une session au mauvais nom, introuvable
+ensuite. Une clé invalide est remplacée, jamais refusée : le pire cas est une
+session neuve, pas un terminal qui ne s'ouvre pas.
+
+**Qui retient la clé.** Le backend la nomme, le frontend la retient : elle ne
+vaut que si elle survit au processus, et l'onglet est déjà ce qui est persisté
+d'un lancement à l'autre. D'où `TabMeta.sessionKey`, sa persistance dans
+`tabPersistence`, et `rememberSessionKey` dans le contexte des modules —
+volontairement étroit plutôt qu'un `updateTab` générique. Côté `TerminalTab`
+la clé vit dans une `ref` et non dans les dépendances de l'effet : elle est
+semée par la prop puis réécrite par la première connexion, et faire dépendre
+l'effet de sa valeur détruirait le terminal qu'on est justement en train de
+rattraper.
+
+### Ce qui est sous test, et ce qui ne l'est pas
+
+- `core/tests/persistent_shell_integration.rs` est **le** test qui prouve la
+  fonctionnalité : vrai `sshd` (le harnais de `core/tests/common`) et vrai
+  tmux, deux connexions successives, un dossier courant et une variable qui
+  traversent l'intervalle. Un second test sert de témoin — un shell ordinaire
+  ne garde rien —, sans quoi le premier pourrait passer pour une mauvaise
+  raison. Validé en cassant `attach_command` : le scénario persistant échoue,
+  le témoin reste vert. Ignoré proprement quand tmux manque : le sondage
+  répond `NoTmux`, ce qui est le repli promis.
+- Pour attendre, un motif et jamais un délai : `PR''ET` tapé en deux morceaux
+  n'apparaît dans le flux que quand le shell l'a réellement imprimé — l'écho
+  du pty, lui, montre les quotes. Un `sleep` calibré sur cette machine serait
+  instable ailleurs.
+- Le scénario e2e `runPersistentSessionScenario` couvre ce que le test
+  d'intégration ne peut pas voir : que le réglage est **atteignable** dans le
+  formulaire et qu'il fait l'aller-retour par `save_host`/`workspace.json`.
+  C'est le trou par lequel MongoDB était parti. Validé en retirant l'affectation
+  de `persistent_shell` dans `save_host` : l'e2e tombe sur « le réglage n'a pas
+  fait l'aller-retour ». Il vérifie aussi que l'échec de connexion sur
+  127.0.0.1:1 est bien un refus TCP et pas un `invalid args` — `connect_terminal`
+  a gagné un argument, et une casse ratée s'y verrait là.
+- **Pas testé** : le partage de session, le redimensionnement à plusieurs
+  clients attachés, et le comportement d'un `screen` (non implémenté). La
+  barre d'état tmux reste visible — c'est la tranche 5.
+
+**La limite assumée de cette tranche : les sessions orphelines.** Fermer un
+onglet lâche le canal, donc tmux détache — et c'est bien ce qu'on veut, sans
+quoi fermer l'app tuerait tout. Mais l'onglet disparu emporte la seule clé que
+l'app connaissait : la session continue de tourner sur le serveur, hors de
+portée de l'interface. Rien n'est perdu (elles portent toutes le préfixe
+`guiterm-`, et `parse_session_names` les retrouve déjà), mais tant que la
+tranche 2 — lister, reprendre, terminer — n'est pas là, un usage intensif les
+laisse s'accumuler. C'est la raison pour laquelle le réglage est désactivé par
+défaut, et pas seulement la compatibilité ascendante.

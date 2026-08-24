@@ -191,6 +191,24 @@ pub struct HostFacts {
     pub mem_used_pct: Option<f64>,
 }
 
+/// Whether a terminal opened on a host runs inside a *named, server-side*
+/// session that survives the SSH connection carrying it.
+///
+/// Two variants and not three: an "auto" mode that meant "use tmux when it is
+/// there" would be exactly [`Self::Tmux`], which is already best-effort — a
+/// host without tmux falls back to the ordinary shell rather than failing to
+/// connect. See [`crate::persistent_shell`].
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PersistentShellMode {
+    /// A fresh shell per connection — what every host did before this existed.
+    #[default]
+    Off,
+    /// `tmux new-session -A` on a key kept with the tab, so a dropped
+    /// connection, a closed app or a reboot all reattach to the same screen.
+    Tmux,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct Host {
@@ -247,6 +265,14 @@ pub struct Host {
     /// agent for as long as the session is open. Unix-only, requires `auth: Agent`.
     #[serde(default)]
     pub agent_forward: bool,
+    /// Whether a terminal on this host runs inside a session that outlives the
+    /// connection — see [`crate::persistent_shell`]. Defaults to
+    /// [`PersistentShellMode::Off`], and that default matters more than most:
+    /// a `#[serde(default)]` on a `Host` field applies to every host already
+    /// saved on every user's disk, so anything but `Off` would silently change
+    /// how existing hosts behave on upgrade.
+    #[serde(default)]
+    pub persistent_shell: PersistentShellMode,
     /// Most recent state collected by a fleet facts-collection run (see
     /// `crate::facts::collect`) — `None` until at least one such run has
     /// included this host. Written only by that path, never by the host
@@ -345,6 +371,7 @@ impl Host {
             icon: None,
             keepalive_interval_secs: None,
             agent_forward: false,
+            persistent_shell: PersistentShellMode::default(),
             source: None,
             last_facts: None,
             last_facts_at_ms: None,
@@ -1527,5 +1554,42 @@ mod tests {
         // No TCP settings to expose — this is what drives `sql::connect`'s
         // tunnel branch, replacing an `unreachable!()` arm.
         assert!(conn.config.server().is_none());
+    }
+
+    /// A host saved before persistent sessions existed still loads, and loads
+    /// as "off". This is the compatibility rule the whole feature rests on: a
+    /// `#[serde(default)]` field is added to every host already on disk, so if
+    /// its default were `Tmux` every existing host would silently change
+    /// behaviour on upgrade. The JSON below is deliberately the shape a 3.1.1
+    /// workspace really has — no `persistentShell` key at all.
+    #[test]
+    fn a_host_saved_before_persistent_sessions_loads_as_off() {
+        let json = r#"{
+            "id": "6f1a9d2e-0000-4000-8000-000000000007",
+            "label": "web-1",
+            "address": "10.0.0.1",
+            "port": 22,
+            "username": "ubuntu",
+            "auth": "agent",
+            "groupId": null,
+            "jumpVia": [],
+            "tags": [],
+            "startupSnippets": [],
+            "envVars": []
+        }"#;
+
+        let host: Host = serde_json::from_str(json).unwrap();
+        assert_eq!(host.persistent_shell, PersistentShellMode::Off);
+    }
+
+    /// And the casing that reaches the frontend, checked on hand-written JSON
+    /// rather than a Rust→Rust roundtrip — which would pass just as well with
+    /// the wrong casing on both sides.
+    #[test]
+    fn the_persistent_shell_mode_is_camel_case_on_the_wire() {
+        assert_eq!(serde_json::to_string(&PersistentShellMode::Off).unwrap(), "\"off\"");
+        assert_eq!(serde_json::to_string(&PersistentShellMode::Tmux).unwrap(), "\"tmux\"");
+        let parsed: PersistentShellMode = serde_json::from_str("\"tmux\"").unwrap();
+        assert_eq!(parsed, PersistentShellMode::Tmux);
     }
 }

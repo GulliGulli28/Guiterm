@@ -79,4 +79,28 @@ describe("tabPersistence", () => {
     localStorage.setItem(STORAGE_KEY, "{}");
     expect(loadTabs()).toEqual([]);
   });
+
+  // La session persistante vit côté serveur ; son nom est la seule chose qui
+  // permette de la retrouver au lancement suivant. S'il n'était pas persisté,
+  // rouvrir l'app créerait une deuxième session et laisserait la première
+  // tourner pour rien.
+  it("round-trips a terminal tab's persistent session key", () => {
+    const tabs: TabMeta[] = [
+      { id: "t1", kind: "terminal", label: "web1", hostId: "h1", sessionKey: "guiterm-abc" },
+    ];
+    saveTabs(tabs);
+    expect(loadTabs()[0].sessionKey).toBe("guiterm-abc");
+  });
+
+  // Les onglets terminal, transfert et RDP partagent un seul membre de
+  // `TabMeta`, donc le champ existe au typage sur les trois. Il n'a de sens
+  // que pour un terminal : un panneau de transfert n'a pas de shell à
+  // reprendre.
+  it("never carries a session key on a transfer tab", () => {
+    const tabs: TabMeta[] = [
+      { id: "t1", kind: "transfer", label: "web1", hostId: "h1", sessionKey: "guiterm-abc" },
+    ];
+    saveTabs(tabs);
+    expect(loadTabs()[0].sessionKey).toBeUndefined();
+  });
 });

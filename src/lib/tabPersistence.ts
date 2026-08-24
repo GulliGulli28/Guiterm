@@ -10,9 +10,19 @@ export interface PersistedTab {
   k8sPodName?: string;
   k8sContainerName?: string | null;
   shell?: string | null;
+  /** La session persistante de cet onglet terminal (`termius_core::persistent_shell`).
+   * C'est **la** raison d'être de ce champ ici : la session vit côté serveur,
+   * donc la retrouver après un redémarrage de l'app suppose que son nom, lui,
+   * ait été écrit quelque part. */
+  sessionKey?: string;
 }
 
-/** Persists only enough to redraw placeholder tabs — never a live session id. */
+/** Persists only enough to redraw placeholder tabs — never a live session id.
+ *
+ * `sessionKey` n'en est pas une : c'est un *nom* de session côté serveur,
+ * stable d'un lancement à l'autre, valable seulement pour quelqu'un qui a
+ * déjà un accès SSH à l'hôte. Un identifiant de session, lui, ne désigne rien
+ * après la fermeture du processus. */
 export function saveTabs(tabs: TabMeta[]): void {
   const trimmed: PersistedTab[] = tabs.map((t) => {
     const isRemote = t.kind === "terminal" || t.kind === "transfer";
@@ -24,6 +34,7 @@ export function saveTabs(tabs: TabMeta[]): void {
       k8sPodName: isRemote ? t.k8sPodName : undefined,
       k8sContainerName: isRemote ? t.k8sContainerName : undefined,
       shell: t.kind === "local-terminal" ? t.shell : undefined,
+      sessionKey: t.kind === "terminal" ? t.sessionKey : undefined,
     };
   });
   try {

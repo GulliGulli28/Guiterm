@@ -57,6 +57,11 @@ export interface AppContext {
    * *sur* le terminal. Le registre déplace l'endroit où le composant est
    * monté, pas la propriété de cette table — elle reste dans `App.tsx`. */
   registerTerminalHandle: (tabId: string, handle: TerminalTabHandle | null) => void;
+  /** Retient la session persistante qu'un terminal vient d'ouvrir, pour que
+   * l'onglet la reprenne à la reconnexion **et** au lancement suivant. Sans
+   * ça, la session continuerait de tourner côté serveur sans que rien ici
+   * sache la retrouver. */
+  rememberSessionKey: (tabId: string, sessionKey: string) => void;
 }
 
 /** Les membres de `TabMeta` que ce `kind` peut désigner.

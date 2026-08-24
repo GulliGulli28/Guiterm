@@ -1,5 +1,5 @@
 use termius_core::sync_ext::MutexExt;
-use crate::commands::terminal::register_shell_session;
+use crate::commands::terminal::{NewShellSession, register_shell_session};
 use crate::state::{AppState, TerminalBackend};
 use tauri::ipc::Channel;
 use tauri::{AppHandle, State};
@@ -64,5 +64,14 @@ pub async fn connect_k8s_exec(
         .await
         .map_err(|e| e.to_string())?;
 
-    Ok(register_shell_session(app, &state, &workspace, host_id, TerminalBackend::K8s, channel, session).await)
+    // `true` : Docker/K8s exec ne connaissent pas les sessions persistantes
+    // (tmux n'est presque jamais dans un conteneur), donc chaque connexion
+    // ouvre bien un shell neuf, et les commandes de démarrage lui reviennent.
+    Ok(register_shell_session(
+        app,
+        &state,
+        &workspace,
+        NewShellSession { host_id, backend: TerminalBackend::K8s, channel, session, replay_startup: true },
+    )
+    .await)
 }

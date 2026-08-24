@@ -2,7 +2,7 @@ import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "../lib/api";
 import { IconTrash } from "./ui-icons";
-import type { AuthMethod, EnvVar, GroupId, Host, HostId, HostKind, KeyId, ProxyProbe, SnippetId, Workspace } from "../lib/types";
+import type { AuthMethod, EnvVar, GroupId, Host, HostId, HostKind, KeyId, PersistentShellMode, ProxyProbe, SnippetId, Workspace } from "../lib/types";
 import { HostIcon } from "./icons";
 import { IconPicker } from "./IconPicker";
 import { GroupTreePicker } from "./GroupTreePicker";
@@ -34,6 +34,7 @@ interface HostFormProps {
     secret: string | null;
     keepaliveIntervalSecs: number | null;
     agentForward: boolean;
+    persistentShell: PersistentShellMode;
   }) => void;
   onDeleteHost?: (id: HostId) => void;
   onWorkspaceUpdate?: (ws: Workspace) => void;
@@ -193,6 +194,7 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
   const [envVars, setEnvVars] = useState<EnvVar[]>(host?.envVars ?? []);
   const [keepalive, setKeepalive] = useState(String(host?.keepaliveIntervalSecs ?? 0));
   const [agentForward, setAgentForward] = useState(host?.agentForward ?? false);
+  const [persistentShell, setPersistentShell] = useState<PersistentShellMode>(host?.persistentShell ?? "off");
   const [icon, setIcon] = useState<string | null>(host?.icon ?? null);
   const [showIconPicker, setShowIconPicker] = useState(false);
   const [keyPrompt, setKeyPrompt] = useState<{ path: string } | null>(null);
@@ -321,7 +323,7 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
         port: 0, username: "", auth: "agent", dockerViaHostId: dockerViaHostId || null,
         jumpVia: [], proxyCommand: null, groupId: groupId || null,
         tags, startupSnippets, envVars: envVars.filter((v) => v.key.trim()), icon, secret: null,
-        keepaliveIntervalSecs: null, agentForward: false,
+        keepaliveIntervalSecs: null, agentForward: false, persistentShell: "off",
       });
       return;
     }
@@ -333,7 +335,7 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
         port: 0, username: username.trim(), auth: "agent", dockerViaHostId: null,
         jumpVia: [], proxyCommand: null, groupId: groupId || null,
         tags, startupSnippets, envVars: envVars.filter((v) => v.key.trim()), icon, secret: null,
-        keepaliveIntervalSecs: null, agentForward: false,
+        keepaliveIntervalSecs: null, agentForward: false, persistentShell: "off",
       });
       return;
     }
@@ -390,6 +392,7 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
       secret: secret || null,
       keepaliveIntervalSecs: sshOnlyExtras && Number.isInteger(keepaliveNum) && keepaliveNum > 0 ? keepaliveNum : null,
       agentForward: sshOnlyExtras && authKind === "agent" && agentForward,
+      persistentShell: sshOnlyExtras ? persistentShell : "off",
     });
   };
 
@@ -517,6 +520,28 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
         {sshOnlyExtras && (
           <Field label="Keepalive (secondes, 0 = désactivé)">
             <input value={keepalive} onChange={(e) => setKeepalive(e.target.value)} inputMode="numeric" className={inputClass} />
+          </Field>
+        )}
+
+        {sshOnlyExtras && (
+          <Field label="Session persistante">
+            <select
+              value={persistentShell}
+              onChange={(e) => setPersistentShell(e.target.value as PersistentShellMode)}
+              className={inputClass}
+            >
+              <option value="off">Désactivée — un shell neuf à chaque connexion</option>
+              <option value="tmux">tmux — reprendre le terminal là où il en était</option>
+            </select>
+            <p className="mt-1.5 text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+              {persistentShell === "tmux"
+                ? "Le terminal tourne dans une session tmux nommée, côté serveur : une coupure de "
+                  + "réseau, la fermeture de l'app ou un redémarrage retrouvent l'écran laissé, dossier "
+                  + "courant et commandes en cours compris. Si tmux n'est pas installé sur l'hôte, la "
+                  + "connexion s'ouvre normalement et le terminal le signale — rien n'échoue."
+                : "Aujourd'hui, une connexion perdue est rétablie sur un shell vierge : le dossier "
+                  + "courant, la commande en cours et ce qui était à l'écran sont perdus."}
+            </p>
           </Field>
         )}
 

@@ -133,6 +133,21 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
     setTabs((prev) => prev.map((t) => (t.id === id ? { ...t, status: "connected" } : t)));
   }, []);
 
+  /** Retient la session persistante qu'un terminal vient d'ouvrir.
+   *
+   * Le backend nomme la session, mais c'est ici qu'elle prend de la valeur :
+   * portée par l'onglet, elle est persistée avec lui, donc retrouvable au
+   * lancement suivant. Volontairement étroit plutôt qu'un `updateTab`
+   * générique — c'est le seul champ qu'un onglet apprend de sa propre
+   * session. */
+  const rememberSessionKey = useCallback((tabId: string, sessionKey: string) => {
+    setTabs((prev) => prev.map((t) => (
+      t.id === tabId && t.kind === "terminal" && t.sessionKey !== sessionKey
+        ? { ...t, sessionKey }
+        : t
+    )));
+  }, []);
+
   // Restore the last session's tab list (as disconnected placeholders) once, right after
   // the workspace loads. Never auto-reconnects — the user clicks a placeholder to do that.
   const restoredTabsRef = useRef(false);
@@ -157,6 +172,10 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
       return [{
         id, kind: p.kind, hostId: p.hostId, label: p.label, status: "placeholder",
         dockerContainerId: p.dockerContainerId, k8sPodName: p.k8sPodName, k8sContainerName: p.k8sContainerName,
+        // Restauré comme le reste : c'est ce qui fait qu'un onglet rouvert
+        // après un redémarrage se rattache à sa session au lieu d'en créer une
+        // deuxième, laissant la première tourner pour rien sur le serveur.
+        sessionKey: p.sessionKey,
       }];
     });
     if (restored.length > 0) {
@@ -363,6 +382,7 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
     tabs, setTabs, activeTabId, setActiveTabId,
     pendingCloseTabId, setPendingCloseTabId,
     openTab, openLocalTerminal, openFleet, openActivity, openNetdiag, openSql, reconnectTab,
+    rememberSessionKey,
     closeTab, requestCloseTab,
     activeTabRecording, startActiveRecording, stopActiveRecording,
     runSnippet, runAdaptiveSnippet, exportActiveScrollback,

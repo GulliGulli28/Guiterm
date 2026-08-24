@@ -3,8 +3,9 @@ use crate::state::{AppState, TerminalBackend, TerminalSession};
 use serde::Serialize;
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Emitter, Manager, State};
-use termius_core::model::{HostId, Workspace};
+use termius_core::model::{HostId, PersistentShellMode, Workspace};
 use termius_core::vault;
+use termius_core::persistent_shell;
 use termius_core::ssh::{self, ShellInput};
 use termius_core::ssh_pool;
 use tokio::sync::mpsc;
@@ -224,46 +225,168 @@ fn startup_commands_with(
     cmds
 }
 
+/// Everything a freshly-opened shell needs to be registered under.
+///
+/// A struct rather than five more parameters: `register_shell_session` had
+/// eight of them once `replay_startup` joined, which clippy rejects and a
+/// reader shouldn't have to count either.
+pub(crate) struct NewShellSession {
+    pub host_id: HostId,
+    pub backend: TerminalBackend,
+    pub channel: Channel,
+    pub session: ssh::ShellSession,
+    /// `false` only for a reattachment to a persistent session that is
+    /// already running — see [`register_shell_session`] for why that case is
+    /// special.
+    pub replay_startup: bool,
+}
+
 /// Finishes wiring a freshly-opened shell session into the app: spawns the
 /// `terminal-data` output bridge, replays `host_id`'s startup commands, and
 /// registers the session under a new id. Shared tail of [`connect_terminal`]
 /// (SSH) and [`crate::commands::docker::connect_docker_exec`] — both hand it
 /// the very same [`ssh::ShellSession`] shape once their backend-specific
 /// connect step is done, so only that step still differs between the two.
+///
+/// `replay_startup` is `false` for exactly one case: reattaching to a
+/// persistent session that is already running (see
+/// [`termius_core::persistent_shell`]). The startup commands are *typed into
+/// the shell*, so replaying them there would re-export the environment and
+/// re-run every startup snippet **inside the session someone is working in**,
+/// on top of whatever is already on screen. They belong to opening a shell,
+/// not to opening a connection — a distinction that did not exist as long as
+/// the two were the same thing.
 pub(crate) async fn register_shell_session(
     app: AppHandle,
     state: &AppState,
     workspace: &Workspace,
-    host_id: HostId,
-    backend: TerminalBackend,
-    channel: Channel,
-    session: ssh::ShellSession,
+    opened: NewShellSession,
 ) -> String {
+    let NewShellSession { host_id, backend, channel, session, replay_startup } = opened;
     let session_id = Uuid::new_v4().to_string();
     let ssh::ShellSession { input, output } = session;
 
     spawn_output_bridge(app, session_id.clone(), channel, output);
 
-    for cmd in startup_commands(workspace, host_id) {
-        let _ = input.send(ShellInput::Data(cmd)).await;
+    if replay_startup {
+        for cmd in startup_commands(workspace, host_id) {
+            let _ = input.send(ShellInput::Data(cmd)).await;
+        }
     }
 
     state.terminals.lock_recover().insert(session_id.clone(), TerminalSession { backend, input });
     session_id
 }
 
+/// What became of the persistent session this terminal asked for.
+///
+/// A plain unit-variant enum, so `rename_all = "camelCase"` really does rename
+/// what reaches the frontend (`"created"`, `"resumed"`, …) — unlike an
+/// internally-tagged enum with struct variants, where it renames the variant
+/// names and leaves their fields in `snake_case`. That trap has been hit six
+/// times in this repo; `persistence_outcome_is_camel_case` below pins the
+/// actual JSON rather than trusting a Rust→Rust roundtrip.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum PersistenceOutcome {
+    /// The host isn't configured for persistent sessions — ordinary shell.
+    Off,
+    /// It is, but the host has no `tmux`: ordinary shell, and the frontend
+    /// says so once rather than silently pretending the session will survive.
+    Unavailable,
+    /// A persistent session was created for this terminal.
+    Created,
+    /// An existing persistent session was reattached — this is the whole point.
+    Resumed,
+}
+
+/// A freshly-opened terminal.
+///
+/// Used to be just the session id. It now also carries the persistent-session
+/// key, because **the frontend is what remembers it**: the key has to outlive
+/// the process to be worth anything, and the tab is the thing that is already
+/// persisted across restarts.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TerminalOpened {
+    pub session_id: String,
+    /// The key to hand back on the next connect, or `None` when this terminal
+    /// is not persistent. Not necessarily the key that was *asked* for: an
+    /// unusable one is replaced rather than refused (see
+    /// [`persistent_shell::is_valid_session_key`]).
+    pub session_key: Option<String>,
+    pub persistence: PersistenceOutcome,
+}
+
 /// Connects to `host_id` and starts an interactive shell, streaming its
 /// output back as raw bytes over `channel` (see [`spawn_output_bridge`]) —
 /// `channel` is a dedicated `tauri::ipc::Channel` the caller creates just for
 /// this session, mirroring `connect_rdp_view`'s frame channel.
+///
+/// `session_key` is the persistent session this tab was using last time, if
+/// any. Everything about it is best-effort: an unusable key is replaced, a
+/// host without `tmux` gets the ordinary shell, and a failed probe is treated
+/// as "no tmux" — none of those may cost the user their connection.
 #[tauri::command]
-pub async fn connect_terminal(app: AppHandle, state: State<'_, AppState>, host_id: HostId, channel: Channel) -> Result<String, String> {
+pub async fn connect_terminal(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    host_id: HostId,
+    session_key: Option<String>,
+    channel: Channel,
+) -> Result<TerminalOpened, String> {
     let workspace = state.workspace.lock_recover().clone();
-    let agent_forward = workspace.host(host_id).map(|h| h.agent_forward).unwrap_or(false);
+    let host = workspace.host(host_id);
+    let agent_forward = host.map(|h| h.agent_forward).unwrap_or(false);
+    let wants_persistence =
+        host.map(|h| h.persistent_shell) == Some(PersistentShellMode::Tmux);
     let connection = ssh_pool::acquire(&workspace, host_id).await.map_err(|e| e.to_string())?;
-    let shell = ssh::open_shell(&connection, 80, 24, agent_forward).await.map_err(|e| e.to_string())?;
 
-    Ok(register_shell_session(app, &state, &workspace, host_id, TerminalBackend::Ssh(connection), channel, shell).await)
+    // An invalid key is dropped rather than refused: it can only come from a
+    // tampered-with or corrupted `localStorage`, and the sane outcome there is
+    // a fresh session, not a terminal that won't open.
+    let requested = session_key.filter(|key| persistent_shell::is_valid_session_key(key));
+    let (command, key, persistence) = if wants_persistence {
+        match persistent_shell::probe(&connection, requested.as_deref()).await {
+            persistent_shell::Probe::NoTmux => (None, None, PersistenceOutcome::Unavailable),
+            persistent_shell::Probe::Running => {
+                // `Running` cannot be reached with `requested == None`, but
+                // falling back to a new key is still the right shape: it keeps
+                // this arm total without an `unwrap`.
+                let key = requested.unwrap_or_else(persistent_shell::new_session_key);
+                (Some(persistent_shell::attach_command(&key)), Some(key), PersistenceOutcome::Resumed)
+            }
+            persistent_shell::Probe::Absent => {
+                let key = requested.unwrap_or_else(persistent_shell::new_session_key);
+                (Some(persistent_shell::attach_command(&key)), Some(key), PersistenceOutcome::Created)
+            }
+        }
+    } else {
+        (None, None, PersistenceOutcome::Off)
+    };
+
+    let shell = ssh::open_shell_with_command(&connection, 80, 24, agent_forward, command.as_deref())
+        .await
+        .map_err(|e| e.to_string())?;
+
+    // Reattaching is the one case that must not replay the startup commands —
+    // see `register_shell_session`.
+    let replay_startup = persistence != PersistenceOutcome::Resumed;
+    let session_id = register_shell_session(
+        app,
+        &state,
+        &workspace,
+        NewShellSession {
+            host_id,
+            backend: TerminalBackend::Ssh(connection),
+            channel,
+            session: shell,
+            replay_startup,
+        },
+    )
+    .await;
+
+    Ok(TerminalOpened { session_id, session_key: key, persistence })
 }
 
 fn terminal_input(state: &AppState, session_id: &str) -> Result<tokio::sync::mpsc::Sender<ShellInput>, String> {
@@ -461,6 +584,38 @@ pub fn close_local_terminal(state: State<'_, AppState>, session_id: String) -> R
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// The casing that actually reaches the frontend, checked on the emitted
+    /// JSON rather than a Rust→Rust roundtrip — which would pass just as well
+    /// with the wrong casing on both sides. `TerminalTab`'s `assertNever`
+    /// switch reads these exact strings.
+    #[test]
+    fn persistence_outcome_is_camel_case() {
+        for (outcome, expected) in [
+            (PersistenceOutcome::Off, "\"off\""),
+            (PersistenceOutcome::Unavailable, "\"unavailable\""),
+            (PersistenceOutcome::Created, "\"created\""),
+            (PersistenceOutcome::Resumed, "\"resumed\""),
+        ] {
+            assert_eq!(serde_json::to_string(&outcome).unwrap(), expected);
+        }
+    }
+
+    /// And the field names of what wraps it: `session_id`/`session_key` have
+    /// to arrive as `sessionId`/`sessionKey`, which is exactly the kind of
+    /// silent mismatch this repo has already paid for six times.
+    #[test]
+    fn terminal_opened_field_names_are_camel_case() {
+        let json = serde_json::to_value(TerminalOpened {
+            session_id: "s1".into(),
+            session_key: Some("guiterm-abc".into()),
+            persistence: PersistenceOutcome::Resumed,
+        })
+        .unwrap();
+        assert_eq!(json["sessionId"], "s1");
+        assert_eq!(json["sessionKey"], "guiterm-abc");
+        assert_eq!(json["persistence"], "resumed");
+    }
 
     #[test]
     fn valid_env_keys_are_accepted() {

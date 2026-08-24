@@ -5,7 +5,8 @@ import { SearchAddon } from "@xterm/addon-search";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { api, onTerminalClosed } from "../lib/api";
-import type { Host } from "../lib/types";
+import type { Host, PersistenceOutcome, TerminalOpened } from "../lib/types";
+import { assertNever } from "../lib/exhaustive";
 import type { AppPreferences } from "../lib/preferences";
 import { DEFAULT_PREFERENCES, TERMINAL_THEMES, auroraLayerBackground } from "../lib/preferences";
 import { shouldBubbleToShortcut } from "../lib/shortcuts";
@@ -42,6 +43,30 @@ export function scrollbackText(term: Terminal): string {
   return lines.join("\n");
 }
 
+/** La ligne d'état écrite dans le terminal après une (re)connexion.
+ *
+ * `null` quand il n'y a rien à dire : une première ouverture qui n'était pas
+ * censée être persistante n'a pas à commenter. Le seul message qui compte est
+ * « tu retrouves ton travail » ou « non, tu repars de zéro », et c'est
+ * précisément ce qu'une reconnexion silencieuse laissait deviner.
+ */
+function persistenceNotice(outcome: PersistenceOutcome, isRetry: boolean): string | null {
+  switch (outcome) {
+    case "resumed":
+      return "\x1b[32m[session reprise — vous retrouvez le terminal tel que vous l'aviez laissé]\x1b[0m";
+    case "unavailable":
+      return "\x1b[33m[tmux introuvable sur cet hôte : session non persistante]\x1b[0m";
+    case "created":
+      // À la création il n'y a rien à reprendre — la promesse ne vaut que pour
+      // la fois d'après, et l'annoncer à chaque ouverture serait du bruit.
+      return isRetry ? "\x1b[33m[session persistante recréée — la précédente n'existait plus]\x1b[0m" : null;
+    case "off":
+      return isRetry ? "\x1b[32m[reconnecté]\x1b[0m" : null;
+    default:
+      return assertNever(outcome, "état de session persistante");
+  }
+}
+
 interface TerminalTabProps {
   host: Host;
   isActive: boolean;
@@ -64,9 +89,17 @@ interface TerminalTabProps {
    * `dockerContainerId`, both come from `host.kind`. */
   k8sPodName?: string;
   k8sContainerName?: string | null;
+  /** La session persistante que cet onglet utilisait déjà, quand il en a une.
+   * `undefined` à la première ouverture : le backend en nomme alors une, qui
+   * remonte par `onSessionKey`. */
+  sessionKey?: string;
+  /** Publie la clé pour que l'onglet la retienne — et donc la persiste. Sans
+   * ça, la session survivrait côté serveur sans que rien ici sache la
+   * retrouver, ce qui est exactement le contraire du but. */
+  onSessionKey?: (key: string) => void;
 }
 
-export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(function TerminalTab({ host, isActive, preferences, onDisconnect, onInputData, onLongCommand, initialCommand, dockerContainerId, k8sPodName, k8sContainerName }, ref) {
+export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(function TerminalTab({ host, isActive, preferences, onDisconnect, onInputData, onLongCommand, initialCommand, dockerContainerId, k8sPodName, k8sContainerName, sessionKey, onSessionKey }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -85,6 +118,13 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
   useEffect(() => { onLongCommandRef.current = onLongCommand; }, [onLongCommand]);
   const isActiveRef = useRef(isActive);
   useEffect(() => { isActiveRef.current = isActive; }, [isActive]);
+  const onSessionKeyRef = useRef(onSessionKey);
+  useEffect(() => { onSessionKeyRef.current = onSessionKey; }, [onSessionKey]);
+  // La clé vit dans une ref, pas dans les dépendances de l'effet : elle est
+  // *semée* par la prop et *réécrite* par la première connexion, et la
+  // reconnexion automatique doit reprendre celle-là — pas relancer l'effet, ce
+  // qui détruirait le terminal qu'on est justement en train de rattraper.
+  const sessionKeyRef = useRef<string | null>(sessionKey ?? null);
   const outerRef = useRef<HTMLDivElement>(null);
   const ghostRef = useRef<GhostTextController | null>(null);
   const [suggestion, setSuggestion] = useState<GhostSuggestion | null>(null);
@@ -276,14 +316,24 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
           longCommand.output(Date.now());
           term.write(chunk, () => ghost.handleOutputWritten());
         };
-        const id = k8sPodName
-          ? await api.connectK8sExec(host.id, k8sPodName, k8sContainerName ?? null, onData)
-          : dockerContainerId
-            ? await api.connectDockerExec(host.id, dockerContainerId, onData)
-            : await api.connectTerminal(host.id, onData);
+        let opened: TerminalOpened;
+        if (k8sPodName) {
+          const id = await api.connectK8sExec(host.id, k8sPodName, k8sContainerName ?? null, onData);
+          opened = { sessionId: id, sessionKey: null, persistence: "off" };
+        } else if (dockerContainerId) {
+          const id = await api.connectDockerExec(host.id, dockerContainerId, onData);
+          opened = { sessionId: id, sessionKey: null, persistence: "off" };
+        } else {
+          opened = await api.connectTerminal(host.id, sessionKeyRef.current, onData);
+        }
+        const id = opened.sessionId;
         if (disposed) {
           api.closeTerminal(id).catch(() => {});
           return;
+        }
+        if (opened.sessionKey && opened.sessionKey !== sessionKeyRef.current) {
+          sessionKeyRef.current = opened.sessionKey;
+          onSessionKeyRef.current?.(opened.sessionKey);
         }
         sessionIdRef.current = id;
         setStatus("open");
@@ -296,7 +346,12 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
           handleClosed();
         });
 
-        if (isRetry) term.write("\r\n\x1b[32m[reconnecté]\x1b[0m\r\n");
+        // Ce que l'utilisateur doit savoir en une ligne : est-ce qu'il retrouve
+        // son travail, ou est-ce qu'il repart de zéro ? Les quatre cas sont
+        // fermés par `assertNever` — ajouter un état côté Rust sans décider de
+        // ce qui s'affiche ici devient une erreur de compilation.
+        const notice = persistenceNotice(opened.persistence, isRetry);
+        if (notice) term.write(`\r\n${notice}\r\n`);
         fit.fit();
         api.resizeTerminal(id, term.cols, term.rows).catch(() => {});
         ghost.remeasure();

@@ -270,6 +270,7 @@ async function runScenarios(browser) {
   await runSsmTunnelScenario(browser);
   await runActivityScenario(browser);
   await runHostTreePickerScenario(browser);
+  await runPersistentSessionScenario(browser);
 
   await mkdir(outDir, { recursive: true });
   const screenshotPath = path.join(outDir, "e2e-smoke.png");
@@ -2731,6 +2732,122 @@ async function runHostTreePickerScenario(browser) {
     }, created.hostId, created.groupId);
     if (cleanup !== "ok") {
       throw new Error(`l hôte/dossier de test n ont pas pu être supprimés, workspace pollué : ${cleanup}`);
+    }
+  }
+}
+
+/**
+ * Le réglage « session persistante », de bout en bout dans la vraie fenêtre.
+ *
+ * Ce que ce scénario couvre et que rien d'autre ne couvre : que le réglage est
+ * **atteignable** et **persisté**. Le test d'intégration
+ * `core/tests/persistent_shell_integration.rs` prouve qu'une session tmux
+ * survit à sa connexion, mais il parle à `core` directement — il ne dit rien
+ * du chemin formulaire → `save_host` → `workspace.json` → relecture, qui est
+ * exactement l'endroit où MongoDB s'était perdu.
+ *
+ * Il vérifie aussi qu'ouvrir un terminal sur cet hôte échoue **pour la bonne
+ * raison** : l'hôte de test pointe sur 127.0.0.1:1, donc la connexion est
+ * refusée tout de suite. Ce qui doit *ne pas* apparaître, c'est une erreur de
+ * forme d'appel — `connect_terminal` a gagné un argument `sessionKey`, et une
+ * casse ratée s'y verrait comme un « invalid args » plutôt qu'un refus TCP.
+ */
+async function runPersistentSessionScenario(browser) {
+  const LABEL = `e2e-tmux-${Date.now()}`;
+  const FIELD = "Session persistante";
+
+  await browser.execute(() => {
+    const btn = Array.from(document.querySelectorAll("aside nav button"))
+      .find((b) => (b.getAttribute("title") || "") === "Hôtes");
+    if (btn instanceof HTMLElement) btn.click();
+  });
+  await clickButtonByText(browser, "Ajouter…");
+  await clickButtonByText(browser, "Nouvel hôte");
+  await setFieldByLabel(browser, "Nom", LABEL);
+  await setFieldByLabel(browser, "Adresse", "127.0.0.1");
+  await setFieldByLabel(browser, "Port", "1");
+  await setFieldByLabel(browser, "Utilisateur", "e2e");
+
+  // Le champ existe-t-il seulement ? Un réglage backend sans son champ est
+  // précisément la panne que ce dépôt a déjà livrée une fois.
+  const selected = await browser.execute((fieldLabel) => {
+    const field = Array.from(document.querySelectorAll("label"))
+      .find((l) => l.querySelector("span")?.textContent?.trim() === fieldLabel);
+    const select = field?.querySelector("select");
+    if (!(select instanceof HTMLSelectElement)) return { __error: "champ introuvable" };
+    const values = Array.from(select.options).map((o) => o.value);
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value").set;
+    setter.call(select, "tmux");
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    return { values, value: select.value };
+  }, FIELD);
+  if (selected.__error) throw new Error(`« ${FIELD} » : ${selected.__error}`);
+  if (!selected.values.includes("off") || !selected.values.includes("tmux")) {
+    throw new Error(`« ${FIELD} » n offre pas off/tmux mais ${JSON.stringify(selected.values)}`);
+  }
+
+  await clickButtonByText(browser, "Enregistrer");
+
+  let hostId = null;
+  await browser.waitUntil(async () => {
+    const found = await browser.execute(async (label) => {
+      try {
+        const ws = await window.__TAURI_INTERNALS__.invoke("get_workspace");
+        const host = ws.hosts.find((h) => h.label === label);
+        return host ? { id: host.id, persistentShell: host.persistentShell } : null;
+      } catch {
+        return null;
+      }
+    }, LABEL);
+    if (found) hostId = found;
+    return !!found;
+  }, { timeout: 10_000, timeoutMsg: "l hôte de test n a pas été enregistré" });
+
+  try {
+    // Relu depuis le backend, pas depuis l'état React : c'est le voyage par
+    // `workspace.json` qui est en question, et la casse du champ avec.
+    if (hostId.persistentShell !== "tmux") {
+      throw new Error(`le réglage n a pas fait l aller-retour : persistentShell = ${JSON.stringify(hostId.persistentShell)}`);
+    }
+
+    // `tabsBefore` **avant** le clic : mesuré après, il compte déjà l'onglet
+    // qu'on attend, et l'attente ne peut plus aboutir.
+    const tabsBefore = await browser.execute(() => document.querySelectorAll("[data-tab-id]").length);
+    await browser.execute((label) => {
+      const row = Array.from(document.querySelectorAll("aside button"))
+        .find((el) => el.textContent?.trim().startsWith(label));
+      if (row instanceof HTMLElement) row.click();
+    }, LABEL);
+    await browser.waitUntil(
+      async () => (await browser.execute(() => document.querySelectorAll("[data-tab-id]").length)) > tabsBefore,
+      { timeout: 10_000, timeoutMsg: "cliquer sur l hôte n a pas ouvert d onglet" },
+    );
+
+    // 127.0.0.1:1 : refus immédiat. Ce qui compte est *le message*.
+    const failure = await browser.waitUntil(async () => {
+      const text = await browser.execute(() =>
+        Array.from(document.querySelectorAll("div"))
+          .map((d) => d.textContent || "")
+          .find((t) => t.startsWith("Échec de connexion :")) ?? null,
+      );
+      return text || false;
+    }, { timeout: 20_000, timeoutMsg: "le terminal n a jamais rendu d échec de connexion" });
+
+    if (/invalid args|missing required key|deserialize/i.test(failure)) {
+      throw new Error(`connect_terminal a refusé la forme de l appel, pas la connexion : ${failure}`);
+    }
+    console.log("Session persistante : OK (réglage atteignable, enregistré, relu ; connect_terminal accepte sessionKey).");
+  } finally {
+    const cleanup = await browser.execute(async (id) => {
+      try {
+        await window.__TAURI_INTERNALS__.invoke("delete_host", { hostId: id });
+        return "ok";
+      } catch (e) {
+        return String(e);
+      }
+    }, hostId.id);
+    if (cleanup !== "ok") {
+      throw new Error(`l hôte de test n a pas pu être supprimé, workspace pollué : ${cleanup}`);
     }
   }
 }

@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use tauri::State;
 use termius_core::bulk_edit::{self, BulkEdit};
 use termius_core::model::{
-    AuthMethod, CustomIcon, EnvVar, Group, GroupId, Host, HostId, HostKind, KeyId, PortForward,
-    PortForwardId, PrivateKey, Snippet, SnippetId, Workspace,
+    AuthMethod, CustomIcon, EnvVar, Group, GroupId, Host, HostId, HostKind, KeyId,
+    PersistentShellMode, PortForward, PortForwardId, PrivateKey, Snippet, SnippetId, Workspace,
 };
 use termius_core::store;
 use termius_core::vault::{self, SecretKind};
@@ -43,6 +43,8 @@ pub struct SaveHostInput {
     pub keepalive_interval_secs: Option<u32>,
     #[serde(default)]
     pub agent_forward: bool,
+    #[serde(default)]
+    pub persistent_shell: PersistentShellMode,
 }
 
 fn persist(workspace: &Workspace) -> Result<(), String> {
@@ -87,6 +89,7 @@ pub fn save_host(state: State<'_, AppState>, input: SaveHostInput) -> Result<Wor
                 host.icon = input.icon.clone();
                 host.keepalive_interval_secs = input.keepalive_interval_secs;
                 host.agent_forward = input.agent_forward;
+                host.persistent_shell = input.persistent_shell;
             }
             id
         }
@@ -105,6 +108,7 @@ pub fn save_host(state: State<'_, AppState>, input: SaveHostInput) -> Result<Wor
             host.icon = input.icon.clone();
             host.keepalive_interval_secs = input.keepalive_interval_secs;
             host.agent_forward = input.agent_forward;
+            host.persistent_shell = input.persistent_shell;
             let id = host.id;
             workspace.hosts.push(host);
             id

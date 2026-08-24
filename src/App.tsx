@@ -277,6 +277,7 @@ export default function App() {
     tabs, setTabs, activeTabId, setActiveTabId,
     pendingCloseTabId, setPendingCloseTabId,
     openTab, openLocalTerminal, openFleet, openActivity, openNetdiag, openSql, reconnectTab,
+    rememberSessionKey,
     closeTab, requestCloseTab,
     runSnippet, runAdaptiveSnippet, exportActiveScrollback,
     activeTabRecording, startActiveRecording, stopActiveRecording,
@@ -532,6 +533,7 @@ export default function App() {
       if (handle) terminalRefs.current.set(tabId, handle);
       else terminalRefs.current.delete(tabId);
     },
+    rememberSessionKey,
   };
 
   const showRightPanel = !!(editingHost || editingGroup || editingSqlConnection);
