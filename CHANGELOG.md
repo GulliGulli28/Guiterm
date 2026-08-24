@@ -30,6 +30,20 @@ This changelog starts 2026-07-21 — for earlier versions, see
 - The manager only ever offers sessions this app opened (`guiterm-…`): your own
   `tmux` sessions on the same host are never listed, and never closable from
   here.
+- Losing the connection to a persistent terminal no longer closes its tab. The
+  tab goes back to being a thumbnail that says the session is still open on the
+  host, and one click picks it back up. This is the common case, not an edge
+  one: automatic reconnection is off by default, so a VPN dropping went
+  straight to closing the tab — taking with it the only thing that could find
+  the session again.
+- Tabs backed by a persistent session carry a pin in the tab bar, and closing
+  one no longer asks for confirmation: there is nothing left to warn about,
+  since closing detaches instead of killing.
+- New setting, off by default (Général → Session): "Reprendre seules les
+  sessions persistantes". Restored tabs that have a session reopen on their own
+  at launch; every other tab still waits for a click. Leave it off if your
+  hosts ask for a one-time code — the app would connect to several of them the
+  moment it starts.
 
 ### Changed
 - Every field where you pick a host now shows your folders, not a flat list.
