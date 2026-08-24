@@ -28,6 +28,7 @@ export const terminalModule = defineModule({
           preferences={ctx.preferences}
           onLongCommand={ctx.notifyLongCommand}
           onDisconnect={() => ctx.closeTab(tab.id, "disconnected")}
+          onDetach={() => ctx.detachTab(tab.id)}
           onInputData={(data) => ctx.mirrorInput(tab.id, data)}
           // `App.tsx` gardait ici un `tab.kind === "terminal" ? … : undefined`,
           // rendu nécessaire par le fait que les trois onglets liés à un hôte

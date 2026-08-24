@@ -95,6 +95,16 @@ export interface AppPreferences {
   notifyOnUpdateAvailable: boolean;
   keyboardShortcuts: Record<string, string>;
   restoreTabsOnLaunch: boolean;
+  /** Rouvrir *tout seul*, au lancement, les onglets restaurés qui portent une
+   * session persistante (`termius_core::persistent_shell`) — les autres
+   * restent des vignettes à cliquer, comme avant.
+   *
+   * Désactivé par défaut, et il faut que ça le reste : l'app ne se connecte à
+   * rien au lancement, et se mettre à ouvrir des connexions SSH sans qu'on
+   * l'ait demandé changerait ce contrat pour tout le monde. Restreint aux
+   * onglets persistants parce que ce sont les seuls où l'ouverture rend
+   * quelque chose (l'écran laissé) plutôt qu'un shell vierge. */
+  resumePersistentTabsOnLaunch: boolean;
   terminalRightClickMenu: boolean;
   autoReconnect: boolean;
   autoReconnectMaxAttempts: number;
@@ -289,6 +299,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   notifyOnUpdateAvailable: true,
   keyboardShortcuts: defaultShortcuts(),
   restoreTabsOnLaunch: true,
+  resumePersistentTabsOnLaunch: false,
   terminalRightClickMenu: true,
   autoReconnect: false,
   autoReconnectMaxAttempts: 5,

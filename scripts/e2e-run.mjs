@@ -272,6 +272,7 @@ async function runScenarios(browser) {
   await runHostTreePickerScenario(browser);
   await runPersistentSessionScenario(browser);
   await runSessionManagerScenario(browser);
+  await runResumeOnLaunchScenario(browser);
 
   await mkdir(outDir, { recursive: true });
   const screenshotPath = path.join(outDir, "e2e-smoke.png");
@@ -2950,5 +2951,87 @@ async function runSessionManagerScenario(browser) {
     if (cleanup !== "ok") {
       throw new Error(`l hôte de test n a pas pu être supprimé, workspace pollué : ${cleanup}`);
     }
+  }
+}
+
+/**
+ * Le réglage « reprendre seules les sessions persistantes au lancement ».
+ *
+ * Ce qu'il change ne se vérifie qu'au **prochain** démarrage, ce qu'un scénario
+ * ne peut pas provoquer. Ce qui est vérifiable ici, et qui est le vrai risque,
+ * c'est le câblage : que la case existe, qu'elle soit branchée sur la bonne
+ * préférence, et que le choix soit réellement écrit. `restoredTabStatus` couvre
+ * la décision elle-même en test unitaire.
+ *
+ * La case est conditionnée à « Restaurer les onglets au démarrage » : ce
+ * scénario tourne contre les vraies préférences du profil, donc il lit l'état
+ * en place, l'ajuste si besoin, et le remet comme il l'a trouvé.
+ */
+async function runResumeOnLaunchScenario(browser) {
+  const LABEL = "Reprendre seules les sessions persistantes";
+  const PARENT = "Restaurer les onglets au démarrage";
+
+  const readPrefs = () => browser.execute(() => {
+    try {
+      return JSON.parse(localStorage.getItem("gui-termius-prefs") || "{}");
+    } catch {
+      return {};
+    }
+  });
+
+  const setToggle = (label, value) => browser.execute((text, next) => {
+    const row = Array.from(document.querySelectorAll("label"))
+      .find((l) => l.querySelector("span")?.textContent?.trim() === text);
+    const box = row?.querySelector('input[type="checkbox"]');
+    if (!(box instanceof HTMLInputElement)) return { found: false };
+    if (box.checked !== next) box.click();
+    return { found: true, checked: box.checked };
+  }, label, value);
+
+  await browser.execute(() => {
+    const btn = Array.from(document.querySelectorAll("aside nav button"))
+      .find((b) => (b.getAttribute("title") || "") === "Paramètres");
+    if (btn instanceof HTMLElement) btn.click();
+  });
+  // Les catégories du panneau sont des boutons à icône : leur libellé est dans
+  // `title`, pas dans le texte.
+  await browser.execute(() => {
+    const tab = Array.from(document.querySelectorAll("nav button"))
+      .find((b) => (b.getAttribute("title") || "") === "Général");
+    if (tab instanceof HTMLElement) tab.click();
+  });
+  await browser.waitUntil(async () => await browser.execute((text) =>
+    Array.from(document.querySelectorAll("label")).some((l) => l.querySelector("span")?.textContent?.trim() === text),
+  PARENT), { timeout: 10_000, timeoutMsg: "la section « Session » des paramètres ne s est pas affichée" });
+
+  const before = await readPrefs();
+  const parentWasOn = before.restoreTabsOnLaunch !== false;
+  if (!parentWasOn) {
+    const parent = await setToggle(PARENT, true);
+    if (!parent.found) throw new Error(`la case « ${PARENT} » est introuvable`);
+  }
+
+  try {
+    // La case n'apparaît que sous son parent activé — c'est le sous-réglage
+    // d'un réglage, et l'afficher seul n'aurait aucun sens.
+    await browser.waitUntil(async () => await browser.execute((text) =>
+      Array.from(document.querySelectorAll("label")).some((l) => l.querySelector("span")?.textContent?.trim() === text),
+    LABEL), { timeout: 5_000, timeoutMsg: `la case « ${LABEL} » n apparaît pas sous « ${PARENT} »` });
+
+    const wanted = before.resumePersistentTabsOnLaunch !== true;
+    const toggled = await setToggle(LABEL, wanted);
+    if (!toggled.found) throw new Error(`la case « ${LABEL} » est introuvable`);
+
+    await browser.waitUntil(async () => {
+      const prefs = await readPrefs();
+      return prefs.resumePersistentTabsOnLaunch === wanted;
+    }, { timeout: 5_000, timeoutMsg: "le choix n a pas été persisté dans les préférences" });
+
+    console.log("Reprise au lancement : OK (case présente sous son parent, branchée, choix persisté).");
+  } finally {
+    // Remettre les préférences du profil comme elles étaient — ce scénario
+    // tourne contre les vraies.
+    await setToggle(LABEL, before.resumePersistentTabsOnLaunch === true);
+    if (!parentWasOn) await setToggle(PARENT, false);
   }
 }

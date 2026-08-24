@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { TabMeta } from "../lib/types";
-import { IconTerminal, IconTransfer, IconMonitor, IconSplit, IconClose, IconBroadcast, IconDatabase, IconFullscreen, IconFullscreenExit, IconNetDiag, IconBell } from "./ui-icons";
+import { IconTerminal, IconTransfer, IconMonitor, IconSplit, IconClose, IconBroadcast, IconDatabase, IconFullscreen, IconFullscreenExit, IconNetDiag, IconBell, IconPin } from "./ui-icons";
 
 interface TabBarProps {
   tabs: TabMeta[];
@@ -76,6 +76,10 @@ export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, fullscre
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId;
           const color = tabColor?.(tab);
+          // Ce que dit la punaise : fermer cet onglet ne perd rien, la session
+          // continue de tourner sur le serveur. C'est l'information qui change
+          // le geste — sans elle, fermer un onglet reste un pari.
+          const pinned = tab.kind === "terminal" && !!tab.sessionKey;
           return (
             <div
               key={tab.id}
@@ -98,10 +102,19 @@ export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, fullscre
                     ? "border-dashed border-[var(--c-border)] text-[var(--c-text-muted)] hover:bg-white/5"
                     : "border-transparent bg-[var(--c-bg3)] text-[var(--c-text-secondary)] hover:bg-white/5"
               } ${draggedId === tab.id ? "opacity-60" : ""}`}
-              title={tab.status === "placeholder" ? "Session restaurée — cliquez pour reconnecter" : undefined}
+              title={
+                tab.status === "placeholder"
+                  ? pinned
+                    ? "Session persistante restaurée — cliquez pour la reprendre telle qu'elle était"
+                    : "Session restaurée — cliquez pour reconnecter"
+                  : pinned
+                    ? "Session persistante — fermer cet onglet ne perd pas ce qui y tourne"
+                    : undefined
+              }
             >
               {color && <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />}
               <TabIcon kind={tab.kind} />
+              {pinned && <IconPin size={10} className="shrink-0 opacity-70" />}
               <span className="max-w-[12rem] truncate">{tab.label}</span>
               <button
                 onClick={(e) => { e.stopPropagation(); onClose(tab.id); }}

@@ -52,3 +52,29 @@ export function loadTabs(): PersistedTab[] {
   } catch { /* ignore */ }
   return [];
 }
+
+/**
+ * Un onglet restauré doit-il se rouvrir tout seul, ou attendre un clic ?
+ *
+ * Sorti du hook parce que c'est une décision, pas de l'affichage : elle change
+ * ce que l'app fait au lancement — jusqu'ici, rien. Trois conditions doivent
+ * tenir ensemble, et se tromper sur l'une d'elles ne se voit pas au montage
+ * d'un composant.
+ *
+ * - **Un terminal seulement.** Un panneau de transfert ou un aperçu RDP n'a pas
+ *   de session à reprendre ; la clé n'existe que sur les onglets terminal, mais
+ *   les trois partagent un membre de `TabMeta`, donc le typage ne l'interdit
+ *   pas.
+ * - **Une clé.** Sans elle il n'y a rien à rattacher : rouvrir donnerait un
+ *   shell vierge, c'est-à-dire exactement ce que la vignette évite de faire
+ *   sans qu'on l'ait demandé.
+ * - **La préférence.** Désactivée par défaut : l'app ne se connecte à rien au
+ *   lancement, et ce contrat ne change que si on le demande.
+ */
+export function restoredTabStatus(
+  tab: PersistedTab,
+  resumePersistentTabs: boolean,
+): "connected" | "placeholder" {
+  const resumable = tab.kind === "terminal" && !!tab.sessionKey;
+  return resumable && resumePersistentTabs ? "connected" : "placeholder";
+}

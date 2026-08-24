@@ -651,6 +651,22 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
                 <p className="px-2 pb-1 text-[12px] leading-relaxed text-[var(--c-text-muted)]">
                   Les onglets réapparaissent sans se reconnecter automatiquement — cliquez sur un onglet restauré pour vous reconnecter.
                 </p>
+                {preferences.restoreTabsOnLaunch && (
+                  <>
+                    <ToggleRow
+                      label="Reprendre seules les sessions persistantes"
+                      checked={preferences.resumePersistentTabsOnLaunch}
+                      onChange={(v) => onPreferencesChange({ ...preferences, resumePersistentTabsOnLaunch: v })}
+                    />
+                    <p className="px-2 pb-1 text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+                      Seuls les onglets dont l'hôte est réglé sur « Session persistante » se rouvrent
+                      d'eux-mêmes, puisque ce sont les seuls à rendre l'écran laissé plutôt qu'un shell
+                      vierge. Les autres restent des onglets à cliquer. À laisser désactivé si vos hôtes
+                      demandent un code à usage unique : l'app se connecterait à plusieurs d'entre eux
+                      dès le lancement.
+                    </p>
+                  </>
+                )}
               </div>
             </section>
 

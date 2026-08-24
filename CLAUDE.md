@@ -401,6 +401,9 @@ limité (pas de curseur rendu, molette approximative), voir
   session dont le nom ne porte pas le préfixe `guiterm-` est refusé dans
   `core`, avant tout aller sur le réseau — sinon un `tmux kill-session` sur un
   nom venu du frontend détruirait la session personnelle de l'utilisateur.
+  À la coupure, un onglet persistant repasse en **vignette** (`detachTab`) au
+  lieu de se fermer — le fermer emporterait sa clé. La décision vit dans
+  `lib/terminalClosure.ts`, pas dans `TerminalTab`.
 
 - **xterm.js avale les raccourcis clavier.** xterm.js appelle
   `stopPropagation()` sur toute touche qu'il traite lui-même (dès que

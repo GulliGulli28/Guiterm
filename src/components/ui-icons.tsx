@@ -234,6 +234,19 @@ export function IconFolder({ size = 16, className }: P) {
   );
 }
 
+/** Une punaise — « épinglé, ça reste là ». Marque un onglet dont la session
+ * vit côté serveur et survit à sa fermeture (`persistent_shell`). Aucune des
+ * icônes existantes ne dit ça : une flèche circulaire se lit « recharger », un
+ * bouclier se lit « sécurité ». */
+export function IconPin({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path d="M6 2h4l-.75 3.5 2.25 2v1H4.5v-1l2.25-2L6 2Z" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round" />
+      <path d="M8 8.5V14" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function IconChevronDown({ size = 16, className }: P) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>

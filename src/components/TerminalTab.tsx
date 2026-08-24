@@ -7,6 +7,7 @@ import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { api, onTerminalClosed } from "../lib/api";
 import type { Host, PersistenceOutcome, TerminalOpened } from "../lib/types";
 import { assertNever } from "../lib/exhaustive";
+import { nextClosureAction } from "../lib/terminalClosure";
 import type { AppPreferences } from "../lib/preferences";
 import { DEFAULT_PREFERENCES, TERMINAL_THEMES, auroraLayerBackground } from "../lib/preferences";
 import { shouldBubbleToShortcut } from "../lib/shortcuts";
@@ -72,6 +73,10 @@ interface TerminalTabProps {
   isActive: boolean;
   preferences?: AppPreferences;
   onDisconnect?: () => void;
+  /** Appelé à la place d'`onDisconnect` quand la session perdue est
+   * persistante : elle tourne toujours sur l'hôte, donc l'onglet doit revenir
+   * à l'état « vignette » et garder sa clé, pas disparaître avec. */
+  onDetach?: () => void;
   // Called with each raw keystroke this terminal sends to its own session — used by
   // the live broadcast "synced typing" mode to mirror input to other terminals.
   onInputData?: (data: string) => void;
@@ -99,7 +104,7 @@ interface TerminalTabProps {
   onSessionKey?: (key: string) => void;
 }
 
-export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(function TerminalTab({ host, isActive, preferences, onDisconnect, onInputData, onLongCommand, initialCommand, dockerContainerId, k8sPodName, k8sContainerName, sessionKey, onSessionKey }, ref) {
+export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(function TerminalTab({ host, isActive, preferences, onDisconnect, onDetach, onInputData, onLongCommand, initialCommand, dockerContainerId, k8sPodName, k8sContainerName, sessionKey, onSessionKey }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -118,6 +123,8 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
   useEffect(() => { onLongCommandRef.current = onLongCommand; }, [onLongCommand]);
   const isActiveRef = useRef(isActive);
   useEffect(() => { isActiveRef.current = isActive; }, [isActive]);
+  const onDetachRef = useRef(onDetach);
+  useEffect(() => { onDetachRef.current = onDetach; }, [onDetach]);
   const onSessionKeyRef = useRef(onSessionKey);
   useEffect(() => { onSessionKeyRef.current = onSessionKey; }, [onSessionKey]);
   // La clé vit dans une ref, pas dans les dépendances de l'effet : elle est
@@ -296,12 +303,23 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
       setSuggestion(null);
       if (disposed) return;
       const maxAttempts = preferencesRef.current?.autoReconnectMaxAttempts ?? 5;
-      if (preferencesRef.current?.autoReconnect && reconnectAttempt < maxAttempts) {
-        reconnectAttempt += 1;
-        const delaySec = Math.min(2 ** reconnectAttempt, 30);
-        term.write(`\r\n\x1b[33m[connexion perdue — reconnexion dans ${delaySec}s (tentative ${reconnectAttempt}/${maxAttempts})]\x1b[0m\r\n`);
+      // La décision est sortie du composant : elle croise trois règles (repli
+      // exponentiel, épuisement des tentatives, session persistante ou non) et
+      // se testait mal ici. Voir `lib/terminalClosure.ts`.
+      const action = nextClosureAction({
+        autoReconnect: preferencesRef.current?.autoReconnect ?? false,
+        attempt: reconnectAttempt,
+        maxAttempts,
+        hasPersistentSession: sessionKeyRef.current !== null,
+      });
+      if (action.kind === "retry") {
+        reconnectAttempt = action.attempt;
+        term.write(`\r\n\x1b[33m[connexion perdue — reconnexion dans ${action.delaySec}s (tentative ${action.attempt}/${maxAttempts})]\x1b[0m\r\n`);
         setStatus("connecting");
-        reconnectTimer = setTimeout(() => connect(true), delaySec * 1000);
+        reconnectTimer = setTimeout(() => connect(true), action.delaySec * 1000);
+      } else if (action.kind === "detach") {
+        term.write("\r\n\x1b[33m[connexion perdue — la session est toujours ouverte sur l'hôte]\x1b[0m\r\n");
+        setTimeout(() => { if (!disposed) onDetachRef.current?.(); }, 1000);
       } else {
         term.write("\r\n\x1b[31m[connexion fermée]\x1b[0m\r\n");
         setTimeout(() => { if (!disposed) onDisconnect?.(); }, 1000);

@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { loadTabs, saveTabs, STORAGE_KEY } from "./tabPersistence";
+import { loadTabs, restoredTabStatus, saveTabs, STORAGE_KEY } from "./tabPersistence";
+import type { PersistedTab } from "./tabPersistence";
 import type { TabMeta } from "./types";
 
 // The project's vitest environment is "node" (vite.config.ts), not jsdom —
@@ -102,5 +103,31 @@ describe("tabPersistence", () => {
     ];
     saveTabs(tabs);
     expect(loadTabs()[0].sessionKey).toBeUndefined();
+  });
+});
+
+describe("restoredTabStatus", () => {
+  const persistent: PersistedTab = { kind: "terminal", label: "web1", hostId: "h1", sessionKey: "guiterm-abc" };
+
+  it("ne rouvre rien tant que la préférence est désactivée", () => {
+    // Le défaut, et il compte : l'app ne se connecte à rien au lancement.
+    expect(restoredTabStatus(persistent, false)).toBe("placeholder");
+  });
+
+  it("rouvre un onglet terminal porteur d'une session persistante", () => {
+    expect(restoredTabStatus(persistent, true)).toBe("connected");
+  });
+
+  it("laisse en vignette un terminal sans session persistante", () => {
+    // Rien à rattacher : le rouvrir donnerait un shell vierge, c'est-à-dire
+    // une connexion que personne n'a demandée.
+    expect(restoredTabStatus({ ...persistent, sessionKey: undefined }, true)).toBe("placeholder");
+  });
+
+  it("ne rouvre jamais un onglet qui n'est pas un terminal", () => {
+    // Les onglets terminal, transfert et RDP partagent un membre de `TabMeta`,
+    // donc une clé sur un onglet de transfert est représentable au typage.
+    expect(restoredTabStatus({ ...persistent, kind: "transfer" }, true)).toBe("placeholder");
+    expect(restoredTabStatus({ ...persistent, kind: "rdp-view" }, true)).toBe("placeholder");
   });
 });

@@ -32,7 +32,7 @@ import { AwsDatabaseImportPanel } from "./components/AwsDatabaseImportPanel";
 import { AwsSsoSetupPanel } from "./components/AwsSsoSetupPanel";
 import { GroupForm, type GroupFormData } from "./components/GroupForm";
 import { SqlConnectionForm } from "./components/SqlConnectionForm";
-import { IconTerminal, IconClose } from "./components/ui-icons";
+import { IconTerminal, IconClose, IconPin } from "./components/ui-icons";
 import { CommandPalette, type PaletteCommand } from "./components/CommandPalette";
 import { SnippetPicker } from "./components/SnippetPicker";
 import { ConfirmDialog } from "./components/ConfirmDialog";
@@ -278,7 +278,7 @@ export default function App() {
     pendingCloseTabId, setPendingCloseTabId,
     openTab, openPersistentSession, openLocalTerminal, openFleet, openActivity, openNetdiag, openSql, reconnectTab,
     rememberSessionKey,
-    closeTab, requestCloseTab,
+    closeTab, detachTab, requestCloseTab,
     runSnippet, runAdaptiveSnippet, exportActiveScrollback,
     activeTabRecording, startActiveRecording, stopActiveRecording,
   } = useTabs({ workspace, preferences, terminalRefs, pushNotification, reportError, refreshWorkspace });
@@ -525,7 +525,7 @@ export default function App() {
   // consommé immédiatement par des fonctions de rendu.
   const moduleContext: AppContext = {
     workspace, preferences, updatePreferences, openTerminalIn, reportError, pushNotification, refreshWorkspace,
-    closeTab, notifyLongCommand, mirrorInput,
+    closeTab, detachTab, notifyLongCommand, mirrorInput,
     // La table des poignées reste ici : la palette, le broadcast, le zoom et
     // la recherche terminal l'interrogent. Les modules n'ont le droit que d'y
     // publier la leur.
@@ -788,18 +788,30 @@ export default function App() {
                 {tabs.map((tab) => {
                   const isActive = tab.id === activeTabId;
                   if (tab.status === "placeholder") {
+                    // Un onglet qui porte une session persistante ne promet
+                    // pas la même chose qu'un autre : là où le second rouvre un
+                    // shell vierge, le premier rend l'écran laissé. Le dire ici
+                    // évite d'avoir à cliquer pour le découvrir. Ce qu'on ne
+                    // promet pas : que la session soit *toujours* vivante —
+                    // seule la connexion peut le dire, et le terminal l'annonce
+                    // alors (« session reprise » ou « recréée »).
+                    const pinned = tab.kind === "terminal" && !!tab.sessionKey;
                     return (
                       <div key={tab.id} className={isActive ? "absolute inset-0 flex select-none flex-col items-center justify-center gap-3" : "hidden"}>
                         <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--c-bg2)] text-[var(--c-text-faint)]">
-                          <IconTerminal size={22} />
+                          {pinned ? <IconPin size={22} /> : <IconTerminal size={22} />}
                         </div>
                         <p className="text-[13px] text-[var(--c-text-secondary)]">{tab.label}</p>
-                        <p className="text-xs text-[var(--c-text-faint)]">Session restaurée — non reconnectée</p>
+                        <p className="max-w-sm text-center text-xs leading-relaxed text-[var(--c-text-faint)]">
+                          {pinned
+                            ? "Session persistante — la reprendre rend le terminal tel qu'il était, dossier courant et commandes en cours compris."
+                            : "Session restaurée — non reconnectée"}
+                        </p>
                         <button
                           onClick={() => reconnectTab(tab.id)}
                           className="rounded-md bg-[var(--c-accent)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--c-accent-hover)]"
                         >
-                          Cliquer pour reconnecter
+                          {pinned ? "Reprendre la session" : "Cliquer pour reconnecter"}
                         </button>
                       </div>
                     );

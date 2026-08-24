@@ -6,7 +6,7 @@ import type { Host, HostId, SqlConnection, TabMeta, Workspace } from "../lib/typ
 import { isHostBoundTab } from "../lib/types";
 import type { AppPreferences } from "../lib/preferences";
 import type { NotificationKind } from "../lib/notifications";
-import { loadTabs, saveTabs } from "../lib/tabPersistence";
+import { loadTabs, restoredTabStatus, saveTabs } from "../lib/tabPersistence";
 import type { TerminalTabHandle } from "../components/TerminalTab";
 
 let nextTabId = 0;
@@ -187,7 +187,10 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
       if (p.kind !== "terminal" && p.kind !== "transfer" && p.kind !== "rdp-view") return [];
       if (!p.hostId || !workspace.hosts.some((h) => h.id === p.hostId)) return [];
       return [{
-        id, kind: p.kind, hostId: p.hostId, label: p.label, status: "placeholder",
+        id, kind: p.kind, hostId: p.hostId, label: p.label,
+        // Un onglet porteur d'une session persistante peut se rouvrir tout
+        // seul, si la préférence le dit — voir `restoredTabStatus`.
+        status: restoredTabStatus(p, preferences.resumePersistentTabsOnLaunch),
         dockerContainerId: p.dockerContainerId, k8sPodName: p.k8sPodName, k8sContainerName: p.k8sContainerName,
         // Restauré comme le reste : c'est ce qui fait qu'un onglet rouvert
         // après un redémarrage se rattache à sa session au lieu d'en créer une
@@ -199,7 +202,7 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
       setTabs(restored);
       setActiveTabId(restored[0].id);
     }
-  }, [workspace, preferences.restoreTabsOnLaunch]);
+  }, [workspace, preferences.restoreTabsOnLaunch, preferences.resumePersistentTabsOnLaunch]);
 
   // Persist the (trimmed, session-less) tab list on every change, once the initial
   // restore pass above has already run.
@@ -222,13 +225,44 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
     });
   }, [preferences.notifyOnDisconnect, pushNotification, terminalRefs]);
 
+  /** Rend l'onglet à l'état « vignette » au lieu de le fermer.
+   *
+   * Ce qu'un onglet persistant doit faire quand sa connexion tombe. Le fermer
+   * — ce que fait `closeTab(id, "disconnected")` — emporterait sa clé de
+   * session, et la session continuerait de tourner sur le serveur sans plus
+   * rien pour la retrouver depuis l'onglet. La vignette, elle, garde la clé et
+   * propose de reprendre.
+   *
+   * C'est le cas courant, pas un cas limite : la reconnexion automatique est
+   * désactivée par défaut, donc une coupure de VPN passe par ici. */
+  const detachTab = useCallback((id: string) => {
+    terminalRefs.current.get(id)?.dispose();
+    terminalRefs.current.delete(id);
+    setTabs((prev) => {
+      const tab = prev.find((t) => t.id === id);
+      if (!tab || tab.status === "placeholder") return prev;
+      if (preferences.notifyOnDisconnect !== false) {
+        pushNotification("error", `Connexion perdue : ${tab.label} — la session est toujours ouverte sur l'hôte`);
+      }
+      return prev.map((t) => (t.id === id ? { ...t, status: "placeholder" } : t));
+    });
+  }, [preferences.notifyOnDisconnect, pushNotification, terminalRefs]);
+
   // Closing a tab with a live SSH session is easy to trigger by accident (a stray
   // Ctrl+Shift+W, a misclick) and kills the remote session outright, so it goes
   // through a confirmation instead of closing immediately.
+  //
+  // **Sauf en session persistante** : là, fermer ne coupe rien — tmux détache
+  // son client et la session continue de tourner. Demander confirmation
+  // reviendrait à avertir d'un danger qui n'existe pas, et à réintroduire la
+  // friction que la fonctionnalité sert justement à retirer. La punaise dans la
+  // barre d'onglets dit en permanence que fermer est sans conséquence, et le
+  // gestionnaire de sessions permet de terminer pour de bon.
   const [pendingCloseTabId, setPendingCloseTabId] = useState<string | null>(null);
   const requestCloseTab = useCallback((id: string) => {
     const tab = tabs.find((t) => t.id === id);
-    if (tab && tab.kind === "terminal" && tab.status !== "placeholder") {
+    const persistent = tab?.kind === "terminal" && !!tab.sessionKey;
+    if (tab && tab.kind === "terminal" && tab.status !== "placeholder" && !persistent) {
       setPendingCloseTabId(id);
     } else {
       closeTab(id);
@@ -400,7 +434,7 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
     pendingCloseTabId, setPendingCloseTabId,
     openTab, openPersistentSession, openLocalTerminal, openFleet, openActivity, openNetdiag, openSql, reconnectTab,
     rememberSessionKey,
-    closeTab, requestCloseTab,
+    closeTab, detachTab, requestCloseTab,
     activeTabRecording, startActiveRecording, stopActiveRecording,
     runSnippet, runAdaptiveSnippet, exportActiveScrollback,
   };

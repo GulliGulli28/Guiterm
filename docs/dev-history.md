@@ -2086,3 +2086,76 @@ déjà pour qu'une ligne puisse porter autre chose que « choisir celle-ci ».
   pour une panne réseau. Validé en renommant l'entrée de menu : l'e2e tombe.
   L'enregistrement lui-même reste couvert, plus vite, par
   `tauriCommands.test.ts`.
+
+## Sessions persistantes — tranche 3 : la reprise automatique (2026-08-24)
+
+Les deux tranches précédentes rendaient la reprise **possible**. Celle-ci la
+rend automatique, ou au moins évidente, sur les trois chemins par lesquels on
+perd un terminal : la coupure de connexion, la fermeture de l'app, et
+l'inattention.
+
+### La coupure de connexion — le vrai sujet
+
+`autoReconnect` est **désactivé par défaut**. Une coupure de VPN ne passait
+donc pas par le repli exponentiel : elle allait droit à `onDisconnect`, qui
+ferme l'onglet. Avec une session persistante, c'était le pire des deux mondes
+— la session continuait de tourner sur l'hôte, et l'onglet emportait en
+partant la seule clé qui permettait d'y revenir.
+
+Un terminal persistant repasse maintenant en **vignette** au lieu de se
+fermer (`detachTab`), en gardant sa clé. Le terminal l'écrit avant de
+disparaître : « la session est toujours ouverte sur l'hôte ».
+
+**La décision est sortie du composant.** Elle croise trois règles qui
+interagissent — repli exponentiel, épuisement des tentatives, session
+persistante ou non — et vivait au milieu de trois refs dans un composant de
+500 lignes, donc invérifiable. `lib/terminalClosure.ts` la rend pure et
+testée, même forme que `pollSchedule.ts` ou `terminalZoom.ts`. L'ordre entre
+les règles y est explicite et sous test : une session persistante ne
+court-circuite pas la reconnexion automatique, parce que se rattacher tout de
+suite vaut mieux que repasser par une vignette à recliquer.
+
+### La fermeture de l'app
+
+Nouvelle préférence, **désactivée par défaut** : « Reprendre seules les
+sessions persistantes ». Les onglets restaurés qui portent une clé se
+rouvrent d'eux-mêmes ; tous les autres restent des vignettes, comme avant.
+
+Le défaut compte autant que la fonctionnalité : l'app ne se connecte à rien
+au lancement, et se mettre à ouvrir des connexions SSH sans qu'on l'ait
+demandé changerait ce contrat pour tout le monde. La restriction aux onglets
+persistants n'est pas de la prudence non plus — ce sont les seuls où rouvrir
+rend quelque chose (l'écran laissé) plutôt qu'un shell vierge. Le texte du
+réglage prévient du cas où il ne faut pas l'activer : des hôtes à code à usage
+unique demanderaient plusieurs codes dès le démarrage.
+
+La décision elle-même est `restoredTabStatus` dans `tabPersistence.ts`, pure
+et testée : trois conditions doivent tenir ensemble, dont « c'est bien un
+onglet terminal » — les onglets terminal, transfert et RDP partagent un membre
+de `TabMeta`, donc une clé sur un onglet de transfert est représentable au
+typage et ne doit rien déclencher.
+
+### L'inattention
+
+- **Une punaise dans la barre d'onglets** sur les terminaux à session
+  persistante. Ce n'est pas décoratif : c'est l'information qui change le
+  geste — fermer cet onglet-là ne perd rien. Icône ajoutée exprès
+  (`IconPin`) parce qu'aucune des existantes ne dit ça : une flèche circulaire
+  se lit « recharger », un bouclier se lit « sécurité ».
+- **La vignette d'un onglet restauré dit ce qui l'attend** : « la reprendre
+  rend le terminal tel qu'il était » plutôt que « session restaurée — non
+  reconnectée », et le bouton dit « Reprendre la session ». Ce qu'elle ne
+  promet pas : que la session soit *toujours* vivante — seule la connexion
+  peut le dire, et le terminal l'annonce alors (« session reprise » ou
+  « recréée »).
+- **Plus de confirmation à la fermeture** d'un onglet persistant. Elle existe
+  parce que fermer « kills the remote session outright » ; ce n'est plus vrai,
+  et avertir d'un danger qui n'existe pas réintroduirait exactement la friction
+  que la fonctionnalité sert à retirer.
+
+**Ce qui n'est toujours pas couvert automatiquement** : le passage effectif en
+vignette à la coupure demande une vraie session SSH qui tombe, ce qu'aucun
+scénario e2e ne peut provoquer ici (le harnais `sshd` vit dans les tests Rust,
+pas dans l'app). La *décision* l'est (`terminalClosure.test.ts`), le câblage du
+réglage aussi (scénario e2e, validé en débranchant le `onChange` : « le choix
+n'a pas été persisté »), mais le trajet complet reste à vérifier à la main.

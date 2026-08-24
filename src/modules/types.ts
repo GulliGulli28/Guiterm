@@ -45,6 +45,10 @@ export interface AppContext {
    * d'une fermeture demandée par l'utilisateur — la notification n'est pas la
    * même. */
   closeTab: (id: string, reason?: "disconnected") => void;
+  /** Rend l'onglet à l'état « vignette » plutôt que de le fermer — ce qu'un
+   * terminal en session persistante fait quand sa connexion tombe, pour ne pas
+   * emporter la clé qui permet de la reprendre. */
+  detachTab: (id: string) => void;
   /** Signale la fin d'une commande assez longue pour qu'on soit parti voir
    * ailleurs. */
   notifyLongCommand: (command: string, durationMs: number, where: string) => void;
