@@ -1152,8 +1152,16 @@ mod shell_script_tests {
     /// repli est bien pris, la commande est composée dans le bon ordre et sa
     /// sortie se parse comme l'autre. Ce que ça ne prouve pas : que `%z`,
     /// `%m` et `%N` soient les bonnes lettres — seul un vrai BSD le dit, et
-    /// c'est le job macOS de l'intégration continue qui exécute ce même
-    /// script pour de bon.
+    /// c'est `inventory_script_and_the_rust_walk_see_the_same_tree` qui, sur
+    /// le runner macOS, exécute cette branche pour de bon.
+    ///
+    /// **Linux seulement, et c'est le fond de l'affaire** : la simulation
+    /// s'appuie sur un `/usr/bin/stat` qui comprend `-c` pour répondre à sa
+    /// place. Sur macOS ce `stat`-là est précisément celui qui ne le comprend
+    /// pas, donc le faux échouait et le test avec — une simulation d'une
+    /// plateforme écrite sur une autre n'a de sens que là où elle simule
+    /// quelque chose.
+    #[cfg(target_os = "linux")]
     #[test]
     fn inventory_script_falls_back_to_the_bsd_stat() {
         let dir = tree();
