@@ -398,3 +398,65 @@ export function IconFullscreenExit({ size = 16, className }: P) {
     </svg>
   );
 }
+
+/** Comparer deux choses : deux flèches opposées, la même idée que le `⇄`
+ * qu'elle remplace — un caractère qui ne s'affichait pas partout. */
+export function IconCompare({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path d="M2.5 5.5h9M9 3l2.5 2.5L9 8" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M13.5 10.5h-9M7 8l-2.5 2.5L7 13" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Une archive : un carton fermé par sa bande. */
+export function IconArchive({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <rect x="2" y="3" width="12" height="3" rx="0.75" stroke="currentColor" strokeWidth="1.25" />
+      <path d="M3 6v6.25c0 .41.34.75.75.75h8.5c.41 0 .75-.34.75-.75V6" stroke="currentColor" strokeWidth="1.25" />
+      <path d="M6.5 9h3" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Extraire : le même carton, ouvert, et ce qui en sort. */
+export function IconExtract({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path d="M2.5 8.5V12.25c0 .41.34.75.75.75h9.5c.41 0 .75-.34.75-.75V8.5" stroke="currentColor" strokeWidth="1.25" />
+      <path d="M8 9V2.5M5.5 5L8 2.5 10.5 5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Fichiers cachés affichés, et masqués. */
+export function IconEye({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path d="M1.5 8S4 3.5 8 3.5 14.5 8 14.5 8 12 12.5 8 12.5 1.5 8 1.5 8Z" stroke="currentColor" strokeWidth="1.25" />
+      <circle cx="8" cy="8" r="2" stroke="currentColor" strokeWidth="1.25" />
+    </svg>
+  );
+}
+
+export function IconEyeOff({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path d="M6.2 4c.57-.17 1.17-.25 1.8-.25 4 0 6.5 4.25 6.5 4.25s-.8 1.36-2.2 2.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+      <path d="M12 12c-1.1.6-2.4 1-4 1-4 0-6.5-4.5-6.5-4.5S2.7 6.4 4.3 5.2" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+      <path d="M2.5 2.5l11 11" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Un fichier vierge — le pendant d'`IconFolder` pour « Nouveau fichier ». */
+export function IconFile({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path d="M4 2.5h5L12 5.5v8a.5.5 0 0 1-.5.5h-7a.5.5 0 0 1-.5-.5v-11a.5.5 0 0 1 .5-.5Z" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round" />
+      <path d="M9 2.5v3h3" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round" />
+    </svg>
+  );
+}

@@ -4,7 +4,10 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, onTransferDone, onTransferError, onTransferProgress } from "../lib/api";
 import type { AppPreferences } from "../lib/preferences";
 import type { ArchiveFormat, ConflictPolicy, CopyConflict, DiffHunk, DiffLine, DiffPick, Entry, FileDiff, Host, PaneComparison, PaneDiskSpace, PaneFindOutcome, SyncItem, PaneListed, PaneOpened, PaneSource, PaneState, RemoteEditListed, Workspace } from "../lib/types";
-import { IconFolder, IconEdit, IconExternal, IconTrash, IconShield, IconClose, IconSearch } from "./ui-icons";
+import {
+  IconFolder, IconEdit, IconExternal, IconTrash, IconShield, IconClose, IconSearch,
+  IconTerminal, IconRefresh, IconCompare, IconArchive, IconExtract, IconEye, IconEyeOff, IconFile,
+} from "./ui-icons";
 import { QuickEditModal } from "./QuickEditModal";
 import { RdpTab } from "./RdpTab";
 import { useResizablePane } from "../hooks/useResizablePane";
@@ -656,8 +659,11 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
     onOpenTerminal: onOpenTerminal ? (path: string) => onOpenTerminal(state[side].source, path) : undefined,
     onCompare: isRdpTarget ? undefined : comparePanes,
     onPickForDiff: isRdpTarget ? undefined : (name: string) => pickForDiff(side, name),
+    onDiffPair: isRdpTarget
+      ? undefined
+      : (first: string, second: string) => runDiff({ side, path: first }, { side, path: second }),
     diffPick: diffPick && diffPick.side === side ? diffPick.path : null,
-    diffArmed: diffPick !== null,
+    diffArmedName: diffPick ? baseName(diffPick.path) : null,
     onFind: findIn,
     onArchive: archive,
     onExtract: extract,
@@ -872,11 +878,16 @@ interface PaneViewProps {
   /** Désigne ce fichier pour une comparaison de contenu — le premier appel
    * arme, le second compare. Absent pour les mêmes raisons qu'`onCompare`. */
   onPickForDiff?: (name: string) => void;
+  /** Compare deux fichiers de **ce** panneau, sans passer par la désignation
+   * en deux temps — quand les deux sont sélectionnés, il n'y a plus rien à
+   * demander. */
+  onDiffPair?: (first: string, second: string) => void;
   /** Le fichier de ce panneau qui est armé, s'il est de ce côté-ci. */
   diffPick: string | null;
-  /** Un fichier est armé, quelque part : le menu propose alors « comparer
-   * avec » plutôt que « sélectionner pour comparer ». */
-  diffArmed: boolean;
+  /** Le nom du fichier armé, de quel que côté qu'il soit : `null` si aucun.
+   * Sert à écrire « comparer avec « x » » plutôt qu'un « comparer » qui ne
+   * dit pas avec quoi. */
+  diffArmedName: string | null;
   onFind: (side: Side, root: string, pattern: string) => Promise<PaneFindOutcome>;
   onArchive: (side: Side, names: string[], archiveName: string, format: ArchiveFormat) => void;
   onExtract: (side: Side, name: string, destName: string) => void;
@@ -935,7 +946,8 @@ const SHOW_TYPE_ABOVE = 330;
  * d'entrée : dans l'app, un panneau se rend toujours via `TransferTab`. */
 export function PaneView({
   side, pane, workspace, fontSize, onNavigate, onSourceChange, onCopy, onMkdir, onCreateFile, onRename,
-  onRemove, onChmod, onEdit, onOpenInEditor, onDirSize, onDiskSpace, onOpenTerminal, onCompare, onPickForDiff, diffPick, diffArmed, onFind, onArchive, onExtract, showHidden,
+  onRemove, onChmod, onEdit, onOpenInEditor, onDirSize, onDiskSpace, onOpenTerminal, onCompare, onPickForDiff, onDiffPair, diffPick, diffArmedName,
+  onFind, onArchive, onExtract, showHidden,
   onToggleHidden, onDragStart, justDraggedRef, dragging, dropTarget, isRdpPush,
 }: PaneViewProps) {
   const [query, setQuery] = useState("");
@@ -1175,6 +1187,9 @@ export function PaneView({
   };
 
   const selectedEntries = sorted.filter((e) => selected.has(e.name));
+  /** La comparaison de contenu ne porte que sur des fichiers : un dossier
+   * sélectionné ne doit pas la proposer ni la bloquer. */
+  const selectedFiles = selectedEntries.filter((e) => !e.isDir);
 
   const submitNewFolder = () => {
     const name = newFolderName.trim();
@@ -1403,10 +1418,11 @@ export function PaneView({
               )}
               <button
                 onClick={refresh}
+                aria-label="Rafraîchir"
                 title="Rafraîchir (F5)"
-                className="rounded px-1.5 py-0.5 text-sm text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+                className="rounded px-1.5 py-1 text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
               >
-                ⟳
+                <IconRefresh size={12} />
               </button>
               <div className="relative">
                 <IconSearch size={11} className="pointer-events-none absolute left-1.5 top-1/2 -translate-y-1/2 text-[var(--c-text-faint)]" />
@@ -1556,7 +1572,7 @@ export function PaneView({
                   title="Nouveau fichier"
                   className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
                 >
-                  <span className="text-[12px] leading-none">📄</span> Nouveau fichier
+                  <IconFile size={12} /> Nouveau fichier
                 </button>
                 {visible.some((e) => e.isDir && !e.isSymlink) && (
                   <button
@@ -1588,10 +1604,46 @@ export function PaneView({
                 {onCompare && (
                   <button
                     onClick={onCompare}
-                    title="Comparer cette arborescence avec celle de l'autre panneau"
+                    title="Comparer cette arborescence avec celle de l'autre panneau (fichiers manquants, plus récents, de taille différente)"
                     className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
                   >
-                    ⇄ Comparer
+                    <IconCompare size={12} /> Comparer les dossiers
+                  </button>
+                )}
+                {/* La comparaison de contenu, au même endroit que le reste :
+                    elle n'existait qu'au clic droit, donc elle n'existait pas
+                    pour qui ne fait pas de clic droit. Deux fichiers cochés
+                    ici, et il n'y a plus rien à demander ; un seul, et on
+                    désigne le vis-à-vis au coup d'après. */}
+                {onDiffPair && selectedFiles.length === 2 && (
+                  <button
+                    onClick={() => onDiffPair(selectedFiles[0].name, selectedFiles[1].name)}
+                    title={`Comparer le contenu de « ${selectedFiles[0].name} » et « ${selectedFiles[1].name} »`}
+                    className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-accent-text)] hover:bg-white/5"
+                  >
+                    <IconCompare size={12} /> Comparer les 2 fichiers
+                  </button>
+                )}
+                {onPickForDiff && selectedFiles.length === 1 && (
+                  <button
+                    onClick={() => onPickForDiff(selectedFiles[0].name)}
+                    title={
+                      diffPick === selectedFiles[0].name
+                        ? "Ne plus retenir ce fichier pour la comparaison"
+                        : diffArmedName
+                          ? `Comparer le contenu de « ${selectedFiles[0].name} » avec « ${diffArmedName} »`
+                          : "Retenir ce fichier, puis en choisir un second — n'importe où, même nom non requis"
+                    }
+                    className={`flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] hover:bg-white/5 hover:text-[var(--c-text)] ${
+                      diffPick === selectedFiles[0].name || diffArmedName ? "text-[var(--c-accent-text)]" : "text-[var(--c-text-secondary)]"
+                    }`}
+                  >
+                    <IconCompare size={12} />{" "}
+                    {diffPick === selectedFiles[0].name
+                      ? "Ne plus comparer"
+                      : diffArmedName
+                        ? `Comparer avec « ${diffArmedName} »`
+                        : "Comparer ce fichier…"}
                   </button>
                 )}
                 {onOpenTerminal && (
@@ -1600,7 +1652,7 @@ export function PaneView({
                     title="Ouvrir un terminal sur cette machine, dans ce dossier"
                     className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
                   >
-                    <span className="text-[12px] leading-none">▮</span> Terminal ici
+                    <IconTerminal size={12} /> Terminal ici
                   </button>
                 )}
                 {onToggleHidden && (
@@ -1611,7 +1663,8 @@ export function PaneView({
                       : `Afficher les fichiers cachés${hiddenCount > 0 ? ` (${hiddenCount} masqué(s) ici)` : ""}`}
                     className={`flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] hover:bg-white/5 hover:text-[var(--c-text)] ${showHidden ? "text-[var(--c-text-secondary)]" : "text-[var(--c-text-faint)]"}`}
                   >
-                    {showHidden ? "👁" : "🙈"} Cachés{!showHidden && hiddenCount > 0 ? ` (${hiddenCount})` : ""}
+                    {showHidden ? <IconEye size={12} /> : <IconEyeOff size={12} />} Cachés
+                    {!showHidden && hiddenCount > 0 ? ` (${hiddenCount})` : ""}
                   </button>
                 )}
                 {selectedEntries.length === 1 && !selectedEntries[0].isDir && isArchive(selectedEntries[0].name) && (
@@ -1620,7 +1673,7 @@ export function PaneView({
                     title="Extraire cette archive ici — l'extraction a lieu sur place, rien ne transite par le réseau"
                     className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
                   >
-                    📦 Extraire
+                    <IconExtract size={12} /> Extraire
                   </button>
                 )}
                 {selectedEntries.length > 0 && (
@@ -1629,7 +1682,7 @@ export function PaneView({
                     title="Archiver la sélection dans ce dossier — l'archive est créée sur place, rien ne transite par le réseau"
                     className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
                   >
-                    🗜 Archiver ({selectedEntries.length})
+                    <IconArchive size={12} /> Archiver ({selectedEntries.length})
                   </button>
                 )}
                 {selectedEntries.length > 1 && (
@@ -1861,8 +1914,8 @@ export function PaneView({
                             label:
                               diffPick === menu.entry.name
                                 ? "Ne plus comparer ce fichier"
-                                : diffArmed
-                                  ? "Comparer avec le fichier retenu"
+                                : diffArmedName
+                                  ? `Comparer avec « ${diffArmedName} »`
                                   : "Comparer avec un autre fichier…",
                             run: () => onPickForDiff(menu.entry.name),
                           }]

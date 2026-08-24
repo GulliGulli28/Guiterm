@@ -44,6 +44,9 @@ try {
       rows.filter((r) => r.querySelector("input[type=checkbox]")?.checked).map((r) => r.dataset.rowName));
   const navigations = () => page.evaluate(() => window.__navigations);
   const resetNav = () => page.evaluate(() => { window.__navigations = []; });
+  // Un clic rend la main avant que React ait re-rendu : sans ce temps de
+  // repos, on relit l'écran d'avant.
+  const settle = () => page.waitForTimeout(150);
 
   // 1. Un simple clic sélectionne cette ligne, et elle seule.
   await page.click(row("notes.md"));
@@ -100,7 +103,56 @@ try {
   const keyNav = await navigations();
   check(keyNav.length === 2 && keyNav[0].path.endsWith("projet"), `Entrée puis Retour arrière : ${JSON.stringify(keyNav)}`);
 
-  // 9. Le clic droit ouvre un menu, qui se referme à Échap.
+  // 9. La comparaison de contenu est atteignable depuis la barre d'outils,
+  //    pas seulement au clic droit — c'est ce qui manquait.
+  const diffButton = (side) => `${pane.replace("left", side)} button:has-text("Comparer")`;
+  const diffCalls = () => page.evaluate(() => window.__diffCalls);
+  await page.click(row("notes.md"));
+  await settle();
+  const pickButton = page.locator(`${pane} button:has-text("Comparer ce fichier")`);
+  if (await pickButton.count() === 1) {
+    await pickButton.click();
+    await settle();
+    check(
+      JSON.stringify(await diffCalls()) === JSON.stringify(["pick:left:notes.md"]),
+      `désignation depuis la barre : ${JSON.stringify(await diffCalls())}`,
+    );
+  } else {
+    errors.push("un fichier sélectionné : la barre doit proposer de le comparer");
+  }
+
+  // Deux fichiers cochés : plus rien à demander, la comparaison part
+  //    directement — et un dossier dans la sélection ne compte pas.
+  await page.evaluate(() => { window.__diffCalls = []; });
+  await page.click(row("notes.md"));
+  await page.click(row("rapport.pdf"), { modifiers: ["ControlOrMeta"] });
+  await page.click(row("projet"), { modifiers: ["ControlOrMeta"] });
+  await settle();
+  // Le clic n'est tenté que si le bouton est là : un contrôle doit rapporter
+  // ce qu'il a trouvé, pas s'interrompre sur un sélecteur absent.
+  const pairButton = page.locator(`${pane} button:has-text("Comparer les 2 fichiers")`);
+  if (await pairButton.count() === 1) {
+    await pairButton.click();
+    await settle();
+    const pair = await diffCalls();
+    check(
+      pair.length === 1 && pair[0].startsWith("pair:left:") && pair[0].includes("notes.md") && pair[0].includes("rapport.pdf"),
+      `comparaison directe des deux fichiers : ${JSON.stringify(pair)}`,
+    );
+  } else {
+    errors.push("deux fichiers et un dossier : le dossier ne doit pas empêcher la comparaison des deux fichiers");
+  }
+
+  // Et quand un fichier est déjà retenu ailleurs, le bouton dit avec quoi.
+  await page.click(`[data-pane='right'] [data-row-name="lisez-moi.txt"]`);
+  await settle();
+  check(
+    await page.locator(`[data-pane='right'] button:has-text("Comparer avec « retenu.txt »")`).count() === 1,
+    "le bouton doit nommer le fichier déjà retenu",
+  );
+  void diffButton;
+
+  // 10. Le clic droit ouvre un menu, qui se referme à Échap.
   await page.click(row("notes.md"), { button: "right" });
   await page.waitForSelector("[data-context-menu]", { timeout: 2000 });
   await page.screenshot({ path: path.join(outDir, "transfer-context-menu.png") });

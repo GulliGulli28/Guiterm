@@ -35,11 +35,15 @@ declare global {
     /** Les navigations demandées — c'est ainsi qu'on vérifie qu'un simple clic
      * n'ouvre pas un dossier et qu'un double-clic, si. */
     __navigations: { side: PaneSide; path: string }[];
+    /** Les demandes de comparaison de contenu, telles que la barre d'outils
+     * les émet — c'est le chemin qui n'existait qu'au clic droit. */
+    __diffCalls: string[];
   }
 }
 window.__drops = [];
 window.__dragging = false;
 window.__navigations = [];
+window.__diffCalls = [];
 
 function Harness() {
   const left = useRef<HTMLDivElement>(null);
@@ -72,8 +76,12 @@ function Harness() {
     onFind: () => Promise.resolve({ paths: [], truncated: false }),
     onArchive: noop,
     onExtract: noop,
+    onPickForDiff: (name: string) => { window.__diffCalls.push(`pick:${side}:${name}`); },
+    onDiffPair: (first: string, second: string) => { window.__diffCalls.push(`pair:${side}:${first}|${second}`); },
     diffPick: null,
-    diffArmed: false,
+    // Le panneau de droite joue le cas « un fichier est déjà retenu
+    // ailleurs » : c'est là que le libellé doit nommer ce vis-à-vis.
+    diffArmedName: side === "right" ? "retenu.txt" : null,
     showHidden: true,
     onToggleHidden: noop,
     onDragStart: begin,

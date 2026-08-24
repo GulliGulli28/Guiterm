@@ -91,7 +91,7 @@ window.__renderPane = async ({ fontSize, width }) => {
       onArchive={noop}
       onExtract={noop}
       diffPick={null}
-      diffArmed={false}
+      diffArmedName={null}
       showHidden
       onToggleHidden={noop}
       onDragStart={noop}
