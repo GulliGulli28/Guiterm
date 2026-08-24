@@ -3,7 +3,7 @@ import { describeSession } from "./persistentSessions";
 import type { RunningSession } from "./types";
 
 function session(extra: Partial<RunningSession> = {}): RunningSession {
-  return { key: "guiterm-abc", createdAtMs: Date.now(), windows: 1, attached: 0, ...extra };
+  return { key: "guiterm-abc", createdAtMs: Date.now(), windows: 1, attached: 0, width: 120, height: 30, ...extra };
 }
 
 describe("describeSession", () => {

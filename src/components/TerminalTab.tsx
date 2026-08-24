@@ -1,4 +1,4 @@
-import { forwardRef, useEffect, useImperativeHandle, useRef, useState, type MouseEvent } from "react";
+import { forwardRef, useCallback, useEffect, useImperativeHandle, useRef, useState, type MouseEvent } from "react";
 import { Terminal } from "@xterm/xterm";
 import { FitAddon } from "@xterm/addon-fit";
 import { SearchAddon } from "@xterm/addon-search";
@@ -98,13 +98,18 @@ interface TerminalTabProps {
    * `undefined` à la première ouverture : le backend en nomme alors une, qui
    * remonte par `onSessionKey`. */
   sessionKey?: string;
+  /** Observer la session sans pouvoir y taper : les frappes ne sont pas
+   * envoyées, et le terminal adopte la taille de la session au lieu de la
+   * sienne — s'attacher à une autre taille la redimensionnerait pour tous ceux
+   * qui y sont attachés, `-r` ou pas (mesuré sur tmux 3.4). */
+  readOnly?: boolean;
   /** Publie la clé pour que l'onglet la retienne — et donc la persiste. Sans
    * ça, la session survivrait côté serveur sans que rien ici sache la
    * retrouver, ce qui est exactement le contraire du but. */
   onSessionKey?: (key: string) => void;
 }
 
-export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(function TerminalTab({ host, isActive, preferences, onDisconnect, onDetach, onInputData, onLongCommand, initialCommand, dockerContainerId, k8sPodName, k8sContainerName, sessionKey, onSessionKey }, ref) {
+export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(function TerminalTab({ host, isActive, preferences, onDisconnect, onDetach, onInputData, onLongCommand, initialCommand, dockerContainerId, k8sPodName, k8sContainerName, sessionKey, readOnly, onSessionKey }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -123,6 +128,11 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
   useEffect(() => { onLongCommandRef.current = onLongCommand; }, [onLongCommand]);
   const isActiveRef = useRef(isActive);
   useEffect(() => { isActiveRef.current = isActive; }, [isActive]);
+  const readOnlyRef = useRef(readOnly ?? false);
+  useEffect(() => { readOnlyRef.current = readOnly ?? false; }, [readOnly]);
+  /** La taille imposée par la session observée, ou `null` quand ce terminal
+   * suit sa propre fenêtre comme d'habitude. */
+  const observedSizeRef = useRef<{ cols: number; rows: number } | null>(null);
   const onDetachRef = useRef(onDetach);
   useEffect(() => { onDetachRef.current = onDetach; }, [onDetach]);
   const onSessionKeyRef = useRef(onSessionKey);
@@ -132,6 +142,33 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
   // reconnexion automatique doit reprendre celle-là — pas relancer l'effet, ce
   // qui détruirait le terminal qu'on est justement en train de rattraper.
   const sessionKeyRef = useRef<string | null>(sessionKey ?? null);
+  /** Accorde la grille du terminal et le pty distant.
+   *
+   * Un seul endroit pour les quatre déclencheurs (connexion, conteneur
+   * redimensionné, onglet réactivé, police changée) parce qu'ils n'ont plus la
+   * même réponse : **en observation, la grille suit la session, pas la
+   * fenêtre**. Redimensionner ici redimensionnerait la session pour tous ceux
+   * qui y sont attachés — `tmux attach -r` n'y change rien (mesuré sur tmux
+   * 3.4 : un client 80×24 fait passer une session 200×50 à 80×23).
+   *
+   * Ne lit que des refs, donc stable : les effets peuvent la capturer sans
+   * craindre une fermeture périmée. */
+  const syncGeometry = useCallback(() => {
+    const term = termRef.current;
+    if (!term) return;
+    const observed = observedSizeRef.current;
+    if (observed) {
+      if (term.cols !== observed.cols || term.rows !== observed.rows) {
+        term.resize(observed.cols, observed.rows);
+      }
+    } else {
+      fitRef.current?.fit();
+      const id = sessionIdRef.current;
+      if (id) api.resizeTerminal(id, term.cols, term.rows).catch(() => {});
+    }
+    ghostRef.current?.remeasure();
+  }, []);
+
   const outerRef = useRef<HTMLDivElement>(null);
   const ghostRef = useRef<GhostTextController | null>(null);
   const [suggestion, setSuggestion] = useState<GhostSuggestion | null>(null);
@@ -286,6 +323,10 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
     });
 
     term.onData((data) => {
+      // En observation, les frappes ne partent pas. tmux les ignorerait de
+      // toute façon (`-r`), mais s'en remettre à lui donnerait un terminal qui
+      // a l'air gelé ; les arrêter ici rend la promesse franche.
+      if (readOnlyRef.current) return;
       if (sessionIdRef.current) {
         api.writeTerminal(sessionIdRef.current, new TextEncoder().encode(data));
       }
@@ -335,14 +376,18 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
           term.write(chunk, () => ghost.handleOutputWritten());
         };
         let opened: TerminalOpened;
+        // Docker/K8s exec n'ont ni session persistante ni observation : la
+        // forme est complétée ici pour que la suite n'ait qu'un seul cas à
+        // traiter.
+        const plain = { sessionKey: null, persistence: "off" as const, readOnly: false, cols: 80, rows: 24 };
         if (k8sPodName) {
           const id = await api.connectK8sExec(host.id, k8sPodName, k8sContainerName ?? null, onData);
-          opened = { sessionId: id, sessionKey: null, persistence: "off" };
+          opened = { sessionId: id, ...plain };
         } else if (dockerContainerId) {
           const id = await api.connectDockerExec(host.id, dockerContainerId, onData);
-          opened = { sessionId: id, sessionKey: null, persistence: "off" };
+          opened = { sessionId: id, ...plain };
         } else {
-          opened = await api.connectTerminal(host.id, sessionKeyRef.current, onData);
+          opened = await api.connectTerminal(host.id, sessionKeyRef.current, readOnly ?? false, onData);
         }
         const id = opened.sessionId;
         if (disposed) {
@@ -370,9 +415,11 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
         // ce qui s'affiche ici devient une erreur de compilation.
         const notice = persistenceNotice(opened.persistence, isRetry);
         if (notice) term.write(`\r\n${notice}\r\n`);
-        fit.fit();
-        api.resizeTerminal(id, term.cols, term.rows).catch(() => {});
-        ghost.remeasure();
+        observedSizeRef.current = opened.readOnly ? { cols: opened.cols, rows: opened.rows } : null;
+        if (opened.readOnly) {
+          term.write(`\r\n\x1b[36m[lecture seule — vos frappes ne sont pas envoyées ; affiché à la taille de la session (${opened.cols}×${opened.rows})]\x1b[0m\r\n`);
+        }
+        syncGeometry();
 
         // Le délai, comme dans `LocalTerminalTab` : le shell distant n'a pas
         // encore écrit son invite au moment où la session s'ouvre, et une
@@ -427,27 +474,21 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
     const container = containerRef.current;
     if (!container) return;
     const observer = new ResizeObserver(() => {
-      if (!isActive || !fitRef.current || !termRef.current) return;
-      fitRef.current.fit();
-      const id = sessionIdRef.current;
-      if (id) api.resizeTerminal(id, termRef.current.cols, termRef.current.rows).catch(() => {});
-      ghostRef.current?.remeasure();
+      if (!isActive) return;
+      syncGeometry();
     });
     observer.observe(container);
     return () => observer.disconnect();
-  }, [isActive]);
+  }, [isActive, syncGeometry]);
 
   // Re-fit when this tab becomes active again (it was `display:none` before, so
   // xterm couldn't compute a meaningful size while hidden).
   useEffect(() => {
-    if (isActive && fitRef.current && termRef.current) {
-      fitRef.current.fit();
-      const id = sessionIdRef.current;
-      if (id) api.resizeTerminal(id, termRef.current.cols, termRef.current.rows).catch(() => {});
+    if (isActive && termRef.current) {
+      syncGeometry();
       termRef.current.focus();
-      ghostRef.current?.remeasure();
     }
-  }, [isActive]);
+  }, [isActive, syncGeometry]);
 
   // Apply preferences dynamically whenever they change — and this terminal's
   // own zoom, which lands in the same place: changing the size means refitting
@@ -460,11 +501,8 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
     if (themeEntry) term.options.theme = themeEntry.theme;
     term.options.fontFamily = preferences.terminalFontFamily;
     term.options.fontSize = zoom.fontSize;
-    fitRef.current?.fit();
-    const id = sessionIdRef.current;
-    if (id) api.resizeTerminal(id, term.cols, term.rows).catch(() => {});
-    ghostRef.current?.remeasure();
-  }, [preferences, zoom.fontSize]);
+    syncGeometry();
+  }, [preferences, zoom.fontSize, syncGeometry]);
 
   const bgColor = preferences ? (TERMINAL_THEMES[preferences.terminalThemeName]?.theme.background ?? "#020617") : "#020617";
 

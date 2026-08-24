@@ -39,6 +39,7 @@ export const terminalModule = defineModule({
           k8sContainerName={tab.k8sContainerName}
           initialCommand={tab.initialCommand}
           sessionKey={tab.sessionKey}
+          readOnly={tab.readOnly}
           onSessionKey={(key) => ctx.rememberSessionKey(tab.id, key)}
           ref={(handle) => ctx.registerTerminalHandle(tab.id, handle)}
         />

@@ -15,6 +15,10 @@ export interface PersistedTab {
    * donc la retrouver après un redémarrage de l'app suppose que son nom, lui,
    * ait été écrit quelque part. */
   sessionKey?: string;
+  /** Cet onglet observait la session sans pouvoir y taper. Persisté : rouvrir
+   * une fenêtre d'observation ne doit pas rendre la main sur la session de
+   * quelqu'un d'autre. */
+  readOnly?: boolean;
 }
 
 /** Persists only enough to redraw placeholder tabs — never a live session id.
@@ -35,6 +39,7 @@ export function saveTabs(tabs: TabMeta[]): void {
       k8sContainerName: isRemote ? t.k8sContainerName : undefined,
       shell: t.kind === "local-terminal" ? t.shell : undefined,
       sessionKey: t.kind === "terminal" ? t.sessionKey : undefined,
+      readOnly: t.kind === "terminal" ? t.readOnly : undefined,
     };
   });
   try {

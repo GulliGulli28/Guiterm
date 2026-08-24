@@ -128,7 +128,7 @@ export interface SidebarActions {
   searchFiles: (host: Host) => void;
   /** Reprendre une session persistante précise sur cet hôte — l'entrée
    * « Sessions persistantes » du menu d'un hôte. */
-  resumeSession: (host: Host, sessionKey: string) => void;
+  resumeSession: (host: Host, sessionKey: string, readOnly?: boolean) => void;
 
   // ── Ouvrir un formulaire ou une modale ────────────────────────────────
   newHost: () => void;

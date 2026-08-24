@@ -982,6 +982,11 @@ export interface RunningSession {
   /** Nombre de clients attachés. `0` = personne ne la regarde, ce qui
    * distingue une session oubliée d'un onglet ouvert ailleurs. */
   attached: number;
+  /** Taille de la fenêtre active, en cellules. Pas décoratif : s'attacher avec
+   * un pty d'une autre taille redimensionne la session pour tout le monde,
+   * même en lecture seule. `null` si tmux ne l'a pas rendue. */
+  width: number | null;
+  height: number | null;
 }
 
 /** Ce qu'un hôte répond quand on lui demande ses sessions.
@@ -1007,6 +1012,12 @@ export interface TerminalOpened {
    * demandée : une clé inutilisable est remplacée, pas refusée. */
   sessionKey: string | null;
   persistence: PersistenceOutcome;
+  /** Ce terminal observe une session sans pouvoir y taper. */
+  readOnly: boolean;
+  /** La taille demandée pour le pty. En observation, c'est celle de la
+   * *session* : l'onglet s'y conforme au lieu de s'ajuster à sa fenêtre. */
+  cols: number;
+  rows: number;
 }
 
 export type TabMeta =
@@ -1028,6 +1039,11 @@ export type TabMeta =
        * avec l'onglet : c'est ce qui fait qu'un redémarrage de l'app retrouve
        * l'écran laissé, et pas seulement un onglet au bon nom. */
       sessionKey?: string;
+      /** Cet onglet **observe** la session sans pouvoir y taper (`kind:
+       * "terminal"` seulement). Persisté avec l'onglet : rouvrir une fenêtre
+       * d'observation ne doit pas rendre la main sur la session de quelqu'un
+       * d'autre. */
+      readOnly?: boolean;
     }
   | { id: string; kind: "local-terminal"; label: string; initialCommand?: string; shell?: string | null; status?: "connected" | "placeholder" }
   | { id: string; kind: "fleet"; label: string; status?: "connected" | "placeholder" }

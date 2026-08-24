@@ -2920,6 +2920,27 @@ async function runSessionManagerScenario(browser) {
       Array.from(document.querySelectorAll("p")).some((p) => (p.textContent || "").startsWith("Sessions persistantes —"))
     ), { timeout: 5_000, timeoutMsg: "la modale des sessions ne s est pas ouverte" });
 
+    // La commande de partage ne dépend d'aucune session vivante : elle se
+    // compose à partir de l'hôte et d'un nom. C'est donc la partie du partage
+    // qu'un hôte injoignable permet quand même de vérifier — et la seule chose
+    // que l'app puisse offrir, puisqu'elle n'invite personne : rejoindre une
+    // session suppose déjà un accès SSH.
+    const shared = await browser.execute(async (id) => {
+      try {
+        return { ok: await window.__TAURI_INTERNALS__.invoke("persistent_session_share_command", {
+          hostId: id, sessionKey: "guiterm-e2e-exemple",
+        }) };
+      } catch (e) {
+        return { err: String(e) };
+      }
+    }, hostId);
+    if (shared.err) throw new Error(`persistent_session_share_command a échoué : ${shared.err}`);
+    for (const expected of ["ssh ", "-t ", "attach-session -r", "guiterm-e2e-exemple", "e2e@127.0.0.1"]) {
+      if (!shared.ok.includes(expected)) {
+        throw new Error(`la commande de partage ne contient pas ${expected} : ${shared.ok}`);
+      }
+    }
+
     // 127.0.0.1:1 refuse : la modale doit finir sur une **erreur**, pas rester
     // à « Interrogation en cours… ». Et surtout pas sur un message de commande
     // inconnue ou d'argument mal nommé, qui ferait passer une commande jamais
@@ -2938,7 +2959,7 @@ async function runSessionManagerScenario(browser) {
     }
 
     await clickButtonByText(browser, "Fermer");
-    console.log("Gestionnaire de sessions : OK (entrée de menu, modale ouverte, list_persistent_sessions répond).");
+    console.log("Gestionnaire de sessions : OK (entrée de menu, modale ouverte, list_persistent_sessions répond, commande de partage composée).");
   } finally {
     const cleanup = await browser.execute(async (id) => {
       try {

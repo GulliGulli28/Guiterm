@@ -52,11 +52,19 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
    * ouvrir un second : tmux attacherait les deux clients à la même session et
    * calerait la fenêtre sur le plus petit des deux, ce qui donne un terminal
    * tronqué sans rien pour l'expliquer. */
-  const openPersistentSession = useCallback((host: Host, sessionKey: string) => {
-    const existing = tabs.find((t) => t.kind === "terminal" && t.sessionKey === sessionKey);
+  const openPersistentSession = useCallback((host: Host, sessionKey: string, readOnly = false) => {
+    // La déduplication compare aussi le mode : observer une session qu'on a
+    // déjà ouverte en écriture est une demande légitime (regarder sans risquer
+    // de taper), et les deux onglets ne montrent pas la même chose.
+    const existing = tabs.find((t) =>
+      t.kind === "terminal" && t.sessionKey === sessionKey && !!t.readOnly === readOnly);
     if (existing) { setActiveTabId(existing.id); return; }
     const id = `tab-${nextTabId++}`;
-    setTabs((prev) => [...prev, { id, kind: "terminal", hostId: host.id, label: host.label, sessionKey }]);
+    setTabs((prev) => [...prev, {
+      id, kind: "terminal", hostId: host.id,
+      label: readOnly ? `${host.label} (observation)` : host.label,
+      sessionKey, readOnly: readOnly || undefined,
+    }]);
     setActiveTabId(id);
   }, [tabs]);
 
@@ -196,6 +204,7 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
         // après un redémarrage se rattache à sa session au lieu d'en créer une
         // deuxième, laissant la première tourner pour rien sur le serveur.
         sessionKey: p.sessionKey,
+        readOnly: p.readOnly,
       }];
     });
     if (restored.length > 0) {

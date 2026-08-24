@@ -404,6 +404,11 @@ limité (pas de curseur rendu, molette approximative), voir
   À la coupure, un onglet persistant repasse en **vignette** (`detachTab`) au
   lieu de se fermer — le fermer emporterait sa clé. La décision vit dans
   `lib/terminalClosure.ts`, pas dans `TerminalTab`.
+  **`tmux attach -r` n'empêche pas de redimensionner** (mesuré sur 3.4 : un
+  client 80×24 fait passer une session 200×50 à 80×23), et la fenêtre vaut la
+  taille du client *moins* la barre d'état — un observateur demande donc
+  `RunningSession::client_size()`, et `syncGeometry` (`TerminalTab`) ne
+  redimensionne jamais un onglet en observation.
 
 - **xterm.js avale les raccourcis clavier.** xterm.js appelle
   `stopPropagation()` sur toute touche qu'il traite lui-même (dès que

@@ -316,6 +316,13 @@ pub struct TerminalOpened {
     /// [`persistent_shell::is_valid_session_key`]).
     pub session_key: Option<String>,
     pub persistence: PersistenceOutcome,
+    /// Ce terminal observe une session sans pouvoir y taper.
+    pub read_only: bool,
+    /// La taille demandée pour le pty. En observation, c'est **celle de la
+    /// session**, pas celle de la fenêtre : s'attacher à une autre taille
+    /// redimensionne la session pour tout le monde, `-r` ou pas.
+    pub cols: u16,
+    pub rows: u16,
 }
 
 /// Connects to `host_id` and starts an interactive shell, streaming its
@@ -333,6 +340,7 @@ pub async fn connect_terminal(
     state: State<'_, AppState>,
     host_id: HostId,
     session_key: Option<String>,
+    read_only: bool,
     channel: Channel,
 ) -> Result<TerminalOpened, String> {
     let workspace = state.workspace.lock_recover().clone();
@@ -346,26 +354,55 @@ pub async fn connect_terminal(
     // tampered-with or corrupted `localStorage`, and the sane outcome there is
     // a fresh session, not a terminal that won't open.
     let requested = session_key.filter(|key| persistent_shell::is_valid_session_key(key));
-    let (command, key, persistence) = if wants_persistence {
-        match persistent_shell::probe(&connection, requested.as_deref()).await {
-            persistent_shell::Probe::NoTmux => (None, None, PersistenceOutcome::Unavailable),
-            persistent_shell::Probe::Running => {
-                // `Running` cannot be reached with `requested == None`, but
-                // falling back to a new key is still the right shape: it keeps
-                // this arm total without an `unwrap`.
-                let key = requested.unwrap_or_else(persistent_shell::new_session_key);
-                (Some(persistent_shell::attach_command(&key)), Some(key), PersistenceOutcome::Resumed)
-            }
-            persistent_shell::Probe::Absent => {
-                let key = requested.unwrap_or_else(persistent_shell::new_session_key);
-                (Some(persistent_shell::attach_command(&key)), Some(key), PersistenceOutcome::Created)
-            }
-        }
+
+    // Observer, c'est rejoindre quelque chose qui existe. Une session absente
+    // est donc une erreur nommée, pas une session à créer : ouvrir un terminal
+    // en lecture seule sur un shell qu'on vient de faire naître n'a aucun sens,
+    // et `attach-session` échouerait de toute façon une seconde plus tard avec
+    // un message de tmux que personne ne relie à ce qu'il a demandé.
+    let listing = if wants_persistence {
+        Some(persistent_shell::probe(&connection, requested.as_deref()).await)
     } else {
-        (None, None, PersistenceOutcome::Off)
+        None
+    };
+    if read_only && listing != Some(persistent_shell::Probe::Running) {
+        return Err("cette session n'est plus ouverte sur l'hôte — rien à observer".to_string());
+    }
+
+    let (command, key, persistence) = match listing {
+        None => (None, None, PersistenceOutcome::Off),
+        Some(persistent_shell::Probe::NoTmux) => (None, None, PersistenceOutcome::Unavailable),
+        Some(persistent_shell::Probe::Running) => {
+            // `Running` cannot be reached with `requested == None`, but
+            // falling back to a new key is still the right shape: it keeps
+            // this arm total without an `unwrap`.
+            let key = requested.unwrap_or_else(persistent_shell::new_session_key);
+            let command = if read_only {
+                persistent_shell::observe_command(&key)
+            } else {
+                persistent_shell::attach_command(&key)
+            };
+            (Some(command), Some(key), PersistenceOutcome::Resumed)
+        }
+        Some(persistent_shell::Probe::Absent) => {
+            let key = requested.unwrap_or_else(persistent_shell::new_session_key);
+            (Some(persistent_shell::attach_command(&key)), Some(key), PersistenceOutcome::Created)
+        }
     };
 
-    let shell = ssh::open_shell_with_command(&connection, 80, 24, agent_forward, command.as_deref())
+    // La taille du pty décide de celle de la session : un client plus petit la
+    // rétrécit pour tous ceux qui y sont attachés, **y compris en lecture
+    // seule** (mesuré sur tmux 3.4). Un observateur demande donc exactement la
+    // taille qu'elle a déjà, et ne la redimensionnera plus ensuite (le
+    // frontend n'appelle pas `resize_terminal` sur un onglet en observation).
+    // Les 80×24 des autres cas sont le provisoire d'avant le premier `resize`,
+    // inchangé.
+    let (cols, rows) = match (read_only, key.as_deref()) {
+        (true, Some(key)) => session_size(&connection, key).await.unwrap_or((80, 24)),
+        _ => (80, 24),
+    };
+
+    let shell = ssh::open_shell_with_command(&connection, cols, rows, agent_forward, command.as_deref())
         .await
         .map_err(|e| e.to_string())?;
 
@@ -386,7 +423,20 @@ pub async fn connect_terminal(
     )
     .await;
 
-    Ok(TerminalOpened { session_id, session_key: key, persistence })
+    Ok(TerminalOpened { session_id, session_key: key, persistence, read_only, cols, rows })
+}
+
+/// La taille actuelle d'une session, si on arrive à la lire.
+///
+/// Best-effort : sans elle on retombe sur 80×24, ce qui rétrécira la session —
+/// désagréable, mais moins que refuser d'ouvrir le terminal.
+async fn session_size(connection: &termius_core::ssh::Connection, key: &str) -> Option<(u16, u16)> {
+    let listing = persistent_shell::list(connection).await.ok()?;
+    let session = listing.sessions.into_iter().find(|s| s.key == key)?;
+    // `client_size` et non `(width, height)` : la fenêtre fait la taille du
+    // client moins la barre d'état, donc demander la taille de la fenêtre lui
+    // prendrait une ligne à chaque attache.
+    session.client_size()
 }
 
 /// Les sessions persistantes qui tournent sur `host_id`.
@@ -404,6 +454,33 @@ pub async fn list_persistent_sessions(
     let workspace = state.workspace.lock_recover().clone();
     let connection = ssh_pool::acquire(&workspace, host_id).await.map_err(|e| e.to_string())?;
     persistent_shell::list(&connection).await.map_err(|e| e.to_string())
+}
+
+/// La ligne qu'un collègue peut coller dans son propre terminal pour observer
+/// la même session.
+///
+/// L'app ne peut pas inviter qui que ce soit : il n'y a pas de relais, et
+/// rejoindre une session suppose d'avoir déjà un accès SSH à l'hôte. Elle peut
+/// en revanche écrire la commande exacte, ce qui évite de la reconstruire de
+/// mémoire — et de se tromper sur le `-t`, dont l'absence donne une erreur tmux
+/// qui ne dit pas quoi corriger.
+#[tauri::command]
+pub fn persistent_session_share_command(
+    state: State<'_, AppState>,
+    host_id: HostId,
+    session_key: String,
+) -> Result<String, String> {
+    let workspace = state.workspace.lock_recover();
+    let host = workspace.host(host_id).ok_or_else(|| "hôte introuvable".to_string())?;
+    if !persistent_shell::is_valid_session_key(&session_key) {
+        return Err("nom de session invalide".to_string());
+    }
+    Ok(persistent_shell::share_command(
+        &host.username,
+        &host.address,
+        host.port,
+        &session_key,
+    ))
 }
 
 /// Termine une session et rend la liste à jour — l'appelant réaffiche de
@@ -644,11 +721,19 @@ mod tests {
             session_id: "s1".into(),
             session_key: Some("guiterm-abc".into()),
             persistence: PersistenceOutcome::Resumed,
+            read_only: true,
+            cols: 200,
+            rows: 50,
         })
         .unwrap();
         assert_eq!(json["sessionId"], "s1");
         assert_eq!(json["sessionKey"], "guiterm-abc");
         assert_eq!(json["persistence"], "resumed");
+        assert_eq!(json["readOnly"], true);
+        // La taille voyage aussi : c'est elle que le terminal doit adopter en
+        // observation, au lieu de s'ajuster à sa fenêtre.
+        assert_eq!(json["cols"], 200);
+        assert_eq!(json["rows"], 50);
     }
 
     #[test]

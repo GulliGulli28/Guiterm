@@ -2159,3 +2159,90 @@ scénario e2e ne peut provoquer ici (le harnais `sshd` vit dans les tests Rust,
 pas dans l'app). La *décision* l'est (`terminalClosure.test.ts`), le câblage du
 réglage aussi (scénario e2e, validé en débranchant le `onChange` : « le choix
 n'a pas été persisté »), mais le trajet complet reste à vérifier à la main.
+
+## Sessions persistantes — tranche 4 : observer et partager (2026-08-24)
+
+Le plan de la tranche 1 annonçait celle-ci comme la plus simple : « `tmux
+attach -r` : c'est littéralement un drapeau ». C'était faux, et c'est la
+mesure qui l'a dit.
+
+### Ce que `-r` ne fait pas
+
+`attach -r` empêche le client d'envoyer des **frappes**. Il ne l'empêche pas
+d'imposer sa **taille**. Mesuré sur tmux 3.4, avec un vrai pty :
+
+```
+session 200×50, client lecture seule 80×24  →  session 200×50 devient 80×23
+```
+
+Un observateur sur une petite fenêtre rétrécit donc l'écran de celui qui
+travaille. C'était exactement l'inconnue laissée ouverte en fin de plan de
+tranche 1 (« le redimensionnement, à mesurer sur un vrai serveur, pas à
+décider maintenant ») — réponse : défavorable.
+
+**Et l'arithmétique n'est pas celle qu'on croit.** La fenêtre vaut la taille
+du client *moins* la barre d'état. Rejoindre une session de 200×50 avec un pty
+de 200×50 lui prend une ligne, et une de plus à chaque attache suivante. Il
+faut demander 200×**51**. D'où `RunningSession::client_size()`, et
+`status_lines` lu depuis `#{status}` (`on`/`off`/un nombre — `#{status_lines}`
+n'existe pas en 3.4, vérifié). Un champ inconnu vaut 1 : se tromper dans ce
+sens ajoute une ligne au client, ce qui ne coûte rien, là où l'inverse rétrécit
+la session de quelqu'un.
+
+Côté frontend, la conséquence est qu'un onglet en observation **ne
+redimensionne jamais** : sa grille suit la session, pas la fenêtre. Les quatre
+déclencheurs de redimensionnement (connexion, conteneur redimensionné, onglet
+réactivé, police changée) passaient par quatre copies du même
+`fit()` + `resize_terminal` ; ils sont désormais réunis dans `syncGeometry`,
+qui est le seul endroit où cette règle a besoin d'exister.
+
+### Un bug trouvé par le test, pas par un utilisateur
+
+En attendant que tmux rapporte le détachement (`attached == 0`) au lieu de le
+supposer, le test d'intégration a bloqué. Cause : `open_shell_with_command`
+envoyait `eof()` sur son canal et le laissait tomber, **sans le fermer**. Un
+programme distant qui ignore EOF sur son entrée — `tmux attach` en est un —
+restait donc attaché tant que la connexion SSH vivait.
+
+Concrètement : fermer un onglet laissait un client tmux fantôme. Visible dans
+le gestionnaire comme « ouverte ailleurs », et surtout contraignant la taille
+de la fenêtre pour ceux qui y travaillaient vraiment. Le correctif tient en une
+ligne (`channel.close()` après la boucle), et il vaut pour tous les shells —
+SSH, Docker exec, K8s exec.
+
+C'est le genre de défaut qu'un test qui *attend un signal* trouve et qu'un test
+qui *dort deux secondes* ne trouve jamais.
+
+### Le partage, et ce qu'il n'est pas
+
+L'app ne peut inviter personne : il n'y a pas de relais, et rejoindre une
+session suppose d'avoir déjà un accès SSH à l'hôte. Ce qu'elle peut faire, et
+qu'elle fait, c'est **écrire la commande exacte** à coller —
+`persistent_session_share_command`, avec le `-t` sans lequel tmux refuse de
+s'attacher en donnant une erreur qui ne dit pas quoi corriger, et le port
+seulement s'il n'est pas standard.
+
+**« Observer » et « Partager » ne sont pas une barrière de sécurité**, et la
+modale le dit en toutes lettres plutôt que de le laisser dans une doc que
+personne n'ouvre : `-r` empêche *ce client-là* de taper, pas quelqu'un d'autre
+de s'attacher en écriture — il suffit d'avoir un shell sur l'hôte.
+
+### Sous test
+
+- `observing_a_session_does_not_resize_it` — vrai sshd, vrai tmux, **avec son
+  témoin** : le petit client rétrécit bel et bien (sinon le cas nominal ne
+  prouverait rien), et le client dimensionné par `client_size()` ne change
+  rien. C'est ce test qui a produit la mesure *et* trouvé le canal jamais
+  fermé.
+- `observing_an_absent_session_fails_rather_than_creating_one` — `attach-session`
+  et non `new-session -A` : on n'observe pas une session qu'on créerait.
+- L'arithmétique de `client_size` et les orthographes de `status`, en unitaire.
+- La commande de partage : `-t` forcé, port omis s'il vaut 22, et la commande
+  distante citée **d'un bloc** (un seul argument pour `ssh`, pas cinq mots qui
+  traînent). Le scénario e2e la compose contre un vrai hôte et vérifie ses
+  morceaux — validé en changeant l'utilisateur passé à `share_command`.
+
+**Limite assumée** : une session plus large que la fenêtre de l'observateur est
+rognée, faute d'adapter la police. Le choix est délibéré — une heuristique de
+mise à l'échelle que je ne peux pas valider ici vaut moins qu'une limite
+énoncée.

@@ -695,10 +695,7 @@ pub async fn open_shell_with_command(
                         Some(ShellInput::Resize { cols, rows }) => {
                             let _ = channel.window_change(cols as u32, rows as u32, 0, 0).await;
                         },
-                        None => {
-                            let _ = channel.eof().await;
-                            break;
-                        },
+                        None => break,
                     }
                 },
                 msg = channel.wait() => {
@@ -714,6 +711,17 @@ pub async fn open_shell_with_command(
                 },
             }
         }
+        // **Fermer, pas seulement signaler EOF.** Le code d'avant envoyait un
+        // `eof()` et laissait tomber le canal : un programme distant qui ignore
+        // EOF sur son entrée — `tmux attach` en est un — restait attaché tant
+        // que la connexion SSH vivait. Fermer un onglet laissait donc un client
+        // tmux fantôme, visible dans le gestionnaire de sessions comme
+        // « ouverte ailleurs », et surtout contraignant la taille de la fenêtre
+        // pour ceux qui y travaillaient vraiment. Trouvé par
+        // `observing_a_session_does_not_resize_it`, qui attend le détachement
+        // au lieu de le supposer.
+        let _ = channel.eof().await;
+        let _ = channel.close().await;
     });
 
     Ok(ShellSession {

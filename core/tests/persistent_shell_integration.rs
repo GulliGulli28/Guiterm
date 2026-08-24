@@ -51,6 +51,31 @@ async fn read_until(session: &mut ShellSession, needle: &str) -> String {
     }
 }
 
+
+/// Attend que tmux ait **enregistré** le client, en interrogeant la session
+/// plutôt qu'en dormant.
+///
+/// C'est le seul signal fiable pour dire « la taille du pty a été appliquée » :
+/// attendre un octet de la sortie ne garantit rien, le premier repeint pouvant
+/// précéder la prise en compte du client — un premier jet de ce test mesurait
+/// avant, et son témoin ne rétrécissait donc jamais.
+async fn wait_until_attached(
+    connection: &termius_core::ssh::Connection,
+    key: &str,
+    attached: u32,
+) -> persistent_shell::RunningSession {
+    for _ in 0..60 {
+        let listing = persistent_shell::list(connection).await.expect("lister");
+        if let Some(session) = listing.sessions.into_iter().find(|s| s.key == key)
+            && session.attached == attached
+        {
+            return session;
+        }
+        tokio::time::sleep(Duration::from_millis(200)).await;
+    }
+    panic!("tmux n'a jamais rapporté {attached} client(s) sur {key}");
+}
+
 #[tokio::test]
 async fn a_shell_survives_the_connection_that_opened_it() {
     let key = ClientKey::generate();
@@ -236,5 +261,120 @@ async fn an_ordinary_shell_keeps_nothing() {
     assert!(
         !seen.contains("VALEUR=[devrait-disparaitre]"),
         "un shell non persistant a gardé son état — le test de persistance ne prouverait plus rien",
+    );
+}
+
+/// Observer une session ne doit pas la redimensionner pour ceux qui y
+/// travaillent.
+///
+/// **Le piège mesuré, pas supposé.** `tmux attach -r` empêche le client
+/// d'envoyer des frappes ; il ne l'empêche pas d'imposer sa taille. Sur tmux
+/// 3.4, un client 80×24 fait passer une session 200×50 à 80×23. Et la fenêtre
+/// vaut la taille du client **moins** la barre d'état, donc rejoindre à la
+/// taille de la fenêtre lui prend encore une ligne. Ce test cloue les deux :
+/// le témoin montre le rétrécissement, le cas nominal montre qu'il n'a pas
+/// lieu.
+#[tokio::test]
+async fn observing_a_session_does_not_resize_it() {
+    let key = ClientKey::generate();
+    let sshd = TestSshd::start("tmux-observe", &key.public);
+    let host = test_host(&sshd, &key, "test-observe");
+    let host_id = host.id;
+    let mut workspace = Workspace::default();
+    workspace.hosts.push(host);
+
+    let session_key = persistent_shell::new_session_key();
+    let connection = ssh::connect(&workspace, host_id).await.expect("connexion");
+    if persistent_shell::probe(&connection, None).await == Probe::NoTmux {
+        eprintln!("tmux absent de la machine de test — scénario ignoré");
+        return;
+    }
+
+    // Une session large, ouverte par un client large, puis détachée.
+    let owner = ssh::open_shell_with_command(
+        &connection, 200, 50, false, Some(&persistent_shell::attach_command(&session_key)),
+    ).await.expect("ouverture");
+    // Attendre que tmux ait vraiment pris la main : sans marqueur, la mesure
+    // suivante pourrait tomber avant que la session existe.
+    let mut owner = owner;
+    type_line(&owner, "echo PR''ET").await;
+    read_until(&mut owner, "PRET").await;
+    drop(owner);
+
+    let find = |listing: persistent_shell::SessionListing| {
+        listing.sessions.into_iter().find(|s| s.key == session_key)
+    };
+    let before = find(persistent_shell::list(&connection).await.expect("lister"))
+        .expect("la session doit être listée");
+
+    // 1. Le témoin : rejoindre avec un petit pty rétrécit bel et bien.
+    let (small_w, small_h) = (80, 24);
+    let observer = ssh::open_shell_with_command(
+        &connection, small_w, small_h, false, Some(&persistent_shell::observe_command(&session_key)),
+    ).await.expect("observation étroite");
+    let shrunk = wait_until_attached(&connection, &session_key, 1).await;
+    drop(observer);
+    wait_until_attached(&connection, &session_key, 0).await;
+
+    // Le témoin a rétréci la session : la remettre à sa taille d'origine avant
+    // de mesurer le cas nominal, sinon les deux mesures ne parlent pas de la
+    // même chose.
+    let restore = ssh::open_shell_with_command(
+        &connection, 200, 50, false, Some(&persistent_shell::attach_command(&session_key)),
+    ).await.expect("réattachement large");
+    let restored = wait_until_attached(&connection, &session_key, 1).await;
+    drop(restore);
+    wait_until_attached(&connection, &session_key, 0).await;
+
+    // 2. Le cas nominal : rejoindre à `client_size()` ne change rien.
+    let (cols, rows) = restored.client_size().expect("taille connue");
+    let observer = ssh::open_shell_with_command(
+        &connection, cols, rows, false, Some(&persistent_shell::observe_command(&session_key)),
+    ).await.expect("observation à la bonne taille");
+    let kept = wait_until_attached(&connection, &session_key, 1).await;
+    drop(observer);
+
+    let _ = persistent_shell::kill(&connection, &session_key).await;
+
+    assert_eq!(before.width, Some(200), "la session de départ devait faire 200 de large");
+    assert!(
+        shrunk.width < before.width,
+        "le témoin ne rétrécit pas : {:?} → {:?}, le test nominal ne prouverait rien",
+        before.width, shrunk.width,
+    );
+    assert_eq!(
+        (kept.width, kept.height), (restored.width, restored.height),
+        "observer a redimensionné la session : {:?}×{:?} → {:?}×{:?}",
+        restored.width, restored.height, kept.width, kept.height,
+    );
+}
+
+/// On n'observe pas une session qui n'existe pas : `observe_command` s'attache,
+/// il ne crée rien, et l'appelant doit avoir sondé avant.
+#[tokio::test]
+async fn observing_an_absent_session_fails_rather_than_creating_one() {
+    let key = ClientKey::generate();
+    let sshd = TestSshd::start("tmux-absent", &key.public);
+    let host = test_host(&sshd, &key, "test-absent");
+    let host_id = host.id;
+    let mut workspace = Workspace::default();
+    workspace.hosts.push(host);
+
+    let connection = ssh::connect(&workspace, host_id).await.expect("connexion");
+    if persistent_shell::probe(&connection, None).await == Probe::NoTmux {
+        eprintln!("tmux absent de la machine de test — scénario ignoré");
+        return;
+    }
+
+    let absent = persistent_shell::new_session_key();
+    let output = ssh::run_command_capture(&connection, &persistent_shell::observe_command(&absent))
+        .await
+        .expect("la commande doit s'exécuter");
+    assert_ne!(output.exit_code, Some(0), "tmux aurait dû refuser : {output:?}");
+
+    let listing = persistent_shell::list(&connection).await.expect("lister");
+    assert!(
+        !listing.sessions.iter().any(|s| s.key == absent),
+        "observer une session absente l'a créée",
     );
 }

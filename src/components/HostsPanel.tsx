@@ -32,8 +32,9 @@ interface HostsPanelProps {
   onProbeReachability: (host: Host) => void;
   /** « Où est ce fichier ? » — recherche par nom ou par contenu sur cet hôte. */
   onSearchFiles: (host: Host) => void;
-  /** Reprendre une session persistante déjà en cours sur cet hôte. */
-  onResumeSession: (host: Host, sessionKey: string) => void;
+  /** Reprendre une session persistante déjà en cours sur cet hôte — en
+   * écriture, ou en simple observation. */
+  onResumeSession: (host: Host, sessionKey: string, readOnly?: boolean) => void;
   /** Ouvrir une base atteinte à travers cet hôte, depuis la ligne de l'hôte. */
   onConnectSql: (connection: SqlConnection) => void;
   onOpenLocalTerminal: (shell?: string) => void;
@@ -676,9 +677,10 @@ export function HostsPanel({
       {sessionsHost && (
         <PersistentSessionsModal
           host={sessionsHost}
-          onResume={(sessionKey) => onResumeSession(sessionsHost, sessionKey)}
+          onResume={(sessionKey, readOnly) => onResumeSession(sessionsHost, sessionKey, readOnly)}
           onClose={() => setSessionsHost(null)}
           onError={onError}
+          onNotify={onNotify}
         />
       )}
 

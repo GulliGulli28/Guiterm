@@ -317,10 +317,10 @@ export const api = {
   /** `sessionKey` : la session persistante que cet onglet utilisait la fois
    * d'avant, ou `null` pour la première connexion (le backend en nomme alors
    * une). Sans effet sur un hôte laissé en `persistentShell: "off"`. */
-  connectTerminal: (hostId: HostId, sessionKey: string | null, onData: (chunk: Uint8Array) => void) => {
+  connectTerminal: (hostId: HostId, sessionKey: string | null, readOnly: boolean, onData: (chunk: Uint8Array) => void) => {
     const channel = new Channel<ArrayBuffer>();
     channel.onmessage = (buffer) => onData(new Uint8Array(buffer));
-    return invoke<TerminalOpened>("connect_terminal", { hostId, sessionKey, channel });
+    return invoke<TerminalOpened>("connect_terminal", { hostId, sessionKey, readOnly, channel });
   },
   /** Les sessions persistantes qui tournent sur cet hôte. Un aller-retour SSH
    * sur une connexion du pool. */
@@ -329,6 +329,11 @@ export const api = {
    * `dockerContainerAction` : l'appelant réaffiche ce qui reste. */
   killPersistentSession: (hostId: HostId, sessionKey: string) =>
     invoke<SessionListing>("kill_persistent_session", { hostId, sessionKey }),
+  /** La ligne à donner à quelqu'un d'autre pour qu'il observe la même session
+   * depuis son propre terminal. L'app n'invite personne : rejoindre une session
+   * suppose déjà un accès SSH à l'hôte. */
+  persistentSessionShareCommand: (hostId: HostId, sessionKey: string) =>
+    invoke<string>("persistent_session_share_command", { hostId, sessionKey }),
   listDockerContainers: (hostId: HostId) => invoke<DockerContainer[]>("list_docker_containers", { hostId }),
   /** Tail of a container's log, stdout and stderr interleaved. Bounded, not
    * followed — see `termius_core::docker::container_logs`. */
