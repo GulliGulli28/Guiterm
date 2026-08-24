@@ -27,12 +27,21 @@ ls -1a . | while IFS= read -r f; do
 done
 "#;
 
-/// `touch` avec une date d'époque. Best-effort : un `touch` qui ne comprend
-/// pas `@secondes` (busybox ancien, BSD) fera échouer la commande, et
-/// `transfer` traite ça comme « date non reportée » plutôt que comme un échec
-/// de copie — le fichier est là, c'est sa date qui manque.
+/// `touch` avec une date d'époque, dans les deux dialectes.
+///
+/// GNU et busybox comprennent `-d @secondes` ; BSD (donc macOS) ne connaît
+/// que `-t [[CC]YY]MMDDhhmm.SS`, que seul son propre `date -r` sait produire
+/// à partir d'une époque. D'où l'essai puis le repli — la même fracture que
+/// `stat` dans `pane_ops::INVENTORY_SCRIPT`.
+///
+/// Reste best-effort : si les deux échouent, `transfer` traite ça comme
+/// « date non reportée » plutôt que comme un échec de copie — le fichier est
+/// là, c'est sa date qui manque, et ce qui se dégrade alors est la
+/// comparaison d'arborescences, pas la copie.
 pub const SET_MTIME_SCRIPT: &str = r#"
-touch -d "@$2" -- "$1"
+touch -d "@$2" -- "$1" 2>/dev/null && exit 0
+stamp=$(date -r "$2" '+%Y%m%d%H%M.%S' 2>/dev/null) || exit 1
+touch -t "$stamp" -- "$1"
 "#;
 
 /// Parses [`LIST_SCRIPT`]'s tab-delimited output. Splits each line into at
@@ -136,6 +145,52 @@ pub fn extract_single_file(tar_bytes: &[u8]) -> anyhow::Result<Vec<u8>> {
         }
     }
     anyhow::bail!("archive vide ou fichier introuvable")
+}
+
+/// [`SET_MTIME_SCRIPT`] passé au `sh` de la machine.
+///
+/// L'intérêt est dans la matrice d'intégration continue : le runner Linux
+/// exerce la branche GNU (`touch -d @secondes`), le runner macOS la branche
+/// BSD (`date -r` puis `touch -t`). C'est l'absence d'un tel test qui avait
+/// laissé passer la même fracture sur `stat` dans `pane_ops`, où la
+/// comparaison d'arborescences rendait silencieusement une liste vide contre
+/// un serveur BSD.
+#[cfg(all(test, unix))]
+mod set_mtime_shell_test {
+    use super::*;
+
+    #[test]
+    fn the_script_sets_a_date_on_this_platforms_touch() {
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("daté.txt");
+        std::fs::write(&file, b"x").unwrap();
+        // Une date nettement dans le passé, qu'on ne peut pas confondre avec
+        // l'heure du test.
+        let target = 1_600_000_000u64;
+
+        let output = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(SET_MTIME_SCRIPT)
+            .arg("sh")
+            .arg(file.to_string_lossy().as_ref())
+            .arg(target.to_string())
+            .output()
+            .expect("sh doit exister sur une machine Unix");
+        assert!(
+            output.status.success(),
+            "aucune des deux formes de `touch` n'a fonctionné — stderr : {}",
+            String::from_utf8_lossy(&output.stderr)
+        );
+
+        let seen = std::fs::metadata(&file)
+            .unwrap()
+            .modified()
+            .unwrap()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_secs();
+        assert_eq!(seen, target, "la date demandée doit être celle du fichier");
+    }
 }
 
 #[cfg(test)]

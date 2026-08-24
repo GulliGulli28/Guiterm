@@ -192,7 +192,17 @@ pub async fn disk_space(exec: &PaneExec, path: &str) -> anyhow::Result<DiskSpace
 /// fait de son côté. « Disponible » et non « libre » : sous Unix les deux
 /// diffèrent (des blocs sont réservés au superutilisateur), et c'est bien la
 /// place réellement utilisable qu'on veut annoncer.
+///
+/// L'existence du chemin est vérifiée d'abord, parce que les deux systèmes ne
+/// répondent pas la même chose sans ça : `statvfs` échoue sur un chemin
+/// absent, tandis que `GetDiskFreeSpaceExW` remonte au volume et rend
+/// tranquillement l'espace du disque entier. Rendre l'espace d'un dossier qui
+/// n'existe pas est faux dans les deux cas — autant que ce soit faux nulle
+/// part, et de la même façon.
 fn local_disk_space(path: &Path) -> anyhow::Result<DiskSpace> {
+    if !path.exists() {
+        anyhow::bail!("chemin introuvable : {}", path.display());
+    }
     let total = fs4::total_space(path)?;
     let free = fs4::available_space(path)?;
     Ok(DiskSpace { total_bytes: total, free_bytes: free })
@@ -365,14 +375,26 @@ pub const INVENTORY_LIMIT: usize = 20_000;
 /// `$1`, en une seule commande — l'alternative (lister dossier par dossier
 /// en SFTP) coûterait un aller-retour par dossier.
 ///
-/// `stat -c` en lot (`-exec … +`), même convention que
-/// [`crate::remote_shell_pane::LIST_SCRIPT`] : ce sont les mêmes hôtes.
+/// `stat` en lot (`-exec … +`) plutôt qu'un appel par fichier.
+///
+/// **Deux `stat` existent** et ne partagent ni les options ni les formats :
+/// celui de GNU/busybox (`-c '%s %Y %n'`) et celui de BSD, donc de macOS
+/// (`-f '%z %m %N'`). Le script essaie le premier sur `.` et se rabat sur le
+/// second — sans ce repli, l'inventaire d'un serveur macOS ou BSD ne rend
+/// simplement rien, et la comparaison d'arborescences annonce « aucune
+/// différence » sur deux arbres qui n'ont rien en commun. Trouvé par le job
+/// macOS de l'intégration continue, qui exécute ces scripts sur un vrai BSD.
+///
 /// Les dossiers ne sont pas inventoriés (ils sont créés au besoin par la
 /// copie) et les liens symboliques non plus — les suivre comparerait des
 /// arbres qui vivent ailleurs.
 pub const INVENTORY_SCRIPT: &str = r#"
 cd -- "$1" || exit 1
-find . -maxdepth "$2" -type f -exec stat -c '%s	%Y	%n' {} + 2>/dev/null | head -n "$3"
+if stat -c '%s' . >/dev/null 2>&1; then
+  find . -maxdepth "$2" -type f -exec stat -c '%s	%Y	%n' {} + 2>/dev/null | head -n "$3"
+else
+  find . -maxdepth "$2" -type f -exec stat -f '%z	%m	%N' {} + 2>/dev/null | head -n "$3"
+fi
 "#;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -1120,6 +1142,57 @@ mod shell_script_tests {
         assert!(
             from_shell.iter().any(|f| f.path == "projet/nginx.conf"),
             "chemin relatif sans « ./ » : {from_shell:?}"
+        );
+    }
+
+    /// La branche BSD de l'inventaire, éprouvée sur une machine GNU.
+    ///
+    /// Un faux `stat` placé en tête de `PATH` refuse `-c` (comme le BSD) et
+    /// répond à `-f '%z %m %N'` en déléguant au vrai. Ce que ça prouve : le
+    /// repli est bien pris, la commande est composée dans le bon ordre et sa
+    /// sortie se parse comme l'autre. Ce que ça ne prouve pas : que `%z`,
+    /// `%m` et `%N` soient les bonnes lettres — seul un vrai BSD le dit, et
+    /// c'est le job macOS de l'intégration continue qui exécute ce même
+    /// script pour de bon.
+    #[test]
+    fn inventory_script_falls_back_to_the_bsd_stat() {
+        let dir = tree();
+        // Hors de l'arbre inventorié : posé dedans, le faux `stat` se
+        // retrouverait dans l'inventaire qu'il sert à produire.
+        let bin_dir = tempfile::tempdir().unwrap();
+        let fake_bin = bin_dir.path().to_path_buf();
+        std::fs::write(
+            fake_bin.join("stat"),
+            "#!/bin/sh\n             # Un stat qui se comporte comme celui de BSD : pas de -c, et -f\n             # avec ses propres lettres.\n             if [ \"$1\" = \"-c\" ]; then echo 'stat: illegal option -- c' >&2; exit 1; fi\n             if [ \"$1\" = \"-f\" ]; then shift 2; exec /usr/bin/stat -c '%s\t%Y\t%n' \"$@\"; fi\n             exec /usr/bin/stat \"$@\"\n",
+        )
+        .unwrap();
+        std::process::Command::new("chmod")
+            .args(["+x", fake_bin.join("stat").to_string_lossy().as_ref()])
+            .status()
+            .unwrap();
+
+        let output = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(INVENTORY_SCRIPT)
+            .arg("sh")
+            .arg(dir.path().to_string_lossy().as_ref())
+            .arg(INVENTORY_MAX_DEPTH.to_string())
+            .arg(INVENTORY_LIMIT.to_string())
+            .env(
+                "PATH",
+                format!("{}:{}", fake_bin.display(), std::env::var("PATH").unwrap_or_default()),
+            )
+            .output()
+            .expect("sh doit exister");
+        assert!(output.status.success(), "stderr : {}", String::from_utf8_lossy(&output.stderr));
+
+        let files = parse_inventory(&String::from_utf8_lossy(&output.stdout)).files;
+        let mut paths: Vec<&str> = files.iter().map(|f| f.path.as_str()).collect();
+        paths.sort();
+        assert_eq!(
+            paths,
+            vec!["a.bin", "projet/nginx.conf"],
+            "le repli BSD doit inventorier le même arbre"
         );
     }
 
