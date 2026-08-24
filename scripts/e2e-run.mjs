@@ -3048,7 +3048,19 @@ async function runResumeOnLaunchScenario(browser) {
       return prefs.resumePersistentTabsOnLaunch === wanted;
     }, { timeout: 5_000, timeoutMsg: "le choix n a pas été persisté dans les préférences" });
 
-    console.log("Reprise au lancement : OK (case présente sous son parent, branchée, choix persisté).");
+    // La barre d'état tmux : même section, pas de parent, et son réglage vaut
+    // pour les sessions déjà ouvertes puisqu'il est réappliqué à chaque
+    // rattachement.
+    const statusWanted = before.tmuxHideStatusBar === false;
+    const status = await setToggle("Masquer la barre d'état tmux", statusWanted);
+    if (!status.found) throw new Error("la case « Masquer la barre d'état tmux » est introuvable");
+    await browser.waitUntil(async () => {
+      const prefs = await readPrefs();
+      return prefs.tmuxHideStatusBar === statusWanted;
+    }, { timeout: 5_000, timeoutMsg: "le réglage de la barre d'état tmux n a pas été persisté" });
+    await setToggle("Masquer la barre d'état tmux", before.tmuxHideStatusBar !== false);
+
+    console.log("Reprise au lancement : OK (cases présentes et branchées, choix persistés).");
   } finally {
     // Remettre les préférences du profil comme elles étaient — ce scénario
     // tourne contre les vraies.

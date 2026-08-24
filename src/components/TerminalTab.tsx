@@ -8,6 +8,7 @@ import { api, onTerminalClosed } from "../lib/api";
 import type { Host, PersistenceOutcome, TerminalOpened } from "../lib/types";
 import { assertNever } from "../lib/exhaustive";
 import { nextClosureAction } from "../lib/terminalClosure";
+import { observedFontSize } from "../lib/observedFont";
 import type { AppPreferences } from "../lib/preferences";
 import { DEFAULT_PREFERENCES, TERMINAL_THEMES, auroraLayerBackground } from "../lib/preferences";
 import { shouldBubbleToShortcut } from "../lib/shortcuts";
@@ -158,6 +159,22 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
     if (!term) return;
     const observed = observedSizeRef.current;
     if (observed) {
+      // La grille est celle de la session ; la seule variable qui reste est la
+      // police. Sans elle, une session plus large que la fenêtre serait rognée
+      // — on ne verrait qu'une partie de l'écran de quelqu'un d'autre, sans
+      // rien pour le signaler. Voir `lib/observedFont.ts`.
+      const proposed = fitRef.current?.proposeDimensions();
+      if (proposed) {
+        const next = observedFontSize({
+          baseFontSize: preferencesRef.current?.terminalFontSize ?? DEFAULT_PREFERENCES.terminalFontSize,
+          currentFontSize: term.options.fontSize ?? DEFAULT_PREFERENCES.terminalFontSize,
+          proposedCols: proposed.cols,
+          proposedRows: proposed.rows,
+          targetCols: observed.cols,
+          targetRows: observed.rows,
+        });
+        if (next !== null) term.options.fontSize = next;
+      }
       if (term.cols !== observed.cols || term.rows !== observed.rows) {
         term.resize(observed.cols, observed.rows);
       }
@@ -387,7 +404,13 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
           const id = await api.connectDockerExec(host.id, dockerContainerId, onData);
           opened = { sessionId: id, ...plain };
         } else {
-          opened = await api.connectTerminal(host.id, sessionKeyRef.current, readOnly ?? false, onData);
+          opened = await api.connectTerminal(host.id, {
+            key: sessionKeyRef.current,
+            readOnly: readOnly ?? false,
+            // Jamais en observation : masquer ou montrer la barre changerait
+            // l'apparence de la session pour ceux qui y travaillent.
+            hideStatusBar: !readOnly && (preferencesRef.current?.tmuxHideStatusBar ?? true),
+          }, onData);
         }
         const id = opened.sessionId;
         if (disposed) {
@@ -500,7 +523,9 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
     const themeEntry = TERMINAL_THEMES[preferences.terminalThemeName];
     if (themeEntry) term.options.theme = themeEntry.theme;
     term.options.fontFamily = preferences.terminalFontFamily;
-    term.options.fontSize = zoom.fontSize;
+    // En observation la police est calculée, pas choisie : `syncGeometry` la
+    // recalcule juste après, et la fixer ici ferait clignoter l'affichage.
+    if (!observedSizeRef.current) term.options.fontSize = zoom.fontSize;
     syncGeometry();
   }, [preferences, zoom.fontSize, syncGeometry]);
 

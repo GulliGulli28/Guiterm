@@ -998,6 +998,19 @@ export interface SessionListing {
   sessions: RunningSession[];
 }
 
+/** Ce qu'un onglet demande de sa session persistante à l'ouverture. Miroir de
+ * `commands::terminal::SessionOptions`. */
+export interface SessionOptions {
+  /** La session que cet onglet utilisait la fois d'avant, s'il en avait une. */
+  key: string | null;
+  /** Rejoindre sans pouvoir taper. */
+  readOnly: boolean;
+  /** Masquer la barre d'état de tmux. Jamais appliqué en observation :
+   * changer l'apparence d'une session qu'on ne fait que regarder la
+   * changerait pour ceux qui y travaillent. */
+  hideStatusBar: boolean;
+}
+
 /** Ce qu'est devenue la session persistante demandée à l'ouverture d'un
  * terminal. Miroir de `commands::terminal::PersistenceOutcome`. */
 export type PersistenceOutcome = "off" | "unavailable" | "created" | "resumed";

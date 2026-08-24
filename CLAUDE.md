@@ -408,7 +408,11 @@ limité (pas de curseur rendu, molette approximative), voir
   client 80×24 fait passer une session 200×50 à 80×23), et la fenêtre vaut la
   taille du client *moins* la barre d'état — un observateur demande donc
   `RunningSession::client_size()`, et `syncGeometry` (`TerminalTab`) ne
-  redimensionne jamais un onglet en observation.
+  redimensionne jamais un onglet en observation — il ajuste la police
+  (`lib/observedFont.ts`) pour que la grille tienne. La barre d'état tmux est
+  masquée par défaut (`tmuxHideStatusBar`), réappliquée à chaque rattachement,
+  et « ne pas masquer » rend l'option au `.tmux.conf` de l'utilisateur (`-u`)
+  plutôt que de forcer `on`.
 
 - **xterm.js avale les raccourcis clavier.** xterm.js appelle
   `stopPropagation()` sur toute touche qu'il traite lui-même (dès que

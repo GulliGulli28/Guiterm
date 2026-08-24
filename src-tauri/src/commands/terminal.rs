@@ -1,6 +1,6 @@
 use termius_core::sync_ext::MutexExt;
 use crate::state::{AppState, TerminalBackend, TerminalSession};
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{AppHandle, Emitter, Manager, State};
 use termius_core::model::{HostId, PersistentShellMode, Workspace};
@@ -325,7 +325,28 @@ pub struct TerminalOpened {
     pub rows: u16,
 }
 
-/// Connects to `host_id` and starts an interactive shell, streaming its
+/// Ce que le frontend demande d'une session persistante à l'ouverture d'un
+/// terminal.
+///
+/// Un struct plutôt que trois arguments de plus : la commande en avait déjà
+/// cinq, et ces trois-là vont ensemble — ils ne veulent rien dire sur un hôte
+/// qui n'est pas en session persistante.
+#[derive(Debug, Clone, Default, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionOptions {
+    /// La session que cet onglet utilisait la fois d'avant, s'il en avait une.
+    pub key: Option<String>,
+    /// Rejoindre sans pouvoir taper — voir [`persistent_shell::observe_command`].
+    #[serde(default)]
+    pub read_only: bool,
+    /// Masquer la barre d'état de tmux dans cette session. Jamais appliqué en
+    /// observation : changer l'apparence d'une session qu'on ne fait que
+    /// regarder la changerait pour ceux qui y travaillent.
+    #[serde(default)]
+    pub hide_status_bar: bool,
+}
+
+/// Connects to `host_id` and starts an interactive shell, streaming its/// Connects to `host_id` and starts an interactive shell, streaming its
 /// output back as raw bytes over `channel` (see [`spawn_output_bridge`]) —
 /// `channel` is a dedicated `tauri::ipc::Channel` the caller creates just for
 /// this session, mirroring `connect_rdp_view`'s frame channel.
@@ -339,10 +360,10 @@ pub async fn connect_terminal(
     app: AppHandle,
     state: State<'_, AppState>,
     host_id: HostId,
-    session_key: Option<String>,
-    read_only: bool,
+    session: SessionOptions,
     channel: Channel,
 ) -> Result<TerminalOpened, String> {
+    let SessionOptions { key: session_key, read_only, hide_status_bar } = session;
     let workspace = state.workspace.lock_recover().clone();
     let host = workspace.host(host_id);
     let agent_forward = host.map(|h| h.agent_forward).unwrap_or(false);
@@ -380,13 +401,13 @@ pub async fn connect_terminal(
             let command = if read_only {
                 persistent_shell::observe_command(&key)
             } else {
-                persistent_shell::attach_command(&key)
+                persistent_shell::attach_command(&key, hide_status_bar)
             };
             (Some(command), Some(key), PersistenceOutcome::Resumed)
         }
         Some(persistent_shell::Probe::Absent) => {
             let key = requested.unwrap_or_else(persistent_shell::new_session_key);
-            (Some(persistent_shell::attach_command(&key)), Some(key), PersistenceOutcome::Created)
+            (Some(persistent_shell::attach_command(&key, hide_status_bar)), Some(key), PersistenceOutcome::Created)
         }
     };
 

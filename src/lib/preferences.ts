@@ -105,6 +105,17 @@ export interface AppPreferences {
    * onglets persistants parce que ce sont les seuls où l'ouverture rend
    * quelque chose (l'écran laissé) plutôt qu'un shell vierge. */
   resumePersistentTabsOnLaunch: boolean;
+  /** Masquer la barre d'état de tmux dans les sessions persistantes.
+   *
+   * Activé par défaut : la fonctionnalité se présente comme « des sessions qui
+   * survivent », pas comme « tmux », et une barre verte inattendue en bas d'un
+   * terminal ressemble à un bug. Le revers est réel — c'est elle qui montre les
+   * fenêtres tmux si on en ouvre plusieurs (`Ctrl+B c`) —, d'où le réglage.
+   *
+   * Appliqué à chaque rattachement, donc changer d'avis vaut pour les sessions
+   * déjà ouvertes. Ne pas masquer ne veut pas dire afficher de force : l'option
+   * est rendue à ce dont elle hérite, donc au `.tmux.conf` de l'utilisateur. */
+  tmuxHideStatusBar: boolean;
   terminalRightClickMenu: boolean;
   autoReconnect: boolean;
   autoReconnectMaxAttempts: number;
@@ -300,6 +311,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   keyboardShortcuts: defaultShortcuts(),
   restoreTabsOnLaunch: true,
   resumePersistentTabsOnLaunch: false,
+  tmuxHideStatusBar: true,
   terminalRightClickMenu: true,
   autoReconnect: false,
   autoReconnectMaxAttempts: 5,

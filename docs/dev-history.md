@@ -2246,3 +2246,84 @@ de s'attacher en écriture — il suffit d'avoir un shell sur l'hôte.
 rognée, faute d'adapter la police. Le choix est délibéré — une heuristique de
 mise à l'échelle que je ne peux pas valider ici vaut moins qu'une limite
 énoncée.
+
+## Sessions persistantes — tranche 5 : les finitions (2026-08-24)
+
+Trois gênes que les quatre tranches précédentes laissaient : une barre verte
+inattendue, une session observée rognée, et un avertissement de raccourci
+devenu faux.
+
+### La barre d'état tmux
+
+Masquée par défaut. La fonctionnalité se présente comme « des sessions qui
+survivent », pas comme « tmux » : une barre verte en bas d'un terminal
+ressemble d'abord à un bug. Le revers est réel — c'est elle qui montre les
+fenêtres tmux si on en ouvre plusieurs — d'où un réglage plutôt qu'une
+décision figée.
+
+Trois détails, tous vérifiés contre un vrai tmux 3.4 avant d'être écrits :
+
+- **Le chaînage marche** : `tmux new-session -A -s KEY \; set-option -t KEY
+  status off`, où le `\;` traverse le shell distant pour arriver à tmux comme
+  séparateur de commandes. Vérifié en création *et* en rattachement.
+- **Appliqué à chaque rattachement**, pas seulement à la création : sans ça,
+  changer d'avis n'aurait aucun effet sur les sessions déjà ouvertes.
+- **Ne pas masquer ≠ afficher de force.** `set-option -u` rend l'option à ce
+  dont elle hérite, donc au `.tmux.conf` de l'utilisateur. Forcer `status on`
+  afficherait une barre à quelqu'un qui l'a délibérément coupée chez lui.
+
+Et jamais en observation : masquer ou montrer la barre changerait l'apparence
+de la session pour ceux qui y travaillent.
+
+L'effet sur l'arithmétique de `client_size` est cohérent tout seul, puisque
+`status_lines` est lu par session : barre masquée, la fenêtre occupe tout le
+client ; barre visible, elle vaut une ligne de moins. Un test d'intégration
+pose les deux cas de suite sur la même session (100×30 → `status_lines` 0 et
+`100×30`, puis 1 et `100×29`).
+
+### La session observée qui débordait
+
+Limite annoncée en tranche 4, levée ici : la grille d'un onglet en observation
+est imposée par la session, donc la seule variable qui reste est la police.
+`lib/observedFont.ts` la calcule — le rapport entre ce qui tient dans le
+conteneur et ce qu'il faut afficher, axe le plus contraignant, plafonné à la
+police voulue par l'utilisateur et plancherisé pour rester lisible.
+
+Pur et testé parce que c'est facile de s'y tromper en silence : un facteur pris
+à l'envers donne une police qui *grandit*, et le rognage empire au lieu de
+disparaître. Le plafond à la police de l'utilisateur est aussi ce qui rend le
+calcul stable — il ne peut pas osciller, et la police remonte d'elle-même quand
+la fenêtre s'agrandit.
+
+Corollaire : le zoom du terminal ne s'applique pas à un onglet en observation.
+La police y est calculée, pas choisie ; la fixer ferait clignoter l'affichage
+au prochain `syncGeometry`.
+
+### Ctrl+B
+
+`shellBindingWarning` avertissait que Ctrl+B « recule le curseur d'un
+caractère ». C'est vrai de readline, et c'est devenu la moindre des deux
+collisions : Ctrl+B est le **préfixe de tmux**, donc la touche par laquelle
+passe tout le reste dans une session persistante. Un raccourci d'app qui la
+capterait rendrait tmux inutilisable.
+
+Ce n'est pas le cas aujourd'hui — `sidebar.toggle` a bien Ctrl+B par défaut,
+mais il n'est pas dans `bubblesThroughTerminal`, donc xterm garde la touche et
+l'envoie au shell (vérifié). L'avertissement est ce qui empêche de l'oublier le
+jour où on rebranche une action dessus.
+
+### Un test qui mentait par intermittence
+
+`observing_a_session_does_not_resize_it` a été instable une passe sur trois. La
+cause n'était pas tmux mais la façon de mesurer : le test attendait que tmux
+rapporte *un client attaché*, puis relevait la taille — or tmux enregistre un
+client avant d'appliquer sa taille, et le relevé tombait parfois entre les
+deux. Pire, après `drop(owner)` le client propriétaire comptait encore, si bien
+que l'attente rendait la main en le voyant *lui*.
+
+Réécrit autour de deux helpers dont l'attente **est** l'assertion : `wait_for`
+(la condition doit devenir vraie, sinon échec explicite avec le dernier état
+observé) et `stays` (la condition doit rester vraie pendant deux secondes,
+échantillonnée — c'est ce qu'il faut pour prouver une *absence* de changement,
+là où un relevé unique peut passer pour de mauvaises raisons). Six passages
+consécutifs verts après correction.

@@ -287,8 +287,22 @@ pub async fn probe(connection: &Connection, key: Option<&str>) -> Probe {
 /// rejeu des commandes de démarrage —, et une session ouverte entre les deux
 /// (par un autre onglet, ou à la main sur le serveur) est rattachée au lieu
 /// d'échouer.
-pub fn attach_command(key: &str) -> String {
-    format!("tmux new-session -A -s {}", quote(key))
+pub fn attach_command(key: &str, hide_status_bar: bool) -> String {
+    let quoted = quote(key);
+    // `\;` : le shell distant le rend à tmux comme un point-virgule littéral,
+    // qui sépare deux commandes tmux. Vérifié contre un vrai tmux 3.4, en
+    // création comme en rattachement.
+    //
+    // `-u` plutôt que `status on` quand on ne masque pas : `-u` remet l'option
+    // à ce dont elle hérite, donc au `.tmux.conf` de l'utilisateur. Forcer
+    // `on` afficherait une barre à quelqu'un qui l'a délibérément coupée dans
+    // sa propre configuration.
+    let status = if hide_status_bar {
+        format!("set-option -t {quoted} status off")
+    } else {
+        format!("set-option -u -t {quoted} status")
+    };
+    format!("tmux new-session -A -s {quoted} \\; {status}")
 }
 
 /// La commande pour **observer** une session sans pouvoir y taper.
@@ -360,10 +374,21 @@ mod tests {
     /// la validation et l'échappement sont deux filets, pas un seul.
     #[test]
     fn the_attach_command_quotes_its_key() {
-        assert_eq!(
-            attach_command("guiterm-abc"),
-            "tmux new-session -A -s 'guiterm-abc'",
-        );
+        let hidden = attach_command("guiterm-abc", true);
+        assert!(hidden.starts_with("tmux new-session -A -s 'guiterm-abc'"), "{hidden}");
+        // Un point-virgule échappé pour le shell distant, qui le rend à tmux
+        // comme séparateur de commandes.
+        assert!(hidden.contains(r" \; set-option -t 'guiterm-abc' status off"), "{hidden}");
+    }
+
+    /// Ne pas masquer, ce n'est pas afficher de force : `-u` rend l'option à
+    /// ce dont elle hérite, donc au `.tmux.conf` de l'utilisateur. Quelqu'un
+    /// qui a coupé sa barre chez lui ne doit pas la voir revenir ici.
+    #[test]
+    fn not_hiding_the_status_bar_defers_to_the_users_config() {
+        let shown = attach_command("guiterm-abc", false);
+        assert!(shown.contains(r"set-option -u -t 'guiterm-abc' status"), "{shown}");
+        assert!(!shown.contains("status on"), "{shown}");
     }
 
     #[test]

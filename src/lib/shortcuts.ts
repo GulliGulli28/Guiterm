@@ -90,7 +90,13 @@ const SHELL_BINDING_WARNINGS: Record<string, string> = {
   "Ctrl+L": "efface l'écran",
   "Ctrl+\\": "quitte le processus en cours (SIGQUIT)",
   "Ctrl+T": "transpose les deux caractères précédents",
-  "Ctrl+B": "recule le curseur d'un caractère",
+  // Deux collisions pour le prix d'une, et la seconde est la plus coûteuse :
+  // Ctrl+B est le **préfixe de tmux**, donc la touche par laquelle passe tout
+  // le reste dans une session persistante. Un raccourci d'app qui la capterait
+  // rendrait tmux inutilisable — ce n'est pas le cas aujourd'hui
+  // (`sidebar.toggle` ne remonte pas depuis un terminal), et cet avertissement
+  // est ce qui empêche de l'oublier en rebranchant une action dessus.
+  "Ctrl+B": "recule le curseur d'un caractère — et c'est le préfixe de tmux, donc tout le clavier des sessions persistantes",
 };
 
 /** Returns a human-readable warning if `combo` collides with a common shell binding, else `undefined`. */

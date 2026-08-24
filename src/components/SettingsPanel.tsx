@@ -667,6 +667,18 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
                     </p>
                   </>
                 )}
+                <ToggleRow
+                  label="Masquer la barre d'état tmux"
+                  checked={preferences.tmuxHideStatusBar}
+                  onChange={(v) => onPreferencesChange({ ...preferences, tmuxHideStatusBar: v })}
+                />
+                <p className="px-2 pb-1 text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+                  Dans les sessions persistantes, la barre verte de tmux en bas du terminal. Masquée,
+                  la session ressemble à un terminal ordinaire ; visible, elle montre les fenêtres tmux
+                  si vous en ouvrez plusieurs (Ctrl+B puis c). S'applique à chaque reconnexion, donc
+                  aussi aux sessions déjà ouvertes — et ne pas masquer rend simplement l'option à votre
+                  propre <span className="font-mono">.tmux.conf</span>.
+                </p>
               </div>
             </section>
 
