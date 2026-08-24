@@ -3,11 +3,12 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, onTransferDone, onTransferError, onTransferProgress } from "../lib/api";
 import type { AppPreferences } from "../lib/preferences";
-import type { ArchiveFormat, ConflictPolicy, CopyConflict, DiffHunk, DiffLine, DiffPick, Entry, FileDiff, Host, PaneComparison, PaneDiskSpace, PaneFindOutcome, SyncItem, PaneListed, PaneOpened, PaneSource, PaneState, RemoteEditListed, Workspace } from "../lib/types";
+import type { ArchiveFormat, ConflictPolicy, CopyConflict, DiffHunk, DiffLine, DiffPick, Entry, FileDiff, Host, HostId, PaneComparison, PaneDiskSpace, PaneFindOutcome, SyncItem, PaneListed, PaneOpened, PaneSource, PaneState, RemoteEditListed, Workspace } from "../lib/types";
 import {
   IconFolder, IconEdit, IconExternal, IconTrash, IconShield, IconClose, IconSearch,
   IconTerminal, IconRefresh, IconCompare, IconArchive, IconExtract, IconEye, IconEyeOff, IconFile,
 } from "./ui-icons";
+import { HostTreePicker } from "./HostTreePicker";
 import { QuickEditModal } from "./QuickEditModal";
 import { RdpTab } from "./RdpTab";
 import { useResizablePane } from "../hooks/useResizablePane";
@@ -1059,6 +1060,15 @@ export function PaneView({
   // — otherwise it would visibly snap back to the old selection until a
   // container is actually chosen (`onSourceChange` hasn't fired yet).
   const sourceValue = dockerPickerHost ? dockerPickerHost.id : k8sPickerHost ? k8sPickerHost.id : pane.source.kind === "local" ? "local" : pane.source.hostId;
+  // Les hôtes RDP n'ont aucun backend de listage de fichiers — la navigation
+  // en forme de SFTP ne concerne que ssh/dockerExec/k8sExec.
+  const transferableHosts = useMemo(
+    () => workspace.hosts.filter((h) => {
+      const kind = h.kind ?? "ssh";
+      return kind === "ssh" || kind === "dockerExec" || kind === "k8sExec";
+    }),
+    [workspace.hosts],
+  );
 
   /** Dernière ligne cliquée : point de départ d'une sélection à Maj+clic. */
   const [anchor, setAnchor] = useState<string | null>(null);
@@ -1344,30 +1354,21 @@ export function PaneView({
     <div ref={rootRef} className={`flex min-h-0 w-full min-w-0 flex-1 flex-col ${dropHighlight ? "ring-2 ring-inset ring-[var(--c-accent)]" : ""}`}>
       {/* Source selector */}
       <div className="flex items-center gap-2 border-b border-[var(--c-border)] p-2">
-        <select
+        <HostTreePicker
+          hosts={transferableHosts}
+          groups={workspace.groups}
+          customIcons={workspace.customIcons}
           value={sourceValue}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (v === "local") { onSourceChange(side, { kind: "local" }); return; }
+          onChange={(v) => {
+            if (v === null || v === "local") { onSourceChange(side, { kind: "local" }); return; }
             const host = workspace.hosts.find((h) => h.id === v);
             if (host && (host.kind ?? "ssh") === "dockerExec") { openDockerPicker(host); return; }
             if (host && (host.kind ?? "ssh") === "k8sExec") { openK8sPicker(host); return; }
-            onSourceChange(side, { kind: "remote", hostId: v });
+            onSourceChange(side, { kind: "remote", hostId: v as HostId });
           }}
-          className="rounded-md bg-[var(--c-bg3)] px-2 py-1 text-sm text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
-        >
-          <option value="local">Local</option>
-          {/* rdp hosts have no file-listing backend — SFTP-shaped browsing
-              only applies to ssh/dockerExec/k8sExec. */}
-          {workspace.hosts
-            .filter((h) => (h.kind ?? "ssh") === "ssh" || (h.kind ?? "ssh") === "dockerExec" || (h.kind ?? "ssh") === "k8sExec")
-            .map((h) => (
-              <option key={h.id} value={h.id}>
-                {h.label}
-                {(h.kind ?? "ssh") === "dockerExec" ? " (Docker exec)" : (h.kind ?? "ssh") === "k8sExec" ? " (K8s exec)" : ""}
-              </option>
-            ))}
-        </select>
+          specials={[{ value: "local", label: "Local", hint: "Cette machine", icon: <IconTerminal size={12} /> }]}
+          className="flex min-w-0 max-w-[280px] flex-1 items-center justify-between gap-2 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-left text-sm text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+        />
         {pane.status === "connecting" && <span className="text-xs text-[var(--c-text-muted)]">connexion…</span>}
       </div>
 

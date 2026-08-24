@@ -1,0 +1,18 @@
+<!doctype html>
+<html lang="fr">
+  <head>
+    <meta charset="utf-8" />
+    <title>Vérification du sélecteur d'hôtes arborescent</title>
+    <link rel="stylesheet" href="/src/index.css" />
+    <style>
+      body { margin: 0; background: #111; }
+      /* Étroit exprès : le champ que le sélecteur remplace vit dans des barres
+         d'outils serrées (panneau de transfert, formulaire de tunnel). */
+      #host { padding: 12px; width: 260px; }
+    </style>
+  </head>
+  <body>
+    <div id="host"></div>
+    <script type="module" src="/scripts/visual-check-host-picker.client.tsx"></script>
+  </body>
+</html>

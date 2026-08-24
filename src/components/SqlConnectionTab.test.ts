@@ -35,10 +35,15 @@ function connectionFor(engine: SqlEngine): SqlConnection {
   }
 }
 
+const EMPTY_WORKSPACE = {
+  groups: [], hosts: [], snippets: [], portForwards: [],
+  keychain: [], customIcons: [], sqlConnections: [],
+};
+
 function componentFor(engine: SqlEngine): unknown {
   const element = SqlConnectionTab({
     connection: connectionFor(engine),
-    hosts: [],
+    workspace: EMPTY_WORKSPACE,
     onError: () => {},
   });
   return (element as { type: unknown }).type;

@@ -3,10 +3,11 @@ import type { DockerContainer, HostId, K8sPod, Workspace } from "../lib/types";
 import { parsePodPickerId, podPickerId } from "../lib/types";
 import type { AppPreferences } from "../lib/preferences";
 import { api } from "../lib/api";
-import { hostKindMeta } from "../lib/hostKinds";
 import { LocalTerminalTab } from "./LocalTerminalTab";
 import { TerminalTab, type TerminalTabHandle } from "./TerminalTab";
 import { ConnectionPickerModal } from "./ConnectionPickerModal";
+import { HostTreePicker } from "./HostTreePicker";
+import { IconTerminal } from "./ui-icons";
 import { TabLoadingFallback } from "./TabLoadingFallback";
 
 // Lazy-loaded — see App.tsx's identical import for why. Vite/Rollup dedupe
@@ -66,18 +67,15 @@ export function SplitPane({ workspace, preferences, source, onSourceChange, onRe
     <div className="flex flex-1 flex-col overflow-hidden">
       <div className="flex shrink-0 items-center gap-2 border-b border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1.5">
         <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-[var(--c-text-muted)]">Panneau 2</span>
-        <select
+        <HostTreePicker
+          hosts={workspace.hosts}
+          groups={workspace.groups}
+          customIcons={workspace.customIcons}
           value={source}
-          onChange={(e) => onSourceChange(e.target.value as SplitSource)}
-          className="flex-1 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-sm text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
-        >
-          <option value="local">Terminal local</option>
-          {workspace.hosts.map((h) => (
-            <option key={h.id} value={h.id}>
-              {h.label}{(h.kind ?? "ssh") !== "ssh" ? ` (${hostKindMeta(h.kind).label})` : ""}
-            </option>
-          ))}
-        </select>
+          onChange={(v) => onSourceChange((v ?? "local") as SplitSource)}
+          specials={[{ value: "local", label: "Terminal local", hint: "Cette machine", icon: <IconTerminal size={12} /> }]}
+          className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-left text-sm text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+        />
       </div>
       <div className="relative min-h-0 flex-1">
         <div className="absolute inset-0 flex flex-col">

@@ -1,11 +1,15 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
-import type { Entry, Host, HostId } from "../lib/types";
-import { ConnectionPickerModal } from "./ConnectionPickerModal";
+import type { CustomIcon, Entry, Group, Host, HostId } from "../lib/types";
+import { HostTreeModal } from "./HostTreePicker";
 import { IconFolder, IconChevronRight, IconDatabase } from "./ui-icons";
 
 interface RemoteSavePathPickerProps {
   hosts: Host[];
+  /** L'arborescence de dossiers dans laquelle ces hôtes sont rangés — le
+   * choix de l'hôte se fait dans l'arbre, pas dans une liste à plat. */
+  groups: Group[];
+  customIcons: CustomIcon[];
   /** Skips the host-picker step and browses straight into this host's home
    * directory — used when a host was already chosen via the destination's
    * own dropdown before "Parcourir…" is clicked. */
@@ -32,7 +36,7 @@ function joinPath(base: string, segment: string): string {
  * fills the filename field (to confirm overwriting it) instead of
  * immediately closing the picker, and a dedicated filename input + "Enregistrer
  * ici" button finalize the choice as `joinPath(cwd, fileName)`. */
-export function RemoteSavePathPicker({ hosts, initialHostId, defaultFileName, onCancel, onSelect }: RemoteSavePathPickerProps) {
+export function RemoteSavePathPicker({ hosts, groups, customIcons, initialHostId, defaultFileName, onCancel, onSelect }: RemoteSavePathPickerProps) {
   const [host, setHost] = useState<Host | null>(() => (initialHostId ? hosts.find((h) => h.id === initialHostId) ?? null : null));
   const [paneId, setPaneId] = useState<string | null>(null);
   const [cwd, setCwd] = useState("");
@@ -94,12 +98,14 @@ export function RemoteSavePathPicker({ hosts, initialHostId, defaultFileName, on
   if (!host) {
     const sshHosts = hosts.filter((h) => (h.kind ?? "ssh") === "ssh");
     return (
-      <ConnectionPickerModal
+      <HostTreeModal
         title="Choisir un hôte enregistré"
-        loading={false}
-        items={sshHosts.map((h) => ({ id: h.id, name: h.label, meta: `${h.username}@${h.address}`, up: false }))}
+        hosts={sshHosts}
+        groups={groups}
+        customIcons={customIcons}
         onPick={openHost}
         onClose={onCancel}
+        emptyMessage="Aucun hôte SSH enregistré"
       />
     );
   }

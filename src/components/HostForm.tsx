@@ -6,6 +6,7 @@ import type { AuthMethod, EnvVar, GroupId, Host, HostId, HostKind, KeyId, ProxyP
 import { HostIcon } from "./icons";
 import { IconPicker } from "./IconPicker";
 import { GroupTreePicker } from "./GroupTreePicker";
+import { HostTreePicker } from "./HostTreePicker";
 import { HOST_KINDS } from "../lib/hostKinds";
 import { assertNever } from "../lib/exhaustive";
 
@@ -481,16 +482,15 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
         )}
         {kind === "dockerExec" && (
           <Field label="Via un hôte SSH (bastion)">
-            <select
+            <HostTreePicker
+              hosts={bastionChoices}
+              groups={workspace.groups}
+              customIcons={workspace.customIcons}
               value={dockerViaHostId}
-              onChange={(e) => setDockerViaHostId(e.target.value as HostId | "")}
-              className={inputClass}
-            >
-              <option value="">Aucun (connexion directe au socket/hôte ci-dessus)</option>
-              {bastionChoices.map((h) => (
-                <option key={h.id} value={h.id}>{h.label}</option>
-              ))}
-            </select>
+              onChange={(v) => setDockerViaHostId((v ?? "") as HostId | "")}
+              specials={[{ value: "", label: "Aucun", hint: "Connexion directe au socket/hôte ci-dessus" }]}
+              className={`${inputClass} flex items-center justify-between gap-2 text-left`}
+            />
             <p className="mt-1 text-[11px] leading-relaxed text-[var(--c-text-muted)]">
               {dockerViaHostId
                 ? "Le démon Docker par défaut de cet hôte SSH sera utilisé (docker system dial-stdio) — le champ socket/hôte ci-dessus est ignoré ; il faut juste que la commande docker soit installée côté distant."
@@ -679,12 +679,15 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
               );
             })}
             {choices.length > 0 && (
-              <select value="" onChange={(e) => addJump(e.target.value)} className="mt-1 w-full rounded-md bg-[var(--c-bg2)] px-2 py-1.5 text-sm text-[var(--c-text-secondary)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]">
-                <option value="" disabled>+ Ajouter un bastion…</option>
-                {choices.map((h) => (
-                  <option key={h.id} value={h.id}>{h.label}</option>
-                ))}
-              </select>
+              <HostTreePicker
+                hosts={choices}
+                groups={workspace.groups}
+                customIcons={workspace.customIcons}
+                value={null}
+                onChange={(v) => { if (v) addJump(v); }}
+                placeholder="+ Ajouter un bastion…"
+                className="mt-1 flex w-full items-center justify-between gap-2 rounded-md bg-[var(--c-bg2)] px-2 py-1.5 text-left text-sm text-[var(--c-text-secondary)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+              />
             )}
           </div>
         </Field>

@@ -3,6 +3,8 @@ import { save } from "@tauri-apps/plugin-dialog";
 import { api } from "../lib/api";
 import { ACTIVITY_KINDS, activityKindLabel, formatActivityTime, groupByDay } from "../lib/activity";
 import type { ActivityEvent, ActivityFilter, ActivityKind, HostId, Workspace } from "../lib/types";
+import { HostTreePicker } from "./HostTreePicker";
+import { IconHosts } from "./ui-icons";
 
 interface ActivityTabProps {
   workspace: Workspace;
@@ -141,12 +143,15 @@ export function ActivityTab({ workspace, onError, onExported }: ActivityTabProps
               <option key={p.id} value={p.id}>{p.label}</option>
             ))}
           </select>
-          <select value={hostId} onChange={(e) => setHostId(e.target.value as HostId | "")} className={inputClass}>
-            <option value="">Tous les hôtes</option>
-            {workspace.hosts.map((h) => (
-              <option key={h.id} value={h.id}>{h.label}</option>
-            ))}
-          </select>
+          <HostTreePicker
+            hosts={workspace.hosts}
+            groups={workspace.groups}
+            customIcons={workspace.customIcons}
+            value={hostId === "" ? "" : hostId}
+            onChange={(v) => setHostId((v ?? "") as HostId | "")}
+            specials={[{ value: "", label: "Tous les hôtes", icon: <IconHosts size={12} /> }]}
+            className={`${inputClass} flex w-48 items-center justify-between gap-2 text-left`}
+          />
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}

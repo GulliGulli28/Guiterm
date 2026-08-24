@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { api } from "../lib/api";
 import type { Entry, Host, HostId, Workspace } from "../lib/types";
-import { ConnectionPickerModal } from "./ConnectionPickerModal";
+import { HostTreeModal } from "./HostTreePicker";
 import { IconFolder, IconChevronRight, IconDatabase } from "./ui-icons";
 
 interface SqliteRemoteFilePickerProps {
@@ -21,8 +21,8 @@ function joinPath(base: string, segment: string): string {
 }
 
 /** Two-step modal for picking a SQLite file on a saved host's filesystem: a
- * host picker (reusing `ConnectionPickerModal`, same shell as the Docker/K8s
- * pickers), then a small directory browser over the same `open_pane`/
+ * host picker (l'arborescence partagée `HostTreeModal` — dossiers et tags,
+ * comme la barre latérale), then a small directory browser over the same `open_pane`/
  * `list_pane`/`close_pane` commands `TransferTab`/`SftpPanel` already use.
  * Only SSH hosts are offered — same scope as this form's `tunnelHostId`
  * picker — and nothing is fetched yet at pick time: the actual SFTP
@@ -78,12 +78,14 @@ export function SqliteRemoteFilePicker({ workspace, onCancel, onSelect }: Sqlite
   if (!host) {
     const sshHosts = workspace.hosts.filter((h) => (h.kind ?? "ssh") === "ssh");
     return (
-      <ConnectionPickerModal
+      <HostTreeModal
         title="Choisir un hôte enregistré"
-        loading={false}
-        items={sshHosts.map((h) => ({ id: h.id, name: h.label, meta: `${h.username}@${h.address}`, up: false }))}
+        hosts={sshHosts}
+        groups={workspace.groups}
+        customIcons={workspace.customIcons}
         onPick={openHost}
         onClose={onCancel}
+        emptyMessage="Aucun hôte SSH enregistré"
       />
     );
   }

@@ -1,8 +1,9 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { api } from "../lib/api";
-import type { Host, SqlExportDestination, TableInfo } from "../lib/types";
+import type { SqlExportDestination, TableInfo, Workspace } from "../lib/types";
 import { RemoteSavePathPicker } from "./RemoteSavePathPicker";
+import { HostTreePicker } from "./HostTreePicker";
 import { IconChevronDown, IconChevronRight, IconDownload } from "./ui-icons";
 
 const selectClass =
@@ -33,7 +34,7 @@ interface SqlExportPanelProps {
    * tree has selected, or the first schema. */
   initialSchema: string | null;
   multiDatabase: boolean;
-  hosts: Host[];
+  workspace: Workspace;
 }
 
 /**
@@ -71,7 +72,7 @@ export function SqlExportPanel({
   onNeedTables,
   initialSchema,
   multiDatabase,
-  hosts,
+  workspace,
 }: SqlExportPanelProps) {
   const [selectedTables, setSelectedTables] = useState<Record<string, Set<string>>>({});
   const [expandedSchemas, setExpandedSchemas] = useState<Set<string>>(new Set());
@@ -227,7 +228,7 @@ export function SqlExportPanel({
 
   // Tunnel targets are SSH hosts by nature (SFTP needs a real shell account) —
   // same filter `SqlConnectionForm` already applies to its own host pickers.
-  const sshHosts = hosts.filter((h) => (h.kind ?? "ssh") === "ssh");
+  const sshHosts = workspace.hosts.filter((h) => (h.kind ?? "ssh") === "ssh");
   const hasSelection = Object.values(selectedTables).some((tables) => tables.size > 0);
   const canExport = hasSelection && (destKind === "local" || (!!hostId && !!remotePath.trim()));
 
@@ -321,10 +322,15 @@ export function SqlExportPanel({
             </p>
           ) : (
             <div className="space-y-1.5">
-              <select value={hostId} onChange={(e) => setHostId(e.target.value)} className={selectClass}>
-                <option value="">Sélectionner un hôte…</option>
-                {sshHosts.map((h) => <option key={h.id} value={h.id}>{h.label}</option>)}
-              </select>
+              <HostTreePicker
+                hosts={sshHosts}
+                groups={workspace.groups}
+                customIcons={workspace.customIcons}
+                value={hostId}
+                onChange={(v) => setHostId(v ?? "")}
+                placeholder="Sélectionner un hôte…"
+                className={`${selectClass} flex items-center justify-between gap-2 text-left`}
+              />
               <div className="flex gap-1.5">
                 <input
                   value={remotePath}
@@ -357,7 +363,9 @@ export function SqlExportPanel({
 
       {showRemotePicker && (
         <RemoteSavePathPicker
-          hosts={hosts}
+          hosts={sshHosts}
+          groups={workspace.groups}
+          customIcons={workspace.customIcons}
           initialHostId={hostId || undefined}
           defaultFileName={defaultFileName()}
           onCancel={() => setShowRemotePicker(false)}

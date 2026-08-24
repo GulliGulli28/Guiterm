@@ -2,6 +2,7 @@ import { useState } from "react";
 import { api } from "../lib/api";
 import { assertNever } from "../lib/exhaustive";
 import type { DbTunnel, HostId, SsmProbe, Workspace } from "../lib/types";
+import { HostTreePicker } from "./HostTreePicker";
 
 /** The address a probe would dial *from the far end* of the tunnel. `null`
  * when the form can't tell yet (an empty address, a MongoDB URI that doesn't
@@ -95,18 +96,19 @@ export function DbTunnelPicker({ workspace, value, onChange, probeTarget, ssmDef
 
       {value.kind === "sshHost" && (
         <>
-          <select
+          <HostTreePicker
+            hosts={sshHosts}
+            groups={workspace.groups}
+            customIcons={workspace.customIcons}
             value={sshHostId}
-            onChange={(e) => {
-              setSshHostId(e.target.value as HostId);
-              onChange({ kind: "sshHost", hostId: e.target.value as HostId });
+            onChange={(v) => {
+              if (!v) return;
+              setSshHostId(v as HostId);
+              onChange({ kind: "sshHost", hostId: v as HostId });
             }}
-            className={selectClass}
-          >
-            {sshHosts.map((h) => (
-              <option key={h.id} value={h.id}>{h.label}</option>
-            ))}
-          </select>
+            placeholder="Choisir un hôte SSH…"
+            className={`${selectClass} flex items-center justify-between gap-2 text-left`}
+          />
           <p className="px-0.5 text-[11px] leading-relaxed text-[var(--c-text-muted)]">
             L'adresse de la base doit être joignable <em>depuis</em> cet hôte — souvent 127.0.0.1 si
             la base n'écoute qu'en local sur le serveur.

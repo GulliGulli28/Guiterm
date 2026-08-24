@@ -1,6 +1,6 @@
 import { lazy } from "react";
 import { assertNever } from "../lib/exhaustive";
-import type { Host, SqlConnection } from "../lib/types";
+import type { SqlConnection, Workspace } from "../lib/types";
 
 // Lazy for the same reason the other large panels are (see `App.tsx`): these
 // are among the biggest components in the app and most sessions never open a
@@ -26,18 +26,18 @@ export const MongoTabLazy = lazy(() => import("./MongoTab").then((m) => ({ defau
  * unit-tested without importing the whole application graph. */
 export function SqlConnectionTab({
   connection,
-  hosts,
+  workspace,
   onError,
 }: {
   connection: SqlConnection;
-  hosts: Host[];
+  workspace: Workspace;
   onError: (message: string) => void;
 }) {
   switch (connection.engine) {
     case "mysql":
     case "postgres":
     case "sqlite":
-      return <SqlTabLazy connection={connection} hosts={hosts} onError={onError} />;
+      return <SqlTabLazy connection={connection} workspace={workspace} onError={onError} />;
     case "redis":
       return <RedisTabLazy connection={connection} onError={onError} />;
     case "mongodb":

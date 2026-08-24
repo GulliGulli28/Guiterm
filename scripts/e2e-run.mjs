@@ -269,6 +269,7 @@ async function runScenarios(browser) {
   await runTunnelEditScenario(browser);
   await runSsmTunnelScenario(browser);
   await runActivityScenario(browser);
+  await runHostTreePickerScenario(browser);
 
   await mkdir(outDir, { recursive: true });
   const screenshotPath = path.join(outDir, "e2e-smoke.png");
@@ -2160,9 +2161,17 @@ async function runTunnelEditScenario(browser) {
 
   await clickButtonByText(browser, "Ajouter un tunnel");
 
-  const hasHost = await browser.execute(() => {
-    const select = document.querySelector("select");
-    return select instanceof HTMLSelectElement && select.options.length > 0 && select.value !== "";
+  // Lu dans le workspace, plus dans le DOM : le champ hôte n'est plus un
+  // `<select>` mais l'arborescence partagée (`HostTreePicker`), et
+  // `document.querySelector("select")` attrapait depuis le sélecteur de *type*
+  // de tunnel — donc « il y a un hôte » était vrai même sur un workspace vide.
+  const hasHost = await browser.execute(async () => {
+    try {
+      const ws = await window.__TAURI_INTERNALS__.invoke("get_workspace");
+      return ws.hosts.length > 0;
+    } catch {
+      return false;
+    }
   });
   if (!hasHost) {
     console.log("Modification de tunnel : ignoré (aucun hôte dans le workspace de cette machine).");
@@ -2519,4 +2528,209 @@ async function runAwsSsoPanelScenario(browser) {
 
   await closeDialogTitled(browser, "Configurer une session SSO");
   console.log("Session SSO : OK (panneau atteignable depuis l import EC2, formulaire fonctionnel).");
+}
+
+/**
+ * L'arborescence de sélection d'hôtes, dans la vraie fenêtre.
+ *
+ * Ce que ni `tsc`, ni vitest, ni `visual-check-host-picker.mjs` ne couvrent :
+ * ceux-là montent `HostTreePicker` avec des données fabriquées. Ici l'hôte et
+ * son dossier sont créés **par les vraies commandes Tauri**, relus par React
+ * depuis le workspace, et le champ est celui du formulaire de tunnel — le
+ * chemin complet, dossier compris. C'est le trou qui a laissé passer MongoDB :
+ * un composant qui marche isolément mais que rien n'alimente.
+ *
+ * L'hôte et le dossier sont supprimés dans tous les cas, y compris en cas
+ * d'échec : ce scénario tourne contre le vrai workspace de la machine.
+ */
+async function runHostTreePickerScenario(browser) {
+  const stamp = Date.now();
+  const GROUP = `e2e-dossier-${stamp}`;
+  const HOST = `e2e-arbre-${stamp}`;
+  const TAG = `e2e-tag-${stamp}`;
+
+  // Tout passe par les formulaires, jamais par un `invoke` direct : le
+  // workspace n'est relu qu'au montage de l'app, donc une écriture faite
+  // derrière son dos n'apparaîtrait dans aucun champ — constaté ici même, et
+  // déjà noté sur le scénario du terminal SSH.
+  let groupId = null;
+  let hostId = null;
+  try {
+    await browser.execute(() => {
+      const btn = Array.from(document.querySelectorAll("aside nav button"))
+        .find((b) => (b.getAttribute("title") || "") === "Hôtes");
+      if (btn instanceof HTMLElement) btn.click();
+    });
+
+    await clickButtonByText(browser, "Ajouter…");
+    await clickButtonByText(browser, "Nouveau dossier");
+    await setFieldByPlaceholder(browser, "", "Mon dossier", GROUP);
+    await clickButtonByText(browser, "Enregistrer");
+    await browser.waitUntil(async () => {
+      const found = await browser.execute(async (group) => {
+        try {
+          const ws = await window.__TAURI_INTERNALS__.invoke("get_workspace");
+          return ws.groups.find((g) => g.name === group)?.id ?? null;
+        } catch {
+          return null;
+        }
+      }, GROUP);
+      if (found) groupId = found;
+      return !!found;
+    }, { timeout: 10_000, timeoutMsg: "le dossier de test n a pas été enregistré" });
+
+    await clickButtonByText(browser, "Ajouter…");
+    await clickButtonByText(browser, "Nouvel hôte");
+    await setFieldByLabel(browser, "Nom", HOST);
+    await setFieldByLabel(browser, "Adresse", "127.0.0.1");
+    await setFieldByLabel(browser, "Utilisateur", "e2e");
+
+    // L'étiquette se valide à Entrée — c'est ce que le formulaire écoute.
+    await browser.execute((tag) => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+      const field = Array.from(document.querySelectorAll("input"))
+        .find((i) => (i.getAttribute("placeholder") || "").startsWith("Ajouter une étiquette"));
+      if (!(field instanceof HTMLInputElement)) return;
+      setter.call(field, tag);
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+      field.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+    }, TAG);
+
+    // Le dossier se choisit dans `GroupTreePicker` — l'arborescence de dossiers
+    // qui existait déjà, et dont ce chantier reprend la mécanique pour les
+    // hôtes.
+    await browser.execute(() => {
+      const field = Array.from(document.querySelectorAll("label"))
+        .find((l) => l.querySelector("span")?.textContent?.trim() === "Dossier");
+      const btn = field?.querySelector("button");
+      if (btn instanceof HTMLElement) btn.click();
+    });
+    // `includes`, pas `===` : la ligne d'un dossier porte son icône dans le
+    // même bouton que son nom (« 📁mon-dossier »).
+    await browser.waitUntil(async () => await browser.execute((group) =>
+      Array.from(document.querySelectorAll("button")).some((b) => (b.textContent || "").includes(group)),
+    GROUP), { timeout: 5_000, timeoutMsg: "le dossier de test n apparaît pas dans le sélecteur de dossier" });
+    await clickButtonContaining(browser, GROUP);
+
+    await clickButtonByText(browser, "Enregistrer");
+    await browser.waitUntil(async () => {
+      const found = await browser.execute(async (host) => {
+        try {
+          const ws = await window.__TAURI_INTERNALS__.invoke("get_workspace");
+          return ws.hosts.find((h) => h.label === host)?.id ?? null;
+        } catch {
+          return null;
+        }
+      }, HOST);
+      if (found) hostId = found;
+      return !!found;
+    }, { timeout: 10_000, timeoutMsg: "l hôte de test n a pas été enregistré" });
+  } catch (e) {
+    // Le dossier peut déjà exister alors que l'hôte n'a pas abouti : le
+    // retirer ici, sinon il resterait dans le vrai workspace de la machine.
+    if (groupId) {
+      await browser.execute(async (id) => {
+        try { await window.__TAURI_INTERNALS__.invoke("delete_group", { groupId: id }); } catch { /* rien à nettoyer */ }
+      }, groupId);
+    }
+    throw e;
+  }
+  const created = { groupId, hostId };
+
+  try {
+    // Le formulaire d'ajout de tunnel : un champ de sélection d'hôte ordinaire,
+    // représentatif des onze autres.
+    await browser.execute(() => {
+      const tab = Array.from(document.querySelectorAll("button"))
+        .find((b) => (b.getAttribute("title") || "") === "Tunnels");
+      if (tab instanceof HTMLElement) tab.click();
+    });
+    await browser.waitUntil(async () => await browser.execute(() =>
+      Array.from(document.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Ajouter un tunnel")
+    ), { timeout: 10_000, timeoutMsg: "le panneau Tunnels ne s est pas ouvert" });
+    await clickButtonByText(browser, "Ajouter un tunnel");
+
+    // Rien n'est déployé tant qu'on n'a pas cliqué : c'est un bouton.
+    const openRows = await browser.execute(() => document.querySelectorAll("[data-host-tree-row]").length);
+    if (openRows > 0) throw new Error("l arborescence est déployée avant tout clic");
+
+    // Le bouton du champ hôte, reconnu à ce qu'il affiche — le libellé de
+    // l'hôte actuellement choisi, quel qu'il soit.
+    await browser.execute(() => {
+      const form = document.querySelector("aside") ?? document.body;
+      const btn = Array.from(form.querySelectorAll("button")).find((b) => b.querySelector("svg") && b.className.includes("justify-between"));
+      if (btn instanceof HTMLElement) btn.click();
+    });
+    await browser.waitUntil(async () => await browser.execute(() =>
+      document.querySelectorAll("[data-host-tree-row]").length > 0
+    ), { timeout: 5_000, timeoutMsg: "le champ hôte ne déploie pas d arborescence" });
+
+    // Le dossier est là, et l'hôte est **dedans** — plus profond que lui.
+    const placed = await browser.execute((group, host) => {
+      const rows = Array.from(document.querySelectorAll("[data-host-tree-row]")).map((el) => ({
+        kind: el.getAttribute("data-host-tree-row"),
+        label: el.getAttribute("data-host-tree-label"),
+        depth: Number(el.getAttribute("data-host-tree-depth") ?? -1),
+      }));
+      const folder = rows.find((r) => r.kind === "group" && r.label === group);
+      const machine = rows.find((r) => r.kind === "host" && r.label === host);
+      return { folder, machine, total: rows.length };
+    }, GROUP, HOST);
+    if (!placed.folder) throw new Error(`le dossier « ${GROUP} » n apparaît pas dans le champ (${placed.total} lignes)`);
+    if (!placed.machine) throw new Error(`l hôte « ${HOST} » n apparaît pas dans le champ`);
+    if (!(placed.machine.depth > placed.folder.depth)) {
+      throw new Error(`l hôte n est pas rangé sous son dossier (hôte@${placed.machine.depth}, dossier@${placed.folder.depth})`);
+    }
+
+    // Son tag est dessiné, et sert à le retrouver — un tag n'est ni le libellé
+    // ni l'adresse, donc c'est bien la recherche par tag qui répond.
+    const tagged = await browser.execute((tag) =>
+      Array.from(document.querySelectorAll("[data-host-tree-tag]")).some((el) => el.getAttribute("data-host-tree-tag") === tag),
+    TAG);
+    if (!tagged) throw new Error(`le tag « ${TAG} » n est pas affiché à côté de son hôte`);
+
+    await browser.execute((tag) => {
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+      const field = Array.from(document.querySelectorAll("input"))
+        .find((i) => (i.getAttribute("placeholder") || "").startsWith("Rechercher un hôte"));
+      if (!(field instanceof HTMLInputElement)) return;
+      setter.call(field, tag);
+      field.dispatchEvent(new Event("input", { bubbles: true }));
+    }, TAG);
+    await browser.waitUntil(async () => await browser.execute((host) => {
+      const hosts = Array.from(document.querySelectorAll('[data-host-tree-row="host"]'));
+      return hosts.length === 1 && hosts[0].getAttribute("data-host-tree-label") === host;
+    }, HOST), { timeout: 5_000, timeoutMsg: "la recherche par tag ne réduit pas la liste à l hôte tagué" });
+
+    // Et le choix aboutit : la liste se referme, le champ porte le nouvel hôte.
+    await browser.execute(() => {
+      const row = document.querySelector('[data-host-tree-row="host"] button');
+      if (row instanceof HTMLElement) row.click();
+    });
+    await browser.waitUntil(async () => await browser.execute((host) =>
+      document.querySelectorAll("[data-host-tree-row]").length === 0
+      && Array.from(document.querySelectorAll("button")).some((b) => b.textContent?.includes(host)),
+    HOST), { timeout: 5_000, timeoutMsg: "choisir un hôte dans l arborescence n a pas refermé la liste sur ce choix" });
+
+    // Refermer le formulaire : son bouton d'annulation n'a qu'une icône, donc
+    // il se désigne par son `aria-label`.
+    await browser.execute(() => {
+      const btn = document.querySelector('button[aria-label="Annuler la saisie"]');
+      if (btn instanceof HTMLElement) btn.click();
+    });
+    console.log("Sélection d hôte : OK (dossier réel, hôte rangé dedans, tag affiché et cherchable, choix appliqué).");
+  } finally {
+    const cleanup = await browser.execute(async (hostId, groupId) => {
+      try {
+        await window.__TAURI_INTERNALS__.invoke("delete_host", { hostId });
+        await window.__TAURI_INTERNALS__.invoke("delete_group", { groupId });
+        return "ok";
+      } catch (e) {
+        return String(e);
+      }
+    }, created.hostId, created.groupId);
+    if (cleanup !== "ok") {
+      throw new Error(`l hôte/dossier de test n ont pas pu être supprimés, workspace pollué : ${cleanup}`);
+    }
+  }
 }

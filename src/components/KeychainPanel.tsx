@@ -4,6 +4,7 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { api } from "../lib/api";
 import type { HostId, KeyAlgorithm, KeyId, PrivateKey, Workspace } from "../lib/types";
 import { IconPlus, IconClose, IconTrash, IconEdit, IconKeychain, IconFolder, IconCopy, IconUpload } from "./ui-icons";
+import { HostTreePicker } from "./HostTreePicker";
 import { ConfirmDialog } from "./ConfirmDialog";
 
 interface KeychainPanelProps {
@@ -297,12 +298,15 @@ export function KeychainPanel({ workspace, onAddKey, onGenerateKey, onDeleteKey,
             )}
             {deployingKeyId === key.id && (
               <div className="mt-2 space-y-1.5 border-t border-white/10 pt-2">
-                <select value={deployHostId} onChange={(e) => setDeployHostId(e.target.value)} className={selectClass}>
-                  {workspace.hosts.length === 0 && <option value="">Aucun hôte</option>}
-                  {workspace.hosts.map((h) => (
-                    <option key={h.id} value={h.id}>{h.label}</option>
-                  ))}
-                </select>
+                <HostTreePicker
+                  hosts={workspace.hosts}
+                  groups={workspace.groups}
+                  customIcons={workspace.customIcons}
+                  value={deployHostId}
+                  onChange={(v) => setDeployHostId(v ?? "")}
+                  placeholder={workspace.hosts.length === 0 ? "Aucun hôte" : "Choisir un hôte…"}
+                  className={`${selectClass} flex items-center justify-between gap-2 text-left`}
+                />
                 {deployResult && (
                   <p className={`rounded-md px-2 py-1 text-[11px] ${deployResult.kind === "ok" ? "bg-emerald-950 text-emerald-300" : "bg-rose-950 text-rose-300"}`}>
                     {deployResult.text}

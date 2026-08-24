@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
-import type { Host, HostId, PortForward, PortForwardId, PortForwardKind, Workspace } from "../lib/types";
+import type { HostId, PortForward, PortForwardId, PortForwardKind, Workspace } from "../lib/types";
 import { IconPlus, IconClose, IconTrash, IconEdit } from "./ui-icons";
+import { HostTreePicker } from "./HostTreePicker";
 
 /** Ce qu'un tunnel vaut dans le formulaire — les ports y sont du texte, parce
  * qu'un champ vidé au clavier n'est pas le port 0. */
@@ -44,7 +45,7 @@ function draftOf(forward: PortForward): TunnelDraft {
  * change d'un cas à l'autre tient dans le libellé du bouton et la présence de
  * « Supprimer ». */
 function TunnelForm({
-  hosts,
+  workspace,
   draft,
   onChange,
   onSubmit,
@@ -53,7 +54,7 @@ function TunnelForm({
   submitLabel,
   busy,
 }: {
-  hosts: Host[];
+  workspace: Workspace;
   draft: TunnelDraft;
   onChange: (next: TunnelDraft) => void;
   onSubmit: () => void;
@@ -69,11 +70,14 @@ function TunnelForm({
 
   return (
     <div className="mt-2 space-y-1.5 rounded-xl bg-[var(--c-bg3)] p-2.5">
-      <select value={draft.hostId} onChange={(e) => set("hostId", e.target.value as HostId)} className={selectClass}>
-        {hosts.map((h) => (
-          <option key={h.id} value={h.id}>{h.label}</option>
-        ))}
-      </select>
+      <HostTreePicker
+        hosts={workspace.hosts}
+        groups={workspace.groups}
+        customIcons={workspace.customIcons}
+        value={draft.hostId}
+        onChange={(v) => { if (v) set("hostId", v as HostId); }}
+        className={`${selectClass} flex items-center justify-between gap-2 text-left`}
+      />
       <select value={draft.kind} onChange={(e) => set("kind", e.target.value as PortForwardKind)} className={selectClass}>
         <option value="local">Local (-L)</option>
         <option value="remote">Distant (-R)</option>
@@ -209,7 +213,7 @@ export function TunnelsPanel({ workspace, onAddForward, onUpdateForward, onDelet
           </button>
           {showForm && (
             <TunnelForm
-              hosts={workspace.hosts}
+              workspace={workspace}
               draft={addDraft}
               onChange={setAddDraft}
               onSubmit={submitAdd}
@@ -267,7 +271,7 @@ export function TunnelsPanel({ workspace, onAddForward, onUpdateForward, onDelet
                     </p>
                   )}
                   <TunnelForm
-                    hosts={workspace.hosts}
+                    workspace={workspace}
                     draft={editing.draft}
                     onChange={(draft) => setEditing({ id: forward.id, draft })}
                     onSubmit={submitEdit}

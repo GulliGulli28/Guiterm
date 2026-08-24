@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../lib/api";
-import { sqlEngineLabel, type ColumnInfo, type CommandEntry, type Host, type QueryResult, type SqlConnection, type TableInfo } from "../lib/types";
+import { sqlEngineLabel, type ColumnInfo, type CommandEntry, type QueryResult, type SqlConnection, type TableInfo, type Workspace } from "../lib/types";
 import { formatRelativeTime } from "../lib/format";
 import { useResizablePane } from "../hooks/useResizablePane";
 import { ResultTable } from "./ResultTable";
@@ -9,9 +9,10 @@ import { IconChevronDown, IconChevronRight, IconDatabase, IconFolder, IconPlay, 
 
 interface SqlTabProps {
   connection: SqlConnection;
-  /** For the "Exporter" tab's "hôte distant" destination — every saved SSH
-   * host to offer as an SFTP upload target for the generated dump. */
-  hosts: Host[];
+  /** For the "Exporter" tab's "hôte distant" destination — the saved hosts and
+   * their folder tree, to offer as an SFTP upload target for the generated
+   * dump. */
+  workspace: Workspace;
   onError: (message: string) => void;
 }
 
@@ -85,7 +86,7 @@ type Selected = { kind: "schema"; schema: string } | { kind: "table"; schema: st
  * clicking around the tree only changes what "Structure"/"Data" show, it
  * never resets the query text/results, so switching back and forth to check
  * a table's columns/rows while iterating on a query doesn't lose anything. */
-export function SqlTab({ connection, hosts, onError }: SqlTabProps) {
+export function SqlTab({ connection, workspace, onError }: SqlTabProps) {
   const [status, setStatus] = useState<Status>("connecting");
   const [connectError, setConnectError] = useState<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
@@ -608,7 +609,7 @@ export function SqlTab({ connection, hosts, onError }: SqlTabProps) {
             onNeedTables={fetchTables}
             initialSchema={selected?.schema ?? schemas?.[0] ?? null}
             multiDatabase={multiDatabase}
-            hosts={hosts}
+            workspace={workspace}
           />
         </div>
 
