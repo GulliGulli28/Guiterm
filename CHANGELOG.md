@@ -9,6 +9,23 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+### Changed
+- Every field where you pick a host now shows your folders, not a flat list.
+  The transfer panel's source selector, the split terminal, the tunnel form,
+  the key deployment field, the database tunnel and SQL export destinations,
+  the Docker relay and bastion fields of the host form, the activity filter,
+  and the "choose a saved host" dialogs all open the same tree the sidebar
+  shows — nested folders, each host's icon, its `user@address`, and its tags
+  as chips. A search box at the top filters on name, address, user **or tag**,
+  and Enter picks the first match. Two machines with the same label in two
+  different folders were previously indistinguishable in these fields.
+- The fleet and network-diagnostics target lists are grouped the same way:
+  folders, then hosts, with Docker containers and Kubernetes pods nested under
+  the host they run on. Each folder has its own checkbox that ticks everything
+  below it, and the filter now matches tags too.
+- The command palette lists hosts by their folder path ("Se connecter — Prod ›
+  Web › api") and finds them by tag or address as well as by name.
+
 ## [3.1.1] - 2026-08-24
 
 ### Added

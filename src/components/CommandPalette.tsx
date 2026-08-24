@@ -5,6 +5,10 @@ export interface PaletteCommand {
   id: string;
   label: string;
   hint?: string;
+  /** Termes supplémentaires que la recherche accepte sans qu'ils soient
+   * affichés — les tags et l'adresse d'un hôte, qui sont ce qu'on a en tête
+   * quand on ne se souvient pas du libellé exact. */
+  keywords?: string;
   run: () => void;
 }
 
@@ -23,7 +27,8 @@ export function CommandPalette({ commands, onClose }: CommandPaletteProps) {
   useEffect(() => { inputRef.current?.focus(); }, []);
 
   const filtered = query.trim()
-    ? commands.filter((c) => c.label.toLowerCase().includes(query.trim().toLowerCase()))
+    ? commands.filter((c) =>
+        `${c.label} ${c.keywords ?? ""}`.toLowerCase().includes(query.trim().toLowerCase()))
     : commands;
 
   useEffect(() => { setActiveIndex(0); }, [query]);

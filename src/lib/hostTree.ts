@@ -86,3 +86,28 @@ export function buildHostTree(hosts: Host[], groups: Group[], query: string): Ho
 
   return { hostsByGroup, groupsByParent, matchingGroups };
 }
+
+/**
+ * Le chemin de dossiers menant à `groupId`, de la racine vers la feuille.
+ *
+ * Pour les endroits qui ne peuvent pas afficher un arbre — la palette de
+ * commandes, qui est une liste plate par nature : « Prod › Web › api-1 » y
+ * distingue deux machines homonymes rangées ailleurs, ce que le seul libellé
+ * ne fait pas. `[]` à la racine, et la remontée s'arrête sur un cycle plutôt
+ * que de boucler (même prudence que `buildHostTree`).
+ */
+export function groupPath(groups: Group[], groupId: GroupId | null): string[] {
+  if (!groupId) return [];
+  const byId = new Map(groups.map((g) => [g.id, g]));
+  const path: string[] = [];
+  const seen = new Set<GroupId>();
+  let current: GroupId | null = groupId;
+  while (current !== null && !seen.has(current)) {
+    seen.add(current);
+    const group: Group | undefined = byId.get(current);
+    if (!group) break;
+    path.unshift(group.name);
+    current = group.parentId ?? null;
+  }
+  return path;
+}

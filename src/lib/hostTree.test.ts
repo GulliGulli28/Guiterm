@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { buildHostTree } from "./hostTree";
+import { buildHostTree, groupPath } from "./hostTree";
 import type { Group, GroupId, Host, HostId } from "./types";
 
 // L'arbre de la barre latérale n'était jusqu'ici exercé que par le rendu de
@@ -90,5 +90,32 @@ describe("buildHostTree", () => {
     const cyclic = [group("a", "A", "b"), group("b", "B", "a")];
     const tree = buildHostTree([host("x", "a")], cyclic, "x");
     expect(tree.matchingGroups).toEqual(new Set(["a", "b"]));
+  });
+});
+
+describe("groupPath", () => {
+  const groups = [
+    group("prod", "Prod", null),
+    group("web", "Web", "prod"),
+    group("front", "Front", "web"),
+  ];
+
+  it("remonte de la feuille à la racine, dans l'ordre de lecture", () => {
+    expect(groupPath(groups, "front" as GroupId)).toEqual(["Prod", "Web", "Front"]);
+  });
+
+  it("ne rend rien à la racine", () => {
+    expect(groupPath(groups, null)).toEqual([]);
+  });
+
+  it("s'arrête sur un dossier parent disparu au lieu d'inventer un chemin", () => {
+    // Un `parentId` qui ne correspond à rien : le chemin s'arrête à ce qu'on
+    // connaît vraiment.
+    expect(groupPath([group("orphelin", "Orphelin", "disparu")], "orphelin" as GroupId)).toEqual(["Orphelin"]);
+  });
+
+  it("termine même si les parents forment un cycle", () => {
+    const cyclic = [group("a", "A", "b"), group("b", "B", "a")];
+    expect(groupPath(cyclic, "a" as GroupId)).toEqual(["B", "A"]);
   });
 });

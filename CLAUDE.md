@@ -364,6 +364,19 @@ limité (pas de curseur rendu, molette approximative), voir
 
 ## Pièges déjà rencontrés (pour ne pas les redécouvrir)
 
+- **Choisir un hôte passe par `HostTreePicker`, jamais par un `<select>`.**
+  Les douze champs de sélection d'hôte de l'app affichent l'arborescence de
+  dossiers et les tags, comme la barre latérale
+  (`src/components/HostTreePicker.tsx` : bouton déroulant, boîte de dialogue,
+  ou liste nue ; `TargetTreeList` + `lib/targetTree.ts` pour les listes à
+  cocher de la flotte et du diagnostic réseau, qui mélangent hôtes,
+  conteneurs Docker et pods K8s). Un `<option>` natif ne peut porter ni
+  pastille ni indentation, et `<optgroup>` ne s'imbrique pas — d'où le
+  composant maison. `src/lib/hostPickers.test.ts` fait échouer tout retour à
+  une liste plate et tient l'inventaire des fichiers concernés ;
+  `npm run check:hosts` vérifie le rendu réel (indentation, pastilles,
+  recherche par tag) dans un vrai navigateur.
+
 - **Drag-and-drop natif vs Tauri.** Sur Windows, le drag-and-drop OS-level de
   Tauri (nécessaire pour déposer des fichiers depuis l'Explorateur, cf.
   `dragDropEnabled` / `onDragDropEvent`) désactive le drag-and-drop HTML5 natif

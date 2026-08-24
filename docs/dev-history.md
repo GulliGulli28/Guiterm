@@ -1803,3 +1803,106 @@ a été validé en réintroduisant temporairement le bug qu'il est censé attrap
 (largeur de date fixe → colonne rognée signalée ; règle du même panneau
 retirée → dépôt parasite signalé) : un test qui ne casse jamais ne prouve
 rien.
+
+## Sélection d'hôtes : arborescence et tags partout (2026-08-24)
+
+**Le constat.** La barre latérale range les hôtes en dossiers récursifs et
+affiche leurs tags depuis toujours. Aucun des **douze champs** où l'on choisit
+un hôte ailleurs dans l'app ne le faisait : tous listaient `workspace.hosts`
+à plat, dans l'ordre de stockage. Sur un workspace d'une trentaine de
+machines, deux `api` rangées dans deux dossiers différents y sont
+rigoureusement indiscernables — c'est ce que l'utilisateur a remonté, en
+partant du sélecteur de source du mode transfert.
+
+**Pourquoi un composant maison et pas un `<select>` amélioré.** Un `<option>`
+natif ne contient que du texte : pas de pastille de tag, pas d'icône, pas
+d'indentation fiable. `<optgroup>` ne s'imbrique pas, or les dossiers de ce
+projet sont récursifs — un dossier dans un dossier n'a aucune représentation.
+D'où `src/components/HostTreePicker.tsx`, en trois enveloppes autour d'un
+corps unique :
+
+- `HostTreeList` — recherche + arbre dossiers/hôtes + tags ;
+- `HostTreePicker` — un bouton qui déploie cette liste en popup, positionnée
+  en `fixed` calculé à l'ouverture (même mécanique que `GroupTreePicker`, pour
+  ne pas être rognée par l'`overflow` d'un panneau parent) ;
+- `HostTreeModal` — la même liste en boîte de dialogue, pour les parcours qui
+  demandent l'hôte avant toute autre chose.
+
+Le calcul de l'arbre **n'a pas été réécrit** : `buildHostTree`
+(`src/lib/hostTree.ts`), extrait de `HostsPanel` lors d'un chantier
+précédent, indexe déjà en une passe et compare déjà libellé, adresse,
+utilisateur **et tags** — taper « eu-west » retrouvait donc les hôtes tagués
+sans une ligne de plus.
+
+**Les listes à cocher sont un autre problème.** La flotte et le diagnostic
+réseau ne listent pas des hôtes mais des *cibles* : le terminal local, les
+hôtes SSH, et surtout les conteneurs Docker et pods Kubernetes, qui viennent
+d'un listing vivant et n'ont pas de `groupId` à eux — ils héritent de la
+position de leur hôte relais. `buildHostTree` ne pouvait pas les classer.
+D'où une seconde fonction pure, `src/lib/targetTree.ts`, sur une entrée
+générique (`TargetLike`) plutôt que sur `Host`, qui rend une **liste plate de
+lignes déjà ordonnées et indentées** (dossier / hôte relais / cible) — le
+composant la parcourt exactement comme il parcourait `allTargets` avant,
+aucune récursion dans le rendu. `FleetTargetInfo` a gagné un champ `hostId` :
+l'information existait déjà dans `target`, mais sous une forme propre à
+chaque variante. Les en-têtes portent les clés de tout leur sous-arbre, ce
+qui donne gratuitement la case « tout le dossier » — impossible tant qu'un
+dossier n'existait pas dans la liste.
+
+**Un effet de bord côté SQL.** `RemoteSavePathPicker` recevait `hosts:
+Host[]`, ce qui ne suffit plus (il faut les dossiers et les icônes
+personnalisées). La chaîne `modules/sql.tsx` → `SqlConnectionTab` → `SqlTab`
+→ `SqlExportPanel` est passée de `hosts` à `workspace` — un seul prop au lieu
+de trois à enfiler, et c'est déjà ce que `SqliteRemoteFilePicker` recevait.
+
+**La palette de commandes reste une liste** — c'est sa nature. Elle a gagné
+le chemin de dossiers dans le libellé (« Se connecter — Prod › Web › api »,
+via `groupPath`, ajouté à `hostTree.ts`) et un champ `keywords` non affiché
+mais cherchable, qui porte les tags et l'adresse.
+
+### Ce qui a été mis sous test, et pourquoi
+
+Quatre filets, chacun pour une chose que les autres ne peuvent pas voir :
+
+- `src/lib/targetTree.test.ts` et les cas `groupPath` de
+  `src/lib/hostTree.test.ts` : le **calcul** de l'arbre — imbrication, clés de
+  sous-arbre, recherche par tag, dossiers vidés qui disparaissent, cycles de
+  `parentId` qui ne bouclent pas.
+- `src/lib/hostPickers.test.ts` : le **retour en arrière**. Rien dans les
+  types n'empêche le treizième champ d'être écrit à plat — un `<select>`
+  d'`<option>` compile parfaitement. Un détecteur signale tout `<option>`
+  produit par une boucle sur une liste d'hôtes, et un inventaire nommé exige
+  que les douze fichiers repris continuent d'importer l'arborescence
+  partagée. Le détecteur est lui-même vérifié sur l'extrait exact qu'il a
+  servi à supprimer (contrôle anti-vacuité, comme `tauriCommands.test.ts`).
+- `scripts/visual-check-host-picker.mjs` (`npm run check:hosts`) : le
+  **rendu**. « L'arborescence est visible » est une affirmation sur des
+  pixels — un enfant décalé vers la droite de son parent, une pastille qui a
+  une largeur — et la liste ne se déploie qu'au clic. Playwright mesure les
+  deux, plus la recherche par tag et le choix par identifiant entre deux
+  homonymes. Validé en cassant volontairement l'indentation : les deux
+  décalages manquants sont bien signalés.
+- Scénario `runHostTreePickerScenario` dans `scripts/e2e-run.mjs` : le
+  **chemin complet**. Les trois filets ci-dessus montent le composant avec
+  des données fabriquées ; celui-ci crée un dossier puis un hôte tagué **par
+  les vrais formulaires**, ouvre le champ hôte du formulaire de tunnel, et
+  vérifie que le dossier est là, que l'hôte est rangé dedans, que son tag
+  s'affiche et le retrouve, et que le choix s'applique. C'est la question que
+  MongoDB avait ratée : un composant qui marche isolément mais que rien
+  n'alimente.
+
+**Deux pièges rencontrés en écrivant ce scénario**, tous deux dus au fait que
+le workspace n'est relu qu'au montage de l'app (`App.tsx`,
+`api.getWorkspace()` dans un `useEffect` sans dépendance) :
+
+- créer le dossier ou l'hôte par un `invoke` direct ne les fait apparaître
+  dans **aucun** champ — l'écriture réussit côté backend, React n'en sait
+  rien. Tout doit passer par les formulaires, qui rendent un workspace frais ;
+- la ligne d'un dossier porte son icône dans le même bouton que son nom
+  (« 📁mon-dossier »), donc `textContent === nom` ne correspond jamais.
+
+Et un piège corrigé au passage dans un scénario existant :
+`runTunnelEditScenario` décidait « y a-t-il un hôte ? » avec
+`document.querySelector("select")`. Le champ hôte n'étant plus un `<select>`,
+ce sélecteur attrapait celui du *type* de tunnel — la réponse était donc oui
+même sur un workspace vide. Il lit maintenant le workspace.

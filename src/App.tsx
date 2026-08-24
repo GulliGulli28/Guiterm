@@ -14,6 +14,7 @@ import { TabLoadingFallback } from "./components/TabLoadingFallback";
 import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, loadPreferences, savePreferences } from "./lib/preferences";
 import { resolveVisiblePanel, type SidebarPanelKind } from "./lib/sidebarButtons";
 import { cdCommand } from "./lib/panePath";
+import { groupPath } from "./lib/hostTree";
 import { renderModuleTab } from "./modules/registry";
 import type { AppContext, SidebarActions } from "./modules/types";
 // Lazy : `SplitPane` monte un terminal, donc importe xterm. Eager, il
@@ -382,10 +383,15 @@ export default function App() {
       hint: preferences.keyboardShortcuts[action.id] || undefined,
       run: () => shortcutHandlers[action.id]?.(),
     })),
+    // Le chemin du dossier fait partie du libellé, et les tags de ce qui est
+    // cherchable : la palette est le seul endroit où choisir un hôte reste
+    // une liste, faute d'arborescence — sans ça, deux machines homonymes
+    // rangées dans deux dossiers différents y sont indiscernables.
     ...workspace.hosts.map((h) => ({
       id: `host.connect.${h.id}`,
-      label: `Se connecter — ${h.label}`,
-      hint: "Hôte",
+      label: `Se connecter — ${[...groupPath(workspace.groups, h.groupId), h.label].join(" › ")}`,
+      hint: h.tags.length > 0 ? h.tags.join(" · ") : "Hôte",
+      keywords: [...h.tags, h.address, h.username].join(" "),
       run: () => openTab("terminal", h),
     })),
     // "Tester la joignabilité" used to be listed here. It is now `netdiag.open`
