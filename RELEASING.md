@@ -66,6 +66,28 @@ touche cinq fichiers connus d'avance, et les nommer coûte une ligne. Le même
   git tag -f v1.4.1
   git push --force origin v1.4.1
   ```
+- **Un job qui échoue *après* avoir construit ses bundles n'a pas besoin d'un
+  nouveau tag** : *Re-run failed jobs* suffit. `tauri-action` retrouve le
+  brouillon existant et y ajoute ses artefacts. C'est arrivé en 3.1.1 sur le
+  job Intel, dont le log se termine par :
+
+  ```
+  Finished 2 bundles at: … Guiterm_3.1.1_x64.dmg
+  Looking for a draft release with tag v3.1.1...
+  ⚠️ Unexpected error fetching GitHub release for tag v3.1.1: HttpError: Connect Timeout Error
+  ```
+
+  Tout était construit, y compris la signature de l'updater ; seul l'appel à
+  l'API GitHub a expiré. Redéplacer le tag aurait relancé les quatre jobs pour
+  un incident réseau d'une seconde.
+
+  **Ce que ça coûte si on ne le voit pas** : le `.dmg` manquant se remarque, mais
+  le vrai dégât est dans `latest.json` — chaque job y ajoute *son* entrée de
+  plateforme, donc un job qui n'a rien téléversé laisse un `latest.json` sans
+  `darwin-x86_64`, et les Macs Intel ne verront jamais la mise à jour. Symptôme
+  identique à celui de la 2.4.0 (le même job, alors annulé faute de runner) :
+  d'où la vérification de l'étape 4 — les quatre jobs verts, et les quatre
+  plateformes dans `latest.json`, avant de publier.
 
 ## Clé de signature de l'updater
 
