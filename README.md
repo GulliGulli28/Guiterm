@@ -339,18 +339,37 @@ the hard way:
 
 ## Roadmap
 
-Recently shipped: encrypted secrets vault, dynamic SOCKS tunnels, SSH key
-generation/deployment, Docker exec (direct or over an SSH bastion),
-Kubernetes exec (real backend — terminal, file browsing, fleet target,
-adaptive snippets), integrated RDP viewer with input forwarding, clipboard
-sync and dynamic resize, and a binary IPC channel for terminal/RDP output
-(replacing the old JSON+base64 event path).
+Recently shipped: keyboard-interactive auth (MFA/OTP), scoped rollback and
+drift detection for fleet/adaptive runs, RDP cursor rendering, SSH connection
+pooling, the encrypted secrets vault, dynamic SOCKS tunnels, SSH key
+generation/deployment, Docker and Kubernetes exec as real backends, and host
+selection through the folder tree everywhere (not just the sidebar).
 
-Up next, roughly in priority order:
-- Keyboard-interactive auth (MFA/OTP) — currently missing from `AuthMethod`.
-- RDP cursor rendering.
-- Scoped rollback for fleet/adaptive-engine runs (reversible operations only
-  — files, packages — not a universal undo).
+Up next — **persistent server-side sessions**. Today a dropped connection
+reconnects into a *fresh* shell: the working directory, the running `tail -f`,
+the half-typed command are gone. The plan is an opt-in named session per host
+(`tmux`, with `screen` as a later fallback) so that a VPN drop, a laptop
+sleeping, an app update or a reboot all reattach to the exact screen you left
+— and, as a near-free consequence, so a session can be resumed from another
+machine or attached read-only by a colleague who already has access to that
+host.
+
+Considered, not started, in no particular order:
+- **Executable runbooks** — ordered, versioned procedures on top of the fleet
+  executor and the adaptive DSL: markdown notes and steps in one document,
+  captured output per step, an approval pause before destructive steps, and a
+  report at the end. A runbook would be one file, so it can live in Git.
+- **Continuous monitoring and alerts** — the question `core/src/drift.rs`
+  leaves open on purpose. Opt-in per host or folder, with thresholds (disk,
+  memory, load, a service down, a certificate about to expire, config drift),
+  a history, and desktop notifications. This is what turns a client into a
+  small control plane, and it has to stay opt-in: quietly probing fifty
+  machines in the background is a nuisance to the network it is meant to help
+  you run.
+- **Encrypted workspace sync to a remote you own** — any Git remote, S3 or
+  WebDAV rather than a vendor cloud, end-to-end encrypted, merged per entity
+  instead of last-write-wins. The largest and riskiest of the three: merge
+  semantics plus secrets.
 
 Longer-term, as the open-core model takes shape: possibly a hosted
 sync/backup service and priority support as a paid offering *around* the
