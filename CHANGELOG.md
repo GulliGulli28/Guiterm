@@ -44,6 +44,25 @@ This changelog starts 2026-07-21 — for earlier versions, see
   at launch; every other tab still waits for a click. Leave it off if your
   hosts ask for a one-time code — the app would connect to several of them the
   moment it starts.
+- "Observer" in the session manager opens a session read-only: your keystrokes
+  are not sent, and — this is the part that matters — the view takes the
+  session's own size instead of your window's. Joining at a different size
+  resizes the session for everyone working in it, which `tmux attach -r` does
+  *not* prevent. A session wider than your window is cropped rather than scaled
+  down.
+- "Partager" copies the exact command a colleague can paste to watch the same
+  session from their own terminal. Guiterm invites nobody: joining a session
+  needs an SSH account on that host, and there is no relay. Neither "Observer"
+  nor "Partager" is a security boundary — anyone with a shell on the host can
+  attach with write access — and the manager says so on screen.
+
+### Fixed
+- Closing a terminal tab left the remote end attached. The SSH channel was only
+  sent an end-of-input, never closed, and a remote program that ignores that —
+  `tmux attach` is one — kept running until the whole SSH connection went away.
+  With persistent sessions this was visible as a session stuck on "open
+  elsewhere", still constraining the window size for whoever was really working
+  in it. Applies to SSH, Docker exec and Kubernetes exec alike.
 
 ### Changed
 - Every field where you pick a host now shows your folders, not a flat list.
