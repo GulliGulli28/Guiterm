@@ -9,6 +9,8 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+## [3.1.1] - 2026-08-24
+
 ### Added
 - Files and folders can be dragged from one transfer panel to the other with
   the mouse. Dropping in the empty part of the far panel copies into the
@@ -61,15 +63,53 @@ This changelog starts 2026-07-21 — for earlier versions, see
 - Right-clicking a line opens a menu with what applies to it — open or edit,
   copy across, rename, permissions, archive, extract, delete — instead of
   making you find the button in the toolbar.
+- The free space of the filesystem you are looking at is shown beside the
+  path, on both panels, and turns amber below 10%. It is the question you ask
+  right before sending ten gigabytes somewhere, and it used to mean opening a
+  terminal to answer it.
+- "Terminal ici" opens a terminal tab on the same machine as the panel —
+  local, SSH host, Docker container, Kubernetes pod — already in the folder
+  you were looking at. Right-clicking a folder offers the same for that
+  folder. The panel and the terminal look at the same machine; getting from
+  one to the other used to mean reconnecting by hand and retyping the path.
+- The two panels can be compared. "Comparer les dossiers" inventories both
+  sides and lists what differs: present on one side only, newer on one side,
+  same date but a different size. You tick what you want, pick a direction,
+  and it copies — through the same machinery as any other copy, with progress
+  and cancellation, creating missing folders along the way. Nothing is ever
+  deleted, and nothing moves without a click.
+
+  Each inventory is one command per side rather than a network round trip per
+  folder. The comparison is on name, size and date — never on content, which
+  would cost as much as copying everything. Clocks are given two seconds of
+  slack, so a tree you just synchronised doesn't report itself as different
+  all over again. Depth and file count are bounded, and the panel says when
+  what it shows is only part of the answer.
+- Two files can be compared line by line, whatever their names, wherever they
+  are — including two files sitting in the same folder. Pick one ("Comparer ce
+  fichier…" in the toolbar, or the right-click menu), then pick the second;
+  or tick two files at once and compare them straight away.
+
+  The view names both files, since they need not share a name; highlights the
+  part of a line that actually changed rather than just the line; reads
+  unified or side by side (remembered between times); walks from one change to
+  the next with ▲▼ or n/p; and swaps the two sides with ↔, because they tend
+  to get picked in the wrong order. Long stretches of identical lines are
+  skipped, the way `diff -u` does.
+- The diagnostics log now records when the app starts and when it exits
+  cleanly. Before, it simply stopped at the last thing that happened, which
+  could not tell an app that was closed from one that was killed or crashed —
+  "why did it close?" had no answer in the file. A start with no preceding
+  exit is now the signature of a close nobody asked for.
 
 ### Changed
 - The path shown above a transfer panel is now clickable, one level at a time,
   which is what the "Aller à" field mostly got used for. Going up three
   folders is a click rather than a retyped absolute path.
-- **Opening a folder in a transfer panel is now a double-click**, single click
-  having become "select". There was no way to select a folder without opening
-  it before, which is what made a selection model impossible; Enter opens it
-  from the keyboard.
+- A folder in a transfer panel still opens on a single click, and can now also
+  be *selected* without opening it — Ctrl-click, Shift-click, or its checkbox.
+  That is what makes it possible to archive, copy or delete a folder from the
+  same selection as everything else.
 
 ### Fixed
 - Transfer panel columns line up. The header and the rows each carried their
@@ -99,6 +139,13 @@ This changelog starts 2026-07-21 — for earlier versions, see
 - The transfer panel's toolbar no longer grows a second line when you select
   something, which pushed the whole listing down — under the cursor, right
   before the next click.
+- Copying a file now carries its modification date over, instead of stamping
+  the copy with the time of the transfer. Beyond being wrong, this made
+  comparing two trees useless right after synchronising them: everything just
+  sent looked "newer on the far side".
+- Buttons in the transfer panel's toolbar use drawn icons instead of
+  characters the system font may or may not have — "Terminal ici" in
+  particular showed as an empty box.
 
 ## [3.1.0] - 2026-08-20
 
