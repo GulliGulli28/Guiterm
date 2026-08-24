@@ -122,6 +122,9 @@ export interface SidebarActions {
   connectSql: (conn: SqlConnection) => void;
   probeReachability: (host: Host) => void;
   searchFiles: (host: Host) => void;
+  /** Reprendre une session persistante précise sur cet hôte — l'entrée
+   * « Sessions persistantes » du menu d'un hôte. */
+  resumeSession: (host: Host, sessionKey: string) => void;
 
   // ── Ouvrir un formulaire ou une modale ────────────────────────────────
   newHost: () => void;

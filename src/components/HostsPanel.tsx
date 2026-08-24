@@ -11,11 +11,12 @@ import { buildHostTree } from "../lib/hostTree";
 import { usePolledHostStat } from "../hooks/usePolledHostStat";
 import { useContainerPicker } from "../hooks/useContainerPicker";
 import { BulkEditPanel } from "./BulkEditPanel";
+import { PersistentSessionsModal } from "./PersistentSessionsModal";
 import {
   IconHosts, IconSearch, IconPlus, IconKeyboard, IconFlash,
   IconFolder, IconChevronDown, IconChevronRight,
   IconDotsVertical, IconEdit,
-  IconUpload, IconDownload, IconTransfer, IconTunnels,
+  IconUpload, IconDownload, IconTransfer, IconTunnels, IconTerminal,
 } from "./ui-icons";
 
 interface HostsPanelProps {
@@ -31,6 +32,8 @@ interface HostsPanelProps {
   onProbeReachability: (host: Host) => void;
   /** « Où est ce fichier ? » — recherche par nom ou par contenu sur cet hôte. */
   onSearchFiles: (host: Host) => void;
+  /** Reprendre une session persistante déjà en cours sur cet hôte. */
+  onResumeSession: (host: Host, sessionKey: string) => void;
   /** Ouvrir une base atteinte à travers cet hôte, depuis la ligne de l'hôte. */
   onConnectSql: (connection: SqlConnection) => void;
   onOpenLocalTerminal: (shell?: string) => void;
@@ -114,7 +117,7 @@ function LocalTerminalButton({ onOpen }: { onOpen: (shell?: string) => void }) {
 
 export function HostsPanel({
   workspace, activeHostId, onConnect, onConnectDocker, onConnectK8s, onConnectRdpView, onOpenTransfer, onConnectSql,
-  onProbeReachability, onSearchFiles, onOpenLocalTerminal,
+  onProbeReachability, onSearchFiles, onResumeSession, onOpenLocalTerminal,
   onNewHost, onEditHost, onNewGroup, onImportCloud, onImportAnsible, onNewHostInGroup, onNewGroupUnder,
   onEditGroup, onQuickSSH, onWorkspaceUpdate, onError, onNotify,
 }: HostsPanelProps) {
@@ -140,6 +143,8 @@ export function HostsPanel({
   const [openMenuHostId, setOpenMenuHostId] = useState<HostId | null>(null);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [exportPendingHost, setExportPendingHost] = useState<Host | null>(null);
+  /** L'hôte dont on regarde les sessions persistantes, s'il y en a un. */
+  const [sessionsHost, setSessionsHost] = useState<Host | null>(null);
   const { openDockerPicker, openK8sPicker, pickerModal } = useContainerPicker(onConnectDocker, onConnectK8s);
 
   const hostStatus = usePolledHostStat(
@@ -448,6 +453,19 @@ export function HostsPanel({
                 <IconTunnels size={12} /> Joignabilité
               </button>
             )}
+            {kind === "ssh" && (
+              /* Proposé sur **tout** hôte SSH, pas seulement ceux réglés sur
+                 tmux : repasser le réglage à « désactivée » ne fait pas
+                 disparaître les sessions déjà ouvertes, et cacher l'entrée les
+                 rendrait définitivement inatteignables. */
+              <button
+                onClick={() => { setSessionsHost(host); setOpenMenuHostId(null); }}
+                title="Ce qui tourne encore sur cet hôte dans une session persistante — le reprendre, ou le terminer"
+                className="flex flex-1 basis-[80px] items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
+              >
+                <IconTerminal size={12} /> Sessions
+              </button>
+            )}
             {kind === "rdp" && (
               <button
                 onClick={() => { onOpenTransfer(host); setOpenMenuHostId(null); }}
@@ -654,6 +672,15 @@ export function HostsPanel({
           <p className="px-1 py-4 text-center text-[13px] text-[var(--c-text-muted)]">Aucun hôte enregistré</p>
         )}
       </div>
+
+      {sessionsHost && (
+        <PersistentSessionsModal
+          host={sessionsHost}
+          onResume={(sessionKey) => onResumeSession(sessionsHost, sessionKey)}
+          onClose={() => setSessionsHost(null)}
+          onError={onError}
+        />
+      )}
 
       {exportPendingHost && (
         <>

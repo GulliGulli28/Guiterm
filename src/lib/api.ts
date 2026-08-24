@@ -1,7 +1,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { RdpPointerUpdate } from "./rdpCursor";
-import type { ActivityEvent, ActivityFilter, CommandEntry, AuthMethod, BulkEdit, DiagTool, NetdiagOutcome, AwsCallerIdentity, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSessionAlert, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, AwsSsoSessionStatus, CloudInstance, CloudScope, CloudSelection, ArchiveFormat, CollectionInfo, ConflictPolicy, CopyConflict, ColumnInfo, CollectFactsResult, ComposeResult, DbTunnel, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FileDiff, FleetOutcome, FleetRun, FleetTarget, GroupId, HostDrift, HostId, HostKind, ImportSelection, Inventory, InventoryDiff, InventorySelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneComparison, PaneDiskSpace, PaneFindOutcome, PaneListed, PaneOpened, PaneSource, PersistentShellMode, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, ReachabilityOutcome, RedisKeyDetail, RemoteSearchMode, RemoteSearchOutcome, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, RollbackPlan, ScanPage, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SshAuthPrompt, SshConfigHost, SsmProbe, SyncItem, TableInfo, TerminalOpened, TransferProgressEvent, VaultStatus, Workspace } from "./types";
+import type { ActivityEvent, ActivityFilter, CommandEntry, AuthMethod, BulkEdit, DiagTool, NetdiagOutcome, AwsCallerIdentity, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSessionAlert, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, AwsSsoSessionStatus, CloudInstance, CloudScope, CloudSelection, ArchiveFormat, CollectionInfo, ConflictPolicy, CopyConflict, ColumnInfo, CollectFactsResult, ComposeResult, DbTunnel, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FileDiff, FleetOutcome, FleetRun, FleetTarget, GroupId, HostDrift, HostId, HostKind, ImportSelection, Inventory, InventoryDiff, InventorySelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneComparison, PaneDiskSpace, PaneFindOutcome, PaneListed, PaneOpened, PaneSource, PersistentShellMode, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, ReachabilityOutcome, RedisKeyDetail, RemoteSearchMode, RemoteSearchOutcome, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, RollbackPlan, ScanPage, SessionListing, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SshAuthPrompt, SshConfigHost, SsmProbe, SyncItem, TableInfo, TerminalOpened, TransferProgressEvent, VaultStatus, Workspace } from "./types";
 
 /** Mirrors the 12-byte little-endian header `commands::rdp_view::connect_rdp_view`
  * writes ahead of each frame's raw RGBA8 pixels (see its doc comment for why
@@ -322,6 +322,13 @@ export const api = {
     channel.onmessage = (buffer) => onData(new Uint8Array(buffer));
     return invoke<TerminalOpened>("connect_terminal", { hostId, sessionKey, channel });
   },
+  /** Les sessions persistantes qui tournent sur cet hôte. Un aller-retour SSH
+   * sur une connexion du pool. */
+  listPersistentSessions: (hostId: HostId) => invoke<SessionListing>("list_persistent_sessions", { hostId }),
+  /** Termine une session et rend la liste à jour — même forme que
+   * `dockerContainerAction` : l'appelant réaffiche ce qui reste. */
+  killPersistentSession: (hostId: HostId, sessionKey: string) =>
+    invoke<SessionListing>("kill_persistent_session", { hostId, sessionKey }),
   listDockerContainers: (hostId: HostId) => invoke<DockerContainer[]>("list_docker_containers", { hostId }),
   /** Tail of a container's log, stdout and stderr interleaved. Bounded, not
    * followed — see `termius_core::docker::container_logs`. */

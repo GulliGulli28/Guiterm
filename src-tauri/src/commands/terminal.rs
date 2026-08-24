@@ -389,6 +389,40 @@ pub async fn connect_terminal(
     Ok(TerminalOpened { session_id, session_key: key, persistence })
 }
 
+/// Les sessions persistantes qui tournent sur `host_id`.
+///
+/// Un aller-retour SSH par appel, sur une connexion du pool — donc jamais une
+/// connexion de plus quand un terminal est déjà ouvert sur cet hôte. Rendue
+/// telle quelle même quand l'hôte n'a pas tmux : « je ne peux pas savoir » et
+/// « rien ne tourne » sont deux réponses différentes (voir
+/// [`persistent_shell::SessionListing`]).
+#[tauri::command]
+pub async fn list_persistent_sessions(
+    state: State<'_, AppState>,
+    host_id: HostId,
+) -> Result<persistent_shell::SessionListing, String> {
+    let workspace = state.workspace.lock_recover().clone();
+    let connection = ssh_pool::acquire(&workspace, host_id).await.map_err(|e| e.to_string())?;
+    persistent_shell::list(&connection).await.map_err(|e| e.to_string())
+}
+
+/// Termine une session et rend la liste à jour — l'appelant réaffiche de
+/// toute façon ce qui reste, comme `docker_container_action`.
+///
+/// Le garde-fou est côté `core` ([`persistent_shell::kill_command`]) et pas
+/// ici : une session que l'app n'a pas ouverte est refusée avant que quoi que
+/// ce soit parte sur le réseau.
+#[tauri::command]
+pub async fn kill_persistent_session(
+    state: State<'_, AppState>,
+    host_id: HostId,
+    session_key: String,
+) -> Result<persistent_shell::SessionListing, String> {
+    let workspace = state.workspace.lock_recover().clone();
+    let connection = ssh_pool::acquire(&workspace, host_id).await.map_err(|e| e.to_string())?;
+    persistent_shell::kill(&connection, &session_key).await.map_err(|e| e.to_string())
+}
+
 fn terminal_input(state: &AppState, session_id: &str) -> Result<tokio::sync::mpsc::Sender<ShellInput>, String> {
     state.terminals.lock_recover().get(session_id).map(|t| t.input.clone()).ok_or_else(|| "session inconnue".to_string())
 }

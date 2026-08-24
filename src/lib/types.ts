@@ -971,6 +971,28 @@ export interface PaneState {
   error?: string;
 }
 
+/** Une session persistante qui tourne sur un hôte. Miroir de
+ * `termius_core::persistent_shell::RunningSession`. */
+export interface RunningSession {
+  /** Le nom tmux, qui est aussi la clé qu'un onglet garde. */
+  key: string;
+  /** `null` quand tmux ne l'a pas rendue — inconnu, pas 1970. */
+  createdAtMs: number | null;
+  windows: number;
+  /** Nombre de clients attachés. `0` = personne ne la regarde, ce qui
+   * distingue une session oubliée d'un onglet ouvert ailleurs. */
+  attached: number;
+}
+
+/** Ce qu'un hôte répond quand on lui demande ses sessions.
+ *
+ * `tmuxAvailable` existe pour ne pas confondre « aucune session » avec « je ne
+ * peux pas savoir » — même distinction que les trois verdicts de la dérive. */
+export interface SessionListing {
+  tmuxAvailable: boolean;
+  sessions: RunningSession[];
+}
+
 /** Ce qu'est devenue la session persistante demandée à l'ouverture d'un
  * terminal. Miroir de `commands::terminal::PersistenceOutcome`. */
 export type PersistenceOutcome = "off" | "unavailable" | "created" | "resumed";

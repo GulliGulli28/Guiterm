@@ -271,6 +271,7 @@ async function runScenarios(browser) {
   await runActivityScenario(browser);
   await runHostTreePickerScenario(browser);
   await runPersistentSessionScenario(browser);
+  await runSessionManagerScenario(browser);
 
   await mkdir(outDir, { recursive: true });
   const screenshotPath = path.join(outDir, "e2e-smoke.png");
@@ -2846,6 +2847,106 @@ async function runPersistentSessionScenario(browser) {
         return String(e);
       }
     }, hostId.id);
+    if (cleanup !== "ok") {
+      throw new Error(`l hôte de test n a pas pu être supprimé, workspace pollué : ${cleanup}`);
+    }
+  }
+}
+
+/**
+ * Le gestionnaire de sessions persistantes, atteignable depuis le menu d'un
+ * hôte.
+ *
+ * Une session persistante survit à la fermeture de son onglet — c'est le but —
+ * mais l'onglet emportait la seule clé que l'app connaissait, et la session
+ * tournait ensuite hors de portée de l'interface. Ce scénario vérifie la
+ * partie que le test d'intégration ne voit pas : que l'entrée existe, que la
+ * modale s'ouvre, et que `list_persistent_sessions` répond pour de vrai.
+ *
+ * L'hôte de test vise 127.0.0.1:1, donc la connexion est refusée tout de
+ * suite : ce qu'on attend est une **erreur de connexion**, pas une commande
+ * inconnue ni un argument mal nommé — c'est ce dernier point qui ferait passer
+ * une commande jamais enregistrée pour une simple panne réseau.
+ */
+async function runSessionManagerScenario(browser) {
+  const LABEL = `e2e-sessions-${Date.now()}`;
+
+  // Créé **par le formulaire** : le workspace n'est relu qu'au montage de
+  // l'app, donc un hôte écrit par `invoke` direct n'apparaîtrait dans aucun
+  // panneau et la partie interface de ce scénario se contenterait de passer.
+  await browser.execute(() => {
+    const btn = Array.from(document.querySelectorAll("aside nav button"))
+      .find((b) => (b.getAttribute("title") || "") === "Hôtes");
+    if (btn instanceof HTMLElement) btn.click();
+  });
+  await clickButtonByText(browser, "Ajouter…");
+  await clickButtonByText(browser, "Nouvel hôte");
+  await setFieldByLabel(browser, "Nom", LABEL);
+  await setFieldByLabel(browser, "Adresse", "127.0.0.1");
+  await setFieldByLabel(browser, "Port", "1");
+  await setFieldByLabel(browser, "Utilisateur", "e2e");
+  await clickButtonByText(browser, "Enregistrer");
+
+  let hostId = null;
+  await browser.waitUntil(async () => {
+    const found = await browser.execute(async (label) => {
+      try {
+        const ws = await window.__TAURI_INTERNALS__.invoke("get_workspace");
+        return ws.hosts.find((h) => h.label === label)?.id ?? null;
+      } catch {
+        return null;
+      }
+    }, LABEL);
+    if (found) hostId = found;
+    return !!found;
+  }, { timeout: 10_000, timeoutMsg: "l hôte de test n a pas été enregistré" });
+
+  try {
+    // L'entrée de menu, la modale, et la commande derrière.
+    await browser.execute((label) => {
+      const row = Array.from(document.querySelectorAll("aside div"))
+        .find((el) => el.textContent?.trim().startsWith(label));
+      const menu = row?.querySelector('button[title="Options"]');
+      if (menu instanceof HTMLElement) menu.click();
+    }, LABEL);
+
+    await browser.waitUntil(async () => await browser.execute(() =>
+      Array.from(document.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Sessions")
+    ), { timeout: 5_000, timeoutMsg: "le menu de l hôte n offre pas « Sessions »" });
+    await clickButtonByText(browser, "Sessions");
+
+    await browser.waitUntil(async () => await browser.execute(() =>
+      Array.from(document.querySelectorAll("p")).some((p) => (p.textContent || "").startsWith("Sessions persistantes —"))
+    ), { timeout: 5_000, timeoutMsg: "la modale des sessions ne s est pas ouverte" });
+
+    // 127.0.0.1:1 refuse : la modale doit finir sur une **erreur**, pas rester
+    // à « Interrogation en cours… ». Et surtout pas sur un message de commande
+    // inconnue ou d'argument mal nommé, qui ferait passer une commande jamais
+    // enregistrée pour une simple panne réseau.
+    const shown = await browser.waitUntil(async () => {
+      const text = await browser.execute(() => {
+        const paragraphs = Array.from(document.querySelectorAll("p")).map((p) => p.textContent || "");
+        if (paragraphs.some((t) => t.includes("Interrogation en cours"))) return null;
+        return paragraphs.find((t) => t.includes("127.0.0.1") || /erreur|error|refus/i.test(t)) ?? null;
+      });
+      return text || false;
+    }, { timeout: 20_000, timeoutMsg: "la modale n a jamais rendu de verdict pour un hôte injoignable" });
+
+    if (/unknown command|not allowed|invalid args|missing required key/i.test(shown)) {
+      throw new Error(`list_persistent_sessions n est pas joignable : ${shown}`);
+    }
+
+    await clickButtonByText(browser, "Fermer");
+    console.log("Gestionnaire de sessions : OK (entrée de menu, modale ouverte, list_persistent_sessions répond).");
+  } finally {
+    const cleanup = await browser.execute(async (id) => {
+      try {
+        await window.__TAURI_INTERNALS__.invoke("delete_host", { hostId: id });
+        return "ok";
+      } catch (e) {
+        return String(e);
+      }
+    }, hostId);
     if (cleanup !== "ok") {
       throw new Error(`l hôte de test n a pas pu être supprimé, workspace pollué : ${cleanup}`);
     }

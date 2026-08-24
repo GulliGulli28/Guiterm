@@ -127,6 +127,8 @@ fn main() {
             commands::terminal::write_terminal,
             commands::terminal::resize_terminal,
             commands::terminal::close_terminal,
+            commands::terminal::list_persistent_sessions,
+            commands::terminal::kill_persistent_session,
             commands::terminal::open_local_terminal,
             commands::terminal::list_local_shells,
             commands::terminal::write_local_terminal,

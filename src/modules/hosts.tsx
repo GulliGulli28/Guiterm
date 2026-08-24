@@ -20,6 +20,7 @@ export const hostsModule = defineModule({
         onProbeReachability={a.probeReachability}
         onNotify={(message) => ctx.pushNotification("success", message)}
         onSearchFiles={a.searchFiles}
+        onResumeSession={a.resumeSession}
         onConnectSql={a.connectSql}
         onOpenLocalTerminal={a.openLocalTerminal}
         onQuickSSH={a.quickSSH}

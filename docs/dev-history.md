@@ -2007,7 +2007,82 @@ onglet lâche le canal, donc tmux détache — et c'est bien ce qu'on veut, sans
 quoi fermer l'app tuerait tout. Mais l'onglet disparu emporte la seule clé que
 l'app connaissait : la session continue de tourner sur le serveur, hors de
 portée de l'interface. Rien n'est perdu (elles portent toutes le préfixe
-`guiterm-`, et `parse_session_names` les retrouve déjà), mais tant que la
+`guiterm-`, et `parse_sessions` les retrouve déjà), mais tant que la
 tranche 2 — lister, reprendre, terminer — n'est pas là, un usage intensif les
 laisse s'accumuler. C'est la raison pour laquelle le réglage est désactivé par
 défaut, et pas seulement la compatibilité ascendante.
+
+## Sessions persistantes — tranche 2 : le gestionnaire (2026-08-24)
+
+La tranche 1 laissait un trou nommé dans sa propre documentation : fermer un
+onglet détache la session (c'est le but — fermer l'app ne doit pas tuer le
+travail en cours), mais l'onglet emportait la seule clé que l'app connaissait.
+La session continuait de tourner sur le serveur, hors de portée de
+l'interface. Rien n'était perdu, rien n'était atteignable non plus.
+
+**Un seul script pour deux usages.** `probe_script` rend maintenant quatre
+champs par session (`nom|création|fenêtres|clients`) au lieu du seul nom, et
+sert aussi bien à décider quoi faire à la connexion qu'à alimenter le
+gestionnaire. Le séparateur est `|`, précisément parce
+qu'`is_valid_session_key` l'interdit dans une clé : le nom ne peut donc jamais
+en contenir, et découper dessus est sûr. `parse_session_names` a disparu au
+profit de `parse_sessions`, qui rend des `RunningSession` complets.
+
+**Trois réponses, pas deux** — `SessionListing` porte `tmux_available` à côté
+de la liste, pour la même raison que `drift.rs` compte trois verdicts : « aucune
+session » et « je ne peux pas savoir » ne sont pas la même chose, et les
+confondre ferait passer un hôte sans tmux pour un hôte propre. La modale
+affiche l'un ou l'autre.
+
+**`list` remonte ses erreurs, `probe` non.** Les deux appellent pourtant le
+même script. La différence est la question posée : à la connexion, un sondage
+raté doit retomber sur un shell ordinaire sans rien casser ; dans le
+gestionnaire, l'utilisateur a demandé à *voir*, et lui rendre « aucune
+session » parce que la commande a échoué serait un mensonge.
+
+**La garde qui compte le plus du module.** `kill_command` refuse tout nom qui
+ne porte pas le préfixe `guiterm-`. La clé fait l'aller-retour par le
+frontend, et un `tmux kill-session -t travail` détruirait la session
+personnelle de l'utilisateur — sans confirmation possible, puisque tmux n'en
+demande pas. Le refus est en `core`, avant que quoi que ce soit parte sur le
+réseau, et un test d'intégration crée une vraie session au nom personnel pour
+vérifier qu'elle survit à la demande *et* qu'elle n'est jamais proposée dans
+la liste.
+
+**Deux détails d'interface qui ne se voient pas dans le code.**
+
+- L'entrée « Sessions » est proposée sur **tout** hôte SSH, pas seulement ceux
+  réglés sur tmux : repasser le réglage à « désactivée » ne fait pas
+  disparaître les sessions déjà ouvertes, et masquer l'entrée les rendrait
+  définitivement inatteignables.
+- La confirmation avant de terminer **remplace** le sélecteur au lieu de se
+  poser dessus. Deux `useModalSurface` actifs en même temps se disputeraient
+  Échap et le piège à focus ; l'état de la liste vivant dans le composant, elle
+  revient telle quelle après une annulation.
+
+**Reprendre une session déjà ouverte dans un onglet active cet onglet** plutôt
+que d'en ouvrir un second. Ce n'est pas de la politesse : tmux attacherait les
+deux clients à la même session et calerait la fenêtre sur le plus petit des
+deux, ce qui donne un terminal tronqué sans rien à l'écran pour l'expliquer.
+
+**Réutilise `ConnectionPickerModal`** — même chrome que les sélecteurs de
+conteneurs Docker et de pods K8s, actions par ligne comprises, qui existaient
+déjà pour qu'une ligne puisse porter autre chose que « choisir celle-ci ».
+
+### Sous test
+
+- Les cas de format dans `persistent_shell` : les quatre champs relus, une
+  version de tmux qui en omet (chaîne vide → `None`/`0`, jamais une date de
+  1970), une clé qui en préfixe une autre, et le refus de tuer une session
+  étrangère.
+- `src/lib/persistentSessions.ts` — la formulation d'une ligne, sortie du JSX
+  parce que ce qu'elle décide (pluriel, « détachée » contre « ouverte
+  ailleurs », date inconnue) se trompe en silence et qu'aucun rendu ne le
+  signalerait.
+- Le scénario e2e `runSessionManagerScenario` : l'entrée de menu existe, la
+  modale s'ouvre, et `list_persistent_sessions` répond pour de vrai sur un
+  hôte injoignable — avec un contrôle explicite que le message n'est pas
+  « commande inconnue », ce qui ferait passer une commande jamais enregistrée
+  pour une panne réseau. Validé en renommant l'entrée de menu : l'e2e tombe.
+  L'enregistrement lui-même reste couvert, plus vite, par
+  `tauriCommands.test.ts`.

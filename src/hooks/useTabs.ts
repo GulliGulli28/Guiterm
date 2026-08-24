@@ -43,6 +43,23 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
     setActiveTabId(id);
   }, []);
 
+  /** Ouvre un terminal rattaché à une session persistante **précise**, au lieu
+   * de laisser l'onglet en nommer une nouvelle. C'est la reprise depuis le
+   * gestionnaire de sessions, et la seule voie par laquelle un onglet naît
+   * avec une clé déjà connue.
+   *
+   * Si la session est déjà ouverte dans un onglet, on l'active plutôt que d'en
+   * ouvrir un second : tmux attacherait les deux clients à la même session et
+   * calerait la fenêtre sur le plus petit des deux, ce qui donne un terminal
+   * tronqué sans rien pour l'expliquer. */
+  const openPersistentSession = useCallback((host: Host, sessionKey: string) => {
+    const existing = tabs.find((t) => t.kind === "terminal" && t.sessionKey === sessionKey);
+    if (existing) { setActiveTabId(existing.id); return; }
+    const id = `tab-${nextTabId++}`;
+    setTabs((prev) => [...prev, { id, kind: "terminal", hostId: host.id, label: host.label, sessionKey }]);
+    setActiveTabId(id);
+  }, [tabs]);
+
   const openLocalTerminal = useCallback((initialCommand?: string, shell?: string | null) => {
     const id = `tab-${nextTabId++}`;
     // Le libellé ne vaut que pour la voie « quickSSH » : une commande
@@ -381,7 +398,7 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
   return {
     tabs, setTabs, activeTabId, setActiveTabId,
     pendingCloseTabId, setPendingCloseTabId,
-    openTab, openLocalTerminal, openFleet, openActivity, openNetdiag, openSql, reconnectTab,
+    openTab, openPersistentSession, openLocalTerminal, openFleet, openActivity, openNetdiag, openSql, reconnectTab,
     rememberSessionKey,
     closeTab, requestCloseTab,
     activeTabRecording, startActiveRecording, stopActiveRecording,

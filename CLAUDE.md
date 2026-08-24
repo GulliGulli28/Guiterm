@@ -396,7 +396,11 @@ limité (pas de curseur rendu, molette approximative), voir
   `register_shell_session` ne les rejoue pas sur un rattachement — sinon elles
   repartiraient au milieu de la session vivante. Tout y est au conditionnel :
   hôte sans tmux, sondage en échec ou clé invalide retombent sur le shell
-  ordinaire, jamais sur une erreur de connexion.
+  ordinaire, jamais sur une erreur de connexion. Le menu d'un hôte SSH ouvre
+  le gestionnaire (« Sessions ») : lister, reprendre, terminer. Terminer une
+  session dont le nom ne porte pas le préfixe `guiterm-` est refusé dans
+  `core`, avant tout aller sur le réseau — sinon un `tmux kill-session` sur un
+  nom venu du frontend détruirait la session personnelle de l'utilisateur.
 
 - **xterm.js avale les raccourcis clavier.** xterm.js appelle
   `stopPropagation()` sur toute touche qu'il traite lui-même (dès que

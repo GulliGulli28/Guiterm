@@ -32,6 +32,7 @@
 
 use crate::shell::quote;
 use crate::ssh::{self, Connection};
+use serde::Serialize;
 use uuid::Uuid;
 
 /// Préfixe de toutes les sessions créées par cette app.
@@ -80,7 +81,42 @@ pub fn is_valid_session_key(key: &str) -> bool {
             .all(|c| c.is_ascii_alphanumeric() || c == '-' || c == '_')
 }
 
+/// Une session persistante qui tourne en ce moment sur un hôte.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunningSession {
+    /// Le nom tmux, qui est aussi la clé qu'un onglet garde.
+    pub key: String,
+    /// Millisecondes epoch de la création, comme `Host::last_facts_at_ms`.
+    /// `None` quand tmux ne l'a pas rendue — une version qui ne connaît pas
+    /// `session_created` rend une chaîne vide, pas une erreur.
+    pub created_at_ms: Option<u64>,
+    pub windows: u32,
+    /// Combien de clients y sont attachés à l'instant. `0` veut dire que
+    /// personne ne la regarde — c'est exactement ce qui distingue une session
+    /// oubliée d'un onglet ouvert ailleurs.
+    pub attached: u32,
+}
+
+/// Ce qu'un hôte répond quand on lui demande ses sessions.
+///
+/// Trois réponses possibles et pas deux, même raison que les trois verdicts de
+/// [`crate::drift`] : « aucune session » et « je ne peux pas savoir » ne sont
+/// pas la même chose, et les confondre ferait passer un hôte sans tmux pour un
+/// hôte propre.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionListing {
+    pub tmux_available: bool,
+    pub sessions: Vec<RunningSession>,
+}
+
 /// Le script de sondage : tmux est-il là, et quelles sessions tournent ?
+///
+/// Un seul script pour les deux usages — décider quoi faire à la connexion, et
+/// alimenter le gestionnaire de sessions. Les champs sont séparés par `|`, un
+/// caractère qu'[`is_valid_session_key`] interdit dans une clé, donc le nom ne
+/// peut jamais en contenir.
 ///
 /// `list-sessions` sort en échec quand aucun serveur tmux ne tourne — c'est le
 /// cas normal sur une machine fraîche, pas une erreur, d'où le `2>/dev/null`
@@ -88,43 +124,105 @@ pub fn is_valid_session_key(key: &str) -> bool {
 pub fn probe_script() -> &'static str {
     "if command -v tmux >/dev/null 2>&1; then \
 echo GUITERM_TMUX=yes; \
-tmux list-sessions -F 'GUITERM_SESSION=#{session_name}' 2>/dev/null; \
+tmux list-sessions -F 'GUITERM_SESSION=#{session_name}|#{session_created}|#{session_windows}|#{session_attached}' 2>/dev/null; \
 else echo GUITERM_TMUX=no; fi"
+}
+
+/// tmux a-t-il répondu présent ?
+fn tmux_present(stdout: &str) -> bool {
+    stdout
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("GUITERM_TMUX="))
+        .any(|value| value == "yes")
+}
+
+/// Les champs d'une ligne `GUITERM_SESSION=`, le nom en tête.
+fn session_fields(line: &str) -> Option<(&str, Vec<&str>)> {
+    let rest = line.trim().strip_prefix("GUITERM_SESSION=")?;
+    let mut parts = rest.split('|');
+    let name = parts.next()?;
+    if name.is_empty() {
+        return None;
+    }
+    Some((name, parts.collect()))
 }
 
 /// Relit la sortie du sondage. `key` absente signifie « je veux juste savoir
 /// si tmux est là » : la réponse ne peut alors pas être [`Probe::Running`].
 pub fn parse_probe(stdout: &str, key: Option<&str>) -> Probe {
-    let mut has_tmux = false;
-    let mut running = false;
-    for line in stdout.lines() {
-        let line = line.trim();
-        if let Some(value) = line.strip_prefix("GUITERM_TMUX=") {
-            has_tmux = value == "yes";
-        } else if let Some(name) = line.strip_prefix("GUITERM_SESSION=")
-            && key.is_some_and(|k| k == name)
-        {
-            running = true;
-        }
+    if !tmux_present(stdout) {
+        return Probe::NoTmux;
     }
-    match (has_tmux, running) {
-        (false, _) => Probe::NoTmux,
-        (true, true) => Probe::Running,
-        (true, false) => Probe::Absent,
-    }
+    let running = stdout
+        .lines()
+        .filter_map(session_fields)
+        .any(|(name, _)| key.is_some_and(|k| k == name));
+    if running { Probe::Running } else { Probe::Absent }
 }
 
 /// Les sessions créées par cette app qui tournent sur l'hôte, dans l'ordre où
 /// tmux les rend. Les sessions personnelles de l'utilisateur sont écartées :
-/// l'app n'a pas à proposer de reprendre, ni plus tard de fermer, ce qu'elle
+/// l'app n'a pas à proposer de reprendre — ni surtout de fermer — ce qu'elle
 /// n'a pas ouvert.
-pub fn parse_session_names(stdout: &str) -> Vec<String> {
+pub fn parse_sessions(stdout: &str) -> Vec<RunningSession> {
     stdout
         .lines()
-        .filter_map(|line| line.trim().strip_prefix("GUITERM_SESSION="))
-        .filter(|name| name.starts_with(SESSION_PREFIX))
-        .map(str::to_string)
+        .filter_map(session_fields)
+        .filter(|(name, _)| name.starts_with(SESSION_PREFIX))
+        .map(|(name, fields)| RunningSession {
+            key: name.to_string(),
+            // Secondes côté tmux, millisecondes partout ici. Un champ vide ou
+            // illisible vaut « inconnu », jamais 1970.
+            created_at_ms: fields
+                .first()
+                .and_then(|v| v.parse::<u64>().ok())
+                .map(|secs| secs.saturating_mul(1000)),
+            windows: fields.get(1).and_then(|v| v.parse().ok()).unwrap_or(0),
+            attached: fields.get(2).and_then(|v| v.parse().ok()).unwrap_or(0),
+        })
         .collect()
+}
+
+/// Les sessions de cette app sur `connection`.
+///
+/// Contrairement à [`probe`], une erreur remonte : l'utilisateur a demandé à
+/// voir la liste, et lui rendre « aucune session » parce que la commande a
+/// échoué serait un mensonge.
+pub async fn list(connection: &Connection) -> anyhow::Result<SessionListing> {
+    let output = ssh::run_command_capture(connection, probe_script()).await?;
+    Ok(SessionListing {
+        tmux_available: tmux_present(&output.stdout),
+        sessions: parse_sessions(&output.stdout),
+    })
+}
+
+/// La commande qui termine une session.
+///
+/// Refuse tout ce qui ne porte pas le préfixe de l'app. C'est la garde qui
+/// compte le plus de ce module : la clé fait l'aller-retour par le frontend, et
+/// un `kill-session -t travail` détruirait la session personnelle de
+/// l'utilisateur sans confirmation possible.
+pub fn kill_command(key: &str) -> anyhow::Result<String> {
+    if !is_valid_session_key(key) || !key.starts_with(SESSION_PREFIX) {
+        anyhow::bail!("« {key} » n'est pas une session ouverte par cette application");
+    }
+    Ok(format!("tmux kill-session -t {}", quote(key)))
+}
+
+/// Termine une session, puis rend la liste à jour — l'appelant veut de toute
+/// façon réafficher ce qui reste.
+pub async fn kill(connection: &Connection, key: &str) -> anyhow::Result<SessionListing> {
+    let output = ssh::run_command_capture(connection, &kill_command(key)?).await?;
+    if output.exit_code != Some(0) {
+        // tmux écrit « can't find session » sur stderr et sort en 1. Le relayer
+        // vaut mieux que de rendre une liste inchangée sans rien dire.
+        let detail = output.stderr.trim();
+        anyhow::bail!(
+            "la session n'a pas pu être terminée{}",
+            if detail.is_empty() { String::new() } else { format!(" : {detail}") }
+        );
+    }
+    list(connection).await
 }
 
 /// Sonde l'hôte. Une erreur de canal vaut [`Probe::NoTmux`] : le seul effet
@@ -234,9 +332,73 @@ mod tests {
     #[test]
     fn only_this_app_s_sessions_are_listed() {
         let stdout = "GUITERM_TMUX=yes\n\
-            GUITERM_SESSION=guiterm-abc\n\
-            GUITERM_SESSION=travail\n\
-            GUITERM_SESSION=guiterm-def\n";
-        assert_eq!(parse_session_names(stdout), ["guiterm-abc", "guiterm-def"]);
+            GUITERM_SESSION=guiterm-abc|1756000000|2|1\n\
+            GUITERM_SESSION=travail|1756000000|9|0\n\
+            GUITERM_SESSION=guiterm-def|1756000100|1|0\n";
+        let keys: Vec<_> = parse_sessions(stdout).into_iter().map(|s| s.key).collect();
+        assert_eq!(keys, ["guiterm-abc", "guiterm-def"]);
+    }
+
+    #[test]
+    fn a_listed_session_carries_its_age_windows_and_clients() {
+        let stdout = "GUITERM_TMUX=yes\nGUITERM_SESSION=guiterm-abc|1756000000|3|1\n";
+        assert_eq!(
+            parse_sessions(stdout),
+            [RunningSession {
+                key: "guiterm-abc".to_string(),
+                // Secondes chez tmux, millisecondes ici.
+                created_at_ms: Some(1_756_000_000_000),
+                windows: 3,
+                attached: 1,
+            }],
+        );
+    }
+
+    /// Une version de tmux qui ne connaît pas un de ces `#{...}` rend une
+    /// chaîne vide, pas une erreur : la session doit rester listée, avec ce
+    /// qu'on ignore marqué comme inconnu plutôt que comme zéro daté de 1970.
+    #[test]
+    fn a_session_stays_listed_when_tmux_omits_its_fields() {
+        let stdout = "GUITERM_TMUX=yes\nGUITERM_SESSION=guiterm-abc||\n";
+        assert_eq!(
+            parse_sessions(stdout),
+            [RunningSession {
+                key: "guiterm-abc".to_string(),
+                created_at_ms: None,
+                windows: 0,
+                attached: 0,
+            }],
+        );
+    }
+
+    #[test]
+    fn a_listing_tells_no_tmux_apart_from_no_sessions() {
+        assert!(!tmux_present("GUITERM_TMUX=no\n"));
+        assert!(tmux_present("GUITERM_TMUX=yes\n"));
+    }
+
+    /// La garde qui compte le plus du module : la clé revient du frontend, et
+    /// terminer une session que l'app n'a pas ouverte détruirait le travail de
+    /// quelqu'un sans confirmation possible.
+    #[test]
+    fn only_this_app_s_sessions_can_be_killed() {
+        assert!(kill_command("travail").is_err());
+        assert!(kill_command("").is_err());
+        assert!(kill_command("guiterm-a;id").is_err());
+        assert!(kill_command("guiterm-a b").is_err());
+        assert_eq!(
+            kill_command("guiterm-abc").unwrap(),
+            "tmux kill-session -t 'guiterm-abc'",
+        );
+    }
+
+    /// Le nom est le premier champ : une clé ne peut pas contenir de `|`
+    /// (`is_valid_session_key` l'interdit), donc découper dessus est sûr.
+    #[test]
+    fn the_probe_still_recognises_a_key_among_the_new_fields() {
+        let stdout = "GUITERM_TMUX=yes\nGUITERM_SESSION=guiterm-abc|1756000000|1|0\n";
+        assert_eq!(parse_probe(stdout, Some("guiterm-abc")), Probe::Running);
+        assert_eq!(parse_probe(stdout, Some("guiterm-ab")), Probe::Absent);
+        assert!(!is_valid_session_key("guiterm-a|b"));
     }
 }

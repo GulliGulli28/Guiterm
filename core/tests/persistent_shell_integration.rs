@@ -117,21 +117,97 @@ async fn a_shell_survives_the_connection_that_opened_it() {
     type_line(&resumed, "echo VALEUR=$MARQUEUR-$(pwd)").await;
     let seen = read_until(&mut resumed, "VALEUR=persistant-ok-").await;
 
+    // Le gestionnaire de sessions voit la même session, détachée ou non.
+    drop(resumed);
+    let listed = persistent_shell::list(&second).await;
+
     // Nettoyage avant les assertions : une session laissée derrière survivrait
     // au test lui-même — c'est tout le principe de la fonctionnalité.
-    drop(resumed);
-    let killed = ssh::run_command_capture(
-        &second,
-        &format!("tmux kill-session -t {}", quote(&session_key)),
-    )
-    .await;
+    let after_kill = persistent_shell::kill(&second, &session_key).await;
 
     assert_eq!(probe, Probe::Running, "la session aurait dû être retrouvée");
     assert!(
         seen.contains("VALEUR=persistant-ok-/tmp"),
         "le dossier courant n'a pas survécu — reçu :\n{seen}",
     );
-    killed.expect("la session de test doit pouvoir être fermée");
+
+    let listed = listed.expect("lister les sessions");
+    assert!(listed.tmux_available);
+    let found = listed
+        .sessions
+        .iter()
+        .find(|s| s.key == session_key)
+        .unwrap_or_else(|| panic!("session absente du listing : {:?}", listed.sessions));
+    assert!(found.windows >= 1, "une session tmux a au moins une fenêtre");
+    assert!(
+        found.created_at_ms.is_some_and(|ms| ms > 1_700_000_000_000),
+        "date de création non lue : {:?}",
+        found.created_at_ms,
+    );
+
+    // Et après le kill, elle a disparu de la liste que la commande rend.
+    let after_kill = after_kill.expect("la session de test doit pouvoir être fermée");
+    assert!(
+        !after_kill.sessions.iter().any(|s| s.key == session_key),
+        "la session tuée est encore listée : {:?}",
+        after_kill.sessions,
+    );
+}
+
+/// Terminer une session que l'app n'a pas ouverte est refusé **avant** que
+/// quoi que ce soit parte sur le réseau. Le test crée une vraie session tmux
+/// au nom personnel, demande sa mort, et vérifie qu'elle est toujours là.
+#[tokio::test]
+async fn a_session_this_app_did_not_open_is_never_killed() {
+    let key = ClientKey::generate();
+    let sshd = TestSshd::start("tmux-foreign", &key.public);
+    let host = test_host(&sshd, &key, "test-foreign");
+    let host_id = host.id;
+    let mut workspace = Workspace::default();
+    workspace.hosts.push(host);
+
+    let connection = ssh::connect(&workspace, host_id).await.expect("connexion");
+    if persistent_shell::probe(&connection, None).await == Probe::NoTmux {
+        eprintln!("tmux absent de la machine de test — scénario ignoré");
+        return;
+    }
+
+    // Un nom qui ne porte pas le préfixe de l'app, unique pour ne pas marcher
+    // sur une vraie session de la machine de test.
+    let foreign = format!("perso-{}", uuid::Uuid::new_v4().simple());
+    ssh::run_command_capture(
+        &connection,
+        &format!("tmux new-session -d -s {}", quote(&foreign)),
+    )
+    .await
+    .expect("créer la session témoin");
+
+    let refused = persistent_shell::kill(&connection, &foreign).await;
+    let still_there = ssh::run_command_capture(
+        &connection,
+        &format!("tmux has-session -t {} 2>/dev/null && echo VIVANTE", quote(&foreign)),
+    )
+    .await;
+
+    // Nettoyage par nos propres moyens, puisque `kill` refuse (à raison).
+    let _ = ssh::run_command_capture(
+        &connection,
+        &format!("tmux kill-session -t {}", quote(&foreign)),
+    )
+    .await;
+
+    assert!(refused.is_err(), "terminer une session étrangère aurait dû être refusé");
+    assert!(
+        still_there.expect("interroger tmux").stdout.contains("VIVANTE"),
+        "la session étrangère a été tuée",
+    );
+
+    // Et elle n'apparaît pas non plus dans ce que le gestionnaire propose.
+    let listing = persistent_shell::list(&connection).await.expect("lister");
+    assert!(
+        !listing.sessions.iter().any(|s| s.key == foreign),
+        "une session étrangère est proposée dans le gestionnaire",
+    );
 }
 
 /// Le repli, sur le même serveur : sans clé de session, on ouvre un shell

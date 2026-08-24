@@ -276,7 +276,7 @@ export default function App() {
   const {
     tabs, setTabs, activeTabId, setActiveTabId,
     pendingCloseTabId, setPendingCloseTabId,
-    openTab, openLocalTerminal, openFleet, openActivity, openNetdiag, openSql, reconnectTab,
+    openTab, openPersistentSession, openLocalTerminal, openFleet, openActivity, openNetdiag, openSql, reconnectTab,
     rememberSessionKey,
     closeTab, requestCloseTab,
     runSnippet, runAdaptiveSnippet, exportActiveScrollback,
@@ -555,6 +555,7 @@ export default function App() {
     connectSql: (conn) => openSql(conn),
     probeReachability: (host) => openNetdiag(host.id),
     searchFiles: (host) => setSearchHost(host),
+    resumeSession: openPersistentSession,
 
     newHost: () => { setEditingHost("new"); setNewHostDefaultGroupId(null); setEditingGroup(null); setEditingSqlConnection(null); },
     editHost: (host) => { setEditingHost(host); setEditingGroup(null); setEditingSqlConnection(null); },
