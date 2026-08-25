@@ -339,22 +339,18 @@ the hard way:
 
 ## Roadmap
 
-Recently shipped: keyboard-interactive auth (MFA/OTP), scoped rollback and
-drift detection for fleet/adaptive runs, RDP cursor rendering, SSH connection
-pooling, the encrypted secrets vault, dynamic SOCKS tunnels, SSH key
-generation/deployment, Docker and Kubernetes exec as real backends, and host
-selection through the folder tree everywhere (not just the sidebar).
+Recently shipped: **persistent server-side sessions** — an opt-in `tmux`
+session per host, so a dropped VPN, a closed tab, an app update or a reboot all
+reattach to the exact screen you left, with a manager to list, resume, watch
+read-only, share or end them. Before that: host selection through the folder
+tree everywhere (not just the sidebar), keyboard-interactive auth (MFA/OTP),
+scoped rollback and drift detection for fleet runs, RDP cursor rendering, SSH
+connection pooling, the encrypted secrets vault, dynamic SOCKS tunnels, SSH key
+generation/deployment, and Docker and Kubernetes exec as real backends.
 
-Up next — **persistent server-side sessions**. Today a dropped connection
-reconnects into a *fresh* shell: the working directory, the running `tail -f`,
-the half-typed command are gone. The plan is an opt-in named session per host
-(`tmux`, with `screen` as a later fallback) so that a VPN drop, a laptop
-sleeping, an app update or a reboot all reattach to the exact screen you left
-— and, as a near-free consequence, so a session can be resumed from another
-machine or attached read-only by a colleague who already has access to that
-host.
+Nothing is committed as the next piece of work. Three candidates, in no
+particular order:
 
-Considered, not started, in no particular order:
 - **Executable runbooks** — ordered, versioned procedures on top of the fleet
   executor and the adaptive DSL: markdown notes and steps in one document,
   captured output per step, an approval pause before destructive steps, and a
