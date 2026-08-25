@@ -1009,6 +1009,9 @@ export interface SessionOptions {
    * changer l'apparence d'une session qu'on ne fait que regarder la
    * changerait pour ceux qui y travaillent. */
   hideStatusBar: boolean;
+  /** Laisser tmux recevoir les événements souris, ce qui rend la molette
+   * utile. Même réserve qu'au-dessus pour l'observation. */
+  mouse: boolean;
 }
 
 /** Ce qu'est devenue la session persistante demandée à l'ouverture d'un

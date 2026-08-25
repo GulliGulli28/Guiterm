@@ -12,6 +12,7 @@
     "lint": "eslint .",
     "test:e2e": "node scripts/e2e-run.mjs",
     "check:hosts": "node scripts/visual-check-host-picker.mjs",
+    "check:sessions": "node scripts/visual-check-session-picker.mjs",
     "check:transfer": "node scripts/visual-check-transfer-columns.mjs && node scripts/visual-check-transfer-dnd.mjs && node scripts/visual-check-transfer-keys.mjs && node scripts/visual-check-transfer-compare.mjs && node scripts/visual-check-transfer-filediff.mjs",
     "verify": "node scripts/verify.mjs",
     "bench:terminal": "node scripts/bench-terminal-render.mjs",

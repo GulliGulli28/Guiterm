@@ -24,6 +24,13 @@ interface ConnectionPickerModalProps {
   loading: boolean;
   error?: string | null;
   items: PickerItem[];
+  /** Élargit la boîte. Les lignes du sélecteur de sessions persistantes
+   * portent trois actions *et* deux lignes de texte descriptif ; à la largeur
+   * d'origine (celle d'une liste de conteneurs, où le nom suffit), les boutons
+   * mangeaient la place et « Session ouverte il y a… » se retrouvait tronqué.
+   * Les actions occupent leur largeur même invisibles — elles ne sont que
+   * transparentes hors survol. */
+  wide?: boolean;
   onPick: (id: string) => void;
   onClose: () => void;
 }
@@ -32,13 +39,13 @@ interface ConnectionPickerModalProps {
  * daemon/cluster entry point (Docker containers, Kubernetes pods) rather
  * than a single connectable thing — same chrome for a real, loading list
  * and a stubbed, example one. */
-export function ConnectionPickerModal({ title, warning, loading, error, items, onPick, onClose }: ConnectionPickerModalProps) {
+export function ConnectionPickerModal({ title, warning, loading, error, items, wide, onPick, onClose }: ConnectionPickerModalProps) {
   const { ref, dialogProps } = useModalSurface({ onClose, label: "Choisir une connexion" });
 
   return (
     <>
       <div className="fixed inset-0 z-30 bg-black/50" onClick={onClose} />
-      <div ref={ref} {...dialogProps} className="fixed left-1/2 top-1/2 z-40 w-[360px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-lg bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]">
+      <div ref={ref} {...dialogProps} className={`fixed left-1/2 top-1/2 z-40 ${wide ? "w-[560px]" : "w-[360px]"} max-w-[90vw] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-lg bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]`}>
         <div className="border-b border-[var(--c-border)] px-4 py-3">
           <p className="text-[14px] font-medium text-[var(--c-text)]">{title}</p>
           {warning && <p className="mt-1 text-[11px] leading-relaxed text-amber-300">⚠ {warning}</p>}

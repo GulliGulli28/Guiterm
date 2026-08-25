@@ -344,6 +344,11 @@ pub struct SessionOptions {
     /// regarder la changerait pour ceux qui y travaillent.
     #[serde(default)]
     pub hide_status_bar: bool,
+    /// Laisser tmux recevoir les événements souris, ce qui rend la molette
+    /// utile — voir [`persistent_shell::SessionAppearance::mouse`]. Même
+    /// réserve qu'au-dessus pour l'observation.
+    #[serde(default)]
+    pub mouse: bool,
 }
 
 /// Connects to `host_id` and starts an interactive shell, streaming its/// Connects to `host_id` and starts an interactive shell, streaming its
@@ -363,7 +368,8 @@ pub async fn connect_terminal(
     session: SessionOptions,
     channel: Channel,
 ) -> Result<TerminalOpened, String> {
-    let SessionOptions { key: session_key, read_only, hide_status_bar } = session;
+    let SessionOptions { key: session_key, read_only, hide_status_bar, mouse } = session;
+    let appearance = persistent_shell::SessionAppearance { hide_status_bar, mouse };
     let workspace = state.workspace.lock_recover().clone();
     let host = workspace.host(host_id);
     let agent_forward = host.map(|h| h.agent_forward).unwrap_or(false);
@@ -401,13 +407,13 @@ pub async fn connect_terminal(
             let command = if read_only {
                 persistent_shell::observe_command(&key)
             } else {
-                persistent_shell::attach_command(&key, hide_status_bar)
+                persistent_shell::attach_command(&key, appearance)
             };
             (Some(command), Some(key), PersistenceOutcome::Resumed)
         }
         Some(persistent_shell::Probe::Absent) => {
             let key = requested.unwrap_or_else(persistent_shell::new_session_key);
-            (Some(persistent_shell::attach_command(&key, hide_status_bar)), Some(key), PersistenceOutcome::Created)
+            (Some(persistent_shell::attach_command(&key, appearance)), Some(key), PersistenceOutcome::Created)
         }
     };
 

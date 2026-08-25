@@ -102,6 +102,7 @@ export function PersistentSessionsModal({ host, onResume, onClose, onError, onNo
   return (
     <ConnectionPickerModal
       title={`Sessions persistantes — ${host.label}`}
+      wide
       // Deux choses qu'on ne peut pas laisser deviner. Un hôte sans tmux ne
       // peut pas *avoir* de session : sans le dire, une liste vide se lit
       // « tout est propre ». Et « Observer »/« Partager » ne protègent rien :

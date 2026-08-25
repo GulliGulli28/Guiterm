@@ -410,6 +410,10 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
             // Jamais en observation : masquer ou montrer la barre changerait
             // l'apparence de la session pour ceux qui y travaillent.
             hideStatusBar: !readOnly && (preferencesRef.current?.tmuxHideStatusBar ?? true),
+            // La molette : sans elle, remonter dans l'historique ne marche pas
+            // en session persistante — tmux repeint l'écran entier, donc le
+            // tampon de xterm est vide et l'historique vit dans tmux.
+            mouse: !readOnly && (preferencesRef.current?.tmuxMouseMode ?? true),
           }, onData);
         }
         const id = opened.sessionId;

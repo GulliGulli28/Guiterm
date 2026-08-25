@@ -116,6 +116,16 @@ export interface AppPreferences {
    * déjà ouvertes. Ne pas masquer ne veut pas dire afficher de force : l'option
    * est rendue à ce dont elle hérite, donc au `.tmux.conf` de l'utilisateur. */
   tmuxHideStatusBar: boolean;
+  /** Laisser tmux recevoir la souris dans les sessions persistantes.
+   *
+   * Activé par défaut, parce que c'est ce qui rend la molette utile : tmux
+   * repeint l'écran entier à chaque rafraîchissement, donc le tampon de
+   * défilement de xterm reste vide et l'historique vit **dans** tmux — seul
+   * son mode copie y donne accès, et la molette est ce qui l'ouvre.
+   *
+   * Le revers, à dire dans le réglage : quand une application capte la souris,
+   * sélectionner du texte demande de maintenir Maj. */
+  tmuxMouseMode: boolean;
   terminalRightClickMenu: boolean;
   autoReconnect: boolean;
   autoReconnectMaxAttempts: number;
@@ -312,6 +322,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   restoreTabsOnLaunch: true,
   resumePersistentTabsOnLaunch: false,
   tmuxHideStatusBar: true,
+  tmuxMouseMode: true,
   terminalRightClickMenu: true,
   autoReconnect: false,
   autoReconnectMaxAttempts: 5,

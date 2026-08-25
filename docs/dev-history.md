@@ -2327,3 +2327,74 @@ observé) et `stays` (la condition doit rester vraie pendant deux secondes,
 échantillonnée — c'est ce qu'il faut pour prouver une *absence* de changement,
 là où un relevé unique peut passer pour de mauvaises raisons). Six passages
 consécutifs verts après correction.
+
+## Sessions persistantes — deux retours d'usage, et un test qui s'empoisonnait (2026-08-25)
+
+### Le texte rogné dans le gestionnaire de sessions
+
+`ConnectionPickerModal` fait 360 px : la largeur d'une liste de conteneurs
+Docker, où une ligne porte un nom et rien d'autre. Les lignes de sessions
+persistantes en portent bien plus — deux lignes de texte *et* trois actions —
+et **les actions occupent leur largeur même invisibles**, n'étant que
+transparentes hors survol. « Session ouverte il y a… » se retrouvait coupé.
+
+Une prop `wide` plutôt qu'un élargissement pour tout le monde : les pickers
+Docker/K8s n'en ont pas besoin, et une modale plus large pour trois entrées
+serait pire.
+
+Mis sous contrôle par `npm run check:sessions`, qui monte le vrai composant
+dans Chromium et vérifie qu'aucune ligne n'est tronquée (`scrollWidth >
+clientWidth`) — c'est une question de largeur rendue, que ni `tsc` ni vitest ne
+peuvent voir. Le contrôle vérifie aussi que les **trois** verbes sont toujours
+là : c'est leur largeur qui causait le rognage, donc les supprimer le
+« réglerait » pour de mauvaises raisons. Validé en remettant la largeur
+d'origine : les cinq lignes tronquées sont signalées, dont exactement celle
+que l'utilisateur avait remontée.
+
+### Remonter dans l'historique à la molette
+
+Dans une session tmux, le tampon de défilement de xterm est vide : tmux repeint
+l'écran entier à chaque rafraîchissement, et l'historique vit **dans** tmux,
+accessible par son seul mode copie. La molette ne faisait donc rien.
+
+`SessionAppearance` porte maintenant deux options — la barre d'état et la
+souris — posées ensemble à chaque rattachement. Avec `mouse on`, tmux reçoit
+les événements souris, et la molette ouvre le mode copie comme dans n'importe
+quelle configuration tmux.
+
+Le revers est réel et écrit dans le réglage : quand une application capte la
+souris, sélectionner du texte demande de maintenir Maj. D'où un réglage plutôt
+qu'un choix imposé — et, comme pour la barre d'état, « ne pas vouloir »
+utilise `set-option -u`, qui rend l'option au `.tmux.conf` de l'utilisateur au
+lieu de la couper de force.
+
+### La demi-journée perdue : un test qui s'empoisonnait lui-même
+
+`observing_a_session_does_not_resize_it` s'est mis à échouer de façon
+reproductible. Trois hypothèses successives, toutes fausses et toutes
+réfutées par la mesure :
+
+1. *Le chaînage à trois commandes tmux casse quelque chose* — réfuté en
+   reproduisant les deux formes localement : identiques.
+2. *Le sondage perturbe ce qu'il mesure* — réfuté en sondant serré localement :
+   la fenêtre rétrécit quand même.
+3. *Le canal borné bloque tmux faute de lecteur* — réfuté en drainant la
+   sortie : rien ne change.
+
+La vraie cause : le serveur tmux de la machine avait accumulé une vingtaine de
+sessions `guiterm-*` — laissées par mes propres essais **et par chaque échec de
+test**, dont une avec un client encore attaché. La suite se rendait
+elle-même rouge, un échec produisant les conditions du suivant. Un
+`tmux kill-server` a rendu six passages verts d'affilée, en 4 s au lieu de 13.
+
+D'où `reap_stale_sessions`, appelé au début de chaque test : il supprime les
+sessions `guiterm-` de plus de dix minutes. Le seuil d'âge est ce qui rend
+l'opération sûre malgré les tests qui tournent **en parallèle** dans le même
+binaire — leurs sessions ont quelques secondes, celles d'un run précédent des
+minutes.
+
+**La leçon, plus utile que le correctif** : un test d'intégration qui crée un
+état *hors* du processus doit le nettoyer y compris quand il échoue, sinon son
+premier échec devient permanent. Et trois hypothèses réfutées par la mesure
+valent mieux qu'une hypothèse plausible retenue sans preuve — mais il aurait
+fallu regarder l'état de la machine avant de soupçonner le code.

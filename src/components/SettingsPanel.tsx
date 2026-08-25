@@ -679,6 +679,17 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
                   aussi aux sessions déjà ouvertes — et ne pas masquer rend simplement l'option à votre
                   propre <span className="font-mono">.tmux.conf</span>.
                 </p>
+                <ToggleRow
+                  label="Molette et souris dans les sessions tmux"
+                  checked={preferences.tmuxMouseMode}
+                  onChange={(v) => onPreferencesChange({ ...preferences, tmuxMouseMode: v })}
+                />
+                <p className="px-2 pb-1 text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+                  Ce qui permet de remonter dans l'historique à la molette : tmux repeint l'écran
+                  entier, donc le défilement du terminal lui-même ne montre rien — l'historique est
+                  dans tmux. En contrepartie, sélectionner du texte à la souris demande alors de
+                  maintenir <span className="font-mono">Maj</span>.
+                </p>
               </div>
             </section>
 

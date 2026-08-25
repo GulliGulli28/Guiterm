@@ -19,6 +19,44 @@ use termius_core::shell::quote;
 use termius_core::ssh::{self, ShellInput, ShellSession};
 use termius_core::{persistent_shell, persistent_shell::Probe};
 
+/// Barre d'état visible et souris rendue à la configuration de l'utilisateur.
+/// C'est le cas où l'arithmétique de `client_size` compte — la fenêtre vaut le
+/// client moins une ligne — donc celui que les tests de taille doivent exercer.
+const SHOW_STATUS: persistent_shell::SessionAppearance =
+    persistent_shell::SessionAppearance { hide_status_bar: false, mouse: false };
+/// Les deux options telles que l'app les pose par défaut.
+const HIDE_STATUS: persistent_shell::SessionAppearance =
+    persistent_shell::SessionAppearance { hide_status_bar: true, mouse: true };
+
+/// Supprime les sessions laissées par des exécutions **précédentes**.
+///
+/// Sans ça la suite s'empoisonne elle-même : un test qui échoue au milieu
+/// laisse sa session tourner — parfois avec un client encore attaché — et
+/// l'exécution suivante attend un détachement qui n'arrive jamais, puis échoue
+/// à son tour. Une demi-journée perdue à chercher un bug dans tmux avant de
+/// comprendre que le coupable était la vingtaine de sessions accumulées.
+///
+/// Le seuil d'âge est ce qui rend l'opération sûre malgré les tests qui
+/// tournent **en parallèle** dans le même binaire : leurs sessions ont
+/// quelques secondes, celles d'un run précédent des minutes.
+async fn reap_stale_sessions(connection: &termius_core::ssh::Connection) {
+    const STALE_AFTER_MS: u64 = 10 * 60 * 1000;
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+    let Ok(listing) = persistent_shell::list(connection).await else { return };
+    for session in listing.sessions {
+        if session.created_at_ms.is_some_and(|ms| now_ms.saturating_sub(ms) > STALE_AFTER_MS) {
+            let _ = ssh::run_command_capture(
+                connection,
+                &format!("tmux kill-session -t {}", quote(&session.key)),
+            )
+            .await;
+        }
+    }
+}
+
 /// Tape une ligne dans le shell, terminaison comprise.
 async fn type_line(session: &ShellSession, line: &str) {
     session
@@ -141,6 +179,7 @@ async fn a_shell_survives_the_connection_that_opened_it() {
         eprintln!("tmux absent de la machine de test — scénario ignoré");
         return;
     }
+    reap_stale_sessions(&first).await;
     assert_eq!(
         persistent_shell::probe(&first, Some(&session_key)).await,
         Probe::Absent,
@@ -152,7 +191,7 @@ async fn a_shell_survives_the_connection_that_opened_it() {
         80,
         24,
         false,
-        Some(&persistent_shell::attach_command(&session_key, false)),
+        Some(&persistent_shell::attach_command(&session_key, SHOW_STATUS)),
     )
     .await
     .expect("ouverture de la session tmux");
@@ -179,7 +218,7 @@ async fn a_shell_survives_the_connection_that_opened_it() {
         80,
         24,
         false,
-        Some(&persistent_shell::attach_command(&session_key, false)),
+        Some(&persistent_shell::attach_command(&session_key, SHOW_STATUS)),
     )
     .await
     .expect("rattachement à la session tmux");
@@ -244,6 +283,7 @@ async fn a_session_this_app_did_not_open_is_never_killed() {
         eprintln!("tmux absent de la machine de test — scénario ignoré");
         return;
     }
+    reap_stale_sessions(&connection).await;
 
     // Un nom qui ne porte pas le préfixe de l'app, unique pour ne pas marcher
     // sur une vraie session de la machine de test.
@@ -337,10 +377,11 @@ async fn observing_a_session_does_not_resize_it() {
         eprintln!("tmux absent de la machine de test — scénario ignoré");
         return;
     }
+    reap_stale_sessions(&connection).await;
 
     // Une session large, ouverte par un client large, puis détachée.
     let owner = ssh::open_shell_with_command(
-        &connection, 200, 50, false, Some(&persistent_shell::attach_command(&session_key, false)),
+        &connection, 200, 50, false, Some(&persistent_shell::attach_command(&session_key, SHOW_STATUS)),
     ).await.expect("ouverture");
     // Attendre que tmux ait vraiment pris la main : sans marqueur, la mesure
     // suivante pourrait tomber avant que la session existe.
@@ -378,7 +419,7 @@ async fn observing_a_session_does_not_resize_it() {
     // de mesurer le cas nominal, sinon les deux mesures ne parlent pas de la
     // même chose.
     let restore = ssh::open_shell_with_command(
-        &connection, 200, 50, false, Some(&persistent_shell::attach_command(&session_key, false)),
+        &connection, 200, 50, false, Some(&persistent_shell::attach_command(&session_key, SHOW_STATUS)),
     ).await.expect("réattachement large");
     let restored = wait_for(
         &connection, &session_key, "la session n'est pas revenue à 200 de large",
@@ -424,6 +465,7 @@ async fn observing_an_absent_session_fails_rather_than_creating_one() {
         eprintln!("tmux absent de la machine de test — scénario ignoré");
         return;
     }
+    reap_stale_sessions(&connection).await;
 
     let absent = persistent_shell::new_session_key();
     let output = ssh::run_command_capture(&connection, &persistent_shell::observe_command(&absent))
@@ -438,14 +480,14 @@ async fn observing_an_absent_session_fails_rather_than_creating_one() {
     );
 }
 
-/// Masquer la barre d'état marche, et se lit ensuite dans le listing.
+/// Les options d'apparence sont appliquées, et se relisent ensuite.
 ///
-/// Deux choses d'un coup : que le point-virgule échappé arrive bien à tmux
+/// Trois choses d'un coup : que le point-virgule échappé arrive bien à tmux
 /// comme séparateur de commandes (le shell distant est entre les deux), et que
 /// `status_lines` retombe alors à 0 — dont dépend toute l'arithmétique de
 /// `client_size`.
 #[tokio::test]
-async fn hiding_the_status_bar_is_applied_and_visible_in_the_listing() {
+async fn session_appearance_options_are_applied_and_readable() {
     let key = ClientKey::generate();
     let sshd = TestSshd::start("tmux-status", &key.public);
     let host = test_host(&sshd, &key, "test-status");
@@ -458,26 +500,38 @@ async fn hiding_the_status_bar_is_applied_and_visible_in_the_listing() {
         eprintln!("tmux absent de la machine de test — scénario ignoré");
         return;
     }
+    reap_stale_sessions(&connection).await;
     let session_key = persistent_shell::new_session_key();
 
     let hidden = ssh::open_shell_with_command(
-        &connection, 100, 30, false, Some(&persistent_shell::attach_command(&session_key, true)),
+        &connection, 100, 30, false, Some(&persistent_shell::attach_command(&session_key, HIDE_STATUS)),
     ).await.expect("ouverture barre masquée");
     let with_hidden = wait_until_attached(&connection, &session_key, 1).await;
+    let mouse_when_hidden = ssh::run_command_capture(
+        &connection, &format!("tmux show-options -t {} mouse", quote(&session_key)),
+    ).await.expect("lire l'option souris").stdout;
     drop(hidden);
     wait_until_attached(&connection, &session_key, 0).await;
 
     // Et l'inverse : ne pas masquer rend l'option à ce dont elle hérite, donc
     // la barre revient sur une machine qui l'a par défaut.
     let shown = ssh::open_shell_with_command(
-        &connection, 100, 30, false, Some(&persistent_shell::attach_command(&session_key, false)),
+        &connection, 100, 30, false, Some(&persistent_shell::attach_command(&session_key, SHOW_STATUS)),
     ).await.expect("ouverture barre visible");
     let with_shown = wait_until_attached(&connection, &session_key, 1).await;
+    let mouse_when_shown = ssh::run_command_capture(
+        &connection, &format!("tmux show-options -t {} mouse", quote(&session_key)),
+    ).await.expect("lire l'option souris").stdout;
     drop(shown);
 
     let _ = persistent_shell::kill(&connection, &session_key).await;
 
     assert_eq!(with_hidden.status_lines, 0, "la barre d'état n'a pas été masquée");
+    // La souris avec : c'est elle qui rend la molette utile, l'historique
+    // vivant dans tmux et non dans le tampon de xterm. Et « ne pas la vouloir »
+    // rend l'option à la configuration de l'utilisateur au lieu de la couper.
+    assert!(mouse_when_hidden.contains("mouse on"), "souris non activée : {mouse_when_hidden}");
+    assert!(!mouse_when_shown.contains("mouse on"), "souris laissée active : {mouse_when_shown}");
     // Barre masquée : la fenêtre occupe tout le client.
     assert_eq!((with_hidden.width, with_hidden.height), (Some(100), Some(30)));
     assert_eq!(with_shown.status_lines, 1, "la barre d'état n'est pas revenue");

@@ -412,7 +412,12 @@ limité (pas de curseur rendu, molette approximative), voir
   (`lib/observedFont.ts`) pour que la grille tienne. La barre d'état tmux est
   masquée par défaut (`tmuxHideStatusBar`), réappliquée à chaque rattachement,
   et « ne pas masquer » rend l'option au `.tmux.conf` de l'utilisateur (`-u`)
-  plutôt que de forcer `on`.
+  plutôt que de forcer `on` — idem pour la souris (`tmuxMouseMode`, activée par
+  défaut : sans elle la molette ne remonte pas dans l'historique, qui vit dans
+  tmux et non dans le tampon de xterm). **Les tests d'intégration tmux
+  nettoient les sessions `guiterm-` de plus de dix minutes au démarrage**
+  (`reap_stale_sessions`) : sans ça un échec laisse une session derrière lui et
+  rend rouge l'exécution suivante, indéfiniment.
 
 - **xterm.js avale les raccourcis clavier.** xterm.js appelle
   `stopPropagation()` sur toute touche qu'il traite lui-même (dès que

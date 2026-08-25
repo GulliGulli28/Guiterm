@@ -279,7 +279,31 @@ pub async fn probe(connection: &Connection, key: Option<&str>) -> Probe {
     }
 }
 
-/// La commande à exécuter à la place du shell.
+/// Les options que l'app pose sur ses propres sessions tmux.
+///
+/// Deux réglages, tous deux réappliqués à **chaque** rattachement : sans ça,
+/// changer d'avis n'aurait aucun effet sur les sessions déjà ouvertes. Jamais
+/// posées en observation — changer l'apparence d'une session qu'on ne fait que
+/// regarder la changerait pour ceux qui y travaillent.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SessionAppearance {
+    /// Masquer la barre d'état de tmux, pour qu'une session persistante
+    /// ressemble à un terminal ordinaire.
+    pub hide_status_bar: bool,
+    /// Laisser tmux recevoir les événements souris. C'est ce qui rend la
+    /// molette utile : sans ça elle fait défiler le tampon de xterm, qui est
+    /// vide puisque tmux repeint l'écran entier — l'historique est **dans**
+    /// tmux, et seul son mode copie y donne accès.
+    pub mouse: bool,
+}
+
+impl Default for SessionAppearance {
+    fn default() -> Self {
+        Self { hide_status_bar: true, mouse: true }
+    }
+}
+
+/// La commande à exécuter à la place du shell./// La commande à exécuter à la place du shell.
 ///
 /// `-A` plutôt qu'un `new-session`/`attach-session` choisi d'après le sondage :
 /// il crée *ou* rattache selon ce qui existe **au moment où il tourne**. Le
@@ -287,22 +311,28 @@ pub async fn probe(connection: &Connection, key: Option<&str>) -> Probe {
 /// rejeu des commandes de démarrage —, et une session ouverte entre les deux
 /// (par un autre onglet, ou à la main sur le serveur) est rattachée au lieu
 /// d'échouer.
-pub fn attach_command(key: &str, hide_status_bar: bool) -> String {
+pub fn attach_command(key: &str, appearance: SessionAppearance) -> String {
     let quoted = quote(key);
     // `\;` : le shell distant le rend à tmux comme un point-virgule littéral,
     // qui sépare deux commandes tmux. Vérifié contre un vrai tmux 3.4, en
     // création comme en rattachement.
     //
-    // `-u` plutôt que `status on` quand on ne masque pas : `-u` remet l'option
-    // à ce dont elle hérite, donc au `.tmux.conf` de l'utilisateur. Forcer
-    // `on` afficherait une barre à quelqu'un qui l'a délibérément coupée dans
-    // sa propre configuration.
-    let status = if hide_status_bar {
-        format!("set-option -t {quoted} status off")
-    } else {
-        format!("set-option -u -t {quoted} status")
+    // `-u` plutôt qu'une valeur explicite quand l'option n'est pas voulue :
+    // `-u` la remet à ce dont elle hérite, donc au `.tmux.conf` de
+    // l'utilisateur. Forcer `off` couperait une souris ou une barre d'état que
+    // quelqu'un a délibérément activées dans sa propre configuration.
+    let option = |name: &str, wanted: bool, value: &str| {
+        if wanted {
+            format!(" \\; set-option -t {quoted} {name} {value}")
+        } else {
+            format!(" \\; set-option -u -t {quoted} {name}")
+        }
     };
-    format!("tmux new-session -A -s {quoted} \\; {status}")
+    format!(
+        "tmux new-session -A -s {quoted}{}{}",
+        option("status", appearance.hide_status_bar, "off"),
+        option("mouse", appearance.mouse, "on"),
+    )
 }
 
 /// La commande pour **observer** une session sans pouvoir y taper.
@@ -373,22 +403,26 @@ mod tests {
     /// Et même en cas de clé valide, la commande reste intégralement citée :
     /// la validation et l'échappement sont deux filets, pas un seul.
     #[test]
-    fn the_attach_command_quotes_its_key() {
-        let hidden = attach_command("guiterm-abc", true);
-        assert!(hidden.starts_with("tmux new-session -A -s 'guiterm-abc'"), "{hidden}");
-        // Un point-virgule échappé pour le shell distant, qui le rend à tmux
-        // comme séparateur de commandes.
-        assert!(hidden.contains(r" \; set-option -t 'guiterm-abc' status off"), "{hidden}");
+    fn the_attach_command_quotes_its_key_and_carries_its_options() {
+        let both = attach_command("guiterm-abc", SessionAppearance { hide_status_bar: true, mouse: true });
+        assert!(both.starts_with("tmux new-session -A -s 'guiterm-abc'"), "{both}");
+        // Des points-virgules échappés pour le shell distant, qui les rend à
+        // tmux comme séparateurs de commandes.
+        assert!(both.contains(r" \; set-option -t 'guiterm-abc' status off"), "{both}");
+        assert!(both.contains(r" \; set-option -t 'guiterm-abc' mouse on"), "{both}");
     }
 
-    /// Ne pas masquer, ce n'est pas afficher de force : `-u` rend l'option à
-    /// ce dont elle hérite, donc au `.tmux.conf` de l'utilisateur. Quelqu'un
-    /// qui a coupé sa barre chez lui ne doit pas la voir revenir ici.
+    /// Ne pas vouloir une option, ce n'est pas la couper de force : `-u` la
+    /// rend à ce dont elle hérite, donc au `.tmux.conf` de l'utilisateur.
+    /// Quelqu'un qui a coupé sa barre — ou activé sa souris — chez lui ne doit
+    /// pas voir l'app décider à sa place.
     #[test]
-    fn not_hiding_the_status_bar_defers_to_the_users_config() {
-        let shown = attach_command("guiterm-abc", false);
-        assert!(shown.contains(r"set-option -u -t 'guiterm-abc' status"), "{shown}");
-        assert!(!shown.contains("status on"), "{shown}");
+    fn unwanted_options_are_unset_rather_than_forced() {
+        let neither = attach_command("guiterm-abc", SessionAppearance { hide_status_bar: false, mouse: false });
+        assert!(neither.contains(r"set-option -u -t 'guiterm-abc' status"), "{neither}");
+        assert!(neither.contains(r"set-option -u -t 'guiterm-abc' mouse"), "{neither}");
+        assert!(!neither.contains("status on"), "{neither}");
+        assert!(!neither.contains("mouse off"), "{neither}");
     }
 
     #[test]
