@@ -506,7 +506,15 @@ async fn session_appearance_options_are_applied_and_readable() {
     let hidden = ssh::open_shell_with_command(
         &connection, 100, 30, false, Some(&persistent_shell::attach_command(&session_key, HIDE_STATUS)),
     ).await.expect("ouverture barre masquée");
-    let with_hidden = wait_until_attached(&connection, &session_key, 1).await;
+    // Attendre l'état complet, pas seulement l'attache : la hauteur de la
+    // fenêtre suit la barre d'état avec un temps de retard, et relever dès que
+    // le client est enregistré lit parfois la valeur d'avant. L'attente est
+    // l'assertion — elle échoue en nommant ce qu'elle n'a pas obtenu.
+    let with_hidden = wait_for(
+        &connection, &session_key,
+        "barre masquée attendue, fenêtre 100×30",
+        |s| s.status_lines == 0 && (s.width, s.height) == (Some(100), Some(30)),
+    ).await;
     let mouse_when_hidden = ssh::run_command_capture(
         &connection, &format!("tmux show-options -t {} mouse", quote(&session_key)),
     ).await.expect("lire l'option souris").stdout;
@@ -518,7 +526,11 @@ async fn session_appearance_options_are_applied_and_readable() {
     let shown = ssh::open_shell_with_command(
         &connection, 100, 30, false, Some(&persistent_shell::attach_command(&session_key, SHOW_STATUS)),
     ).await.expect("ouverture barre visible");
-    let with_shown = wait_until_attached(&connection, &session_key, 1).await;
+    let with_shown = wait_for(
+        &connection, &session_key,
+        "barre visible attendue, fenêtre 100×29",
+        |s| s.status_lines == 1 && (s.width, s.height) == (Some(100), Some(29)),
+    ).await;
     let mouse_when_shown = ssh::run_command_capture(
         &connection, &format!("tmux show-options -t {} mouse", quote(&session_key)),
     ).await.expect("lire l'option souris").stdout;
