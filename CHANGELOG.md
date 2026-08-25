@@ -68,7 +68,19 @@ This changelog starts 2026-07-21 — for earlier versions, see
   intercept it inside a terminal — but binding an app action that does would
   make every persistent session unusable.
 
+- The mouse wheel now scrolls back through history in a persistent session. It
+  did nothing before, and not by oversight: tmux repaints the whole screen, so
+  the terminal's own scrollback stays empty and the history lives inside tmux.
+  Handing tmux the mouse is what opens it. The trade-off, in the setting
+  itself (Général → Session): while an application holds the mouse, selecting
+  text needs Shift held down. Turning it off hands the option back to your own
+  `.tmux.conf` rather than forcing it off.
+
 ### Fixed
+- Session rows in the persistent-session manager were cut off mid-sentence
+  ("Session ouverte il y a…"). The dialog was sized for a container list, where
+  a row is just a name; these rows carry two lines of text and three actions,
+  and the actions take up their width even when they are only visible on hover.
 - Closing a terminal tab left the remote end attached. The SSH channel was only
   sent an end-of-input, never closed, and a remote program that ignores that —
   `tmux attach` is one — kept running until the whole SSH connection went away.
