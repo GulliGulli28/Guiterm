@@ -9,13 +9,19 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+## [3.2.0] - 2026-08-25
+
 ### Added
-- Persistent terminal sessions, per host, off by default. Set "Session
-  persistante" to `tmux` on a host and its terminals run inside a named
-  server-side session: a dropped VPN, a laptop going to sleep, closing the tab,
-  restarting the app or rebooting your machine all reattach to the same screen
-  — working directory, running command and all. Until now a reconnection gave
-  you back *a* shell, not *your* shell.
+
+**Persistent terminal sessions.** Until now a dropped connection gave you back
+*a* shell, not *your* shell — the working directory, the running command and
+whatever was on screen went with it. Set "Session persistante" to `tmux` on a
+host (off by default, per host) and its terminals run inside a named
+server-side session that outlives the connection carrying it.
+
+- A dropped VPN, a laptop going to sleep, closing the tab, restarting the app
+  or rebooting your machine all reattach to the same screen, working directory
+  and running command included.
 - The terminal now says which one you got: "session reprise" when your work is
   back, and a one-line notice when the host has no `tmux` and the session
   therefore won't survive. Nothing fails in that case — the connection opens
@@ -56,7 +62,6 @@ This changelog starts 2026-07-21 — for earlier versions, see
   needs an SSH account on that host, and there is no relay. Neither "Observer"
   nor "Partager" is a security boundary — anyone with a shell on the host can
   attach with write access — and the manager says so on screen.
-
 - tmux's own status bar is hidden in persistent sessions, so they look like an
   ordinary terminal rather than sprouting a green bar. Turn it back on in
   Général → Session if you use tmux windows (Ctrl+B then c) and want to see
@@ -67,7 +72,6 @@ This changelog starts 2026-07-21 — for earlier versions, see
   readline binding. Nothing is broken today — the sidebar shortcut does not
   intercept it inside a terminal — but binding an app action that does would
   make every persistent session unusable.
-
 - The mouse wheel now scrolls back through history in a persistent session. It
   did nothing before, and not by oversight: tmux repaints the whole screen, so
   the terminal's own scrollback stays empty and the history lives inside tmux.
@@ -75,18 +79,6 @@ This changelog starts 2026-07-21 — for earlier versions, see
   itself (Général → Session): while an application holds the mouse, selecting
   text needs Shift held down. Turning it off hands the option back to your own
   `.tmux.conf` rather than forcing it off.
-
-### Fixed
-- Session rows in the persistent-session manager were cut off mid-sentence
-  ("Session ouverte il y a…"). The dialog was sized for a container list, where
-  a row is just a name; these rows carry two lines of text and three actions,
-  and the actions take up their width even when they are only visible on hover.
-- Closing a terminal tab left the remote end attached. The SSH channel was only
-  sent an end-of-input, never closed, and a remote program that ignores that —
-  `tmux attach` is one — kept running until the whole SSH connection went away.
-  With persistent sessions this was visible as a session stuck on "open
-  elsewhere", still constraining the window size for whoever was really working
-  in it. Applies to SSH, Docker exec and Kubernetes exec alike.
 
 ### Changed
 - Every field where you pick a host now shows your folders, not a flat list.
@@ -104,6 +96,18 @@ This changelog starts 2026-07-21 — for earlier versions, see
   below it, and the filter now matches tags too.
 - The command palette lists hosts by their folder path ("Se connecter — Prod ›
   Web › api") and finds them by tag or address as well as by name.
+
+### Fixed
+- Session rows in the persistent-session manager were cut off mid-sentence
+  ("Session ouverte il y a…"). The dialog was sized for a container list, where
+  a row is just a name; these rows carry two lines of text and three actions,
+  and the actions take up their width even when they are only visible on hover.
+- Closing a terminal tab left the remote end attached. The SSH channel was only
+  sent an end-of-input, never closed, and a remote program that ignores that —
+  `tmux attach` is one — kept running until the whole SSH connection went away.
+  With persistent sessions this was visible as a session stuck on "open
+  elsewhere", still constraining the window size for whoever was really working
+  in it. Applies to SSH, Docker exec and Kubernetes exec alike.
 
 ## [3.1.1] - 2026-08-24
 
