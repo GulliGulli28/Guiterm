@@ -225,7 +225,10 @@ fn read_range(path: &std::path::Path, position: u64, len: u32) -> std::io::Resul
 mod windows_impl {
     use ironrdp::cliprdr::backend::{CliprdrBackendFactory, ClipboardMessage, ClipboardMessageProxy};
     use tokio::sync::{mpsc, oneshot};
-    use windows::Win32::UI::WindowsAndMessaging::{DispatchMessageW, GetMessageW, MSG, TranslateMessage};
+    use windows::Win32::Foundation::{LPARAM, WPARAM};
+    use windows::Win32::UI::WindowsAndMessaging::{
+        DispatchMessageW, GetMessageW, MSG, SendMessageW, TranslateMessage, WM_ACTIVATEAPP, WM_CLIPBOARDUPDATE,
+    };
 
     /// Forwards `ClipboardMessage`s from the clipboard thread into the tokio
     /// world, where `active_session` drives the actual `CliprdrClient` calls
@@ -282,6 +285,35 @@ mod windows_impl {
                 let ret = unsafe { GetMessageW(&mut msg, None, 0, 0) };
                 if ret.0 <= 0 {
                     break; // WM_QUIT (0) or an error (-1) — stop pumping either way
+                }
+                if msg.message == WM_CLIPBOARDUPDATE {
+                    // `ironrdp-cliprdr-native` drops every `WM_CLIPBOARDUPDATE`
+                    // while it believes its window is the active one — its
+                    // guard against re-announcing a clipboard the user just
+                    // filled *from* the remote side. It starts out assuming
+                    // active (`window_is_active: true`) and only ever learns
+                    // otherwise from a `WM_ACTIVATE`/`WM_ACTIVATEAPP`, which a
+                    // hidden window in a sidecar process that never holds the
+                    // foreground is never sent — so the flag stays stuck at
+                    // `true` and *no* local copy is ever announced to the
+                    // server. Symptom: pasting into the remote desktop keeps
+                    // yielding whatever was on the clipboard when the session
+                    // opened (the one format list the server asks for itself,
+                    // via `on_request_format_list`), forever.
+                    //
+                    // Telling it the truth — this window is not active — before
+                    // it sees the update restores the announcement. The other
+                    // guard, the one that actually matters here, is untouched:
+                    // an update whose clipboard owner *is* this window (i.e. we
+                    // just rendered remote data into it) is still recognised as
+                    // spurious and not echoed back.
+                    //
+                    // SAFETY: `msg.hwnd` was filled in by `GetMessageW` above and is
+                    // the clipboard window on this very thread, so this dispatches
+                    // straight into its subclass chain with no re-entrancy concern.
+                    unsafe {
+                        SendMessageW(msg.hwnd, WM_ACTIVATEAPP, Some(WPARAM(0)), Some(LPARAM(0)));
+                    }
                 }
                 // SAFETY: `msg` was just populated by the successful `GetMessageW` call above.
                 unsafe {
