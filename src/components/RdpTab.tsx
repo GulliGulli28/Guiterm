@@ -50,6 +50,12 @@ export const RdpTab = forwardRef<TerminalTabHandle, RdpTabProps>(function RdpTab
   const sessionIdRef = useRef<string | null>(null);
   const [status, setStatus] = useState<"connecting" | "open" | "failed" | "closed">("connecting");
   const [error, setError] = useState("");
+  // Bumped by « Réessayer » : c'est la seule dépendance de l'effet de
+  // connexion en dehors de l'hôte, donc l'incrémenter rejoue tout le cycle
+  // (nettoyage de l'ancienne session comprise) sans avoir à fermer puis
+  // rouvrir l'onglet — un échec de connexion RDP est souvent transitoire
+  // (serveur qui redémarre, VPN qui remonte), et l'onglet garde sa place.
+  const [attempt, setAttempt] = useState(0);
   const preferencesRef = useRef(preferences);
   useEffect(() => { preferencesRef.current = preferences; }, [preferences]);
 
@@ -127,6 +133,8 @@ export const RdpTab = forwardRef<TerminalTabHandle, RdpTabProps>(function RdpTab
     let unlistenPointer: UnlistenFn | null = null;
 
     const connect = async () => {
+      setStatus("connecting");
+      setError("");
       try {
         // Measured from the container (always laid out, regardless of the
         // canvas itself being hidden pre-connect) so the session starts at
@@ -195,7 +203,7 @@ export const RdpTab = forwardRef<TerminalTabHandle, RdpTabProps>(function RdpTab
       }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [host.id]);
+  }, [host.id, attempt]);
 
   // Focus the canvas whenever this tab becomes the active/visible one, so
   // keyboard input starts flowing without an extra click.
@@ -322,16 +330,42 @@ export const RdpTab = forwardRef<TerminalTabHandle, RdpTabProps>(function RdpTab
   return (
     <div ref={containerRef} className="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-auto bg-black p-2">
       {status === "connecting" && <div className="absolute inset-0 flex items-center justify-center text-[var(--c-text-secondary)]">Connexion à {host.label}…</div>}
-      {status === "failed" && <div className="absolute inset-0 flex items-center justify-center px-8 text-center text-rose-300">Échec de connexion : {error}</div>}
+      {status === "failed" && (
+        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 text-center">
+          <p className="text-rose-300">Échec de connexion : {error}</p>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setAttempt((n) => n + 1)}
+              className="rounded-md bg-[var(--c-accent)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--c-accent-hover)]"
+            >
+              Réessayer
+            </button>
+            <button
+              onClick={() => onDisconnect?.()}
+              className="rounded-md bg-[var(--c-bg2)] px-3 py-1.5 text-xs font-medium text-[var(--c-text)] hover:bg-white/5"
+            >
+              Fermer l'onglet
+            </button>
+          </div>
+        </div>
+      )}
       {status === "closed" && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-[var(--c-text-secondary)]">
           <p>Session RDP terminée.</p>
-          <button
-            onClick={() => onDisconnect?.()}
-            className="rounded-md bg-[var(--c-accent)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--c-accent-hover)]"
-          >
-            Fermer l'onglet
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setAttempt((n) => n + 1)}
+              className="rounded-md bg-[var(--c-accent)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--c-accent-hover)]"
+            >
+              Reconnecter
+            </button>
+            <button
+              onClick={() => onDisconnect?.()}
+              className="rounded-md bg-[var(--c-bg2)] px-3 py-1.5 text-xs font-medium text-[var(--c-text)] hover:bg-white/5"
+            >
+              Fermer l'onglet
+            </button>
+          </div>
         </div>
       )}
       <canvas
