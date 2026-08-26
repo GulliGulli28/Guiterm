@@ -106,6 +106,11 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
   const [updateStatus, setUpdateStatus] = useState<UpdateStatus>("idle");
   const [updateError, setUpdateError] = useState<string | null>(null);
   const [pendingUpdate, setPendingUpdate] = useState<Update | null>(null);
+  // Version que le point de terminaison annonce réellement, quand elle n'est
+  // *pas* plus récente que l'installée — sans elle, « À jour ✓ » ne distingue
+  // pas « GitHub confirme que vous avez la dernière » de « GitHub annonce
+  // encore la précédente », les deux cas où `check()` répond `null`.
+  const [advertisedVersion, setAdvertisedVersion] = useState<string | null>(null);
   const [localShells, setLocalShells] = useState<{ id: string; label: string }[]>([]);
   const [diagnosticsPath, setDiagnosticsPath] = useState<string | null>(null);
 
@@ -115,18 +120,35 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
 
   const fileFilters = [{ name: "JSON", extensions: ["json"] }];
 
+  // Un mandataire d'entreprise peut servir un `latest.json` mémorisé ; côté
+  // GitHub la redirection `releases/latest` est déjà en `no-cache`, donc ceci
+  // ne coûte rien et couvre le seul intermédiaire sur lequel on a prise.
+  const noCache = { headers: { "Cache-Control": "no-cache", Pragma: "no-cache" } };
+
   const checkForUpdates = async () => {
     setUpdateStatus("checking");
     setUpdateError(null);
+    setAdvertisedVersion(null);
     try {
-      const result = await check();
+      const result = await check(noCache);
       if (result) {
         setPendingUpdate(result);
         setUpdateStatus("available");
-      } else {
-        setPendingUpdate(null);
-        setUpdateStatus("upToDate");
+        return;
       }
+      setPendingUpdate(null);
+      // `check()` a répondu « rien de plus récent » sans dire ce qu'il a lu.
+      // `allowDowngrades` change le seul critère de comparaison en « version
+      // différente de l'installée », donc une deuxième passe dit lequel des
+      // deux « rien » c'était : `null` = le point de terminaison annonce
+      // exactement la version installée ; un résultat = il en annonce encore
+      // une plus ancienne, c'est-à-dire qu'une release fraîchement publiée
+      // n'y est pas encore visible. Jamais proposé à l'installation — on ne
+      // lit que son numéro, et la ressource est refermée aussitôt.
+      const stale = await check({ ...noCache, allowDowngrades: true });
+      setAdvertisedVersion(stale?.version ?? null);
+      await stale?.close();
+      setUpdateStatus("upToDate");
     } catch (e) {
       setUpdateStatus("error");
       setUpdateError(String(e));
@@ -632,6 +654,16 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
                     {(updateStatus === "idle" || updateStatus === "error") && "Vérifier les mises à jour"}
                     {updateStatus === "upToDate" && "À jour ✓"}
                   </button>
+                )}
+
+                {updateStatus === "upToDate" && (
+                  <p className="text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+                    {advertisedVersion
+                      ? <>GitHub annonce encore la version <span className="font-mono">{advertisedVersion}</span> comme la
+                        dernière publiée. Une release plus récente vient peut-être d'être publiée sans être encore
+                        visible ici — réessayez dans quelques minutes.</>
+                      : <>GitHub annonce la même version que celle installée.</>}
+                  </p>
                 )}
 
                 {updateStatus === "error" && updateError && (

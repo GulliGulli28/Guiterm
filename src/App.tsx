@@ -257,7 +257,11 @@ export default function App() {
     if (!preferences.notifyOnUpdateAvailable) return;
     let notifiedVersion: string | null = null;
     const runCheck = () => {
-      checkForUpdate()
+      // Mêmes en-têtes anti-cache que la vérification manuelle
+      // (`SettingsPanel`) : un mandataire qui garderait `latest.json` en
+      // mémoire retarderait la notification de plusieurs heures, la prochaine
+      // passe n'ayant lieu que six heures plus tard.
+      checkForUpdate({ headers: { "Cache-Control": "no-cache", Pragma: "no-cache" } })
         .then((update) => {
           if (update && update.version !== notifiedVersion) {
             notifiedVersion = update.version;
