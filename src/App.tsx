@@ -290,6 +290,23 @@ export default function App() {
     activeTabRecording, startActiveRecording, stopActiveRecording,
   } = useTabs({ workspace, preferences, terminalRefs, pushNotification, reportError, refreshWorkspace });
 
+  // Passer sur l'onglet Flotte ou Diagnostic réseau amène son panneau de
+  // cibles, comme l'ouvrir le fait déjà. Sans ça, revenir d'un onglet à
+  // l'autre laissait lire la composition de l'un au-dessus de l'arborescence
+  // de l'autre — deux moitiés d'écrans différents, et une commande sur le
+  // point d'être lancée sur des cibles qui ne sont pas celles affichées.
+  //
+  // La visibilité de la barre n'est délibérément **pas** forcée, contrairement
+  // à `showTargetsPanel` : replier la barre est un geste explicite, et un
+  // simple changement d'onglet n'a pas à le défaire. Seul `activeTabId` est en
+  // dépendance — y ajouter `tabs` rejouerait l'effet à chaque ouverture ou
+  // fermeture d'un onglet quelconque.
+  useEffect(() => {
+    const kind = tabs.find((t) => t.id === activeTabId)?.kind;
+    if (kind === "fleet" || kind === "netdiag") setSidebarPanel(kind);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTabId]);
+
   /** « Ouvrir un terminal ici », depuis un panneau de transfert : même cible
    * (locale, hôte SSH, conteneur Docker, pod K8s) et un `cd` vers le dossier
    * affiché. La commande est envoyée par l'onglet lui-même une fois la session
