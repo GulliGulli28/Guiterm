@@ -5,6 +5,7 @@ import { SearchAddon } from "@xterm/addon-search";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { api, onTerminalClosed } from "../lib/api";
+import { ConnectionFailed } from "./ConnectionFailed";
 import { scrollbackText, type TerminalTabHandle } from "./TerminalTab";
 import type { AppPreferences } from "../lib/preferences";
 import { DEFAULT_PREFERENCES, TERMINAL_THEMES, auroraLayerBackground } from "../lib/preferences";
@@ -36,6 +37,11 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
   const sessionIdRef = useRef<string | null>(null);
   const [status, setStatus] = useState<"connecting" | "open" | "failed">("connecting");
   const [error, setError] = useState("");
+  // Incrémenté par « Réessayer » (`ConnectionFailed`) : seule dépendance de
+  // l'effet de connexion en dehors du shell, donc l'incrémenter rejoue tout
+  // le cycle, nettoyage de la session précédente compris.
+  const [attempt, setAttempt] = useState(0);
+
   const [searchOpen, setSearchOpen] = useState(false);
   const searchOpenRef = useRef(searchOpen);
   useEffect(() => { searchOpenRef.current = searchOpen; }, [searchOpen]);
@@ -87,6 +93,8 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
   useEffect(() => {
     let disposed = false;
     let unlistenClosed: UnlistenFn | null = null;
+    setStatus("connecting");
+    setError("");
 
     const term = new Terminal({
       cursorBlink: true,
@@ -244,7 +252,8 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
       disposeRenderer?.();
       term.dispose();
     };
-  }, []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [attempt]);
 
   // Attached separately from the terminal's own lifecycle so toggling the
   // setting takes effect on already-open tabs — the whole point of the readout
@@ -326,7 +335,15 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
   return (
     <div ref={outerRef} className="relative flex min-h-0 flex-1 flex-col p-2" style={{ background: auroraLayerBackground(bgColor) }} onContextMenu={handleContextMenu}>
       {status === "connecting" && <div className="absolute inset-0 flex items-center justify-center text-[var(--c-text-secondary)]">Démarrage du terminal local…</div>}
-      {status === "failed" && <div className="absolute inset-0 flex items-center justify-center px-8 text-center text-rose-300">Échec : {error}</div>}
+      {status === "failed" && (
+        <ConnectionFailed
+          overlay
+          title="Impossible de démarrer le terminal local"
+          error={error}
+          onRetry={() => setAttempt((n) => n + 1)}
+          onClose={() => onDisconnect?.()}
+        />
+      )}
       {searchOpen && <TerminalSearchBar onSearch={handleSearch} onClose={() => { setSearchOpen(false); termRef.current?.focus(); }} />}
       <div ref={containerRef} className={`min-h-0 flex-1 ${status === "open" ? "" : "invisible"}`} />
       {zoom.badgeVisible && <TerminalZoomBadge fontSize={zoom.fontSize} offset={zoom.offset} />}

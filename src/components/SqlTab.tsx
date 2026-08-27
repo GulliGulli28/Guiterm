@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
 import { api } from "../lib/api";
+import { ConnectionFailed } from "./ConnectionFailed";
 import { sqlEngineLabel, type ColumnInfo, type CommandEntry, type QueryResult, type SqlConnection, type TableInfo, type Workspace } from "../lib/types";
 import { formatRelativeTime } from "../lib/format";
 import { useResizablePane } from "../hooks/useResizablePane";
@@ -88,6 +89,12 @@ type Selected = { kind: "schema"; schema: string } | { kind: "table"; schema: st
  * a table's columns/rows while iterating on a query doesn't lose anything. */
 export function SqlTab({ connection, workspace, onError }: SqlTabProps) {
   const [status, setStatus] = useState<Status>("connecting");
+  // Incrémenté par « Réessayer » (`ConnectionFailed`) : seule dépendance de
+  // l'effet de connexion en dehors de la connexion elle-même, donc
+  // l'incrémenter rejoue tout le cycle, fermeture de la session précédente
+  // comprise.
+  const [attempt, setAttempt] = useState(0);
+
   const [connectError, setConnectError] = useState<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
 
@@ -165,7 +172,7 @@ export function SqlTab({ connection, workspace, onError }: SqlTabProps) {
       cancelled = true;
       if (sessionIdRef.current) { api.closeSqlSession(sessionIdRef.current).catch(() => {}); sessionIdRef.current = null; }
     };
-  }, [connection.id, connection.engine]);
+  }, [connection.id, connection.engine, attempt]);
 
   // Re-scopes the session to a different database — a no-op if it's already
   // the active one. The previous database's schema tree state is dropped
@@ -384,10 +391,11 @@ export function SqlTab({ connection, workspace, onError }: SqlTabProps) {
   }
   if (status === "failed") {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 p-4 text-center">
-        <p className="text-sm text-[var(--c-text-secondary)]">Impossible de se connecter à « {connection.label} »</p>
-        <p className="max-w-md text-xs text-rose-400">{connectError}</p>
-      </div>
+      <ConnectionFailed
+        title={`Impossible de se connecter à « ${connection.label} »`}
+        error={connectError}
+        onRetry={() => setAttempt((n) => n + 1)}
+      />
     );
   }
 

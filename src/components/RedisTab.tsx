@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
+import { ConnectionFailed } from "./ConnectionFailed";
 import type { RedisKeyDetail, RedisKeyEntry, RedisReply, RedisValue, SqlConnection } from "../lib/types";
 import { useResizablePane } from "../hooks/useResizablePane";
 import { IconPlay, IconRefresh, IconSearch } from "./ui-icons";
@@ -37,6 +38,12 @@ interface ConsoleEntry { command: string; reply?: RedisReply; error?: string }
  * a potentially huge keyspace just to group anything. */
 export function RedisTab({ connection, onError }: RedisTabProps) {
   const [status, setStatus] = useState<"connecting" | "connected" | "failed">("connecting");
+  // Incrémenté par « Réessayer » (`ConnectionFailed`) : seule dépendance de
+  // l'effet de connexion en dehors de la connexion elle-même, donc
+  // l'incrémenter rejoue tout le cycle, fermeture de la session précédente
+  // comprise.
+  const [attempt, setAttempt] = useState(0);
+
   const [connectError, setConnectError] = useState<string | null>(null);
   const [database, setDatabase] = useState<number | null>(null);
   const sessionIdRef = useRef<string | null>(null);
@@ -92,7 +99,7 @@ export function RedisTab({ connection, onError }: RedisTabProps) {
       if (sessionIdRef.current) { api.closeRedisSession(sessionIdRef.current).catch(() => {}); sessionIdRef.current = null; }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connection.id]);
+  }, [connection.id, attempt]);
 
   const onPatternChange = (value: string) => {
     setPattern(value);
@@ -161,10 +168,11 @@ export function RedisTab({ connection, onError }: RedisTabProps) {
   }
   if (status === "failed") {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 p-4 text-center">
-        <p className="text-sm text-[var(--c-text-secondary)]">Impossible de se connecter à « {connection.label} »</p>
-        <p className="max-w-md text-xs text-rose-400">{connectError}</p>
-      </div>
+      <ConnectionFailed
+        title={`Impossible de se connecter à « ${connection.label} »`}
+        error={connectError}
+        onRetry={() => setAttempt((n) => n + 1)}
+      />
     );
   }
 

@@ -2825,20 +2825,68 @@ async function runPersistentSessionScenario(browser) {
       { timeout: 10_000, timeoutMsg: "cliquer sur l hôte n a pas ouvert d onglet" },
     );
 
-    // 127.0.0.1:1 : refus immédiat. Ce qui compte est *le message*.
+    // 127.0.0.1:1 : refus immédiat. Ce qui compte est *le message*. Le texte
+    // est relu sur le bloc le plus profond qui le contient (`querySelectorAll`
+    // rend les ancêtres d'abord), donc titre + message d'erreur ensemble, tels
+    // que `ConnectionFailed` les rend.
     const failure = await browser.waitUntil(async () => {
-      const text = await browser.execute(() =>
-        Array.from(document.querySelectorAll("div"))
+      const text = await browser.execute((label) => {
+        const blocks = Array.from(document.querySelectorAll("div"))
           .map((d) => d.textContent || "")
-          .find((t) => t.startsWith("Échec de connexion :")) ?? null,
-      );
+          .filter((t) => t.includes(`Impossible de se connecter à « ${label} »`));
+        return blocks.length ? blocks[blocks.length - 1] : null;
+      }, LABEL);
       return text || false;
     }, { timeout: 20_000, timeoutMsg: "le terminal n a jamais rendu d échec de connexion" });
 
     if (/invalid args|missing required key|deserialize/i.test(failure)) {
       throw new Error(`connect_terminal a refusé la forme de l appel, pas la connexion : ${failure}`);
     }
+
+    // « Réessayer » : le bouton doit relancer la connexion, pas seulement
+    // exister.
+    //
+    // Ce qui est guetté n'est pas le retour fugace à « Connexion à … » — sur
+    // 127.0.0.1:1 le refus arrive si vite que les deux `setStatus` peuvent
+    // être groupés dans un seul rendu, et cet état n'atteint alors jamais le
+    // DOM (mesuré : un MutationObserver posé avant le clic ne le voit pas).
+    // Le signal retenu est persistant : l'effet de connexion crée son
+    // `Terminal` xterm et le détruit dans son nettoyage, donc rejouer l'effet
+    // **remplace le nœud `.xterm`**. Un bouton inerte le laisserait en place.
+    const marked = await browser.execute((label) => {
+      const screens = Array.from(document.querySelectorAll("div"))
+        .filter((d) => (d.textContent || "").includes(`Impossible de se connecter à « ${label} »`));
+      // Les onglets ouverts par les scénarios précédents restent montés et
+      // plusieurs affichent déjà un « Réessayer » (panneau de transfert,
+      // onglet de base de données) : le bouton est cherché *dans* l'écran
+      // d'échec de ce terminal, jamais dans tout le document.
+      const screen = screens[screens.length - 1];
+      if (!screen) return "aucun écran d échec pour cet hôte";
+      const tab = screen.parentElement;
+      const xterm = tab?.querySelector(".xterm");
+      if (!xterm) return "l onglet en échec ne contient pas de terminal xterm";
+      tab.setAttribute("data-e2e-retry-tab", "1");
+      xterm.setAttribute("data-e2e-retry-xterm", "old");
+      const button = Array.from(screen.querySelectorAll("button"))
+        .find((b) => b.textContent?.trim() === "Réessayer");
+      if (!(button instanceof HTMLElement)) return "écran d échec sans bouton « Réessayer »";
+      button.click();
+      return "ok";
+    }, LABEL);
+    if (marked !== "ok") {
+      throw new Error(`l écran d échec du terminal ne propose pas de réessai : ${marked}`);
+    }
+    await browser.waitUntil(async () => await browser.execute(() => {
+      const tab = document.querySelector("[data-e2e-retry-tab]");
+      const xterm = tab?.querySelector(".xterm");
+      return !!xterm && xterm.getAttribute("data-e2e-retry-xterm") !== "old";
+    }), {
+      timeout: 15_000,
+      timeoutMsg: "« Réessayer » n a pas relancé la connexion (le terminal xterm n a jamais été recréé)",
+    });
+
     console.log("Session persistante : OK (réglage atteignable, enregistré, relu ; connect_terminal accepte sessionKey).");
+    console.log("Réessai de session : OK (échec de connexion, « Réessayer » relance vraiment la connexion).");
   } finally {
     const cleanup = await browser.execute(async (id) => {
       try {

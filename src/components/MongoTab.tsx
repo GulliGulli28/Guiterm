@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { api } from "../lib/api";
+import { ConnectionFailed } from "./ConnectionFailed";
 import type { CollectionInfo, MongoQueryResult, SqlConnection } from "../lib/types";
 import { useResizablePane } from "../hooks/useResizablePane";
 import { IconChevronDown, IconChevronRight, IconDatabase, IconFolder, IconPlay, IconRefresh } from "./ui-icons";
@@ -48,6 +49,12 @@ interface Selection {
  * rather than reinterpreted here. */
 export function MongoTab({ connection, onError }: MongoTabProps) {
   const [status, setStatus] = useState<"connecting" | "connected" | "failed">("connecting");
+  // Incrémenté par « Réessayer » (`ConnectionFailed`) : seule dépendance de
+  // l'effet de connexion en dehors de la connexion elle-même, donc
+  // l'incrémenter rejoue tout le cycle, fermeture de la session précédente
+  // comprise.
+  const [attempt, setAttempt] = useState(0);
+
   const [connectError, setConnectError] = useState<string | null>(null);
   const sessionIdRef = useRef<string | null>(null);
 
@@ -90,7 +97,7 @@ export function MongoTab({ connection, onError }: MongoTabProps) {
       if (sessionIdRef.current) { api.closeMongoSession(sessionIdRef.current).catch(() => {}); sessionIdRef.current = null; }
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [connection.id]);
+  }, [connection.id, attempt]);
 
   const toggleDatabase = (database: string) => {
     const next = new Set(expanded);
@@ -136,10 +143,11 @@ export function MongoTab({ connection, onError }: MongoTabProps) {
   }
   if (status === "failed") {
     return (
-      <div className="flex flex-1 flex-col items-center justify-center gap-2 p-4 text-center">
-        <p className="text-sm text-[var(--c-text-secondary)]">Impossible de se connecter à « {connection.label} »</p>
-        <p className="max-w-md text-xs text-rose-400">{connectError}</p>
-      </div>
+      <ConnectionFailed
+        title={`Impossible de se connecter à « ${connection.label} »`}
+        error={connectError}
+        onRetry={() => setAttempt((n) => n + 1)}
+      />
     );
   }
 

@@ -2,6 +2,7 @@ import { useEffect, useMemo, useReducer, useRef, useState } from "react";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, onTransferDone, onTransferError, onTransferProgress } from "../lib/api";
+import { ConnectionFailed } from "./ConnectionFailed";
 import type { AppPreferences } from "../lib/preferences";
 import type { ArchiveFormat, ConflictPolicy, CopyConflict, DiffHunk, DiffLine, DiffPick, Entry, FileDiff, Host, HostId, PaneComparison, PaneDiskSpace, PaneFindOutcome, SyncItem, PaneListed, PaneOpened, PaneSource, PaneState, RemoteEditListed, Workspace } from "../lib/types";
 import {
@@ -1375,9 +1376,16 @@ export function PaneView({
       {pickerModal}
 
       {pane.status === "failed" && (
-        <div className="flex flex-1 items-center justify-center px-6 text-center text-sm text-rose-300">
-          Erreur : {pane.error}
-        </div>
+        // `onSourceChange` avec la source déjà en place *est* le réessai : c'est
+        // exactement ce que fait le sélecteur de source au-dessus, `openPaneFor`
+        // ne distingue pas « ouvrir » de « rouvrir ». Rien à ajouter côté
+        // réducteur, et le panneau d'en face n'est pas touché — les deux
+        // échouent et se retentent indépendamment.
+        <ConnectionFailed
+          title="Impossible d'ouvrir ce panneau"
+          error={pane.error}
+          onRetry={() => onSourceChange(side, pane.source)}
+        />
       )}
 
       {pane.status === "open" && (

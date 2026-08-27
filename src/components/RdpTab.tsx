@@ -1,6 +1,7 @@
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import type { UnlistenFn } from "@tauri-apps/api/event";
 import { api, onRdpViewClosed, onRdpViewError, onRdpViewPointer } from "../lib/api";
+import { ConnectionFailed } from "./ConnectionFailed";
 import { decodePointerPixels, pointerCss, type RdpPointerBitmap } from "../lib/rdpCursor";
 import type { Host } from "../lib/types";
 import type { AppPreferences } from "../lib/preferences";
@@ -331,23 +332,13 @@ export const RdpTab = forwardRef<TerminalTabHandle, RdpTabProps>(function RdpTab
     <div ref={containerRef} className="relative flex min-h-0 flex-1 flex-col items-center justify-center overflow-auto bg-black p-2">
       {status === "connecting" && <div className="absolute inset-0 flex items-center justify-center text-[var(--c-text-secondary)]">Connexion à {host.label}…</div>}
       {status === "failed" && (
-        <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 px-8 text-center">
-          <p className="text-rose-300">Échec de connexion : {error}</p>
-          <div className="flex gap-2">
-            <button
-              onClick={() => setAttempt((n) => n + 1)}
-              className="rounded-md bg-[var(--c-accent)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--c-accent-hover)]"
-            >
-              Réessayer
-            </button>
-            <button
-              onClick={() => onDisconnect?.()}
-              className="rounded-md bg-[var(--c-bg2)] px-3 py-1.5 text-xs font-medium text-[var(--c-text)] hover:bg-white/5"
-            >
-              Fermer l'onglet
-            </button>
-          </div>
-        </div>
+        <ConnectionFailed
+          overlay
+          title={`Impossible de se connecter à « ${host.label} »`}
+          error={error}
+          onRetry={() => setAttempt((n) => n + 1)}
+          onClose={() => onDisconnect?.()}
+        />
       )}
       {status === "closed" && (
         <div className="absolute inset-0 flex flex-col items-center justify-center gap-3 text-[var(--c-text-secondary)]">
