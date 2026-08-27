@@ -2,6 +2,7 @@ import type { Workspace } from "../lib/types";
 import { ramColor } from "../lib/facts";
 import { formatRelativeTime } from "../lib/format";
 import { useFleetSelection } from "../hooks/useFleetSelection";
+import { FactFilterFields } from "./FactFilterFields";
 import { TargetTreeList } from "./TargetTreeList";
 import { IconRefresh, IconSearch } from "./ui-icons";
 
@@ -144,61 +145,7 @@ export function FleetTargetsPanel({ workspace, onOpenTab }: { workspace: Workspa
           </p>
         )}
         {mode === "command" && hasFacts && (
-          <div className="space-y-1 rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] p-1.5 text-[11px] text-[var(--c-text-muted)]">
-            <label className="flex items-center gap-1.5">
-              <input type="checkbox" checked={filters.ram.enabled} onChange={(e) => setFilters((p) => ({ ...p, ram: { ...p.ram, enabled: e.target.checked } }))} className="accent-[var(--c-accent)]" />
-              <span className="shrink-0">RAM utilisée &gt;</span>
-              <input
-                type="number" min={0} max={100} value={filters.ram.value}
-                onChange={(e) => setFilters((p) => ({ ...p, ram: { ...p.ram, value: Number(e.target.value) } }))}
-                className="w-12 rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1 py-0.5 text-center text-[var(--c-text)] focus:border-[var(--c-accent)]"
-              />
-              <span>%</span>
-            </label>
-            <label className="flex items-center gap-1.5">
-              <input type="checkbox" checked={filters.cpu.enabled} onChange={(e) => setFilters((p) => ({ ...p, cpu: { ...p.cpu, enabled: e.target.checked } }))} className="accent-[var(--c-accent)]" />
-              <span className="shrink-0">CPU ≥</span>
-              <input
-                type="number" min={1} value={filters.cpu.value}
-                onChange={(e) => setFilters((p) => ({ ...p, cpu: { ...p.cpu, value: Number(e.target.value) } }))}
-                className="w-12 rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1 py-0.5 text-center text-[var(--c-text)] focus:border-[var(--c-accent)]"
-              />
-            </label>
-            <label className="flex items-center gap-1.5">
-              <input type="checkbox" checked={filters.load1.enabled} onChange={(e) => setFilters((p) => ({ ...p, load1: { ...p.load1, enabled: e.target.checked } }))} className="accent-[var(--c-accent)]" />
-              <span className="shrink-0">Charge (1 min) &gt;</span>
-              <input
-                type="number" min={0} step={0.1} value={filters.load1.value}
-                onChange={(e) => setFilters((p) => ({ ...p, load1: { ...p.load1, value: Number(e.target.value) } }))}
-                className="w-12 rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1 py-0.5 text-center text-[var(--c-text)] focus:border-[var(--c-accent)]"
-              />
-            </label>
-            <label className="flex items-center gap-1.5">
-              <input type="checkbox" checked={filters.uptimeDays.enabled} onChange={(e) => setFilters((p) => ({ ...p, uptimeDays: { ...p.uptimeDays, enabled: e.target.checked } }))} className="accent-[var(--c-accent)]" />
-              <span className="shrink-0">Uptime &lt;</span>
-              <input
-                type="number" min={0} value={filters.uptimeDays.value}
-                onChange={(e) => setFilters((p) => ({ ...p, uptimeDays: { ...p.uptimeDays, value: Number(e.target.value) } }))}
-                className="w-12 rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1 py-0.5 text-center text-[var(--c-text)] focus:border-[var(--c-accent)]"
-              />
-              <span>jours</span>
-            </label>
-            <label className="flex items-center gap-1.5">
-              <input type="checkbox" checked={filters.os.enabled} onChange={(e) => setFilters((p) => ({ ...p, os: { ...p.os, enabled: e.target.checked } }))} className="accent-[var(--c-accent)]" />
-              <span className="shrink-0">OS contient</span>
-              <input
-                type="text" value={filters.os.value} placeholder="ubuntu…"
-                onChange={(e) => setFilters((p) => ({ ...p, os: { ...p.os, value: e.target.value } }))}
-                className="w-full min-w-0 rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1.5 py-0.5 text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] focus:border-[var(--c-accent)]"
-              />
-            </label>
-            <button
-              onClick={selectByFacts}
-              className="w-full rounded bg-[var(--c-accent-dim)] px-2 py-1 text-[var(--c-accent-text)] hover:bg-[var(--c-accent)] hover:text-white"
-            >
-              Sélectionner les hôtes correspondants
-            </button>
-          </div>
+          <FactFilterFields filters={filters} onChange={setFilters} onSelect={selectByFacts} />
         )}
       </div>
     )}

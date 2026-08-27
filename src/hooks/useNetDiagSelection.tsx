@@ -3,6 +3,8 @@ import { fleetTargetKey } from "../lib/types";
 import type { HostId, Workspace } from "../lib/types";
 import { buildTargetTree, type TargetRow } from "../lib/targetTree";
 import { useSharedTargets, type FleetTargetInfo } from "./useFleetTargets";
+import { useFactSelection } from "./useFactSelection";
+import type { FactFilters } from "../lib/facts";
 
 /** Quelle question est posée. Les deux servent dans le même incident : « je ne
  * joins plus db-1 », puis « et depuis web-1, tu le joins ? » — et le second
@@ -33,6 +35,21 @@ export interface NetDiagSelection {
    * d'être visé, ou cette machine. Voir le commentaire de son appel dans
    * `NetDiagTab`. */
   seedSource: (hostId: HostId | null) => void;
+
+  // ── Sélection par état collecté ────────────────────────────────────────
+  // Les mêmes critères que la flotte, et pour la même raison : « lesquels de
+  // mes hôtes tournent sous Debian, ou sont chargés ? » se pose aussi bien
+  // avant un diagnostic réseau qu'avant une commande. Hôtes SSH uniquement —
+  // eux seuls portent un état collecté.
+  /** Y a-t-il seulement des hôtes SSH ? Le bloc de critères n'a rien à dire
+   * sur un espace de travail qui n'en contient aucun. */
+  hasSshHosts: boolean;
+  filters: FactFilters;
+  setFilters: (update: (prev: FactFilters) => FactFilters) => void;
+  hasFacts: boolean;
+  selectByFacts: () => void;
+  collectingFacts: boolean;
+  collectFacts: () => Promise<void>;
 }
 
 const NetDiagSelectionContext = createContext<NetDiagSelection | null>(null);
@@ -53,8 +70,18 @@ const NetDiagSelectionContext = createContext<NetDiagSelection | null>(null);
  * à ce module et à celui de la flotte, et n'est interrogée qu'une fois pour
  * toute l'app (voir `TargetsProvider`).
  */
-export function NetDiagSelectionProvider({ workspace, children }: { workspace: Workspace; children: ReactNode }) {
-  const { allTargets } = useSharedTargets();
+interface ProviderProps {
+  workspace: Workspace;
+  onError: (message: string) => void;
+  /** Après une collecte d'état : `lastFacts` est persisté sur chaque hôte, et
+   * le reste de l'app doit le reprendre. */
+  onWorkspaceUpdate: (ws: Workspace) => void;
+  children: ReactNode;
+}
+
+export function NetDiagSelectionProvider({ workspace, onError, onWorkspaceUpdate, children }: ProviderProps) {
+  const { allTargets, sshHosts } = useSharedTargets();
+  const facts = useFactSelection({ sshHosts, onError, onWorkspaceUpdate });
 
   const [direction, setDirectionState] = useState<DiagDirection>("from");
   const [filter, setFilter] = useState("");
@@ -111,6 +138,16 @@ export function NetDiagSelectionProvider({ workspace, children }: { workspace: W
   const selectAll = useCallback(() => setSelected(new Set(visibleKeys)), [visibleKeys]);
   const selectNone = useCallback(() => setSelected(new Set()), []);
 
+  /** Remplace la sélection par les hôtes correspondant aux critères — même
+   * geste que côté flotte. Dans le sens « depuis les hôtes », cela décoche donc
+   * le terminal local et les conteneurs : ils n'ont pas d'état collecté, et
+   * les garder cochés ferait passer pour « correspondant » ce qui n'a pas été
+   * évalué. */
+  const selectByFacts = useCallback(() => {
+    const keys = facts.matchingKeys();
+    if (keys.length > 0 || facts.anyFilterEnabled) setSelected(new Set(keys));
+  }, [facts]);
+
   const seedSource = useCallback((hostId: HostId | null) => {
     setSelected(new Set([hostId ? fleetTargetKey({ kind: "ssh", hostId }) : "local"]));
   }, []);
@@ -119,8 +156,12 @@ export function NetDiagSelectionProvider({ workspace, children }: { workspace: W
     () => ({
       direction, setDirection, filter, setFilter, selected, selectable,
       rows, visibleKeys, toggle, toggleKeys, selectAll, selectNone, seedSource,
+      hasSshHosts: sshHosts.length > 0,
+      filters: facts.filters, setFilters: facts.setFilters, hasFacts: facts.hasFacts,
+      selectByFacts, collectingFacts: facts.collectingFacts, collectFacts: facts.collectFacts,
     }),
-    [direction, setDirection, filter, selected, selectable, rows, visibleKeys, toggle, toggleKeys, selectAll, selectNone, seedSource],
+    [direction, setDirection, filter, selected, selectable, rows, visibleKeys, toggle, toggleKeys,
+     selectAll, selectNone, seedSource, sshHosts, facts, selectByFacts],
   );
 
   return <NetDiagSelectionContext.Provider value={value}>{children}</NetDiagSelectionContext.Provider>;

@@ -415,11 +415,27 @@ async function runFullscreenScenario(browser) {
 
   if (!(await titleBarVisible())) throw new Error("la barre de titre est absente avant même de passer en plein écran");
 
-  await browser.$('[aria-label="Agrandir"]').click();
-  await browser.waitUntil(async () => (await viewport()).inner > 800, {
-    timeout: 5_000,
-    timeoutMsg: "la fenêtre ne s'est pas maximisée",
-  });
+  // Idempotent, et pas seulement par principe : `tauri-plugin-window-state`
+  // persiste la géométrie à la fermeture, donc un run interrompu alors que la
+  // fenêtre était agrandie rend le suivant *déjà* agrandi — le bouton s'appelle
+  // alors « Restaurer », et cliquer « Agrandir » à l'aveugle échouait sur une
+  // fenêtre pourtant en bon état. Rencontré pour de vrai, et le message
+  // d'erreur accusait le maximisation plutôt que l'état laissé derrière.
+  const maximizeButton = () =>
+    browser.execute(() => {
+      const el = document.querySelector('[aria-label="Agrandir"]');
+      if (!(el instanceof HTMLElement)) return false;
+      el.click();
+      return true;
+    });
+  if (await maximizeButton()) {
+    await browser.waitUntil(async () => (await viewport()).inner > 800, {
+      timeout: 5_000,
+      timeoutMsg: "la fenêtre ne s'est pas maximisée",
+    });
+  } else if ((await viewport()).inner <= 800) {
+    throw new Error("la fenêtre n est ni agrandie ni agrandissable — bouton « Agrandir » absent");
+  }
   const maximizedHeight = (await viewport()).inner;
 
   await browser.keys("F11");
@@ -2045,7 +2061,50 @@ async function runFleetTabScenario(browser) {
     { timeout: 10_000, timeoutMsg: "le récapitulatif de cibles n a pas ramené la barre sur le panneau Flotte" },
   );
 
-  console.log("Flotte : OK (panneau de cibles dans la barre, composition dans l onglet, récapitulatif qui y ramène).");
+  // Le panneau doit suivre l'onglet *actif*, pas seulement son ouverture. Sans
+  // ça, revenir d'un onglet à l'autre laissait lire la composition de l'un
+  // au-dessus de l'arborescence de l'autre — et une commande sur le point
+  // d'être lancée sur des cibles qui ne sont pas celles affichées. Les deux
+  // onglets existent à ce stade : le scénario du diagnostic a déjà ouvert le
+  // sien.
+  const switchToTab = async (label, panel) => {
+    const switched = await browser.execute((l) => {
+      const tab = Array.from(document.querySelectorAll("[data-tab-id]"))
+        .find((el) => (el.textContent || "").includes(l));
+      if (!(tab instanceof HTMLElement)) return false;
+      tab.click();
+      return true;
+    }, label);
+    if (!switched) throw new Error(`onglet « ${label} » introuvable dans la barre d onglets`);
+    await browser.waitUntil(
+      async () => await browser.execute((p) => !!document.querySelector(`[data-sidebar-panel="${p}"]`), panel),
+      { timeout: 10_000, timeoutMsg: `passer sur l onglet « ${label} » n a pas amené son panneau de cibles` },
+    );
+  };
+
+  await switchToTab("Diagnostic réseau", "netdiag");
+
+  // Les critères par état collecté, côté diagnostic réseau : les mêmes que la
+  // flotte, avec le bouton de collecte qui les alimente. Contrôlé **pendant**
+  // que ce panneau est à l'écran — un seul panneau est monté à la fois, donc le
+  // faire après le retour sur la flotte ne trouverait rien et échouerait pour
+  // la mauvaise raison. La condition sur les hôtes SSH n'est pas décorative
+  // non plus : sans aucun, le bloc n'a rien à dire, et l'affirmer quand même
+  // rendrait ce contrôle faux au lieu de simplement muet.
+  const criteria = await browser.execute(async () => {
+    const ws = await window.__TAURI_INTERNALS__.invoke("get_workspace");
+    if (!ws.hosts.some((h) => (h.kind ?? "ssh") === "ssh")) return "sans-hôte-ssh";
+    const panel = document.querySelector('[data-sidebar-panel="netdiag"]');
+    const hasCollect = Array.from(panel?.querySelectorAll("button") ?? [])
+      .some((b) => (b.textContent || "").includes("Collecter l"));
+    return hasCollect ? "ok" : "le panneau du diagnostic ne propose pas de collecter l état";
+  });
+  if (criteria !== "ok" && criteria !== "sans-hôte-ssh") throw new Error(criteria);
+
+  await switchToTab("Opérations de flotte", "fleet");
+
+  console.log(`Flotte : OK (panneau de cibles dans la barre, composition dans l onglet, récapitulatif qui y ramène ; `
+    + `le panneau suit l onglet actif, critères d état côté diagnostic : ${criteria}).`);
 }
 
 /**

@@ -976,7 +976,7 @@ export default function App() {
   return (
     <TargetsProvider workspace={workspace}>
       <FleetSelectionProvider workspace={workspace} onError={reportError} onWorkspaceUpdate={refreshWorkspace}>
-        <NetDiagSelectionProvider workspace={workspace}>
+        <NetDiagSelectionProvider workspace={workspace} onError={reportError} onWorkspaceUpdate={refreshWorkspace}>
           {appShell}
         </NetDiagSelectionProvider>
       </FleetSelectionProvider>

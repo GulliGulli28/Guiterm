@@ -1,29 +1,9 @@
 import { createContext, useCallback, useContext, useMemo, useState, type ReactNode } from "react";
-import { fleetTargetKey } from "../lib/types";
 import type { DockerContainer, FleetTarget, Host, HostId, Workspace } from "../lib/types";
-import { api } from "../lib/api";
 import { buildTargetTree, type TargetRow } from "../lib/targetTree";
 import { useSharedTargets, type FleetTargetInfo } from "./useFleetTargets";
-
-/** Un critère de sélection fondé sur l'état collecté. `enabled` décide si
- * `selectByFacts` le regarde : plusieurs critères se combinent (ET) sans qu'un
- * champ numérique ait besoin d'une valeur sentinelle « désactivé ». Réservé aux
- * hôtes SSH : les cibles Docker exec/K8s/locale n'ont pas de `lastFacts`. */
-export interface FactFilters {
-  ram: { enabled: boolean; value: number }; // RAM utilisée % > valeur
-  cpu: { enabled: boolean; value: number }; // nombre de CPU >= valeur
-  load1: { enabled: boolean; value: number }; // charge à 1 min > valeur
-  uptimeDays: { enabled: boolean; value: number }; // uptime < valeur jours
-  os: { enabled: boolean; value: string }; // nom/id d'OS contient valeur
-}
-
-export const DEFAULT_FACT_FILTERS: FactFilters = {
-  ram: { enabled: false, value: 80 },
-  cpu: { enabled: false, value: 2 },
-  load1: { enabled: false, value: 1 },
-  uptimeDays: { enabled: false, value: 7 },
-  os: { enabled: false, value: "" },
-};
+import { useFactSelection } from "./useFactSelection";
+import type { FactFilters } from "../lib/facts";
 
 /** Le mode de composition, écrit par l'onglet et lu par le panneau : en
  * « Langage », la sélection est recalculée à chaque frappe depuis le programme
@@ -114,17 +94,16 @@ export function FleetSelectionProvider({ workspace, onError, onWorkspaceUpdate, 
     loadingContainers, loadingPods, refreshContainers, refreshPods,
   } = useSharedTargets();
 
-  const hostById = useMemo(() => new Map(workspace.hosts.map((h) => [h.id, h])), [workspace.hosts]);
   const targetsByKey = useMemo(() => new Map(allTargets.map((t) => [t.key, t.target])), [allTargets]);
 
   const [filter, setFilter] = useState("");
   const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [filters, setFilters] = useState<FactFilters>(DEFAULT_FACT_FILTERS);
-  const [collectingFacts, setCollectingFacts] = useState(false);
   const [mode, setMode] = useState<FleetMode>("command");
   const [hasTargetLine, setHasTargetLine] = useState(false);
 
-  const hasFacts = sshHosts.some((h) => h.lastFacts != null);
+  // Critères par état collecté et collecte elle-même : partagés avec le
+  // diagnostic réseau, qui pose exactement les mêmes questions.
+  const facts = useFactSelection({ sshHosts, onError, onWorkspaceUpdate });
 
   // Rangées dans l'arborescence de dossiers plutôt qu'à plat — mêmes dossiers
   // et mêmes tags que la barre latérale, et le filtre compare aussi les tags de
@@ -185,75 +164,24 @@ export function FleetSelectionProvider({ workspace, onError, onWorkspaceUpdate, 
     });
   }, [allTargets]);
 
-  const anyFilterEnabled =
-    filters.ram.enabled || filters.cpu.enabled || filters.load1.enabled || filters.uptimeDays.enabled || filters.os.enabled;
-
-  /** Sélectionne tout hôte SSH dont le dernier état collecté satisfait *tous*
-   * les critères cochés (ET) — un critère décoché est ignoré, pas traité comme
-   * « n'importe quoi ». Les cibles Docker exec/locale n'ont pas d'état à
-   * filtrer. */
   const selectByFacts = useCallback(() => {
-    if (!anyFilterEnabled) {
-      onError("Coche au moins un critère avant de sélectionner");
-      return;
-    }
-    const keys = sshHosts
-      .filter((h) => {
-        const f = h.lastFacts;
-        if (!f) return false;
-        if (filters.ram.enabled && !(f.memUsedPct != null && f.memUsedPct > filters.ram.value)) return false;
-        if (filters.cpu.enabled && !(f.cpus != null && f.cpus >= filters.cpu.value)) return false;
-        if (filters.load1.enabled && !(f.load1 != null && f.load1 > filters.load1.value)) return false;
-        if (filters.uptimeDays.enabled) {
-          const days = f.uptimeSecs != null ? f.uptimeSecs / 86400 : null;
-          if (!(days != null && days < filters.uptimeDays.value)) return false;
-        }
-        if (filters.os.enabled) {
-          const q = filters.os.value.trim().toLowerCase();
-          if (!q) return false;
-          const hay = `${f.osName ?? ""} ${f.osId ?? ""}`.toLowerCase();
-          if (!hay.includes(q)) return false;
-        }
-        return true;
-      })
-      .map((h) => fleetTargetKey({ kind: "ssh", hostId: h.id }));
-    setSelected(new Set(keys));
-  }, [anyFilterEnabled, onError, sshHosts, filters]);
-
-  // L'état collecté vit sur l'hôte lui-même (`lastFacts`, persisté côté serveur
-  // par `collect_facts`) — aucune copie locale à tenir à jour. SSH uniquement,
-  // comme l'exécuteur de flotte.
-  const collectFacts = useCallback(async (hostIds?: HostId[]) => {
-    if (collectingFacts) return;
-    const ids = hostIds ?? sshHosts.map((h) => h.id);
-    if (ids.length === 0) return;
-    setCollectingFacts(true);
-    try {
-      const { outcomes, workspace: updated } = await api.collectFacts(ids);
-      onWorkspaceUpdate(updated);
-      const failed = outcomes.filter((o) => o.error != null);
-      if (failed.length > 0) {
-        const names = failed.map((o) => hostById.get(o.hostId)?.label ?? o.hostId).join(", ");
-        onError(`${failed.length} hôte(s) n'ont pas répondu à la sonde d'état : ${names}`);
-      }
-    } catch (e) {
-      onError(String(e));
-    } finally {
-      setCollectingFacts(false);
-    }
-  }, [collectingFacts, sshHosts, onWorkspaceUpdate, onError, hostById]);
+    const keys = facts.matchingKeys();
+    if (keys.length > 0 || facts.anyFilterEnabled) setSelected(new Set(keys));
+  }, [facts]);
 
   const value = useMemo<FleetSelection>(() => ({
     allTargets, sshHosts, dockerHosts, k8sHosts, targetsByKey, dockerContainers, rows, visibleKeys, profiles,
     loadingContainers, loadingPods, refreshContainers, refreshPods,
     filter, setFilter, selected, setSelected, toggle, toggleKeys, selectAll, selectNone, selectByProfile,
-    filters, setFilters, hasFacts, anyFilterEnabled, selectByFacts, collectingFacts, collectFacts,
+    filters: facts.filters, setFilters: facts.setFilters, hasFacts: facts.hasFacts,
+    anyFilterEnabled: facts.anyFilterEnabled, selectByFacts,
+    collectingFacts: facts.collectingFacts, collectFacts: facts.collectFacts,
     mode, setMode, hasTargetLine, setHasTargetLine,
   }), [
     allTargets, sshHosts, dockerHosts, k8sHosts, targetsByKey, dockerContainers, rows, visibleKeys, profiles,
     loadingContainers, loadingPods, refreshContainers, refreshPods,
     filter, selected, toggle, toggleKeys, selectAll, selectNone, selectByProfile,
-    filters, hasFacts, anyFilterEnabled, selectByFacts, collectingFacts, collectFacts,
+    facts, selectByFacts,
     mode, hasTargetLine,
   ]);
 
