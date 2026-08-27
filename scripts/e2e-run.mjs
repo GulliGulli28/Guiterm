@@ -1945,6 +1945,43 @@ async function runSshTerminalTabScenario(browser) {
 }
 
 /**
+ * La zone qui défile d'un panneau de barre latérale a-t-elle une hauteur
+ * *bornée*, ou grandit-elle avec son contenu ?
+ *
+ * La distinction est invisible à la compilation et invisible aussi à un
+ * « le panneau rend du contenu » : un conteneur en `flex-1` sous un parent en
+ * bloc n'a aucune hauteur à partager, donc il prend celle de son contenu,
+ * déborde, et se fait rogner par l'`overflow-hidden` du parent — sans jamais
+ * afficher de barre de défilement. C'est exactement ce qui est arrivé aux
+ * panneaux de cibles, et le nombre d'hôtes enregistrés décide si ça se voit :
+ * un test qui se contenterait de mesurer serait vide sur un petit espace de
+ * travail.
+ *
+ * D'où la sonde : un enfant très haut est injecté, on mesure, on le retire.
+ * Bornée, la zone défile et reste dans les limites du panneau ; non bornée,
+ * elle s'étire sous lui.
+ */
+async function assertSidebarPanelScrolls(browser, kind) {
+  const verdict = await browser.execute((k) => {
+    const panel = document.querySelector(`[data-sidebar-panel="${k}"]`);
+    if (!panel) return `panneau ${k} absent`;
+    const scroll = panel.querySelector(".sidebar-scroll");
+    if (!scroll) return `le panneau ${k} n a pas de zone .sidebar-scroll`;
+    const probe = document.createElement("div");
+    probe.style.height = "5000px";
+    scroll.appendChild(probe);
+    const scrolls = scroll.scrollHeight > scroll.clientHeight + 1;
+    const inside = Math.round(scroll.getBoundingClientRect().bottom)
+      <= Math.round(panel.getBoundingClientRect().bottom) + 1;
+    probe.remove();
+    if (!scrolls) return `la zone du panneau ${k} grandit avec son contenu au lieu de défiler`;
+    if (!inside) return `la zone du panneau ${k} déborde sous le panneau`;
+    return "ok";
+  }, kind);
+  if (verdict !== "ok") throw new Error(verdict);
+}
+
+/**
  * Les opérations de flotte : le choix des cibles dans la barre latérale, la
  * composition dans l'onglet.
  *
@@ -1976,9 +2013,11 @@ async function runFleetTabScenario(browser) {
   await browser.waitUntil(async () => await browser.execute(() => {
     const panel = document.querySelector('[data-sidebar-panel="fleet"]');
     return !!panel && Array.from(panel.querySelectorAll("input")).some(
-      (i) => (i.getAttribute("placeholder") || "").startsWith("Filtrer (nom, groupe"),
+      (i) => (i.getAttribute("placeholder") || "").startsWith("Rechercher un hôte"),
     );
   }), { timeout: 15_000, timeoutMsg: "le panneau Flotte ne porte pas son filtre de cibles" });
+
+  await assertSidebarPanelScrolls(browser, "fleet");
 
   // Le repli : la barre part sur un autre panneau, et le récapitulatif de
   // l'onglet doit l'y ramener. Sans lui, on composerait une commande de flotte
@@ -2401,9 +2440,11 @@ async function runNetDiagScenario(browser) {
   await browser.waitUntil(async () => await browser.execute(() => {
     const panel = document.querySelector('[data-sidebar-panel="netdiag"]');
     return !!panel && Array.from(panel.querySelectorAll("input")).some(
-      (i) => (i.getAttribute("placeholder") || "").startsWith("Filtrer"),
+      (i) => (i.getAttribute("placeholder") || "").startsWith("Rechercher un hôte"),
     );
   }), { timeout: 15_000, timeoutMsg: "le panneau de sources du diagnostic n a pas suivi l ouverture de l onglet" });
+
+  await assertSidebarPanelScrolls(browser, "netdiag");
 
   // The destination is the tab's first text input; the local machine is
   // preselected as the source, which is what the palette's way in means.

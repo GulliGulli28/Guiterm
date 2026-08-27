@@ -18,6 +18,11 @@ import { IconRefresh, IconSearch } from "./ui-icons";
  * pastilles de compte AWS, collecte d'état, filtres par état collecté et
  * arborescence : les couper en deux aurait laissé la sélection pilotable depuis
  * deux endroits qui ne sont plus côte à côte.
+ *
+ * La mise en page est celle de `SftpPanel`/`HostsPanel`, au détail près :
+ * `h-full` (et non `flex-1`, qui ne contraint rien sous le conteneur en bloc de
+ * `Sidebar.tsx` — l'arborescence débordait alors sans défiler), puis
+ * `sidebar-scroll` sur la zone qui défile.
  */
 export function FleetTargetsPanel({ workspace, onOpenTab }: { workspace: Workspace; onOpenTab: () => void }) {
   const {
@@ -29,8 +34,8 @@ export function FleetTargetsPanel({ workspace, onOpenTab }: { workspace: Workspa
   } = useFleetSelection();
 
   return (
-  <div className="flex min-h-0 flex-1 flex-col">
-    <div className="flex items-center justify-between px-1 pb-2">
+  <div className="flex h-full min-w-0 flex-col gap-2">
+    <div className="flex items-center justify-between px-1">
       <span className="text-xs font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">
         Cibles · {selected.size}/{allTargets.length}
       </span>
@@ -43,35 +48,40 @@ export function FleetTargetsPanel({ workspace, onOpenTab }: { workspace: Workspa
         Ouvrir l'onglet
       </button>
     </div>
-    <div className="px-1 pb-2">
-      <div className="flex items-center gap-2 rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1.5">
-        <IconSearch size={13} className="text-[var(--c-text-faint)]" />
-        <input
-          value={filter}
-          onChange={(e) => setFilter(e.target.value)}
-          placeholder="Filtrer (nom, groupe, tag, profil AWS…)"
-          className="w-full bg-transparent text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-faint)]"
-        />
+    <div className="relative">
+      <div className="pointer-events-none absolute inset-y-0 left-3 flex items-center">
+        <IconSearch size={13} className="text-[var(--c-text-muted)]" />
       </div>
-      <div className="mt-1.5 flex items-center gap-2 px-0.5">
-        {mode === "command" ? (
-          <>
-            <button onClick={selectAll} className="text-[10px] text-[var(--c-accent-text)] hover:underline">
-              Tout ({visibleKeys.length})
-            </button>
-            <button onClick={selectNone} className="text-[10px] text-[var(--c-text-muted)] hover:underline">
-              Aucun
-            </button>
-          </>
-        ) : (
-          <span
-            title="Calculée automatiquement d'après les « target … » du programme (hôtes SSH uniquement) — repasse en mode Commande pour sélectionner à la main"
-            className="rounded bg-[var(--c-accent-dim)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--c-accent-text)]"
-          >
-            sélection automatique
-          </span>
-        )}
-      </div>
+      <input
+        value={filter}
+        onChange={(e) => setFilter(e.target.value)}
+        // Le même libellé que `SftpPanel`, et pour la même raison : la barre
+        // latérale est étroite, une énumération des champs cherchés y est
+        // tronquée avant d'être lue. Ce qui est couvert (dossier, tag, profil
+        // AWS) l'est aussi côté SFTP sans être annoncé.
+        placeholder="Rechercher un hôte…"
+        className="w-full rounded-xl border border-white/5 bg-[var(--c-bg3)] py-2 pl-8 pr-3 text-[13px] text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[var(--c-accent)]"
+      />
+    </div>
+
+    <div className="flex items-center gap-2 px-1">
+      {mode === "command" ? (
+        <>
+          <button onClick={selectAll} className="text-[11px] text-[var(--c-accent-text)] hover:underline">
+            Tout ({visibleKeys.length})
+          </button>
+          <button onClick={selectNone} className="text-[11px] text-[var(--c-text-muted)] hover:underline">
+            Aucun
+          </button>
+        </>
+      ) : (
+        <span
+          title="Calculée automatiquement d'après les « target … » du programme (hôtes SSH uniquement) — repasse en mode Commande pour sélectionner à la main"
+          className="rounded bg-[var(--c-accent-dim)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--c-accent-text)]"
+        >
+          sélection automatique
+        </span>
+      )}
     </div>
     {/* Only with imported hosts to group: on a workspace of hand-made
         hosts this row would be an empty toolbar asking a question nobody
@@ -192,9 +202,10 @@ export function FleetTargetsPanel({ workspace, onOpenTab }: { workspace: Workspa
         )}
       </div>
     )}
-    <div className="min-h-0 flex-1 overflow-y-auto px-0.5 pb-2">
+    <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-1 overflow-y-auto pb-2 pl-2 pt-2">
       <TargetTreeList
         rows={rows}
+        hosts={workspace.hosts}
         customIcons={workspace.customIcons}
         isChecked={(t) => selected.has(t.key)}
         onToggle={(t) => toggle(t.key)}
@@ -209,30 +220,29 @@ export function FleetTargetsPanel({ workspace, onOpenTab }: { workspace: Workspa
         onToggleKeys={mode === "command" ? toggleKeys : undefined}
         countChecked={(keys) => keys.reduce((n, key) => n + (selected.has(key) ? 1 : 0), 0)}
         emptyMessage={filter.trim() ? "Aucune cible ne correspond." : "Aucune cible."}
-        renderTarget={(t) => {
+        // Libellé, adresse et tags sont rendus par la carte commune ; ce qui
+        // reste ici est ce que la flotte, et elle seule, a de plus à dire —
+        // l'état collecté. Même typographie que les lignes d'état de
+        // `HostsPanel`.
+        renderExtra={(t) => {
           const f = t.facts;
+          if (!f) return null;
           return (
-            <>
-              <span className="block truncate text-sm text-[var(--c-text)]">{t.label}</span>
-              {t.sub && <span className="block truncate text-[11px] text-[var(--c-text-faint)]">{t.sub}</span>}
-              {f && (
-                <span className="mt-0.5 block space-y-0.5 text-[11px]">
-                  {(f.osName || f.osId) && (
-                    <span className="block truncate text-[var(--c-text-muted)]">{f.osName || f.osId}</span>
-                  )}
-                  <span className="flex items-center gap-2 truncate">
-                    {f.memUsedPct != null && (
-                      <span className="shrink-0 font-medium" style={{ color: ramColor(f.memUsedPct) }}>
-                        RAM {Math.round(f.memUsedPct)}%
-                      </span>
-                    )}
-                    {t.lastFactsAtMs != null && (
-                      <span className="truncate text-[var(--c-text-faint)]">{formatRelativeTime(t.lastFactsAtMs)}</span>
-                    )}
-                  </span>
-                </span>
+            <div className="mt-0.5 space-y-0.5 text-[10.5px]">
+              {(f.osName || f.osId) && (
+                <div className="truncate text-[var(--c-text-faint)]">{f.osName || f.osId}</div>
               )}
-            </>
+              <div className="flex items-center gap-2 truncate">
+                {f.memUsedPct != null && (
+                  <span className="shrink-0 font-medium" style={{ color: ramColor(f.memUsedPct) }}>
+                    RAM {Math.round(f.memUsedPct)}%
+                  </span>
+                )}
+                {t.lastFactsAtMs != null && (
+                  <span className="truncate text-[var(--c-text-faint)]">{formatRelativeTime(t.lastFactsAtMs)}</span>
+                )}
+              </div>
+            </div>
           );
         }}
       />
