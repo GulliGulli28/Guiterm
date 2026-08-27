@@ -42,6 +42,9 @@ import { SHORTCUT_ACTIONS, useGlobalShortcuts } from "./lib/shortcuts";
 import { formatDuration } from "./lib/longCommand";
 import { useNotifications } from "./hooks/useNotifications";
 import { useResizablePane } from "./hooks/useResizablePane";
+import { TargetsProvider } from "./hooks/useFleetTargets";
+import { FleetSelectionProvider } from "./hooks/useFleetSelection";
+import { NetDiagSelectionProvider } from "./hooks/useNetDiagSelection";
 import { useTabs } from "./hooks/useTabs";
 import { useBroadcast, SPLIT_PANE_ID } from "./hooks/useBroadcast";
 import { useFullscreen } from "./hooks/useFullscreen";
@@ -356,11 +359,11 @@ export default function App() {
       else void startActiveRecording();
     },
     "terminal.exportScrollback": () => { void exportActiveScrollback(); },
-    "fleet.open": () => openFleet(),
+    "fleet.open": () => openFleetTab(),
     "activity.open": () => openActivity(),
     // No source: this machine, which is the "do *I* reach it" half of the
     // question. Opening from a host's menu preselects that host instead.
-    "netdiag.open": () => openNetdiag(null),
+    "netdiag.open": () => openNetdiagTab(null),
     "database.open": () => { setSidebarVisible(true); setSidebarPanel("database"); },
     "broadcast.toggle": () => toggleBroadcastMode(),
     "host.new": () => {
@@ -527,6 +530,14 @@ export default function App() {
   // dans un `useMemo` en tête de composant où il serait encore `null`. Pas de
   // mémoïsation : cet objet n'est pas une prop d'un composant mémoïsé, il est
   // consommé immédiatement par des fonctions de rendu.
+  // Ouvrir l'un de ces deux onglets amène **aussi** son panneau de cibles : le
+  // choix des machines n'est plus dans l'onglet, donc l'ouvrir seul montrerait
+  // une composition sans ce sur quoi elle porte. Vaut pour tous les chemins —
+  // barre latérale, palette, menu d'un hôte — et pas seulement pour le bouton.
+  const showTargetsPanel = (panel: SidebarPanelKind) => { setSidebarVisible(true); setSidebarPanel(panel); };
+  const openFleetTab = () => { showTargetsPanel("fleet"); openFleet(); };
+  const openNetdiagTab = (sourceHostId: HostId | null) => { showTargetsPanel("netdiag"); openNetdiag(sourceHostId); };
+
   const moduleContext: AppContext = {
     workspace, preferences, updatePreferences, openTerminalIn, reportError, pushNotification, refreshWorkspace,
     closeTab, detachTab, notifyLongCommand, mirrorInput,
@@ -538,6 +549,9 @@ export default function App() {
       else terminalRefs.current.delete(tabId);
     },
     rememberSessionKey,
+    // La barre est aussi visible : la ramener sans l'ouvrir laisserait le
+    // récapitulatif de cibles cliquer dans le vide quand elle est repliée.
+    showSidebarPanel: showTargetsPanel,
   };
 
   const showRightPanel = !!(editingHost || editingGroup || editingSqlConnection);
@@ -557,7 +571,7 @@ export default function App() {
     openLocalTerminal: (shell) => openLocalTerminal(undefined, shell),
     quickSSH: (cmd) => openLocalTerminal(cmd),
     connectSql: (conn) => openSql(conn),
-    probeReachability: (host) => openNetdiag(host.id),
+    probeReachability: (host) => openNetdiagTab(host.id),
     searchFiles: (host) => setSearchHost(host),
     resumeSession: openPersistentSession,
 
@@ -602,8 +616,8 @@ export default function App() {
     onVaultStatusChange: refreshVaultStatus,
     updatePreferences,
 
-    openFleet,
-    openNetDiag: () => openNetdiag(null),
+    openFleet: openFleetTab,
+    openNetDiag: () => openNetdiagTab(null),
   };
 
   // Resolves a tab to its host's group color tag (if the host, its group, and a
@@ -616,7 +630,9 @@ export default function App() {
     return accent ? ACCENT_COLORS[accent]?.c500 : undefined;
   };
 
-  return (
+  // Sorti du `return` pour que les fournisseurs ci-dessous l'enveloppent sans
+  // réindenter tout l'arbre.
+  const appShell = (
     <div className="app-aurora-bg flex h-screen w-screen flex-col overflow-hidden text-[var(--c-text)]">
       {/* Transparent overlay during any drag — prevents xterm canvas from stealing mouse events */}
       {isDragging && <div className="fixed inset-0 z-[9999] cursor-col-resize" />}
@@ -932,5 +948,21 @@ export default function App() {
         </div>
       </div>
     </div>
+  );
+
+  // Les deux fournisseurs enveloppent **toute** la coquille, et non la seule
+  // barre latérale : le panneau de cibles et l'onglet qui les exécute sont
+  // rendus dans deux sous-arbres différents (`renderModulePanel` et
+  // `renderModuleTab`), et c'est précisément la sélection qu'ils partagent.
+  // `TargetsProvider` est le plus extérieur — les deux magasins lisent la même
+  // liste de cibles, interrogée une seule fois (voir son doc comment).
+  return (
+    <TargetsProvider workspace={workspace}>
+      <FleetSelectionProvider workspace={workspace} onError={reportError} onWorkspaceUpdate={refreshWorkspace}>
+        <NetDiagSelectionProvider workspace={workspace}>
+          {appShell}
+        </NetDiagSelectionProvider>
+      </FleetSelectionProvider>
+    </TargetsProvider>
   );
 }

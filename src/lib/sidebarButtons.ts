@@ -6,14 +6,16 @@
  * direction. `Sidebar.tsx` n'est plus qu'un consommateur parmi d'autres. */
 export type SidebarPanelKind =
   | "knownHosts" | "hosts" | "sftp" | "snippets" | "tunnels"
-  | "keychain" | "database" | "aws" | "settings";
+  | "keychain" | "database" | "aws" | "fleet" | "netdiag" | "settings";
 
 /** Boutons de la barre verticale de gauche que l'utilisateur peut masquer.
  *
- * Les huit premiers changent de panneau (ce sont des `SidebarPanelKind`),
- * `fleet` et `netdiag` ouvrent un onglet — mais du point de vue du réglage
- * c'est la même chose : un bouton visible ou non. « Paramètres » n'en fait pas
- * partie, c'est le chemin de retour vers ce réglage lui-même.
+ * Tous changent de panneau : ce sont exactement les `SidebarPanelKind` moins
+ * « Paramètres », qui n'en fait pas partie parce qu'il est le chemin de retour
+ * vers ce réglage lui-même. `fleet` et `netdiag` ouvrent *en plus* leur onglet
+ * de travail (voir `Sidebar.tsx`) — ils faisaient auparavant seulement ça,
+ * sans panneau, et leur arborescence de cibles vivait à l'intérieur de
+ * l'onglet.
  *
  * Masquer ne désactive **rien** : les onglets déjà ouverts restent, la palette
  * de commandes garde tout, et le backend ne change pas. C'est du rangement
@@ -21,7 +23,7 @@ export type SidebarPanelKind =
  * contrairement à ce que ferait une vraie désactivation de module
  * (cf. `docs/architecture-extensions.md`, étape 3).
  */
-export type SidebarButtonId = Exclude<SidebarPanelKind, "settings"> | "fleet" | "netdiag";
+export type SidebarButtonId = Exclude<SidebarPanelKind, "settings">;
 
 export interface SidebarButtonDef {
   id: SidebarButtonId;

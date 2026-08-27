@@ -66,6 +66,12 @@ export interface AppContext {
    * ça, la session continuerait de tourner côté serveur sans que rien ici
    * sache la retrouver. */
   rememberSessionKey: (tabId: string, sessionKey: string) => void;
+  /** Amène la barre latérale sur ce panneau. Deux modules en ont besoin — la
+   * flotte et le diagnostic réseau, dont le choix des cibles vit dans la barre
+   * pendant que leur onglet compose et exécute : leur récapitulatif de
+   * sélection doit pouvoir y ramener. C'est la règle d'entrée dans ce contexte
+   * (un deuxième module), pas une commodité pour un seul. */
+  showSidebarPanel: (panel: SidebarPanelKind) => void;
 }
 
 /** Les membres de `TabMeta` que ce `kind` peut désigner.

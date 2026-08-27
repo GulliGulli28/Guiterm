@@ -89,10 +89,13 @@ describe("sélection d'hôtes", () => {
   const HOST_PICKERS = [
     "components/ActivityTab.tsx",
     "components/DbTunnelPicker.tsx",
-    "components/FleetTab.tsx",
+    // La flotte et le diagnostic réseau choisissent leurs cibles dans la barre
+    // latérale depuis que leur arborescence en est le panneau — ce sont ces
+    // deux fichiers-là qui portent le champ, plus leurs onglets.
+    "components/FleetTargetsPanel.tsx",
     "components/HostForm.tsx",
     "components/KeychainPanel.tsx",
-    "components/NetDiagTab.tsx",
+    "components/NetDiagTargetsPanel.tsx",
     "components/RemoteSavePathPicker.tsx",
     "components/SplitPane.tsx",
     "components/SqlExportPanel.tsx",

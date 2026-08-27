@@ -37,6 +37,8 @@ const EVERY_PANEL: Record<Exclude<SidebarPanelKind, "settings">, true> = {
   database: true,
   keychain: true,
   aws: true,
+  fleet: true,
+  netdiag: true,
 };
 
 describe("catalogue des boutons de barre latérale", () => {

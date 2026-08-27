@@ -3,17 +3,13 @@ import type { DockerContainer, ExecutionGroup, FleetOutcome, FleetRun, FleetTarg
 import { fleetTargetKey } from "../lib/types";
 import { api, onFleetDone, onFleetOutcome } from "../lib/api";
 import { AdaptiveComposer } from "./AdaptiveComposer";
-import { formatRelativeTime } from "../lib/format";
-import { ramColor } from "../lib/facts";
 import { DSL_CONDITION_FIELDS, DSL_FUNCTIONS } from "../lib/operations";
 import { hasSomethingToRun, rollbackAvailability } from "../lib/rollback";
 import { driftedHosts, summarise } from "../lib/drift";
 import { SnippetPicker } from "./SnippetPicker";
-import { IconPlay, IconSearch, IconChevronRight, IconChevronDown, IconRefresh, IconSnippets } from "./ui-icons";
+import { IconPlay, IconChevronRight, IconChevronDown, IconSnippets } from "./ui-icons";
 import { useResizablePane } from "../hooks/useResizablePane";
-import { useFleetTargets } from "../hooks/useFleetTargets";
-import { buildTargetTree } from "../lib/targetTree";
-import { TargetTreeList } from "./TargetTreeList";
+import { useFleetSelection } from "../hooks/useFleetSelection";
 
 function formatTimestamp(ms: number): string {
   return new Date(ms).toLocaleString();
@@ -22,31 +18,13 @@ function formatTimestamp(ms: number): string {
 interface FleetTabProps {
   workspace: Workspace;
   onError: (message: string) => void;
-  /** Called with the fresh workspace after a facts collection persists
-   * `lastFacts` onto each host, so the rest of the app (host list badges,
-   * etc.) picks it up too. */
-  onWorkspaceUpdate?: (ws: Workspace) => void;
+  /** Appelé avec l'espace de travail frais après l'enregistrement d'un snippet
+   * adaptatif, pour que le reste de l'app le reprenne. */
+  onWorkspaceUpdate: (ws: Workspace) => void;
+  /** Ramène la barre latérale sur le panneau de cibles — ce que fait le
+   * récapitulatif de sélection quand elle affiche autre chose. */
+  onShowTargets: () => void;
 }
-
-/** One fact-based selection criterion. `enabled` gates whether `selectByFacts`
- * checks it at all — lets several criteria combine (AND) without every
- * numeric field needing an explicit "off" sentinel value. SSH-only: Docker
- * exec/local targets have no persisted `lastFacts` to filter by. */
-interface FactFilters {
-  ram: { enabled: boolean; value: number }; // RAM used % > value
-  cpu: { enabled: boolean; value: number }; // CPU count >= value
-  load1: { enabled: boolean; value: number }; // 1-min load average > value
-  uptimeDays: { enabled: boolean; value: number }; // uptime < value days
-  os: { enabled: boolean; value: string }; // OS name/id contains value
-}
-
-const DEFAULT_FILTERS: FactFilters = {
-  ram: { enabled: false, value: 80 },
-  cpu: { enabled: false, value: 2 },
-  load1: { enabled: false, value: 1 },
-  uptimeDays: { enabled: false, value: 7 },
-  os: { enabled: false, value: "" },
-};
 
 /** One selectable fleet target, resolved from either the workspace (SSH
  * hosts, always; a single fixed "Terminal local" entry) or a live Docker
@@ -122,20 +100,17 @@ function StatusDot({ status }: { status: RowStatus }) {
   return <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: color }} />;
 }
 
-export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProps) {
-  // The target list — this machine, SSH hosts, live Docker containers and K8s
-  // pods — now lives in a hook, shared with the network diagnostics tab. It
-  // used to be a hundred lines here; a second copy would have meant two places
-  // deciding what a selectable target is.
+export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets }: FleetTabProps) {
+  // Le choix des cibles vit dans la barre latérale (`FleetTargetsPanel`), donc
+  // dans un magasin partagé plutôt que dans cet onglet : la liste des machines,
+  // le filtre, la sélection et les filtres par état collecté y sont tous
+  // passés ensemble. Il ne reste ici que la composition et les résultats.
   const {
-    allTargets, sshHosts, dockerHosts, k8sHosts, dockerContainers,
-    loadingContainers, loadingPods, refreshContainers, refreshPods,
-  } = useFleetTargets(workspace);
+    sshHosts, targetsByKey, dockerContainers, selected, setSelected,
+    mode, setMode, setHasTargetLine, collectFacts,
+  } = useFleetSelection();
   const hostById = useMemo(() => new Map(workspace.hosts.map((h) => [h.id, h])), [workspace.hosts]);
-  const targetsByKey = useMemo(() => new Map(allTargets.map((t) => [t.key, t.target])), [allTargets]);
 
-  const [filter, setFilter] = useState("");
-  const [selected, setSelected] = useState<Set<string>>(new Set());
   const [command, setCommand] = useState("");
   const [running, setRunning] = useState(false);
 
@@ -153,15 +128,8 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
   // sessions — resets to these defaults every time, on purpose, for
   // consistency.
   const rightSectionRef = useRef<HTMLDivElement>(null);
-  const leftPane = useResizablePane({ initial: 288, min: 220, max: 500, axis: "horizontal", mode: "px" }); // matches the previous fixed `w-72`
   const composer = useResizablePane({ initial: 40, min: 20, max: 70, axis: "vertical", mode: "percent", containerRef: rightSectionRef });
 
-  // Collected host state ("facts") lives on the host itself (`lastFacts`,
-  // persisted server-side by `collect_facts`) — no separate local copy to
-  // keep in sync. SSH-only, same as the fleet executor itself.
-  const [collectingFacts, setCollectingFacts] = useState(false);
-  const [filters, setFilters] = useState<FactFilters>(DEFAULT_FILTERS);
-  const hasFacts = sshHosts.some((h) => h.lastFacts != null);
   const [showSnippetPicker, setShowSnippetPicker] = useState(false);
 
   // Adaptive snippet engine: "Langage" mode edits a small DSL program (see
@@ -174,13 +142,14 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
   // both for the live target selection below and for the explicit
   // "Prévisualiser" (runPreview) step before running; only *writing*/
   // extending the text via AI (generateWithAi) costs a call.
-  const [mode, setMode] = useState<"command" | "intent">("command");
   const [programText, setProgramText] = useState("");
   // Whether the current program has at least one `target` line — see
   // `programHasTargetLine`'s doc comment for what this changes (live
-  // auto-selection, and whether the SSH checkboxes below are manually
-  // selectable in "Langage" mode).
+  // auto-selection, and whether the SSH checkboxes are manually selectable in
+  // "Langage" mode). Calculé ici, où vit le programme, mais publié dans le
+  // magasin : c'est le panneau de cibles qui grise les cases d'après lui.
   const hasTargetLine = useMemo(() => programHasTargetLine(programText), [programText]);
+  useEffect(() => { setHasTargetLine(hasTargetLine); }, [hasTargetLine, setHasTargetLine]);
   const [activeSnippetId, setActiveSnippetId] = useState<SnippetId | null>(null);
   const [previewing, setPreviewing] = useState(false);
   const [previewGroups, setPreviewGroups] = useState<ExecutionGroup[] | null>(null);
@@ -200,38 +169,6 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
    * program without a confirmation step. */
   const [drift, setDrift] = useState<HostDrift[] | null>(null);
   const [checkingDrift, setCheckingDrift] = useState(false);
-
-  // Rangées dans l'arborescence de dossiers plutôt qu'à plat — mêmes dossiers
-  // et mêmes tags que la barre latérale, et le filtre compare maintenant aussi
-  // les tags de l'hôte porteur (voir `lib/targetTree.ts`).
-  const { rows: targetRows, visibleKeys } = useMemo(
-    () => buildTargetTree({
-      targets: allTargets,
-      hosts: workspace.hosts,
-      groups: workspace.groups,
-      query: filter,
-    }),
-    [allTargets, workspace.hosts, workspace.groups, filter],
-  );
-
-  /** The distinct AWS profiles present among the targets, for the quick-select
-   * row. Empty on a workspace with no imported host, which is what keeps that
-   * row from appearing at all rather than showing an empty toolbar. */
-  const profiles = useMemo(() => {
-    const found = new Set<string>();
-    for (const t of allTargets) if (t.profile) found.add(t.profile);
-    return [...found].sort();
-  }, [allTargets]);
-
-  /** Selects every target reached through `profile` — the "tous les hôtes du
-   * compte X" cut. Adds to the selection rather than replacing it, so two
-   * accounts can be combined by clicking both. */
-  const selectByProfile = (profile: string) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
-      for (const t of allTargets) if (t.profile === profile) next.add(t.key);
-      return next;
-    });
 
   // Every currently selected target that's an SSH host — the only kind the
   // adaptive DSL ("Langage" mode) can translate for.
@@ -306,83 +243,6 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
     return () => clearTimeout(timer);
   }, [mode, programText, sshHosts]);
 
-  const toggle = (key: string) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-  const selectAll = () => setSelected(new Set(visibleKeys));
-  /** Cocher/décocher tout un dossier (ou tout un hôte relais) d'un coup — ce
-   * que la liste à plat ne pouvait pas offrir faute de savoir ce qu'était un
-   * dossier. Les cibles gérées automatiquement en mode « Langage » ne sont pas
-   * touchées : elles y sont recalculées à chaque frappe. */
-  const toggleKeys = (keys: string[], checked: boolean) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
-      for (const key of keys) {
-        const target = targetsByKey.get(key);
-        if (mode === "intent" && (hasTargetLine || target?.kind !== "ssh")) continue;
-        if (checked) next.add(key);
-        else next.delete(key);
-      }
-      return next;
-    });
-  const selectNone = () => setSelected(new Set());
-
-  const collectFacts = async (hostIds?: HostId[]) => {
-    if (collectingFacts) return;
-    const ids = hostIds ?? sshHosts.map((h) => h.id);
-    if (ids.length === 0) return;
-    setCollectingFacts(true);
-    try {
-      const { outcomes, workspace: updated } = await api.collectFacts(ids);
-      onWorkspaceUpdate?.(updated);
-      const failed = outcomes.filter((o) => o.error != null);
-      if (failed.length > 0) {
-        const names = failed.map((o) => hostById.get(o.hostId)?.label ?? o.hostId).join(", ");
-        onError(`${failed.length} hôte(s) n'ont pas répondu à la sonde d'état : ${names}`);
-      }
-    } catch (e) {
-      onError(String(e));
-    } finally {
-      setCollectingFacts(false);
-    }
-  };
-
-  const anyFilterEnabled = filters.ram.enabled || filters.cpu.enabled || filters.load1.enabled || filters.uptimeDays.enabled || filters.os.enabled;
-
-  // Selects every SSH host whose last collected facts satisfy *all* enabled
-  // filters (AND) — a disabled filter is simply skipped, not treated as
-  // "match anything". Docker exec/local targets have no facts to filter by.
-  const selectByFacts = () => {
-    if (!anyFilterEnabled) {
-      onError("Coche au moins un critère avant de sélectionner");
-      return;
-    }
-    const keys = sshHosts
-      .filter((h) => {
-        const f = h.lastFacts;
-        if (!f) return false;
-        if (filters.ram.enabled && !(f.memUsedPct != null && f.memUsedPct > filters.ram.value)) return false;
-        if (filters.cpu.enabled && !(f.cpus != null && f.cpus >= filters.cpu.value)) return false;
-        if (filters.load1.enabled && !(f.load1 != null && f.load1 > filters.load1.value)) return false;
-        if (filters.uptimeDays.enabled) {
-          const days = f.uptimeSecs != null ? f.uptimeSecs / 86400 : null;
-          if (!(days != null && days < filters.uptimeDays.value)) return false;
-        }
-        if (filters.os.enabled) {
-          const q = filters.os.value.trim().toLowerCase();
-          if (!q) return false;
-          const hay = `${f.osName ?? ""} ${f.osId ?? ""}`.toLowerCase();
-          if (!hay.includes(q)) return false;
-        }
-        return true;
-      })
-      .map((h) => fleetTargetKey({ kind: "ssh", hostId: h.id }));
-    setSelected(new Set(keys));
-  };
   const toggleExpanded = (key: string) =>
     setExpanded((prev) => {
       const next = new Set(prev);
@@ -603,7 +463,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
     if (!programText.trim() || !saveSnippetName.trim()) return;
     try {
       const ws = await api.saveAdaptiveSnippet(activeSnippetId, saveSnippetName.trim(), programText);
-      onWorkspaceUpdate?.(ws);
+      onWorkspaceUpdate(ws);
       setShowSaveDialog(false);
     } catch (e) {
       onError(String(e));
@@ -642,218 +502,11 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
        * it, squeezing this tab very narrow (e.g. the split-terminal view
        * dragged wide) overflows past the content section instead of
        * shrinking, same bug `SqlTab`'s schema tree used to have. */}
-      <aside style={{ width: leftPane.value }} className="flex max-w-[50%] shrink-0 flex-col border-r border-[var(--c-border)]">
-        <div className="flex items-center justify-between px-3 py-2.5">
-          <span className="text-xs font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">
-            Cibles · {selected.size}/{allTargets.length}
-          </span>
-          {mode === "command" ? (
-            <div className="flex gap-1 text-[11px]">
-              <button onClick={selectAll} className="rounded px-1.5 py-0.5 text-[var(--c-accent-text)] hover:bg-[var(--c-bg3)]">
-                Tout
-              </button>
-              <button onClick={selectNone} className="rounded px-1.5 py-0.5 text-[var(--c-text-muted)] hover:bg-[var(--c-bg3)]">
-                Aucun
-              </button>
-            </div>
-          ) : (
-            <span
-              title="Calculée automatiquement d'après les « target … » du programme (hôtes SSH uniquement) — repasse en mode Commande pour sélectionner à la main"
-              className="rounded bg-[var(--c-accent-dim)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--c-accent-text)]"
-            >
-              auto
-            </span>
-          )}
-        </div>
-        <div className="px-3 pb-2">
-          <div className="flex items-center gap-2 rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1.5">
-            <IconSearch size={13} className="text-[var(--c-text-faint)]" />
-            <input
-              value={filter}
-              onChange={(e) => setFilter(e.target.value)}
-              placeholder="Filtrer (nom, groupe, profil AWS…)"
-              className="w-full bg-transparent text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-faint)]"
-            />
-          </div>
-        </div>
-        {/* Only with imported hosts to group: on a workspace of hand-made
-            hosts this row would be an empty toolbar asking a question nobody
-            has. In "Langage" mode the selection is computed from the program's
-            own `target …` lines, so a manual pick here would be overwritten. */}
-        {mode === "command" && profiles.length > 0 && (
-          <div className="flex flex-wrap items-center gap-1 px-3 pb-2">
-            <span className="text-[10px] uppercase tracking-wide text-[var(--c-text-faint)]">Compte</span>
-            {profiles.map((profile) => (
-              <button
-                key={profile}
-                onClick={() => selectByProfile(profile)}
-                title={`Sélectionner tout ce qui est joint via le profil ${profile}`}
-                className="rounded-full border border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-0.5 text-[10px] text-[var(--c-text-secondary)] hover:border-[var(--c-accent)] hover:text-[var(--c-text)]"
-              >
-                {profile}
-              </button>
-            ))}
-          </div>
-        )}
-        {(sshHosts.length > 0 || dockerHosts.length > 0 || k8sHosts.length > 0) && (
-          <div className="mb-1 space-y-1.5 px-3 pb-1">
-            {sshHosts.length > 0 && (
-              <button
-                onClick={() => collectFacts()}
-                disabled={collectingFacts}
-                className="flex w-full items-center justify-center gap-1.5 rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)] disabled:opacity-50"
-              >
-                <IconRefresh size={12} className={collectingFacts ? "animate-spin" : ""} />
-                {collectingFacts ? "Collecte de l'état…" : "Collecter l'état (OS, RAM)"}
-              </button>
-            )}
-            {dockerHosts.length > 0 && (
-              <button
-                onClick={refreshContainers}
-                disabled={loadingContainers}
-                className="flex w-full items-center justify-center gap-1.5 rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)] disabled:opacity-50"
-              >
-                <IconRefresh size={12} className={loadingContainers ? "animate-spin" : ""} />
-                {loadingContainers ? "Actualisation…" : "Actualiser les conteneurs"}
-              </button>
-            )}
-            {k8sHosts.length > 0 && (
-              <button
-                onClick={refreshPods}
-                disabled={loadingPods}
-                className="flex w-full items-center justify-center gap-1.5 rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)] disabled:opacity-50"
-              >
-                <IconRefresh size={12} className={loadingPods ? "animate-spin" : ""} />
-                {loadingPods ? "Actualisation…" : "Actualiser les pods"}
-              </button>
-            )}
-            {mode === "intent" && (
-              <p className="rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1.5 text-[11px] text-[var(--c-text-faint)]">
-                {hasTargetLine ? (
-                  <>Ciblage automatique (hôtes SSH uniquement) : les cases ci-dessous reflètent les hôtes dont l'état collecté correspond aux <code className="font-mono">target …</code> du programme.</>
-                ) : (
-                  <>Aucun <code className="font-mono">target …</code> dans le programme : sélectionne librement les hôtes SSH ci-dessous (Docker exec/terminal local restent indisponibles en mode Langage).</>
-                )}
-              </p>
-            )}
-            {mode === "command" && hasFacts && (
-              <div className="space-y-1 rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] p-1.5 text-[11px] text-[var(--c-text-muted)]">
-                <label className="flex items-center gap-1.5">
-                  <input type="checkbox" checked={filters.ram.enabled} onChange={(e) => setFilters((p) => ({ ...p, ram: { ...p.ram, enabled: e.target.checked } }))} className="accent-[var(--c-accent)]" />
-                  <span className="shrink-0">RAM utilisée &gt;</span>
-                  <input
-                    type="number" min={0} max={100} value={filters.ram.value}
-                    onChange={(e) => setFilters((p) => ({ ...p, ram: { ...p.ram, value: Number(e.target.value) } }))}
-                    className="w-12 rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1 py-0.5 text-center text-[var(--c-text)] focus:border-[var(--c-accent)]"
-                  />
-                  <span>%</span>
-                </label>
-                <label className="flex items-center gap-1.5">
-                  <input type="checkbox" checked={filters.cpu.enabled} onChange={(e) => setFilters((p) => ({ ...p, cpu: { ...p.cpu, enabled: e.target.checked } }))} className="accent-[var(--c-accent)]" />
-                  <span className="shrink-0">CPU ≥</span>
-                  <input
-                    type="number" min={1} value={filters.cpu.value}
-                    onChange={(e) => setFilters((p) => ({ ...p, cpu: { ...p.cpu, value: Number(e.target.value) } }))}
-                    className="w-12 rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1 py-0.5 text-center text-[var(--c-text)] focus:border-[var(--c-accent)]"
-                  />
-                </label>
-                <label className="flex items-center gap-1.5">
-                  <input type="checkbox" checked={filters.load1.enabled} onChange={(e) => setFilters((p) => ({ ...p, load1: { ...p.load1, enabled: e.target.checked } }))} className="accent-[var(--c-accent)]" />
-                  <span className="shrink-0">Charge (1 min) &gt;</span>
-                  <input
-                    type="number" min={0} step={0.1} value={filters.load1.value}
-                    onChange={(e) => setFilters((p) => ({ ...p, load1: { ...p.load1, value: Number(e.target.value) } }))}
-                    className="w-12 rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1 py-0.5 text-center text-[var(--c-text)] focus:border-[var(--c-accent)]"
-                  />
-                </label>
-                <label className="flex items-center gap-1.5">
-                  <input type="checkbox" checked={filters.uptimeDays.enabled} onChange={(e) => setFilters((p) => ({ ...p, uptimeDays: { ...p.uptimeDays, enabled: e.target.checked } }))} className="accent-[var(--c-accent)]" />
-                  <span className="shrink-0">Uptime &lt;</span>
-                  <input
-                    type="number" min={0} value={filters.uptimeDays.value}
-                    onChange={(e) => setFilters((p) => ({ ...p, uptimeDays: { ...p.uptimeDays, value: Number(e.target.value) } }))}
-                    className="w-12 rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1 py-0.5 text-center text-[var(--c-text)] focus:border-[var(--c-accent)]"
-                  />
-                  <span>jours</span>
-                </label>
-                <label className="flex items-center gap-1.5">
-                  <input type="checkbox" checked={filters.os.enabled} onChange={(e) => setFilters((p) => ({ ...p, os: { ...p.os, enabled: e.target.checked } }))} className="accent-[var(--c-accent)]" />
-                  <span className="shrink-0">OS contient</span>
-                  <input
-                    type="text" value={filters.os.value} placeholder="ubuntu…"
-                    onChange={(e) => setFilters((p) => ({ ...p, os: { ...p.os, value: e.target.value } }))}
-                    className="w-full min-w-0 rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1.5 py-0.5 text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] focus:border-[var(--c-accent)]"
-                  />
-                </label>
-                <button
-                  onClick={selectByFacts}
-                  className="w-full rounded bg-[var(--c-accent-dim)] px-2 py-1 text-[var(--c-accent-text)] hover:bg-[var(--c-accent)] hover:text-white"
-                >
-                  Sélectionner les hôtes correspondants
-                </button>
-              </div>
-            )}
-          </div>
-        )}
-        <div className="min-h-0 flex-1 overflow-y-auto px-1.5 pb-2">
-          <TargetTreeList
-            rows={targetRows}
-            customIcons={workspace.customIcons}
-            isChecked={(t) => selected.has(t.key)}
-            onToggle={(t) => toggle(t.key)}
-            // En mode « Langage », seules les cases SSH deviennent
-            // sélectionnables (Docker exec/K8s exec/local ne sont pas
-            // représentables dans un run adaptatif — voir le commentaire de
-            // `run_adaptive_plan`), et même celles-là restent pilotées par le
-            // programme tant qu'il porte une ligne `target`
-            // (`hasTargetLine`/`programHasTargetLine`).
-            isDisabled={(t) => mode === "intent" && (hasTargetLine || t.target.kind !== "ssh")}
-            disabledTitle="Sélection automatique en mode Langage"
-            onToggleKeys={mode === "command" ? toggleKeys : undefined}
-            countChecked={(keys) => keys.reduce((n, key) => n + (selected.has(key) ? 1 : 0), 0)}
-            emptyMessage={filter.trim() ? "Aucune cible ne correspond." : "Aucune cible."}
-            renderTarget={(t) => {
-              const f = t.facts;
-              return (
-                <>
-                  <span className="block truncate text-sm text-[var(--c-text)]">{t.label}</span>
-                  {t.sub && <span className="block truncate text-[11px] text-[var(--c-text-faint)]">{t.sub}</span>}
-                  {f && (
-                    <span className="mt-0.5 block space-y-0.5 text-[11px]">
-                      {(f.osName || f.osId) && (
-                        <span className="block truncate text-[var(--c-text-muted)]">{f.osName || f.osId}</span>
-                      )}
-                      <span className="flex items-center gap-2 truncate">
-                        {f.memUsedPct != null && (
-                          <span className="shrink-0 font-medium" style={{ color: ramColor(f.memUsedPct) }}>
-                            RAM {Math.round(f.memUsedPct)}%
-                          </span>
-                        )}
-                        {t.lastFactsAtMs != null && (
-                          <span className="truncate text-[var(--c-text-faint)]">{formatRelativeTime(t.lastFactsAtMs)}</span>
-                        )}
-                      </span>
-                    </span>
-                  )}
-                </>
-              );
-            }}
-          />
-        </div>
-      </aside>
-
-      {/* Target picker resize handle */}
-      <div
-        onMouseDown={leftPane.onMouseDown}
-        className="group relative flex w-1 shrink-0 cursor-col-resize items-center justify-center"
-      >
-        <div className="h-full w-px bg-[var(--c-border)] transition-colors group-hover:bg-[var(--c-accent)]" />
-      </div>
-
       {/* ── Command + results ─────────────────────────────────────────── */}
       <section ref={rightSectionRef} className="flex min-w-0 flex-1 flex-col">
         <div style={{ height: `${composer.value}%` }} className="shrink-0 overflow-y-auto border-b border-[var(--c-border)] p-3">
-          <div className="mb-2 flex shrink-0 rounded-md bg-[var(--c-bg2)] p-0.5 text-[11px]">
+          <div className="mb-2 flex shrink-0 items-center gap-2 text-[11px]">
+          <div className="flex rounded-md bg-[var(--c-bg2)] p-0.5">
             <button
               onClick={() => setMode("command")}
               className={`rounded px-2 py-0.5 font-medium ${mode === "command" ? "bg-[var(--c-bg3)] text-[var(--c-text)]" : "text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)]"}`}
@@ -865,6 +518,21 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate }: FleetTabProp
               className={`rounded px-2 py-0.5 font-medium ${mode === "intent" ? "bg-[var(--c-bg3)] text-[var(--c-text)]" : "text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)]"}`}
             >
               Langage
+            </button>
+          </div>
+
+            {/* Le récapitulatif remplace la colonne de cibles : elle est
+                maintenant dans la barre latérale, qui peut afficher autre
+                chose. Sans lui, on lancerait une commande sur une flotte sans
+                avoir sous les yeux laquelle. Cliquer y ramène. */}
+            <button
+              onClick={onShowTargets}
+              title="Choisir les cibles — ouvre le panneau « Opérations de flotte » dans la barre latérale"
+              className="ml-auto rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-2.5 py-1 text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)]"
+            >
+              {selected.size === 0
+                ? "Aucune cible sélectionnée"
+                : `${selected.size} cible${selected.size > 1 ? "s" : ""} · modifier`}
             </button>
           </div>
 

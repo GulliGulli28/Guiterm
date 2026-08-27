@@ -1945,13 +1945,16 @@ async function runSshTerminalTabScenario(browser) {
 }
 
 /**
- * L'onglet Opérations de flotte, ouvert depuis la barre latérale.
+ * Les opérations de flotte : le choix des cibles dans la barre latérale, la
+ * composition dans l'onglet.
  *
- * Ajouté avec la migration vers `src/modules/` : `netdiag` et `activity` ont
- * déjà leurs scénarios, mais rien ne montait `FleetTab` dans une vraie
- * fenêtre. `registry.test.ts` prouve qu'un rendu est enregistré pour ce
- * `kind`, pas que le composant qu'il renvoie s'affiche — et c'est le rendu qui
- * a changé de fichier.
+ * Ce scénario a d'abord prouvé que `FleetTab` montait pour de vrai —
+ * `registry.test.ts` prouve qu'un rendu est enregistré pour ce `kind`, pas que
+ * le composant qu'il renvoie s'affiche. Il couvre maintenant en plus le
+ * partage : l'arborescence est sortie de l'onglet pour devenir un panneau, et
+ * les deux lisent le même magasin. Un panneau qui rendrait à vide, ou un
+ * récapitulatif qui ne ramènerait plus à lui, passerait toutes les
+ * vérifications de compilation.
  */
 async function runFleetTabScenario(browser) {
   await browser.execute(() => {
@@ -1966,29 +1969,63 @@ async function runFleetTabScenario(browser) {
     )
   ), { timeout: 15_000, timeoutMsg: "l onglet Flotte ne s est pas rendu depuis la barre latérale" });
 
-  // Le filtre de cibles est l'autre moitié du composant : sa présence
-  // distingue « FleetTab a monté » de « un fallback de Suspense est resté ».
-  const hasFilter = await browser.execute(() =>
-    Array.from(document.querySelectorAll("input")).some(
+  // Le filtre de cibles doit être **dans le panneau**, pas seulement quelque
+  // part dans le document : c'est tout l'objet du déplacement. La recherche est
+  // donc ancrée sur `data-sidebar-panel`, et distingue au passage « le panneau
+  // a monté » de « un fallback de Suspense est resté ».
+  await browser.waitUntil(async () => await browser.execute(() => {
+    const panel = document.querySelector('[data-sidebar-panel="fleet"]');
+    return !!panel && Array.from(panel.querySelectorAll("input")).some(
       (i) => (i.getAttribute("placeholder") || "").startsWith("Filtrer (nom, groupe"),
-    ));
-  if (!hasFilter) throw new Error("l onglet Flotte est monté sans son filtre de cibles");
+    );
+  }), { timeout: 15_000, timeoutMsg: "le panneau Flotte ne porte pas son filtre de cibles" });
 
-  console.log("Flotte : OK (onglet ouvert depuis la barre, composant monté avec son filtre et sa zone de commande).");
+  // Le repli : la barre part sur un autre panneau, et le récapitulatif de
+  // l'onglet doit l'y ramener. Sans lui, on composerait une commande de flotte
+  // sans aucun moyen de voir ni de changer ce qu'elle vise.
+  await browser.execute(() => {
+    const btn = Array.from(document.querySelectorAll("aside nav button"))
+      .find((b) => (b.getAttribute("title") || "").startsWith("Hôtes"));
+    if (btn instanceof HTMLElement) btn.click();
+  });
+  await browser.waitUntil(
+    async () => await browser.execute(() => !!document.querySelector('[data-sidebar-panel="hosts"]')),
+    { timeout: 10_000, timeoutMsg: "la barre latérale n est pas passée sur le panneau Hôtes" },
+  );
+
+  const recapped = await browser.execute(() => {
+    const button = Array.from(document.querySelectorAll("button"))
+      .find((b) => /cible(s)? · modifier$|^Aucune cible sélectionnée$/.test((b.textContent || "").trim()));
+    if (!(button instanceof HTMLElement)) return "récapitulatif de cibles introuvable dans l onglet";
+    button.click();
+    return "ok";
+  });
+  if (recapped !== "ok") throw new Error(recapped);
+  await browser.waitUntil(
+    async () => await browser.execute(() => !!document.querySelector('[data-sidebar-panel="fleet"]')),
+    { timeout: 10_000, timeoutMsg: "le récapitulatif de cibles n a pas ramené la barre sur le panneau Flotte" },
+  );
+
+  console.log("Flotte : OK (panneau de cibles dans la barre, composition dans l onglet, récapitulatif qui y ramène).");
 }
 
 /**
- * Les neuf panneaux de la barre latérale, ouverts un par un.
+ * Les onze panneaux de la barre latérale, ouverts un par un.
  *
  * Ajouté avec la migration des panneaux vers `src/modules/` : `Sidebar.tsx`
  * n'a plus aucun dispatch, un panneau dont le module manquerait s'afficherait
  * simplement vide. `registry.test.ts` prouve qu'un rendu est enregistré pour
  * chacun ; seul ceci prouve qu'il monte pour de vrai.
  *
- * Un seul scénario en boucle plutôt que neuf : cinq panneaux étaient déjà
+ * Un seul scénario en boucle plutôt qu'un par panneau : cinq étaient déjà
  * traversés par d'autres scénarios (hôtes, AWS, tunnels, bases, paramètres),
  * mais `knownHosts`, `sftp`, `snippets` et `keychain` n'étaient montés nulle
- * part — et c'est l'axe entier qui vient de changer de mécanisme.
+ * part — et c'est l'axe entier qui avait changé de mécanisme.
+ *
+ * La liste est écrite à la main, donc elle ne suit pas d'elle-même l'ajout
+ * d'un panneau : `sidebarButtons.test.ts` tient l'inventaire côté types, ce
+ * scénario prouve le montage réel. Y ajouter la ligne fait partie de l'ajout
+ * d'un panneau.
  */
 async function runSidebarPanelsScenario(browser) {
   const panels = [
@@ -2000,6 +2037,10 @@ async function runSidebarPanelsScenario(browser) {
     ["database", "Bases de données"],
     ["keychain", "Clés"],
     ["aws", "Identités AWS"],
+    // Ces deux-là ouvrent aussi leur onglet de travail (voir `Sidebar.tsx`) ;
+    // ce qui est vérifié ici est seulement que leur panneau monte.
+    ["fleet", "Opérations de flotte"],
+    ["netdiag", "Diagnostic réseau"],
     ["settings", "Paramètres"],
   ];
 
@@ -2352,6 +2393,17 @@ async function runNetDiagScenario(browser) {
   await browser.waitUntil(async () => await browser.execute(() =>
     Array.from(document.querySelectorAll("h2")).some((el) => el.textContent?.trim() === "Diagnostic réseau")
   ), { timeout: 10_000, timeoutMsg: "l onglet de diagnostic ne s est pas ouvert depuis la palette" });
+
+  // Le choix des sources est un panneau de barre latérale depuis qu'il est
+  // sorti de l'onglet. Ouvrir l'onglet doit l'amener avec — par la palette
+  // aussi, pas seulement par le bouton de la barre : sinon on arriverait sur
+  // une question sans avoir sous la main les machines à qui la poser.
+  await browser.waitUntil(async () => await browser.execute(() => {
+    const panel = document.querySelector('[data-sidebar-panel="netdiag"]');
+    return !!panel && Array.from(panel.querySelectorAll("input")).some(
+      (i) => (i.getAttribute("placeholder") || "").startsWith("Filtrer"),
+    );
+  }), { timeout: 15_000, timeoutMsg: "le panneau de sources du diagnostic n a pas suivi l ouverture de l onglet" });
 
   // The destination is the tab's first text input; the local machine is
   // preselected as the source, which is what the palette's way in means.

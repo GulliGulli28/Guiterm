@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { api } from "../lib/api";
 import { fleetTargetKey } from "../lib/types";
 import type { DockerContainer, FleetTarget, Host, HostFacts, HostId, K8sPod, Workspace } from "../lib/types";
@@ -160,4 +160,34 @@ export function useFleetTargets(workspace: Workspace) {
     refreshContainers,
     refreshPods,
   };
+}
+
+export type FleetTargets = ReturnType<typeof useFleetTargets>;
+
+const TargetsContext = createContext<FleetTargets | null>(null);
+
+/**
+ * Appelle [`useFleetTargets`] **une seule fois** pour toute l'application.
+ *
+ * Les listings Docker et Kubernetes sont des interrogations de démon en direct,
+ * pas de l'état persisté : deux appels du hook, c'est deux salves de requêtes
+ * au lancement, et deux listes qui peuvent diverger dès qu'un conteneur
+ * démarre entre les deux. Tant que les deux arborescences de cibles vivaient
+ * chacune dans son onglet, c'était invisible — un seul onglet était monté à la
+ * fois la plupart du temps. Depuis que la sélection est dans la barre latérale,
+ * le panneau et l'onglet sont montés ensemble, et la divergence deviendrait
+ * visible : le panneau cocherait un conteneur que l'onglet ne connaît pas.
+ */
+export function TargetsProvider({ workspace, children }: { workspace: Workspace; children: ReactNode }) {
+  const targets = useFleetTargets(workspace);
+  return <TargetsContext.Provider value={targets}>{children}</TargetsContext.Provider>;
+}
+
+/** Lance une erreur hors du fournisseur plutôt que de rendre une liste vide :
+ * une arborescence de cibles silencieusement vide est exactement la panne que
+ * le registre de modules s'attache à rendre impossible. */
+export function useSharedTargets(): FleetTargets {
+  const value = useContext(TargetsContext);
+  if (!value) throw new Error("useSharedTargets utilisé hors de TargetsProvider");
+  return value;
 }

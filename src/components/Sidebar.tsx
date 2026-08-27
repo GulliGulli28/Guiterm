@@ -44,14 +44,15 @@ export function Sidebar({ panel, onPanelChange, ctx, actions }: SidebarProps) {
   const tone = alertTone(actions.awsAlerts);
   const hidden = ctx.preferences.hiddenSidebarButtons;
 
-  // `fleet` et `netdiag` ouvrent un onglet au lieu de changer de panneau. Ils
-  // vivent dans cette barre parce que c'est là qu'on cherche « ce que sait
-  // faire l'app » — un bouton relégué dans la barre d'onglets ne se trouvait
-  // pas.
+  // `fleet` et `netdiag` ouvrent leur panneau **et** leur onglet de travail.
+  // Le panneau ne porte que le choix des cibles : l'ouvrir seul donnerait un
+  // cul-de-sac, on cocherait des machines sans avoir où lancer quoi que ce
+  // soit. Un clic continue donc de donner un écran utilisable, comme quand ces
+  // deux boutons n'ouvraient qu'un onglet.
   const activate = (id: SidebarButtonId) => {
-    if (id === "fleet") return actions.openFleet();
-    if (id === "netdiag") return actions.openNetDiag();
     onPanelChange(id);
+    if (id === "fleet") actions.openFleet();
+    if (id === "netdiag") actions.openNetDiag();
   };
 
   return (

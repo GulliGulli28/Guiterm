@@ -32,6 +32,8 @@ const EVERY_PANEL: Record<SidebarPanelKind, true> = {
   keychain: true,
   database: true,
   aws: true,
+  fleet: true,
+  netdiag: true,
   settings: true,
 };
 

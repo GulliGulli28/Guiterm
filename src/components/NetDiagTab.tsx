@@ -2,19 +2,19 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { api, onNetdiagDone, onNetdiagOutcome } from "../lib/api";
 import { describeVerdict, diagRowKey, diagToolKey, diagToolLabel } from "../lib/netdiag";
 import { fleetTargetKey } from "../lib/types";
-import type { DiagTool, DiagVerdict, HostId, Workspace } from "../lib/types";
-import { useFleetTargets } from "../hooks/useFleetTargets";
-import { buildTargetTree } from "../lib/targetTree";
-import { TargetTreeList } from "./TargetTreeList";
-import { IconPlay, IconSearch } from "./ui-icons";
+import type { DiagTool, DiagVerdict, HostId } from "../lib/types";
+import { useNetDiagSelection } from "../hooks/useNetDiagSelection";
+import { IconPlay } from "./ui-icons";
 
 interface NetDiagTabProps {
-  workspace: Workspace;
   onError: (message: string) => void;
   /** Preselected source. A host when the tab was opened from its menu — that
    * entry has always meant "probe *from* this host" — and `null` from the
    * palette, which preselects this machine instead. */
   initialSourceId?: HostId | null;
+  /** Ramène la barre latérale sur le panneau de sélection — ce que fait le
+   * récapitulatif de cibles quand elle affiche autre chose. */
+  onShowTargets: () => void;
 }
 
 const inputClass =
@@ -40,21 +40,12 @@ const TONE_CLASS: Record<string, string> = {
  * unresolved name is not a network problem, and a missing tool is not a failed
  * test.
  */
-export function NetDiagTab({ workspace, onError, initialSourceId }: NetDiagTabProps) {
-  const { allTargets } = useFleetTargets(workspace);
+export function NetDiagTab({ onError, initialSourceId, onShowTargets }: NetDiagTabProps) {
+  // Le choix des machines vit dans la barre latérale (`NetDiagTargetsPanel`),
+  // donc dans un magasin partagé plutôt que dans cet onglet.
+  const { direction, setDirection, selected, selectable, seedSource } = useNetDiagSelection();
 
-  /** Which question is being asked. Both are needed in the same incident:
-   * "je ne joins plus db-1" then "et depuis web-1, tu le joins ?" — and the
-   * second direction needs no SSH connection, so it still answers about a host
-   * that is itself the thing that has broken. */
-  const [direction, setDirection] = useState<"from" | "to">("from");
   const [destination, setDestination] = useState("");
-  const [filter, setFilter] = useState("");
-  const [selected, setSelected] = useState<Set<string>>(
-    // Something is always ticked on arrival: an empty selection would make the
-    // run button refuse before the user has done anything wrong.
-    () => new Set([initialSourceId ? fleetTargetKey({ kind: "ssh", hostId: initialSourceId }) : "local"]),
-  );
   const [running, setRunning] = useState(false);
 
   // Which tools are on, and their parameters. TCP and HTTP carry a port, so
@@ -91,14 +82,6 @@ export function NetDiagTab({ workspace, onError, initialSourceId }: NetDiagTabPr
     return list;
   }, [tcpOn, tcpPort, dnsOn, httpOn, httpSecure, httpPath, pingOn, tracerouteOn]);
 
-  /** What can be ticked, which is not the same list in both directions: the
-   * "toward" direction probes a saved host's address, and a Docker container
-   * or the local machine has none. */
-  const selectable = useMemo(
-    () => (direction === "from" ? allTargets : allTargets.filter((t) => t.target.kind === "ssh")),
-    [direction, allTargets],
-  );
-
   // Subscribed for the tab's life rather than per run: the first cells come
   // back within milliseconds of a fast target, and a listener attached after
   // the call would miss them.
@@ -126,37 +109,16 @@ export function NetDiagTab({ workspace, onError, initialSourceId }: NetDiagTabPr
     return () => { pending.then((un) => un()).catch(() => {}); };
   }, []);
 
-  // Rangées dans l'arborescence de dossiers, comme la barre latérale et
-  // l'onglet de flotte — le filtre y couvre aussi les tags de l'hôte porteur
-  // (voir `lib/targetTree.ts`).
-  const { rows: targetRows, visibleKeys } = useMemo(
-    () => buildTargetTree({
-      targets: selectable,
-      hosts: workspace.hosts,
-      groups: workspace.groups,
-      query: filter,
-    }),
-    [selectable, workspace.hosts, workspace.groups, filter],
-  );
-
-  const toggle = (key: string) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(key)) next.delete(key);
-      else next.add(key);
-      return next;
-    });
-
-  /** Cocher/décocher tout un dossier (ou tout un hôte relais) d'un coup. */
-  const toggleKeys = (keys: string[], checked: boolean) =>
-    setSelected((prev) => {
-      const next = new Set(prev);
-      for (const key of keys) {
-        if (checked) next.add(key);
-        else next.delete(key);
-      }
-      return next;
-    });
+  // La sélection ne vit plus dans cet onglet, donc son remontage ne la remet
+  // plus d'elle-même sur l'hôte visé. Ce composant est monté avec
+  // `key={tab.sourceHostId ?? "local"}` (voir `modules/netdiag`) : viser
+  // l'onglet depuis le menu d'un autre hôte le remonte, et c'est *ici* que la
+  // source repart de cet hôte-là. Sans cet effet, on hériterait silencieusement
+  // de la source de l'incident précédent.
+  useEffect(() => {
+    seedSource(initialSourceId ?? null);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const run = () => {
     const picked = selectable.filter((t) => selected.has(t.key));
@@ -216,7 +178,10 @@ export function NetDiagTab({ workspace, onError, initialSourceId }: NetDiagTabPr
             {(["from", "to"] as const).map((value) => (
               <button
                 key={value}
-                onClick={() => { setDirection(value); setSelected(new Set()); setRanRows([]); }}
+                // `setDirection` vide la sélection lui-même (les deux sens ne
+                // cochent pas la même liste) ; la grille déjà affichée part
+                // ici, elle répondait à l'autre question.
+                onClick={() => { setDirection(value); setRanRows([]); }}
                 className={`px-2.5 py-1 transition-colors ${
                   direction === value
                     ? "accent-surface"
@@ -296,10 +261,24 @@ export function NetDiagTab({ workspace, onError, initialSourceId }: NetDiagTabPr
             </span>
           </label>
 
+          {/* Le récapitulatif remplace la colonne de sélection : elle est
+              maintenant dans la barre latérale, qui peut afficher autre chose.
+              Sans lui, on lancerait un diagnostic sans avoir sous les yeux sur
+              quoi. Cliquer ramène la barre sur le panneau de cibles. */}
+          <button
+            onClick={onShowTargets}
+            title="Choisir les machines — ouvre le panneau « Diagnostic réseau » dans la barre latérale"
+            className="ml-auto rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-2.5 py-1.5 text-[11px] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)]"
+          >
+            {selected.size === 0
+              ? "Aucune machine choisie"
+              : `${selected.size} machine${selected.size > 1 ? "s" : ""} · modifier`}
+          </button>
+
           <button
             onClick={run}
             disabled={running || (direction === "from" && !destination.trim())}
-            className="accent-surface ml-auto flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium disabled:opacity-40"
+            className="accent-surface flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium disabled:opacity-40"
           >
             <IconPlay size={12} />
             {running ? "Diagnostic…" : `Lancer sur ${selected.size} hôte(s)`}
@@ -308,54 +287,6 @@ export function NetDiagTab({ workspace, onError, initialSourceId }: NetDiagTabPr
       </div>
 
       <div className="flex min-h-0 flex-1">
-        {/* Sources */}
-        <div className="flex w-64 shrink-0 flex-col border-r border-[var(--c-border)]">
-          <div className="shrink-0 border-b border-[var(--c-border)] p-2">
-            <div className="relative">
-              <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 text-[var(--c-text-faint)]">
-                <IconSearch size={12} />
-              </span>
-              <input
-                value={filter}
-                onChange={(e) => setFilter(e.target.value)}
-                placeholder="Filtrer les hôtes…"
-                className={`${inputClass} w-full pl-7 text-[12px]`}
-              />
-            </div>
-            <div className="mt-1.5 flex gap-2">
-              <button
-                onClick={() => setSelected(new Set(visibleKeys))}
-                className="text-[10px] text-[var(--c-accent-text)] hover:underline"
-              >
-                Tout ({visibleKeys.length})
-              </button>
-              <button
-                onClick={() => setSelected(new Set())}
-                className="text-[10px] text-[var(--c-text-muted)] hover:underline"
-              >
-                Aucun
-              </button>
-            </div>
-          </div>
-          <div className="min-h-0 flex-1 overflow-y-auto p-1">
-            <TargetTreeList
-              rows={targetRows}
-              customIcons={workspace.customIcons}
-              isChecked={(t) => selected.has(t.key)}
-              onToggle={(t) => toggle(t.key)}
-              onToggleKeys={toggleKeys}
-              countChecked={(keys) => keys.reduce((n, key) => n + (selected.has(key) ? 1 : 0), 0)}
-              emptyMessage={filter.trim() ? "Aucune cible ne correspond." : "Aucune cible."}
-              renderTarget={(t) => (
-                <>
-                  <span className="block truncate text-[12px] text-[var(--c-text)]">{t.label}</span>
-                  {t.sub && <span className="block truncate text-[10px] text-[var(--c-text-muted)]">{t.sub}</span>}
-                </>
-              )}
-            />
-          </div>
-        </div>
-
         {/* Grid */}
         <div className="min-h-0 flex-1 overflow-auto p-3">
           {ranRows.length === 0 ? (
