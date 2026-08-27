@@ -9,6 +9,8 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+## [3.2.1] - 2026-08-27
+
 ### Added
 
 - **Retry a failed connection without closing the tab.** A session that failed
@@ -19,6 +21,22 @@ This changelog starts 2026-07-21 — for earlier versions, see
   (including Docker and Kubernetes exec), local terminal, the RDP preview, SQL,
   Redis, MongoDB and each transfer panel. The RDP preview also offers
   "Reconnecter" once a session has ended.
+- **Target selection for fleet operations and network diagnostics moved to the
+  sidebar.** Both tabs carried their own host tree, narrower than the one the
+  sidebar already shows under "Hôtes" and "SFTP" — so which machines you were
+  picking, and where you picked them, depended on what you meant to do with
+  them. Both are now sidebar panels of their own, with the same cards, the same
+  collapsible folders and the same search field as the other two; the tab keeps
+  the command (or the question) and the results. Clicking the button opens the
+  panel and the tab together, switching between the two tabs brings each one's
+  targets with it, and the tab carries a "14 cibles · modifier" summary that
+  takes you back to the panel when the sidebar is showing something else.
+- **The network diagnostics panel can pick hosts by their collected state.**
+  The same five criteria the fleet already offered — OS, RAM, CPU count, load
+  average, uptime — plus the button that collects that state, because "which of
+  my hosts are Debian, or under load?" is as good a question before a
+  reachability check as before a command. SSH hosts only: the local terminal
+  and Docker/Kubernetes containers carry no collected state.
 - **The update check now says what the server advertises.** "À jour ✓" used to
   cover two very different situations: you really do have the latest version,
   or GitHub is still advertising the previous one because a freshly published
