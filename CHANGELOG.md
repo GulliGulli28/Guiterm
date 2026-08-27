@@ -9,6 +9,43 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+### Added
+
+- **Retry a failed connection without closing the tab.** A session that failed
+  to open used to leave a dead tab: the only way to try again was to close it
+  and reopen the target from the sidebar, losing its place. The cause is
+  usually transient — a server restarting, a VPN coming back up, a one-time
+  code entered too late — so every session screen now offers "Réessayer": SSH
+  (including Docker and Kubernetes exec), local terminal, the RDP preview, SQL,
+  Redis, MongoDB and each transfer panel. The RDP preview also offers
+  "Reconnecter" once a session has ended.
+- **The update check now says what the server advertises.** "À jour ✓" used to
+  cover two very different situations: you really do have the latest version,
+  or GitHub is still advertising the previous one because a freshly published
+  release has not become "latest" yet — in which case the answer is simply to
+  wait a few minutes. The check now names which of the two it is. Both the
+  manual check and the six-hourly background one also ask intermediaries not to
+  serve a cached answer.
+
+### Fixed
+
+- **The RDP clipboard now follows copies made after the session opened.**
+  Pasting into the remote desktop only ever produced whatever was on the
+  clipboard when the session started; everything copied afterwards stayed
+  invisible to the server. The clipboard bridge ignores updates while it
+  believes its own window is active — its guard against echoing back a
+  clipboard it just filled from the remote side — and that window, hidden
+  inside a separate process that never holds the foreground, was never told
+  otherwise. It is now, and the guard that matters (not echoing remote content
+  back) is untouched.
+- **A crash no longer disappears without a trace.** The Windows build has no
+  console, and a panic on the main thread ends the process without producing a
+  Windows error report, so an application that "stopped on its own" left
+  strictly nothing behind — not in its own log, not in the event log. Panics
+  are now written to `panics.log` next to the daily logs (Paramètres → Général
+  points at the folder), with the thread, the location and a backtrace. This
+  does not prevent a crash; it makes the next one answerable.
+
 ## [3.2.0] - 2026-08-25
 
 ### Added
