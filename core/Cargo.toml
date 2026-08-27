@@ -115,6 +115,10 @@ libsqlite3-sys = { version = "0.30", features = ["bundled"] }
 # `sql::build_url` uses its setters (percent-encoding credentials safely,
 # see that function's doc comment) rather than just consuming it.
 url = "2"
+# Déjà résolu transitivement (tracing-appender, tauri) — déclaré directement
+# pour l'horodatage du fichier de paniques (`logging::install_panic_hook`),
+# qui doit être lisible et dans le même fuseau UTC que le journal quotidien.
+time = { version = "0.3", features = ["formatting"] }
 # `redis_client`: Redis client — checked against the RDP/ecdsa saga before
 # adding (see CLAUDE.md's "Pourquoi un processus RDP séparé"). `tokio-comp`
 # for the async API; `connection-manager` for `redis::aio::ConnectionManager`,

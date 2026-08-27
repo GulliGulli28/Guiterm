@@ -18,6 +18,9 @@
 //! **Retention.** One file per day, keeping the most recent
 //! [`MAX_LOG_FILES`]. An SSH client can run for weeks; without a cap this
 //! grows without bound on a machine the user never thinks about.
+//!
+//! **Panics get their own file.** See [`install_panic_hook`]: a panic is the
+//! one event this daily log could not record, and the one most worth having.
 use directories::ProjectDirs;
 use std::path::PathBuf;
 
@@ -27,6 +30,12 @@ use std::path::PathBuf;
 const MAX_LOG_FILES: usize = 7;
 
 const LOG_FILE_PREFIX: &str = "guiterm";
+
+/// Où les paniques sont consignées. Volontairement hors du préfixe
+/// `guiterm` : [`prune_old_logs`] ne doit pas l'emporter avec les journaux
+/// quotidiens — c'est justement le fichier qu'on veut encore trouver une
+/// semaine plus tard.
+const PANIC_FILE: &str = "panics.log";
 
 fn project_dirs() -> anyhow::Result<ProjectDirs> {
     ProjectDirs::from("dev", "gui-termius", "gui-termius")
@@ -115,12 +124,111 @@ fn prune_old_logs(dir: &std::path::Path) {
     }
 }
 
+/// Installe un crochet de panique qui consigne la panique dans le dossier de
+/// journaux avant de laisser le crochet précédent s'exécuter.
+///
+/// **Pourquoi.** Sans lui, une panique ne laisse strictement aucune trace sur
+/// le binaire livré. Le crochet par défaut écrit sur stderr, or le binaire
+/// Windows est en `windows_subsystem = "windows"` : il n'a pas de console. Et
+/// une panique sur le thread principal déroule jusqu'à sortir de `main`, donc
+/// le processus se termine avec le code 101 — pas d'exception Windows, donc ni
+/// rapport d'erreur, ni entrée dans le journal d'événements. Le résultat est
+/// une application qui « s'arrête toute seule » sans rien laisser derrière
+/// elle. Observé pour de vrai le 2026-08-27 : journal quotidien coupé net au
+/// milieu d'une session, sans la ligne « arrêt de Guiterm demandé » que
+/// `main` écrit sur une fermeture propre, et rien nulle part ailleurs.
+///
+/// À appeler depuis `main`, après [`init`] — le crochet écrit dans les deux
+/// destinations, et la seconde n'existe qu'une fois l'abonné en place.
+pub fn install_panic_hook() {
+    install_panic_hook_in(directory().ok());
+}
+
+fn install_panic_hook_in(dir: Option<PathBuf>) {
+    let previous = std::panic::take_hook();
+    std::panic::set_hook(Box::new(move |info| {
+        let thread = std::thread::current();
+        let name = thread.name().unwrap_or("<sans nom>").to_owned();
+        let backtrace = std::backtrace::Backtrace::force_capture().to_string();
+        let report = format_panic_report(&name, &info.to_string(), &backtrace);
+        if let Some(dir) = &dir {
+            append_panic_report(dir, &report);
+        }
+        // Également dans le journal quotidien, pour le cas où le processus
+        // survit : une panique sur un thread de travail ne tue que ce thread
+        // (`panic = "abort"` est volontairement désactivé, voir la raison dans
+        // `Cargo.toml`), et la panique a alors sa place dans la chronologie.
+        tracing::error!("{report}");
+        previous(info);
+    }));
+}
+
+/// L'horodatage est en UTC comme le reste du journal, et le pid permet de
+/// recoller la panique à sa ligne de démarrage (`main` l'écrit).
+fn format_panic_report(thread: &str, info: &str, backtrace: &str) -> String {
+    let at = time::OffsetDateTime::now_utc()
+        .format(&time::format_description::well_known::Rfc3339)
+        .unwrap_or_else(|_| "date indisponible".to_owned());
+    format!(
+        "{at} PANIQUE (pid {}) — thread « {thread} »\n{info}\n{backtrace}\n\n",
+        std::process::id(),
+    )
+}
+
+/// Écriture bloquante et directe, jamais via `tracing` : le journal quotidien
+/// passe par `tracing_appender::non_blocking`, dont le thread d'écriture n'est
+/// pas garanti d'être ordonnancé à nouveau quand c'est le thread principal qui
+/// panique — la ligne serait perdue exactement dans le cas qu'on cherche à
+/// diagnostiquer. Tout échec est avalé : un crochet de panique qui panique à
+/// son tour ferait perdre jusqu'au message d'origine.
+fn append_panic_report(dir: &std::path::Path, report: &str) {
+    use std::io::Write;
+    let Ok(mut file) = std::fs::OpenOptions::new().create(true).append(true).open(dir.join(PANIC_FILE)) else {
+        return;
+    };
+    let _ = file.write_all(report.as_bytes());
+    let _ = file.flush();
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     fn touch(dir: &std::path::Path, name: &str) {
         std::fs::write(dir.join(name), b"x").unwrap();
+    }
+
+    #[test]
+    fn le_crochet_de_panique_consigne_la_panique_dans_un_fichier() {
+        let dir = tempfile::tempdir().unwrap();
+        install_panic_hook_in(Some(dir.path().to_path_buf()));
+
+        // `catch_unwind` laisse le crochet s'exécuter (il tourne *avant* le
+        // déroulement) puis rattrape la panique, donc le test survit à ce
+        // qu'il provoque.
+        let caught = std::panic::catch_unwind(|| panic!("boum de test"));
+        assert!(caught.is_err());
+
+        let written = std::fs::read_to_string(dir.path().join(PANIC_FILE)).unwrap();
+        assert!(written.contains("PANIQUE"), "{written}");
+        assert!(written.contains("boum de test"), "{written}");
+        // La localisation vient du crochet par défaut via `Display` sur
+        // l'info de panique : c'est elle qui nomme le fichier fautif.
+        assert!(written.contains("logging.rs"), "{written}");
+    }
+
+    #[test]
+    fn le_fichier_de_paniques_survit_a_la_purge_des_journaux() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join(PANIC_FILE), b"une panique d il y a longtemps").unwrap();
+        for day in ["2026-07-18", "2026-07-19", "2026-07-20", "2026-07-21", "2026-07-22",
+                    "2026-07-23", "2026-07-24", "2026-07-25", "2026-07-26"] {
+            touch(dir.path(), &format!("{LOG_FILE_PREFIX}.{day}"));
+        }
+
+        prune_old_logs(dir.path());
+
+        assert!(dir.path().join(PANIC_FILE).exists(), "la purge a emporté le fichier de paniques");
     }
 
     #[test]

@@ -11,6 +11,10 @@ fn main() {
     // background log writer down, so `let _ = ...` here would discard every
     // line the app goes on to emit. Held until `main` returns.
     let _log_guard = termius_core::logging::init();
+    // Après `init`, jamais avant : le crochet écrit aussi dans le journal
+    // quotidien, ce qui suppose l'abonné en place. Voir son doc comment pour
+    // ce qu'une panique laissait derrière elle sans lui — rien.
+    termius_core::logging::install_panic_hook();
     // Une ligne au démarrage et une à l'arrêt : sans elles, le journal ne
     // distingue pas une application fermée proprement d'une application tuée
     // (rebuild du binaire, fin de session Windows, plantage sans rapport
