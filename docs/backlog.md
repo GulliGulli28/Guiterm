@@ -37,6 +37,89 @@ CHANGELOG.
   « aucun », l'item n'est pas fini. Et le garde-fou ajouté doit être cassé une
   fois pour vérifier qu'il échoue vraiment.
 
+## En cours — Runbooks exécutables (tranche 1 livrée le 2026-08-31)
+
+Choisi le 2026-08-31 parmi les trois chantiers majeurs restants de
+`roadmap-chantiers-majeurs` (les deux autres — surveillance continue, sync
+chiffrée — restent ouverts). Des procédures ordonnées au-dessus du moteur de
+flotte : étapes, notes, sortie capturée par étape, politique d'échec, rapport.
+
+**Deux décisions prises avec l'utilisateur avant d'écrire :** les cibles sont
+**globales avec surcharge par étape** (une étape restreint par tag et par
+dossier, jamais par `hostId` — un runbook qui porterait des identifiants
+locaux ne voudrait plus rien dire une fois exporté) ; et les runbooks vivent
+**dans `workspace.json`** d'abord, le fichier versionnable venant en tranche 3.
+
+**Les leviers, revérifiés dans le code le 2026-08-31** — et pour une fois le
+meilleur n'était pas listé :
+
+- `adaptive::inverse` répond déjà « cette opération est destructrice, et voici
+  pourquoi » (`Reversibility::Irreversible { reason }`, en français, sur un
+  `match` total). La pause d'approbation de la tranche 2 n'aura donc pas de
+  liste de mots-clés à maintenir. Limite : ça ne vaut que pour les étapes DSL,
+  une commande libre est du shell arbitraire, indécidable.
+- `fleet::run_on_hosts` et `commands::fleet::execute_and_record` étaient bien
+  ce qu'annonçait le backlog : réutilisables tels quels pour *une* étape.
+
+**Les quatre trous, eux, étaient tout le travail :**
+
+1. `fleet_history.json` plafonne à 50 runs — une procédure de huit étapes
+   lancée trois fois aurait chassé l'historique des vraies opérations de
+   flotte. D'où `runbook_history.json`, et d'où le fait qu'une exécution y soit
+   *un* objet et pas N runs indépendants.
+2. Le moteur de flotte ne sait pas s'arrêter : aucune notion d'« échec ⇒ ne pas
+   faire l'étape suivante » ni de retrait de cibles. C'est `core/src/runbook.rs`,
+   écrit, pas réutilisé.
+3. Aucun aller-retour d'approbation n'existe côté backend. `interactive_auth.rs`
+   en est le seul précédent (évènement + oneshot) — un modèle, pas du code
+   réutilisable. Reporté en tranche 2.
+4. `preview_rollback` part d'un `run_id` de `fleet_history` : annuler un runbook
+   entier demanderait de recoudre N runs. **Hors périmètre, dit d'avance.**
+
+### Tranche 1 — **livrée le 2026-08-31**
+
+Le moteur (`core/src/runbook.rs`, `runbook_history.rs`), les cinq commandes
+(`commands/runbook.rs`), l'onglet et le panneau (`RunbookTab.tsx`,
+`RunbookPanel.tsx`, `modules/runbook.tsx`).
+
+**La leçon de conception du chantier** : la boucle d'exécution était d'abord
+dans la couche Tauri, où *rien* ne pouvait la dérouler sans une vraie flotte —
+alors que l'ordre des étapes, la politique d'échec et le retrait des cibles
+*sont* la fonctionnalité. Redescendue en machine à états (`RunbookDriver`,
+`next_step`/`finish_step`/`finish`), elle se déroule entièrement avec des
+résultats fabriqués. Les deux assertions qui comptent — une étape en échec
+réglée sur « arrêter » n'exécute pas la suivante, une cible écartée ne
+réapparaît jamais — ont été **cassées exprès** et échouent bien toutes les deux.
+
+**Prouvé** : 32 tests unitaires, et un scénario E2E qui crée la procédure depuis
+la barre latérale, remplit une étape, la lance réellement sur le terminal local,
+lit la sortie de la commande à l'écran et vérifie que le rapport est persisté —
+puis supprime le runbook (le seul scénario qui écrit dans le vrai
+`workspace.json` du profil, d'où la suppression en `finally`).
+**Non prouvé** : aucune procédure lancée contre une vraie flotte distante.
+
+**Deux limites assumées de la tranche 1**, à ne pas confondre avec des oublis :
+les notes d'étape sont stockées verbatim mais **rendues en texte brut** (aucun
+moteur markdown dans le dépôt, en ajouter un est une décision de dépendance à
+part) ; et l'arrêt demandé prend effet **entre deux étapes**, jamais au milieu
+de l'une — couper un `apt-get` à mi-chemin laisserait des machines dans un état
+que la procédure ne décrit nulle part. L'interface le dit au lieu de le laisser
+croire.
+
+### Tranche 2 — la pause d'approbation
+
+L'irréversibilité lue par `adaptive::inverse` (avec son `reason` affiché),
+l'aller-retour sur le modèle d'`interactive_auth`, une case « demander
+confirmation » manuelle pour les étapes en commande libre, et un délai
+d'attente qui **refuse** plutôt qu'il n'approuve.
+
+### Tranche 3 — un runbook = un fichier
+
+Export/import `.runbook.json` (`export_text` + tauri-plugin-dialog existent
+déjà), et le rapport final exportable.
+
+---
+
 ## État
 
 Les trois vagues prévues le 2026-08-04 sont terminées, l'onglet de diagnostic

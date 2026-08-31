@@ -559,6 +559,7 @@ export interface Workspace {
   keychain: PrivateKey[];
   customIcons: CustomIcon[];
   sqlConnections: SqlConnection[];
+  runbooks: Runbook[];
 }
 
 export interface KnownHostEntry {
@@ -1063,6 +1064,16 @@ export type TabMeta =
     }
   | { id: string; kind: "local-terminal"; label: string; initialCommand?: string; shell?: string | null; status?: "connected" | "placeholder" }
   | { id: string; kind: "fleet"; label: string; status?: "connected" | "placeholder" }
+  | {
+      id: string;
+      kind: "runbook";
+      label: string;
+      /** Le runbook ouvert dans cet onglet. Persisté avec l'onglet, comme
+       * `sqlConnectionId` : rouvrir l'app doit retrouver la procédure, pas un
+       * onglet vide. */
+      runbookId: RunbookId;
+      status?: "connected" | "placeholder";
+    }
   | { id: string; kind: "activity"; label: string; status?: "connected" | "placeholder" }
   | {
       id: string;
@@ -1172,6 +1183,88 @@ export interface FleetOutcome {
   stderr: string;
   durationMs: number;
   error: string | null;
+}
+
+/** Un runbook : une procédure ordonnée exécutée sur une flotte.
+ * Miroir de `termius_core::model::Runbook`.
+ *
+ * Les cibles n'en font pas partie : elles viennent de la sélection au
+ * lancement. Une étape peut restreindre cette sélection (`RunbookStepScope`),
+ * jamais la nommer — un runbook qui porterait des `hostId` ne voudrait plus
+ * rien dire une fois exporté. */
+export interface Runbook {
+  id: RunbookId;
+  name: string;
+  description: string;
+  steps: RunbookStep[];
+}
+
+export type RunbookId = string;
+export type RunbookStepId = string;
+
+export interface RunbookStep {
+  id: RunbookStepId;
+  title: string;
+  /** Notes libres (markdown) : le pourquoi, le ticket, ce qu'il faut vérifier.
+   * Jamais exécutées. */
+  notes: string;
+  action: RunbookAction;
+  scope: RunbookStepScope;
+  onFailure: OnFailure;
+}
+
+/** Ce qu'une étape exécute. Miroir de `termius_core::model::RunbookAction` —
+ * union discriminée, donc tout dispatch dessus se ferme sur `assertNever`. */
+export type RunbookAction =
+  | { kind: "command"; command: string }
+  | { kind: "program"; programText: string };
+
+/** La restriction de cibles d'une étape : par tag et par dossier, jamais par
+ * identifiant d'hôte. Les deux champs se combinent par ET ; **tous** les tags
+ * doivent être portés, mais **un seul** des dossiers suffit. */
+export interface RunbookStepScope {
+  tags: string[];
+  groups: string[];
+}
+
+/** Ce que devient la procédure quand une cible échoue à une étape. */
+export type OnFailure = "stop" | "continue" | "dropFailed";
+
+/** Comment une exécution s'est terminée. Miroir de
+ * `termius_core::runbook_history::RunStatus`. */
+export type RunbookRunStatus = "completed" | "stopped" | "cancelled";
+
+/** Une cible que l'étape n'a pas visée, et pourquoi. Jamais un échec : rien
+ * n'a tourné. */
+export interface SkippedTarget {
+  target: FleetTarget;
+  reason: string;
+}
+
+/** Ce qu'une étape a donné, dans le rapport. Miroir de
+ * `termius_core::runbook_history::StepRecord`. */
+export interface RunbookStepRecord {
+  stepId: RunbookStepId;
+  title: string;
+  /** Ce qui a été demandé, verbatim : la commande, ou le texte du programme. */
+  summary: string;
+  outcomes: FleetOutcome[];
+  skipped: SkippedTarget[];
+  /** La procédure s'est arrêtée à cette étape, et pourquoi. */
+  stopReason: string | null;
+}
+
+/** Une exécution complète. `name` et chaque `title` sont copiés à
+ * l'enregistrement : un rapport dit ce qui s'est passé, pas ce que la
+ * procédure dit aujourd'hui. */
+export interface RunbookRun {
+  id: string;
+  runbookId: RunbookId;
+  name: string;
+  startedAtMs: number;
+  durationMs: number;
+  status: RunbookRunStatus;
+  steps: RunbookStepRecord[];
 }
 
 /** Search on a host's filesystem: by file name, or by what's inside.

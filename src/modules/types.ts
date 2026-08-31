@@ -4,7 +4,7 @@ import type { NotificationKind } from "../lib/notifications";
 import type { AppPreferences } from "../lib/preferences";
 import type {
   AwsSessionAlert, AwsSsoSession, Group, GroupId, Host, HostId, KeyAlgorithm, KeyId,
-  PaneSource, PortForwardId, PortForwardKind, SnippetId, SqlConnection, TabMeta, VaultStatus, Workspace,
+  PaneSource, PortForwardId, PortForwardKind, RunbookId, SnippetId, SqlConnection, TabMeta, VaultStatus, Workspace,
 } from "../lib/types";
 import type { SidebarPanelKind } from "../lib/sidebarButtons";
 
@@ -159,6 +159,12 @@ export interface SidebarActions {
   runSnippet: (command: string, targetTabIds?: string[]) => void;
   runAdaptiveSnippet: (programText: string, targetTabIds?: string[]) => void;
   saveAdaptiveSnippet: (id: SnippetId | null, name: string, command: string) => void;
+  /** Crée une procédure vide et ouvre son onglet — un runbook se remplit dans
+   * l'onglet, pas dans la barre latérale (les étapes ne tiennent pas dans une
+   * colonne étroite). */
+  createRunbook: (name: string) => void;
+  deleteRunbook: (id: RunbookId) => void;
+  openRunbook: (id: RunbookId) => void;
   addForward: (input: { hostId: HostId; kind: PortForwardKind; bindAddress: string; bindPort: number; destAddress: string; destPort: number }) => void;
   updateForward: (input: { id: PortForwardId; hostId: HostId; kind: PortForwardKind; bindAddress: string; bindPort: number; destAddress: string; destPort: number }) => Promise<unknown>;
   deleteForward: (id: PortForwardId) => void;

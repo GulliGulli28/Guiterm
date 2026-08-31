@@ -6,7 +6,7 @@
  * direction. `Sidebar.tsx` n'est plus qu'un consommateur parmi d'autres. */
 export type SidebarPanelKind =
   | "knownHosts" | "hosts" | "sftp" | "snippets" | "tunnels"
-  | "keychain" | "database" | "aws" | "fleet" | "netdiag" | "settings";
+  | "keychain" | "database" | "aws" | "fleet" | "runbook" | "netdiag" | "settings";
 
 /** Boutons de la barre verticale de gauche que l'utilisateur peut masquer.
  *
@@ -47,6 +47,7 @@ export const SIDEBAR_BUTTONS: readonly SidebarButtonDef[] = [
   { id: "keychain",   label: "Clés" },
   { id: "aws",        label: "Identités AWS" },
   { id: "fleet",      label: "Opérations de flotte", hint: "exécuter une commande sur plusieurs hôtes à la fois" },
+  { id: "runbook",    label: "Runbooks", hint: "des procédures ordonnées, étape par étape, sur les mêmes cibles" },
   { id: "netdiag",    label: "Diagnostic réseau", hint: "ping, traceroute, DNS, TCP, HTTP depuis ou vers vos hôtes" },
 ];
 

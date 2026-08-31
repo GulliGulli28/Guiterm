@@ -48,12 +48,14 @@ fn main() {
     let ssh_history = termius_core::command_history::load("ssh_history.json").unwrap_or_default();
     let sql_history = termius_core::command_history::load("sql_history.json").unwrap_or_default();
     let fleet_history = termius_core::fleet_history::load().unwrap_or_default();
+    let runbook_history = termius_core::runbook_history::load().unwrap_or_default();
     let app_state = AppState {
         workspace: std::sync::Mutex::new(workspace),
         local_history: std::sync::Mutex::new(local_history),
         ssh_history: std::sync::Mutex::new(ssh_history),
         sql_history: std::sync::Mutex::new(sql_history),
         fleet_history: std::sync::Mutex::new(fleet_history),
+        runbook_history: std::sync::Mutex::new(runbook_history),
         ..Default::default()
     };
 
@@ -201,6 +203,13 @@ fn main() {
             commands::adaptive::has_anthropic_api_key,
             commands::drift::check_drift,
             commands::facts::collect_facts,
+
+            // ── module « runbook » ───────────────────────────────────────
+            commands::runbook::save_runbook,
+            commands::runbook::delete_runbook,
+            commands::runbook::run_runbook,
+            commands::runbook::cancel_runbook,
+            commands::runbook::get_runbook_history,
 
             // ── module « netdiag » ───────────────────────────────────────
             commands::netdiag::run_netdiag,

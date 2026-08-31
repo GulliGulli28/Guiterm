@@ -15,6 +15,7 @@ const EVERY_TAB_KIND: Record<TabMeta["kind"], true> = {
   "rdp-view": true,
   "local-terminal": true,
   fleet: true,
+  runbook: true,
   activity: true,
   netdiag: true,
   sql: true,
@@ -33,6 +34,7 @@ const EVERY_PANEL: Record<SidebarPanelKind, true> = {
   database: true,
   aws: true,
   fleet: true,
+  runbook: true,
   netdiag: true,
   settings: true,
 };

@@ -283,7 +283,7 @@ export default function App() {
   const {
     tabs, setTabs, activeTabId, setActiveTabId,
     pendingCloseTabId, setPendingCloseTabId,
-    openTab, openPersistentSession, openLocalTerminal, openFleet, openActivity, openNetdiag, openSql, reconnectTab,
+    openTab, openPersistentSession, openLocalTerminal, openFleet, openActivity, openNetdiag, openSql, openRunbook, reconnectTab,
     rememberSessionKey,
     closeTab, detachTab, requestCloseTab,
     runSnippet, runAdaptiveSnippet, exportActiveScrollback,
@@ -623,6 +623,21 @@ export default function App() {
     addKey: (name, path, passphrase) => api.addPrivateKey(name, path, passphrase).then(refreshWorkspace).catch((e) => reportError(String(e))),
     generateKey: (name, algorithm, passphrase) => api.generatePrivateKey(name, algorithm, passphrase).then(refreshWorkspace).catch((e) => reportError(String(e))),
     deleteKey: (id) => api.deletePrivateKey(id).then(refreshWorkspace).catch((e) => reportError(String(e))),
+
+    // Créer une procédure l'ouvre aussitôt : une liste où l'on vient d'ajouter
+    // une ligne vide sans rien à en faire est un cul-de-sac — les étapes se
+    // remplissent dans l'onglet.
+    createRunbook: (name) => {
+      const runbook = { id: crypto.randomUUID(), name, description: "", steps: [] };
+      api.saveRunbook(runbook)
+        .then((ws) => { refreshWorkspace(ws); openRunbook(runbook.id, name); })
+        .catch((e) => reportError(String(e)));
+    },
+    deleteRunbook: (id) => api.deleteRunbook(id).then(refreshWorkspace).catch((e) => reportError(String(e))),
+    openRunbook: (id) => {
+      const book = workspace.runbooks.find((r) => r.id === id);
+      if (book) openRunbook(book.id, book.name);
+    },
     renameKey: (id, name) => api.renamePrivateKey(id, name).then(refreshWorkspace).catch((e) => reportError(String(e))),
 
     activeHostId,

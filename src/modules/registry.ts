@@ -13,6 +13,7 @@ import { snippetsModule } from "./snippets";
 import { tunnelsModule } from "./tunnels";
 import { localTerminalModule } from "./localTerminal";
 import { fleetModule } from "./fleet";
+import { runbookModule } from "./runbook";
 import { netdiagModule } from "./netdiag";
 import { rdpModule } from "./rdp";
 import { sqlModule } from "./sql";
@@ -37,6 +38,7 @@ import { transferModule } from "./transfer";
 export const MODULES = [
   activityModule,
   fleetModule,
+  runbookModule,
   netdiagModule,
   terminalModule,
   transferModule,

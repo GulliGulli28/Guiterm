@@ -126,6 +126,15 @@ pub struct AppState {
     pub sql_history: Mutex<Vec<termius_core::command_history::CommandEntry>>,
     /// Past fleet runs (audit trail), newest first — persisted to `fleet_history.json`.
     pub fleet_history: Mutex<Vec<termius_core::fleet_history::FleetRun>>,
+    /// Exécutions de runbooks passées, la plus récente en tête — persistées
+    /// dans `runbook_history.json`. Un fichier à part de l'historique de
+    /// flotte, voir `termius_core::runbook_history` pour pourquoi.
+    pub runbook_history: Mutex<Vec<termius_core::runbook_history::RunbookRun>>,
+    /// Un drapeau d'annulation par exécution de runbook en cours, par id de
+    /// run. Consulté **entre** deux étapes : une étape déjà partie va au bout
+    /// sur ses cibles, parce qu'interrompre un `apt-get` à mi-chemin laisserait
+    /// une machine dans un état que la procédure ne décrit nulle part.
+    pub runbook_cancels: Mutex<HashMap<String, Arc<AtomicBool>>>,
     /// In-flight keyboard-interactive (MFA) prompts, keyed by the id sent to
     /// the frontend with the `ssh-auth-prompt` event. Each entry is an SSH
     /// handshake parked mid-authentication, waiting for the user's answers —

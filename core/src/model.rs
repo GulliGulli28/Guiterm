@@ -7,6 +7,8 @@ pub type SnippetId = Uuid;
 pub type PortForwardId = Uuid;
 pub type KeyId = Uuid;
 pub type SqlConnectionId = Uuid;
+pub type RunbookId = Uuid;
+pub type RunbookStepId = Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -410,6 +412,116 @@ pub struct Snippet {
     /// rather than a literal command run everywhere as-is.
     #[serde(default)]
     pub adaptive: bool,
+}
+
+/// Une procédure ordonnée : des étapes exécutées les unes après les autres sur
+/// une flotte, avec une politique d'échec par étape.
+///
+/// **Pourquoi une entité et pas un snippet de plus.** Un [`Snippet`] est *une*
+/// commande qu'on relance ; un runbook est une suite dont l'ordre a un sens et
+/// dont chaque étape décide de ce qui se passe si elle échoue. Les deux
+/// pourraient partager un champ `command`, et ce serait le début d'une entité
+/// qui ne sait plus ce qu'elle est.
+///
+/// **Les cibles n'en font pas partie, volontairement.** Elles arrivent au
+/// lancement, depuis la même sélection de barre latérale que les opérations de
+/// flotte. Une étape peut *restreindre* cette sélection ([`RunbookStepScope`]),
+/// jamais l'élargir ni la nommer : un runbook qui porterait des identifiants
+/// d'hôtes ne voudrait plus rien dire dans le dépôt d'à côté, or l'objectif est
+/// qu'un runbook soit un fichier versionnable (voir `docs/backlog.md`).
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Runbook {
+    pub id: RunbookId,
+    pub name: String,
+    /// À quoi sert cette procédure, en une ou deux phrases. Affichée en tête
+    /// de l'onglet et reprise dans le rapport d'exécution.
+    #[serde(default)]
+    pub description: String,
+    pub steps: Vec<RunbookStep>,
+}
+
+/// Une étape d'un [`Runbook`].
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunbookStep {
+    pub id: RunbookStepId,
+    /// Ce que l'étape fait, en une ligne — c'est ce que le rapport affiche,
+    /// pas la commande.
+    pub title: String,
+    /// Notes libres (markdown) : le « pourquoi », le lien vers le ticket, ce
+    /// qu'il faut vérifier avant de continuer. Jamais exécutées.
+    #[serde(default)]
+    pub notes: String,
+    pub action: RunbookAction,
+    /// Restreint les cibles de cette étape seule. Vide (le défaut) = toute la
+    /// sélection.
+    #[serde(default)]
+    pub scope: RunbookStepScope,
+    #[serde(default)]
+    pub on_failure: OnFailure,
+}
+
+/// Ce qu'une étape exécute.
+///
+/// Enum à tag interne : `rename_all_fields` et pas `rename_all` seul, sinon
+/// `program_text` resterait `program_text` sur le fil pendant que le frontend
+/// enverrait `programText` — le piège qui s'est produit six fois dans ce dépôt.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum RunbookAction {
+    /// Une commande shell, la même sur toutes les cibles de l'étape.
+    Command { command: String },
+    /// Un programme du langage adaptatif, résolu par cible selon sa
+    /// plateforme (voir [`crate::adaptive`]). Hôtes SSH uniquement, comme
+    /// partout ailleurs pour ce langage.
+    Program { program_text: String },
+}
+
+/// La restriction de cibles d'une étape.
+///
+/// **Par tag et par dossier, jamais par identifiant d'hôte** : ce sont les deux
+/// désignations que l'utilisateur écrit lui-même et qui existent encore chez
+/// quelqu'un d'autre. Un `hostId` ferait d'un runbook exporté une procédure
+/// qui ne cible plus rien.
+///
+/// Les deux champs se combinent par ET. À l'intérieur d'un champ, l'asymétrie
+/// est voulue : **tous** les tags doivent être portés (chaque tag ajouté
+/// resserre), mais **un seul** des dossiers suffit (chaque dossier ajouté
+/// ouvre un endroit de plus). C'est la lecture naturelle de « les hôtes web
+/// *et* prod » face à « dans Paris *ou* Lyon ».
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunbookStepScope {
+    #[serde(default)]
+    pub tags: Vec<String>,
+    /// Noms de dossiers — les sous-dossiers comptent. Un nom, pas un
+    /// [`GroupId`], pour la raison donnée plus haut.
+    #[serde(default)]
+    pub groups: Vec<String>,
+}
+
+impl RunbookStepScope {
+    pub fn is_empty(&self) -> bool {
+        self.tags.is_empty() && self.groups.is_empty()
+    }
+}
+
+/// Ce que devient le runbook quand une cible échoue à une étape.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum OnFailure {
+    /// Arrêter le runbook (le défaut, et le seul défaut défendable : une
+    /// procédure est une suite, donc l'étape suivante suppose que la
+    /// précédente a réussi).
+    #[default]
+    Stop,
+    /// Passer à l'étape suivante avec toutes les cibles, échec compris.
+    Continue,
+    /// Passer à l'étape suivante sans les cibles qui viennent d'échouer —
+    /// « les autres continuent ». Si plus aucune ne survit, le runbook
+    /// s'arrête : l'étape suivante n'aurait personne à qui parler.
+    DropFailed,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -978,6 +1090,10 @@ pub struct Workspace {
     pub custom_icons: Vec<CustomIcon>,
     #[serde(default)]
     pub sql_connections: Vec<SqlConnection>,
+    /// `#[serde(default)]` obligatoire : sans lui, tout `workspace.json` écrit
+    /// avant les runbooks deviendrait illisible — et ses hôtes disparaîtraient.
+    #[serde(default)]
+    pub runbooks: Vec<Runbook>,
 }
 
 /// Which hosts depend on each keychain key, by label.

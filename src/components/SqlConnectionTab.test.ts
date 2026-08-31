@@ -37,7 +37,7 @@ function connectionFor(engine: SqlEngine): SqlConnection {
 
 const EMPTY_WORKSPACE = {
   groups: [], hosts: [], snippets: [], portForwards: [],
-  keychain: [], customIcons: [], sqlConnections: [],
+  keychain: [], customIcons: [], sqlConnections: [], runbooks: [],
 };
 
 function componentFor(engine: SqlEngine): unknown {

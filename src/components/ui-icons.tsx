@@ -375,6 +375,18 @@ export function IconFleet({ size = 16, className }: P) {
   );
 }
 
+/** Une procédure ordonnée : des étapes cochées les unes après les autres. */
+export function IconRunbook({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path d="M1.8 3.4 3 4.6l2-2.2" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M1.8 8.4 3 9.6l2-2.2" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M2 13.2h3" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+      <path d="M7.5 3.6h6.8M7.5 8.6h6.8M7.5 13.2h6.8" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+    </svg>
+  );
+}
+
 export function IconDatabase({ size = 16, className }: P) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>

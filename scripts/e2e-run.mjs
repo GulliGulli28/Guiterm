@@ -264,6 +264,7 @@ async function runScenarios(browser) {
   await runAdaptiveComposerScenario(browser);
   await runSqlHistoryScenario(browser);
   await runFleetTabScenario(browser);
+  await runRunbookScenario(browser);
   await runSidebarPanelsScenario(browser);
   await runSidebarButtonsScenario(browser);
   await runTunnelEditScenario(browser);
@@ -1995,6 +1996,198 @@ async function assertSidebarPanelScrolls(browser, kind) {
     return "ok";
   }, kind);
   if (verdict !== "ok") throw new Error(verdict);
+}
+
+/**
+ * Un runbook, de bout en bout : créé depuis la barre latérale, rempli dans son
+ * onglet, lancé pour de vrai sur le terminal local, et son résultat lu à
+ * l'écran.
+ *
+ * C'est le seul contrôle qui parcourt le chemin complet — formulaire → onglet →
+ * donnée réelle. `registry.test.ts` prouve qu'un rendu est enregistré pour le
+ * `kind` « runbook », `tauriCommands.test.ts` que les cinq commandes existent
+ * des deux côtés, et les 32 tests de `core::runbook` que la politique d'échec
+ * est juste : aucun des trois ne verrait un onglet qui ne monte pas, un bouton
+ * « Lancer » qui n'appelle rien, ou un évènement dont la casse ne correspond
+ * pas (le piège serde qui s'est produit six fois ici).
+ *
+ * **Il écrit dans le vrai `workspace.json` du profil**, contrairement à la
+ * plupart des scénarios : une procédure ne peut pas être lancée sans être
+ * enregistrée, c'est le backend qui la relit. D'où la suppression en `finally`,
+ * par `invoke` pour qu'elle ait lieu même si une assertion tombe au milieu.
+ *
+ * La cible est le terminal local, donc rien ne sort de la machine et le tour
+ * complet passe quand même par `invoke` → pilote de runbook → exécuteur de
+ * flotte → shell réel.
+ */
+async function runRunbookScenario(browser) {
+  const NAME = "E2E runbook (supprimable)";
+  let runbookId = null;
+  try {
+    const opened = await browser.execute(() => {
+      const buttons = Array.from(document.querySelectorAll("aside nav button"));
+      const btn = buttons.find((b) => (b.getAttribute("title") || "").startsWith("Runbooks"));
+      if (!(btn instanceof HTMLElement)) {
+        return `bouton Runbooks absent de la barre. Titres présents : ${buttons.map((b) => (b.getAttribute("title") || "").split(" —")[0]).join(" | ")}`;
+      }
+      btn.click();
+      return "ok";
+    });
+    if (opened !== "ok") throw new Error(opened);
+    // Attendre le bouton, pas seulement le conteneur : `data-sidebar-panel`
+    // existe pendant que le `Suspense` du module charge encore son chunk, donc
+    // s'y arrêter chercherait le formulaire dans un panneau vide.
+    await browser.waitUntil(async () => await browser.execute(() => {
+      const panel = document.querySelector('[data-sidebar-panel="runbook"]');
+      return !!panel && Array.from(panel.querySelectorAll("button"))
+        .some((b) => (b.getAttribute("title") || "") === "Nouvelle procédure");
+    }), { timeout: 15_000, timeoutMsg: "le panneau Runbooks ne s est pas rendu" });
+
+    // Création depuis le panneau — le formulaire, pas un `invoke` direct.
+    const created = await browser.execute((name) => {
+      const panel = document.querySelector('[data-sidebar-panel="runbook"]');
+      const add = Array.from(panel.querySelectorAll("button"))
+        .find((b) => (b.getAttribute("title") || "") === "Nouvelle procédure");
+      if (!(add instanceof HTMLElement)) return "bouton « Nouvelle procédure » introuvable";
+      add.click();
+      const input = panel.querySelector('input[placeholder="Nom de la procédure"]');
+      if (!(input instanceof HTMLInputElement)) return "champ de nom introuvable";
+      const setter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set;
+      setter.call(input, name);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      const submit = Array.from(panel.querySelectorAll("button")).find((b) => b.textContent?.trim() === "Créer");
+      if (!(submit instanceof HTMLElement)) return "bouton « Créer » introuvable";
+      submit.click();
+      return "ok";
+    }, NAME);
+    if (created !== "ok") throw new Error(created);
+
+    // La création doit ouvrir l'onglet elle-même : une procédure vide dans une
+    // liste, sans nulle part où la remplir, serait un cul-de-sac.
+    await browser.waitUntil(async () => await browser.execute(() =>
+      Array.from(document.querySelectorAll("button")).some((b) => (b.textContent || "").includes("Ajouter une étape"))
+    ), { timeout: 15_000, timeoutMsg: "l onglet du runbook ne s est pas ouvert après la création" });
+
+    runbookId = await browser.execute(async (name) => {
+      const ws = await window.__TAURI_INTERNALS__.invoke("get_workspace");
+      return ws.runbooks.find((r) => r.name === name)?.id ?? null;
+    }, NAME);
+    if (!runbookId) throw new Error("le runbook créé n apparaît pas dans le workspace");
+
+    // Une étape : titre + commande. `echo` existe sous PowerShell comme sous
+    // sh, donc le même scénario tourne sur les deux plateformes.
+    const filled = await browser.execute(() => {
+      const add = Array.from(document.querySelectorAll("button"))
+        .find((b) => (b.textContent || "").includes("Ajouter une étape"));
+      add.click();
+      return true;
+    });
+    if (!filled) throw new Error("impossible d ajouter une étape");
+
+    const typed = await browser.execute(() => {
+      const setValue = (el, value) => {
+        const proto = el instanceof HTMLTextAreaElement ? window.HTMLTextAreaElement : window.HTMLInputElement;
+        Object.getOwnPropertyDescriptor(proto.prototype, "value").set.call(el, value);
+        el.dispatchEvent(new Event("input", { bubbles: true }));
+      };
+      const title = document.querySelector('input[placeholder="Ce que fait cette étape"]');
+      const command = document.querySelector('textarea[placeholder="systemctl restart nginx"]');
+      if (!title || !command) return "champs de l étape introuvables";
+      setValue(title, "Dire bonjour");
+      setValue(command, "echo bonjour-runbook");
+      return "ok";
+    });
+    if (typed !== "ok") throw new Error(typed);
+
+    // Les cibles vivent dans le panneau de flotte — c'est la décision de
+    // conception que ce scénario vérifie aussi : le runbook n'a pas sa propre
+    // arborescence, il partage celle des opérations de flotte.
+    await browser.execute(() => {
+      const btn = Array.from(document.querySelectorAll("aside nav button"))
+        .find((b) => (b.getAttribute("title") || "").startsWith("Opérations de flotte"));
+      if (btn instanceof HTMLElement) btn.click();
+    });
+    await browser.waitUntil(async () => await browser.execute(() =>
+      !!document.querySelector('[data-sidebar-panel="fleet"]')
+    ), { timeout: 10_000, timeoutMsg: "le panneau de cibles ne s est pas affiché" });
+
+    const ticked = await browser.execute(() => {
+      const panel = document.querySelector('[data-sidebar-panel="fleet"]');
+      const label = Array.from(panel.querySelectorAll("label"))
+        .find((l) => (l.textContent || "").includes("Terminal local"));
+      const box = label?.querySelector('input[type="checkbox"]');
+      if (!(box instanceof HTMLInputElement)) return "la cible « Terminal local » est introuvable";
+      if (!box.checked) box.click();
+      return "ok";
+    });
+    if (ticked !== "ok") throw new Error(ticked);
+
+    // Retour sur l'onglet de la procédure. Contrairement à la flotte et au
+    // diagnostic, activer un onglet de runbook ne change **pas** le panneau :
+    // ses cibles sont celles qu'on vient de cocher, les lui faire quitter
+    // ferait perdre de vue ce sur quoi on est sur le point de lancer.
+    const backToTab = await browser.execute((label) => {
+      const tab = Array.from(document.querySelectorAll("[data-tab-id]"))
+        .find((el) => (el.textContent || "").includes(label));
+      if (!(tab instanceof HTMLElement)) return "onglet du runbook introuvable dans la barre d onglets";
+      tab.click();
+      return "ok";
+    }, NAME);
+    if (backToTab !== "ok") throw new Error(backToTab);
+    if (!await browser.execute(() => !!document.querySelector('[data-sidebar-panel="fleet"]'))) {
+      throw new Error("activer l onglet du runbook a fait quitter le panneau de cibles");
+    }
+
+    const launched = await browser.execute(() => {
+      const btn = Array.from(document.querySelectorAll("button")).find((b) => (b.textContent || "").trim() === "Lancer");
+      if (!(btn instanceof HTMLElement)) return "bouton « Lancer » introuvable";
+      btn.click();
+      return "ok";
+    });
+    if (launched !== "ok") throw new Error(launched);
+
+    // Le résultat réel : une ligne « Terminal local » avec son code de sortie.
+    // C'est ce qui prouve la chaîne entière, y compris la casse des champs des
+    // évènements — un `stepIndex` qui arriverait en `step_index` laisserait la
+    // ligne introuvable sans qu'aucun outil ne bronche.
+    await browser.waitUntil(async () => await browser.execute(() =>
+      Array.from(document.querySelectorAll("button")).some(
+        (b) => (b.textContent || "").includes("Terminal local") && /code 0/.test(b.textContent || ""),
+      )
+    ), { timeout: 60_000, timeoutMsg: "aucun résultat d étape : le runbook n atteint pas l exécuteur" });
+
+    // Et la sortie réelle de la commande, dépliée.
+    const output = await browser.execute(() => {
+      const row = Array.from(document.querySelectorAll("button"))
+        .find((b) => (b.textContent || "").includes("Terminal local") && /code 0/.test(b.textContent || ""));
+      row.click();
+      const pre = Array.from(document.querySelectorAll("pre")).map((p) => p.textContent || "");
+      return pre.join("\n");
+    });
+    if (!output.includes("bonjour-runbook")) {
+      throw new Error(`la sortie de l étape ne contient pas ce que la commande a écrit : ${output.slice(0, 200)}`);
+    }
+
+    // Le rapport est persisté : c'est ce qui distingue une exécution d'un
+    // affichage éphémère.
+    const history = await browser.execute(async (id) => {
+      const runs = await window.__TAURI_INTERNALS__.invoke("get_runbook_history");
+      return runs.filter((r) => r.runbookId === id).map((r) => ({ status: r.status, steps: r.steps.length }));
+    }, runbookId);
+    if (!history.some((r) => r.status === "completed" && r.steps === 1)) {
+      throw new Error(`l exécution n a pas été enregistrée : ${JSON.stringify(history)}`);
+    }
+
+    console.log("Runbooks : OK (créé depuis la barre, étape remplie, lancé sur le terminal local, sortie réelle et rapport persisté).");
+  } finally {
+    // Toujours, même sur échec : ce scénario est le seul à écrire dans le vrai
+    // workspace de la machine de dev.
+    if (runbookId) {
+      await browser.execute(async (id) => {
+        try { await window.__TAURI_INTERNALS__.invoke("delete_runbook", { runbookId: id }); } catch { /* rien à nettoyer */ }
+      }, runbookId).catch(() => {});
+    }
+  }
 }
 
 /**

@@ -22,6 +22,7 @@ const EVERY_BUTTON: Record<SidebarButtonId, true> = {
   keychain: true,
   aws: true,
   fleet: true,
+  runbook: true,
   netdiag: true,
 };
 
@@ -38,6 +39,7 @@ const EVERY_PANEL: Record<Exclude<SidebarPanelKind, "settings">, true> = {
   keychain: true,
   aws: true,
   fleet: true,
+  runbook: true,
   netdiag: true,
 };
 

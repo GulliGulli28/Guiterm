@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import { save } from "@tauri-apps/plugin-dialog";
 import { api } from "../lib/api";
 import { runOnTerminalHandle } from "../lib/runOnTerminalHandle";
-import type { Host, HostId, SqlConnection, TabMeta, Workspace } from "../lib/types";
+import type { Host, HostId, RunbookId, SqlConnection, TabMeta, Workspace } from "../lib/types";
 import { isHostBoundTab } from "../lib/types";
 import type { AppPreferences } from "../lib/preferences";
 import type { NotificationKind } from "../lib/notifications";
@@ -151,6 +151,20 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
     }
     const id = `tab-${nextTabId++}`;
     setTabs((prev) => [...prev, { id, kind: "sql", label: conn.label, sqlConnectionId: conn.id }]);
+    setActiveTabId(id);
+  }, [tabs]);
+
+  /** Même règle qu'`openSql` : un onglet par procédure, et rouvrir la même en
+   * ramène l'onglet existant plutôt que d'en empiler un second qui montrerait
+   * la même exécution deux fois. */
+  const openRunbook = useCallback((runbookId: RunbookId, label: string) => {
+    const existing = tabs.find((t) => t.kind === "runbook" && t.runbookId === runbookId);
+    if (existing) {
+      setActiveTabId(existing.id);
+      return;
+    }
+    const id = `tab-${nextTabId++}`;
+    setTabs((prev) => [...prev, { id, kind: "runbook", label, runbookId }]);
     setActiveTabId(id);
   }, [tabs]);
 
@@ -441,7 +455,7 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
   return {
     tabs, setTabs, activeTabId, setActiveTabId,
     pendingCloseTabId, setPendingCloseTabId,
-    openTab, openPersistentSession, openLocalTerminal, openFleet, openActivity, openNetdiag, openSql, reconnectTab,
+    openTab, openPersistentSession, openLocalTerminal, openFleet, openActivity, openNetdiag, openSql, openRunbook, reconnectTab,
     rememberSessionKey,
     closeTab, detachTab, requestCloseTab,
     activeTabRecording, startActiveRecording, stopActiveRecording,

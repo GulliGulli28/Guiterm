@@ -44,7 +44,12 @@ fn truncate(s: String, max: usize) -> String {
 }
 
 /// Copy of an outcome with its output trimmed for storage (see [`MAX_STORED_OUTPUT`]).
-fn for_history(o: &HostOutcome) -> HostOutcome {
+///
+/// `pub(crate)` parce que l'historique des runbooks enregistre les mêmes
+/// `HostOutcome` et a besoin exactement du même plafond : une procédure de dix
+/// étapes verbeuses ferait autrement grossir son fichier bien plus vite que
+/// l'historique de flotte, qui a déjà été jugé trop gros sans ça.
+pub(crate) fn for_history(o: &HostOutcome) -> HostOutcome {
     let mut o = o.clone();
     o.stdout = truncate(o.stdout, MAX_STORED_OUTPUT);
     o.stderr = truncate(o.stderr, MAX_STORED_OUTPUT);

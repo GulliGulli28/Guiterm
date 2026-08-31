@@ -44,6 +44,8 @@ pub mod redis_client;
 pub mod remote_edit;
 pub mod remote_search;
 pub mod remote_shell_pane;
+pub mod runbook;
+pub mod runbook_history;
 pub mod secure_file;
 pub mod session_index;
 pub mod session_record;

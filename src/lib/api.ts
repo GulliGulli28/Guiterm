@@ -1,7 +1,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { RdpPointerUpdate } from "./rdpCursor";
-import type { ActivityEvent, ActivityFilter, CommandEntry, AuthMethod, BulkEdit, DiagTool, NetdiagOutcome, AwsCallerIdentity, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSessionAlert, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, AwsSsoSessionStatus, CloudInstance, CloudScope, CloudSelection, ArchiveFormat, CollectionInfo, ConflictPolicy, CopyConflict, ColumnInfo, CollectFactsResult, ComposeResult, DbTunnel, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FileDiff, FleetOutcome, FleetRun, FleetTarget, GroupId, HostDrift, HostId, HostKind, ImportSelection, Inventory, InventoryDiff, InventorySelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneComparison, PaneDiskSpace, PaneFindOutcome, PaneListed, PaneOpened, PaneSource, PersistentShellMode, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, ReachabilityOutcome, RedisKeyDetail, RemoteSearchMode, RemoteSearchOutcome, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, RollbackPlan, ScanPage, SessionListing, SessionOptions, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SshAuthPrompt, SshConfigHost, SsmProbe, SyncItem, TableInfo, TerminalOpened, TransferProgressEvent, VaultStatus, Workspace } from "./types";
+import type { ActivityEvent, ActivityFilter, CommandEntry, AuthMethod, BulkEdit, DiagTool, NetdiagOutcome, AwsCallerIdentity, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSessionAlert, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, AwsSsoSessionStatus, CloudInstance, CloudScope, CloudSelection, ArchiveFormat, CollectionInfo, ConflictPolicy, CopyConflict, ColumnInfo, CollectFactsResult, ComposeResult, DbTunnel, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FileDiff, FleetOutcome, FleetRun, FleetTarget, GroupId, HostDrift, HostId, HostKind, ImportSelection, Inventory, InventoryDiff, InventorySelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneComparison, PaneDiskSpace, PaneFindOutcome, PaneListed, PaneOpened, PaneSource, PersistentShellMode, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, ReachabilityOutcome, RedisKeyDetail, RemoteSearchMode, RemoteSearchOutcome, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, RollbackPlan, Runbook, RunbookId, RunbookRun, RunbookRunStatus, ScanPage, SessionListing, SessionOptions, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SkippedTarget, SshAuthPrompt, SshConfigHost, SsmProbe, SyncItem, TableInfo, TerminalOpened, TransferProgressEvent, VaultStatus, Workspace } from "./types";
 
 /** Mirrors the 12-byte little-endian header `commands::rdp_view::connect_rdp_view`
  * writes ahead of each frame's raw RGBA8 pixels (see its doc comment for why
@@ -529,6 +529,26 @@ export const api = {
   /** The persisted fleet run history (audit trail), newest first. */
   getFleetHistory: () => invoke<FleetRun[]>("get_fleet_history"),
 
+  // ── Runbooks ───────────────────────────────────────────────────────────
+  /** Crée ou remplace un runbook (par son `id`) et rend l'espace de travail
+   * écrit. Les programmes adaptatifs des étapes sont validés côté Rust par le
+   * **même** parseur que l'exécution : une procédure enregistrée qui ne peut
+   * pas tourner ne se découvrirait qu'au milieu d'un incident. */
+  saveRunbook: (runbook: Runbook) => invoke<Workspace>("save_runbook", { runbook }),
+  deleteRunbook: (runbookId: RunbookId) => invoke<Workspace>("delete_runbook", { runbookId }),
+  /** Déroule le runbook sur `targets`. Ne rend la main qu'une fois la
+   * procédure terminée ; les étapes streament via `onRunbookStepStarted` /
+   * `onRunbookStepOutcome` / `onRunbookStepDone`, puis `onRunbookDone`.
+   * `runId` (frappé avec `crypto.randomUUID()`) distingue deux exécutions sur
+   * le canal partagé, comme pour un run de flotte. */
+  runRunbook: (runId: string, runbookId: RunbookId, targets: FleetTarget[]) =>
+    invoke<void>("run_runbook", { runId, runbookId, targets }),
+  /** Demande l'arrêt. Prend effet **entre deux étapes** — une étape déjà
+   * partie va au bout sur ses cibles. */
+  cancelRunbook: (runId: string) => invoke<void>("cancel_runbook", { runId }),
+  /** Les exécutions passées, la plus récente en tête. */
+  getRunbookHistory: () => invoke<RunbookRun[]>("get_runbook_history"),
+
 /** Asks the AI to write (`existingText: ""`) or extend a DSL program
    * implementing `intent` — see `src/lib/operations.ts` for the syntax.
    * The response is validated server-side before being returned; an
@@ -735,5 +755,67 @@ export function onFleetOutcome(handler: (runId: string, outcome: FleetOutcome) =
 
 export function onFleetDone(handler: (runId: string) => void): Promise<UnlistenFn> {
   return listen<{ runId: string }>("fleet-run-done", (event) => handler(event.payload.runId));
+}
+
+/** Une étape démarre : ce qu'elle va lancer sur chaque cible, et les cibles
+ * qu'elle n'a pas visées (hors portée, plateforme non couverte). */
+export function onRunbookStepStarted(
+  handler: (runId: string, payload: RunbookStepStarted) => void,
+): Promise<UnlistenFn> {
+  return listen<{ runId: string } & RunbookStepStarted>("runbook-step-started", (event) =>
+    handler(event.payload.runId, {
+      stepIndex: event.payload.stepIndex,
+      title: event.payload.title,
+      commands: event.payload.commands,
+      skipped: event.payload.skipped,
+    }),
+  );
+}
+
+export function onRunbookStepOutcome(
+  handler: (runId: string, stepIndex: number, outcome: FleetOutcome) => void,
+): Promise<UnlistenFn> {
+  return listen<{ runId: string; stepIndex: number; outcome: FleetOutcome }>("runbook-step-outcome", (event) =>
+    handler(event.payload.runId, event.payload.stepIndex, event.payload.outcome),
+  );
+}
+
+/** Une étape est finie : la politique d'échec a tranché. `stop` arrête la
+ * procédure, `dropped` sort ces cibles de la suite. */
+export function onRunbookStepDone(
+  handler: (runId: string, payload: RunbookStepDone) => void,
+): Promise<UnlistenFn> {
+  return listen<{ runId: string } & RunbookStepDone>("runbook-step-done", (event) =>
+    handler(event.payload.runId, {
+      stepIndex: event.payload.stepIndex,
+      stop: event.payload.stop,
+      dropped: event.payload.dropped,
+      reason: event.payload.reason,
+    }),
+  );
+}
+
+export function onRunbookDone(
+  handler: (runId: string, status: RunbookRunStatus) => void,
+): Promise<UnlistenFn> {
+  return listen<{ runId: string; status: RunbookRunStatus }>("runbook-done", (event) =>
+    handler(event.payload.runId, event.payload.status),
+  );
+}
+
+/** Charge utile de `runbook-step-started`, sans le `runId` que le listener
+ * passe à part. */
+export interface RunbookStepStarted {
+  stepIndex: number;
+  title: string;
+  commands: { target: FleetTarget; command: string }[];
+  skipped: SkippedTarget[];
+}
+
+export interface RunbookStepDone {
+  stepIndex: number;
+  stop: boolean;
+  dropped: FleetTarget[];
+  reason: string | null;
 }
 
