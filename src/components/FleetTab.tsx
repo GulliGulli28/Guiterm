@@ -1,6 +1,7 @@
 import { Fragment, useEffect, useMemo, useRef, useState } from "react";
-import type { DockerContainer, ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, Host, HostDrift, HostId, RollbackPlan, Snippet, SnippetId, Workspace } from "../lib/types";
+import type { ExecutionGroup, FleetOutcome, FleetRun, FleetTarget, Host, HostDrift, HostId, RollbackPlan, Snippet, SnippetId, Workspace } from "../lib/types";
 import { fleetTargetKey } from "../lib/types";
+import { targetLabel } from "../lib/fleetLabels";
 import { api, onFleetDone, onFleetOutcome } from "../lib/api";
 import { AdaptiveComposer } from "./AdaptiveComposer";
 import { DSL_CONDITION_FIELDS, DSL_FUNCTIONS } from "../lib/operations";
@@ -54,22 +55,6 @@ function countOutcomes(outcomes: FleetOutcome[]): { ok: number; fail: number } {
     else fail++;
   }
   return { ok, fail };
-}
-
-/** Best-effort display name for a target — used for both the live results
- * table and Historique, where a Docker container may no longer be in the
- * live `dockerContainers` listing (falls back to a truncated container id). */
-function targetLabel(t: FleetTarget, hostById: Map<HostId, Host>, dockerContainers: Map<HostId, DockerContainer[]>): string {
-  if (t.kind === "local") return "Terminal local";
-  if (t.kind === "ssh") return hostById.get(t.hostId)?.label ?? t.hostId;
-  const host = hostById.get(t.hostId);
-  if (t.kind === "k8s") {
-    const name = t.containerName ? `${t.podName} › ${t.containerName}` : t.podName;
-    return host ? `${name} (${host.label})` : name;
-  }
-  const container = dockerContainers.get(t.hostId)?.find((c) => c.id === t.containerId);
-  const name = container?.name ?? t.containerId.slice(0, 12);
-  return host ? `${name} (${host.label})` : name;
 }
 
 /** Whether `text` has at least one `target …` condition line — same
