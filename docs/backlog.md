@@ -106,12 +106,46 @@ de l'une — couper un `apt-get` à mi-chemin laisserait des machines dans un é
 que la procédure ne décrit nulle part. L'interface le dit au lieu de le laisser
 croire.
 
-### Tranche 2 — la pause d'approbation
+### Tranche 2 — **livrée le 2026-08-31**
 
-L'irréversibilité lue par `adaptive::inverse` (avec son `reason` affiché),
-l'aller-retour sur le modèle d'`interactive_auth`, une case « demander
-confirmation » manuelle pour les étapes en commande libre, et un délai
-d'attente qui **refuse** plutôt qu'il n'approuve.
+Livrée comme annoncée, aux deux écarts près ci-dessous. `Approval` sur l'étape
+(`beforeIrreversible` / `never` / `always`), `runbook::irreversible_operations`
+au-dessus d'`adaptive::inverse`, aller-retour oneshot sur le modèle
+d'`interactive_auth`, et `RunbookApprovalModal`.
+
+**Le défaut demande** (`beforeIrreversible`), contrairement au reste des
+réglages sérialisés de ce dépôt. Assumé : une étape qui supprime un compte
+n'est pas rattrapable, et le défaut ne coûte rien aux autres — une commande
+libre est indécidable, donc elle ne déclenche jamais ce mode.
+
+**Écart 1 : le délai est de 10 minutes, pas les 3 de l'authentification
+interactive.** Un OTP se lit sur un téléphone posé à côté ; approuver une étape
+veut souvent dire relire la sortie de la précédente ou ouvrir un tableau de
+bord. Il **refuse**, jamais il n'accorde : un délai qui finirait par laisser
+passer l'étape retirerait toute sa valeur à la pause.
+
+**Écart 2 : premier `createPortal` du dépôt.** Un onglet inactif reste monté
+dans un conteneur `hidden` (`App.tsx`), donc une modale rendue à sa place est
+invisible dès qu'on regarde ailleurs — et une demande qu'on ne voit pas finit
+refusée au bout du délai, sur une procédure qu'on croyait en train de tourner.
+Le portail la sort du conteneur masqué **sans** faire remonter les runbooks
+dans `App.tsx`, ce que le registre de modules cherche à éviter. Elle passe par
+`useModalSurface` comme les autres et est inscrite dans `MODALS`
+(`accessibility.test.ts` l'a attrapée toute seule, ce qui est exactement son
+travail).
+
+**Deux points de conception à ne pas rouvrir sans raison neuve :** un refus
+*arrête* au lieu d'enchaîner (une étape refusée n'a pas eu lieu, or la suivante
+suppose qu'elle a eu lieu) ; et une étape qui ne lancera rien ne demande jamais
+— demander l'accord pour une étape qui ne vise personne apprend à approuver
+sans regarder.
+
+**Prouvé** : 45 tests unitaires au total sur le pilote (11 de plus), et un
+scénario E2E qui approuve la première étape, refuse la deuxième, et vérifie
+dans le rapport persisté que la troisième n'a jamais démarré. Les trois
+assertions centrales cassées exprès pour vérifier qu'elles échouent.
+**Non prouvé** : le chemin du délai dépassé (10 minutes en fenêtre réelle), et
+aucune approbation contre une vraie flotte distante.
 
 ### Tranche 3 — un runbook = un fichier
 

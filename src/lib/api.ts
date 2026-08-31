@@ -1,7 +1,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { RdpPointerUpdate } from "./rdpCursor";
-import type { ActivityEvent, ActivityFilter, CommandEntry, AuthMethod, BulkEdit, DiagTool, NetdiagOutcome, AwsCallerIdentity, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSessionAlert, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, AwsSsoSessionStatus, CloudInstance, CloudScope, CloudSelection, ArchiveFormat, CollectionInfo, ConflictPolicy, CopyConflict, ColumnInfo, CollectFactsResult, ComposeResult, DbTunnel, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FileDiff, FleetOutcome, FleetRun, FleetTarget, GroupId, HostDrift, HostId, HostKind, ImportSelection, Inventory, InventoryDiff, InventorySelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneComparison, PaneDiskSpace, PaneFindOutcome, PaneListed, PaneOpened, PaneSource, PersistentShellMode, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, ReachabilityOutcome, RedisKeyDetail, RemoteSearchMode, RemoteSearchOutcome, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, RollbackPlan, Runbook, RunbookId, RunbookRun, RunbookRunStatus, ScanPage, SessionListing, SessionOptions, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SkippedTarget, SshAuthPrompt, SshConfigHost, SsmProbe, SyncItem, TableInfo, TerminalOpened, TransferProgressEvent, VaultStatus, Workspace } from "./types";
+import type { ActivityEvent, ActivityFilter, CommandEntry, AuthMethod, BulkEdit, DiagTool, NetdiagOutcome, AwsCallerIdentity, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSessionAlert, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, AwsSsoSessionStatus, CloudInstance, CloudScope, CloudSelection, ArchiveFormat, CollectionInfo, ConflictPolicy, CopyConflict, ColumnInfo, CollectFactsResult, ComposeResult, DbTunnel, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FileDiff, FleetOutcome, FleetRun, FleetTarget, GroupId, HostDrift, HostId, HostKind, ImportSelection, Inventory, InventoryDiff, InventorySelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneComparison, PaneDiskSpace, PaneFindOutcome, PaneListed, PaneOpened, PaneSource, PersistentShellMode, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, ReachabilityOutcome, RedisKeyDetail, RemoteSearchMode, RemoteSearchOutcome, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, RollbackPlan, Runbook, RunbookApprovalRequest, RunbookId, RunbookRun, RunbookRunStatus, ScanPage, SessionListing, SessionOptions, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SkippedTarget, SshAuthPrompt, SshConfigHost, SsmProbe, SyncItem, TableInfo, TerminalOpened, TransferProgressEvent, VaultStatus, Workspace } from "./types";
 
 /** Mirrors the 12-byte little-endian header `commands::rdp_view::connect_rdp_view`
  * writes ahead of each frame's raw RGBA8 pixels (see its doc comment for why
@@ -548,6 +548,12 @@ export const api = {
   cancelRunbook: (runId: string) => invoke<void>("cancel_runbook", { runId }),
   /** Les exécutions passées, la plus récente en tête. */
   getRunbookHistory: () => invoke<RunbookRun[]>("get_runbook_history"),
+  /** Répond à une demande d'approbation. `stepIndex` apparie la réponse à
+   * l'étape : une réponse tardive à la précédente ne doit pas approuver
+   * celle-ci. Une réponse sans attente correspondante est ignorée côté Rust,
+   * comme pour une invite d'authentification expirée. */
+  answerRunbookApproval: (runId: string, stepIndex: number, approved: boolean) =>
+    invoke<void>("answer_runbook_approval", { runId, stepIndex, approved }),
 
 /** Asks the AI to write (`existingText: ""`) or extend a DSL program
    * implementing `intent` — see `src/lib/operations.ts` for the syntax.
@@ -793,6 +799,14 @@ export function onRunbookStepDone(
       reason: event.payload.reason,
     }),
   );
+}
+
+/** Une étape s'est arrêtée pour demander l'accord : **rien n'est parti**.
+ * Sans réponse au bout de `timeoutSecs`, c'est un refus. */
+export function onRunbookApprovalNeeded(
+  handler: (request: RunbookApprovalRequest) => void,
+): Promise<UnlistenFn> {
+  return listen<RunbookApprovalRequest>("runbook-approval-needed", (event) => handler(event.payload));
 }
 
 export function onRunbookDone(

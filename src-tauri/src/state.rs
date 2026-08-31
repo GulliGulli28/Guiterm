@@ -135,6 +135,16 @@ pub struct AppState {
     /// sur ses cibles, parce qu'interrompre un `apt-get` à mi-chemin laisserait
     /// une machine dans un état que la procédure ne décrit nulle part.
     pub runbook_cancels: Mutex<HashMap<String, Arc<AtomicBool>>>,
+    /// L'approbation qu'une exécution attend, par id de run.
+    ///
+    /// **Une seule à la fois par exécution** — la boucle est séquentielle, elle
+    /// ne peut pas être bloquée sur deux étapes. D'où la clé : c'est aussi ce
+    /// qui permet à `cancel_runbook` de retrouver l'attente en cours et de la
+    /// refuser, au lieu de laisser l'utilisateur devant un bouton « Arrêter »
+    /// sans effet pendant dix minutes. Le rang d'étape est gardé avec le canal
+    /// pour qu'une réponse tardive à l'étape précédente ne réponde pas à
+    /// celle-ci.
+    pub runbook_approvals: Mutex<HashMap<String, (usize, tokio::sync::oneshot::Sender<bool>)>>,
     /// In-flight keyboard-interactive (MFA) prompts, keyed by the id sent to
     /// the frontend with the `ssh-auth-prompt` event. Each entry is an SSH
     /// handshake parked mid-authentication, waiting for the user's answers —

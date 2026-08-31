@@ -265,6 +265,7 @@ async function runScenarios(browser) {
   await runSqlHistoryScenario(browser);
   await runFleetTabScenario(browser);
   await runRunbookScenario(browser);
+  await runRunbookApprovalScenario(browser);
   await runSidebarPanelsScenario(browser);
   await runSidebarButtonsScenario(browser);
   await runTunnelEditScenario(browser);
@@ -2182,6 +2183,216 @@ async function runRunbookScenario(browser) {
   } finally {
     // Toujours, même sur échec : ce scénario est le seul à écrire dans le vrai
     // workspace de la machine de dev.
+    if (runbookId) {
+      await browser.execute(async (id) => {
+        try { await window.__TAURI_INTERNALS__.invoke("delete_runbook", { runbookId: id }); } catch { /* rien à nettoyer */ }
+      }, runbookId).catch(() => {});
+    }
+  }
+}
+
+/**
+ * La pause d'approbation : la boîte s'affiche, approuver laisse passer,
+ * refuser arrête la procédure — et l'étape d'après ne part pas.
+ *
+ * **C'est l'assertion qui compte, et elle ne se prouve qu'ici.** Les tests de
+ * `core::runbook` déroulent le pilote avec des résultats fabriqués, donc ils
+ * vérifient la décision mais jamais l'aller-retour : l'évènement émis, la
+ * modale rendue, `answer_runbook_approval` qui retrouve l'attente parquée sur
+ * son canal, et la casse des champs sur le fil (un `stepIndex` arrivé en
+ * `step_index` laisserait la boîte sans rien à afficher — le piège serde qui
+ * s'est produit six fois dans ce dépôt).
+ *
+ * La procédure est créée par `invoke` plutôt qu'à la main : l'éditeur d'étapes
+ * est déjà couvert par le scénario précédent, et le sujet ici est le round
+ * trip. Trois étapes réglées sur « toujours demander » / « toujours demander »
+ * / « jamais », toutes en `echo` sur le terminal local — rien ne sort de la
+ * machine, et la troisième existe uniquement pour prouver qu'elle **ne part
+ * pas**.
+ */
+async function runRunbookApprovalScenario(browser) {
+  const NAME = "E2E approbation (supprimable)";
+  let runbookId = null;
+  try {
+    // Créée par l'interface, pas par `invoke` : l'app tient son espace de
+    // travail en mémoire et le rafraîchit après *ses* appels — un runbook
+    // écrit dans le dos de React existerait sur disque sans apparaître nulle
+    // part. Le sujet du scénario est l'aller-retour d'approbation, mais le
+    // chemin d'entrée doit rester celui de l'utilisateur.
+    await browser.execute(() => {
+      const btn = Array.from(document.querySelectorAll("aside nav button"))
+        .find((b) => (b.getAttribute("title") || "").startsWith("Runbooks"));
+      if (btn instanceof HTMLElement) btn.click();
+    });
+    await browser.waitUntil(async () => await browser.execute(() => {
+      const panel = document.querySelector('[data-sidebar-panel="runbook"]');
+      return !!panel && Array.from(panel.querySelectorAll("button"))
+        .some((b) => (b.getAttribute("title") || "") === "Nouvelle procédure");
+    }), { timeout: 15_000, timeoutMsg: "le panneau Runbooks ne s est pas rendu" });
+
+    const created = await browser.execute((name) => {
+      const panel = document.querySelector('[data-sidebar-panel="runbook"]');
+      const add = Array.from(panel.querySelectorAll("button"))
+        .find((b) => (b.getAttribute("title") || "") === "Nouvelle procédure");
+      add.click();
+      const input = panel.querySelector('input[placeholder="Nom de la procédure"]');
+      if (!(input instanceof HTMLInputElement)) return "champ de nom introuvable";
+      Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(input, name);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+      Array.from(panel.querySelectorAll("button")).find((b) => b.textContent?.trim() === "Créer").click();
+      return "ok";
+    }, NAME);
+    if (created !== "ok") throw new Error(created);
+
+    await browser.waitUntil(async () => await browser.execute(() =>
+      Array.from(document.querySelectorAll("button")).some((b) => (b.textContent || "").includes("Ajouter une étape"))
+    ), { timeout: 15_000, timeoutMsg: "l onglet de la procédure d approbation ne s est pas ouvert" });
+
+    runbookId = await browser.execute(async (name) => {
+      const ws = await window.__TAURI_INTERNALS__.invoke("get_workspace");
+      return ws.runbooks.find((r) => r.name === name)?.id ?? null;
+    }, NAME);
+    if (!runbookId) throw new Error("la procédure d approbation n apparaît pas dans le workspace");
+
+    // Trois étapes : approuvée, refusée, et une troisième réglée sur « jamais
+    // demander » qui existe uniquement pour prouver qu'elle ne part pas.
+    const built = await browser.execute(() => {
+      const setValue = (el, value, event) => {
+        const proto = el instanceof HTMLTextAreaElement ? window.HTMLTextAreaElement
+          : el instanceof HTMLSelectElement ? window.HTMLSelectElement
+          : window.HTMLInputElement;
+        Object.getOwnPropertyDescriptor(proto.prototype, "value").set.call(el, value);
+        el.dispatchEvent(new Event(event, { bubbles: true }));
+      };
+      const wanted = [
+        ["approuvée", "echo etape-un", "always"],
+        ["refusée", "echo etape-deux", "always"],
+        ["jamais atteinte", "echo etape-trois", "never"],
+      ];
+      for (let i = 0; i < wanted.length; i++) {
+        const add = Array.from(document.querySelectorAll("button"))
+          .find((b) => (b.textContent || "").includes("Ajouter une étape"));
+        if (!(add instanceof HTMLElement)) return "bouton « Ajouter une étape » introuvable";
+        add.click();
+      }
+      for (let i = 0; i < wanted.length; i++) {
+        const card = document.querySelector(`[data-runbook-step="${i}"]`);
+        if (!card) return `carte de l étape ${i + 1} introuvable`;
+        const [title, command, approval] = wanted[i];
+        setValue(card.querySelector('input[placeholder="Ce que fait cette étape"]'), title, "input");
+        setValue(card.querySelector('textarea[placeholder="systemctl restart nginx"]'), command, "input");
+        const selects = card.querySelectorAll("select");
+        if (selects.length < 2) return `l étape ${i + 1} n a pas son choix d approbation`;
+        setValue(selects[1], approval, "change");
+      }
+      return "ok";
+    });
+    if (built !== "ok") throw new Error(built);
+
+    // Cocher le terminal local dans le panneau de cibles.
+    await browser.execute(() => {
+      const btn = Array.from(document.querySelectorAll("aside nav button"))
+        .find((b) => (b.getAttribute("title") || "").startsWith("Opérations de flotte"));
+      if (btn instanceof HTMLElement) btn.click();
+    });
+    await browser.waitUntil(async () => await browser.execute(() => {
+      const panel = document.querySelector('[data-sidebar-panel="fleet"]');
+      const label = panel && Array.from(panel.querySelectorAll("label"))
+        .find((l) => (l.textContent || "").includes("Terminal local"));
+      const box = label?.querySelector('input[type="checkbox"]');
+      if (!(box instanceof HTMLInputElement)) return false;
+      if (!box.checked) box.click();
+      return true;
+    }), { timeout: 10_000, timeoutMsg: "impossible de cocher le terminal local" });
+
+    await browser.execute((label) => {
+      const tab = Array.from(document.querySelectorAll("[data-tab-id]"))
+        .find((el) => (el.textContent || "").includes(label));
+      if (tab instanceof HTMLElement) tab.click();
+    }, NAME);
+
+    const launched = await browser.execute(() => {
+      const btn = Array.from(document.querySelectorAll("button")).find((b) => (b.textContent || "").trim() === "Lancer");
+      if (!(btn instanceof HTMLElement)) return "bouton « Lancer » introuvable";
+      btn.click();
+      return "ok";
+    });
+    if (launched !== "ok") throw new Error(launched);
+
+    // ── Première étape : la boîte s'affiche, et on approuve ────────────────
+    await browser.waitUntil(async () => await browser.execute(() =>
+      Array.from(document.querySelectorAll('[role="dialog"]'))
+        .some((d) => (d.textContent || "").includes("Approbation demandée"))
+    ), { timeout: 30_000, timeoutMsg: "la demande d approbation ne s est jamais affichée" });
+
+    // La boîte doit dire de quelle étape il s'agit et ce qui partira : une
+    // demande qui ne montre pas la commande n'est pas une décision, c'est un
+    // clic.
+    const shown = await browser.execute(() => {
+      const dialog = Array.from(document.querySelectorAll('[role="dialog"]'))
+        .find((d) => (d.textContent || "").includes("Approbation demandée"));
+      return dialog ? dialog.textContent || "" : "";
+    });
+    if (!shown.includes("approuvée") || !shown.includes("etape-un") || !shown.includes("Terminal local")) {
+      throw new Error(`la boîte n affiche pas l étape, sa commande et sa cible : ${shown.slice(0, 300)}`);
+    }
+
+    const approved = await browser.execute(() => {
+      const btn = Array.from(document.querySelectorAll("button"))
+        .find((b) => (b.textContent || "").trim() === "Approuver et continuer");
+      if (!(btn instanceof HTMLElement)) return "bouton d approbation introuvable";
+      btn.click();
+      return "ok";
+    });
+    if (approved !== "ok") throw new Error(approved);
+
+    // ── Deuxième étape : on refuse ─────────────────────────────────────────
+    await browser.waitUntil(async () => await browser.execute(() =>
+      Array.from(document.querySelectorAll('[role="dialog"]'))
+        .some((d) => (d.textContent || "").includes("refusée"))
+    ), { timeout: 30_000, timeoutMsg: "la deuxième demande d approbation ne s est pas affichée — l approbation n a pas laissé passer" });
+
+    const refused = await browser.execute(() => {
+      const btn = Array.from(document.querySelectorAll("button"))
+        .find((b) => (b.textContent || "").trim() === "Refuser et arrêter");
+      if (!(btn instanceof HTMLElement)) return "bouton de refus introuvable";
+      btn.click();
+      return "ok";
+    });
+    if (refused !== "ok") throw new Error(refused);
+
+    // ── Le verdict, lu dans le rapport persisté ────────────────────────────
+    // Deux étapes enregistrées et pas trois : la troisième n'a jamais démarré.
+    // C'est *la* garantie de la pause — avoir demandé puis continuer quand même
+    // serait pire que de ne pas demander.
+    const report = await browser.waitUntil(async () => {
+      const runs = await browser.execute(async (id) => {
+        const all = await window.__TAURI_INTERNALS__.invoke("get_runbook_history");
+        return all.filter((r) => r.runbookId === id);
+      }, runbookId);
+      return runs.length > 0 ? runs[0] : false;
+    }, { timeout: 30_000, timeoutMsg: "aucun rapport enregistré pour la procédure d approbation" });
+
+    if (report.status !== "stopped") {
+      throw new Error(`un refus doit arrêter la procédure, statut reçu : ${report.status}`);
+    }
+    if (report.steps.length !== 2) {
+      throw new Error(
+        `la troisième étape n aurait jamais dû partir — étapes enregistrées : ${report.steps.map((s) => s.title).join(", ")}`,
+      );
+    }
+    if (report.steps[0].outcomes.length !== 1) {
+      throw new Error("l étape approuvée aurait dû s exécuter sur le terminal local");
+    }
+    if (report.steps[1].outcomes.length !== 0) {
+      throw new Error("l étape refusée n aurait rien dû exécuter");
+    }
+    if (!(report.steps[1].stopReason || "").includes("refus")) {
+      throw new Error(`le rapport doit dire pourquoi : ${JSON.stringify(report.steps[1].stopReason)}`);
+    }
+
+    console.log("Runbooks : OK (approbation demandée avec sa commande, approuver laisse passer, refuser arrête — l étape suivante n a jamais démarré).");
+  } finally {
     if (runbookId) {
       await browser.execute(async (id) => {
         try { await window.__TAURI_INTERNALS__.invoke("delete_runbook", { runbookId: id }); } catch { /* rien à nettoyer */ }

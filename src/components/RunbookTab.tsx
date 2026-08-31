@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
-  FleetOutcome, FleetTarget, Host, HostId, OnFailure, Runbook, RunbookAction, RunbookId,
-  RunbookRun, RunbookRunStatus, RunbookStep, SkippedTarget, Workspace,
+  Approval, FleetOutcome, FleetTarget, Host, HostId, OnFailure, Runbook, RunbookAction,
+  RunbookApprovalRequest, RunbookId, RunbookRun, RunbookRunStatus, RunbookStep, SkippedTarget, Workspace,
 } from "../lib/types";
 import { fleetTargetKey } from "../lib/types";
 import { targetLabel } from "../lib/fleetLabels";
 import { assertNever } from "../lib/exhaustive";
-import { api, onRunbookDone, onRunbookStepDone, onRunbookStepOutcome, onRunbookStepStarted } from "../lib/api";
+import { api, onRunbookApprovalNeeded, onRunbookDone, onRunbookStepDone, onRunbookStepOutcome, onRunbookStepStarted } from "../lib/api";
+import { RunbookApprovalModal } from "./RunbookApprovalModal";
 import { useFleetSelection } from "../hooks/useFleetSelection";
 import { IconPlay, IconPlus, IconTrash, IconChevronDown, IconChevronRight, IconClose } from "./ui-icons";
 
@@ -21,7 +22,7 @@ interface RunbookTabProps {
 
 /** L'état d'une étape pendant et après une exécution. */
 interface StepRunState {
-  status: "waiting" | "running" | "done";
+  status: "waiting" | "running" | "awaitingApproval" | "done";
   /** Ce que chaque cible lance — clé de cible → commande rendue. */
   commands: Map<string, string>;
   skipped: SkippedTarget[];
@@ -44,6 +45,12 @@ const FAILURE_LABELS: Record<OnFailure, string> = {
   dropFailed: "continuer sans les machines en échec",
 };
 
+const APPROVAL_LABELS: Record<Approval, string> = {
+  beforeIrreversible: "avant une opération sans retour",
+  never: "jamais",
+  always: "toujours",
+};
+
 const STATUS_LABELS: Record<RunbookRunStatus, string> = {
   completed: "terminée",
   stopped: "arrêtée",
@@ -58,6 +65,9 @@ function newStep(): RunbookStep {
     action: { kind: "command", command: "" },
     scope: { tags: [], groups: [] },
     onFailure: "stop",
+    // Le même défaut que le backend, et pour la même raison : une étape qui
+    // supprime quelque chose demande, sans qu'on ait à y penser.
+    approval: "beforeIrreversible",
   };
 }
 
@@ -112,6 +122,7 @@ export function RunbookTab({ runbookId, workspace, onError, onWorkspaceUpdate, o
   const [runStates, setRunStates] = useState<Map<number, StepRunState>>(new Map());
   const [finalStatus, setFinalStatus] = useState<RunbookRunStatus | null>(null);
   const [cancelling, setCancelling] = useState(false);
+  const [approval, setApproval] = useState<RunbookApprovalRequest | null>(null);
 
   // Reprendre le brouillon quand l'onglet change de procédure — ou quand
   // quelqu'un d'autre a écrit dessus (import, suppression d'étape ailleurs).
@@ -172,8 +183,17 @@ export function RunbookTab({ runbookId, workspace, onError, onWorkspaceUpdate, o
           return { ...prev, outcomes };
         });
       }),
+      onRunbookApprovalNeeded((request) => {
+        if (request.runId !== runIdRef.current) return;
+        setApproval(request);
+        patch(request.stepIndex, (prev) => ({ ...prev, status: "awaitingApproval" }));
+      }),
       onRunbookStepDone((id, payload) => {
         if (id !== runIdRef.current) return;
+        // La demande peut aussi avoir été tranchée ailleurs qu'ici — le délai
+        // dépassé côté Rust, ou « Arrêter » pendant l'attente. Fermer sur
+        // l'évènement de fin d'étape couvre les trois d'un coup.
+        setApproval((prev) => (prev?.stepIndex === payload.stepIndex ? null : prev));
         patch(payload.stepIndex, (prev) => ({
           ...prev,
           status: "done",
@@ -187,6 +207,7 @@ export function RunbookTab({ runbookId, workspace, onError, onWorkspaceUpdate, o
         runIdRef.current = null;
         setRunId(null);
         setCancelling(false);
+        setApproval(null);
         setFinalStatus(status);
         refreshHistory();
       }),
@@ -240,6 +261,7 @@ export function RunbookTab({ runbookId, workspace, onError, onWorkspaceUpdate, o
     runIdRef.current = id;
     setRunId(id);
     setFinalStatus(null);
+    setApproval(null);
     setRunStates(new Map(draft.steps.map((_, i) => [i, emptyStepState()])));
     try {
       await api.runRunbook(id, draft.id, targets);
@@ -247,6 +269,20 @@ export function RunbookTab({ runbookId, workspace, onError, onWorkspaceUpdate, o
       onError(String(e));
       runIdRef.current = null;
       setRunId(null);
+    }
+  };
+
+  /** Répondre. Le refus n'est pas un « annuler » de modale : il arrête la
+   * procédure, parce qu'une étape refusée est une étape qui n'a pas eu lieu et
+   * que la suivante suppose qu'elle a eu lieu. */
+  const answerApproval = async (approved: boolean) => {
+    if (!approval) return;
+    const { runId: id, stepIndex } = approval;
+    setApproval(null);
+    try {
+      await api.answerRunbookApproval(id, stepIndex, approved);
+    } catch (e) {
+      onError(String(e));
     }
   };
 
@@ -281,6 +317,17 @@ export function RunbookTab({ runbookId, workspace, onError, onWorkspaceUpdate, o
 
   return (
     <div className="flex h-full min-h-0 flex-col bg-[var(--c-bg)]">
+      {/* Dans un portail (voir le composant) : cet onglet reste monté mais
+          masqué quand un autre est au premier plan, et une demande qu'on ne
+          voit pas finit refusée au bout du délai. */}
+      {approval && (
+        <RunbookApprovalModal
+          request={approval}
+          labelOf={labelOf}
+          onApprove={() => answerApproval(true)}
+          onRefuse={() => answerApproval(false)}
+        />
+      )}
       {/* ── En-tête ─────────────────────────────────────────────────────── */}
       <div className="flex flex-wrap items-center gap-2 border-b border-[var(--c-border)] px-3 py-2">
         <input
@@ -464,11 +511,15 @@ function StepCard({
   const outcomes = state ? [...state.outcomes.values()] : [];
   const border =
     state?.stop ? "border-[#ef4444]"
+    : state?.status === "awaitingApproval" ? "border-[#f59e0b]"
     : state?.status === "running" ? "border-[var(--c-accent)]"
     : "border-[var(--c-border)]";
 
   return (
-    <div className={`rounded-md border ${border} bg-[var(--c-bg2)] p-2`}>
+    // `data-runbook-step` : le point d'accroche stable d'une étape, pour les
+    // scénarios en fenêtre réelle. Sans lui, ils devraient compter les champs
+    // du document entier — donc casser au premier champ ajouté ailleurs.
+    <div data-runbook-step={index} className={`rounded-md border ${border} bg-[var(--c-bg2)] p-2`}>
       <div className="flex items-center gap-1.5">
         <span className="w-5 text-center text-xs text-[var(--c-text-faint)]">{index + 1}</span>
         <input
@@ -478,6 +529,9 @@ function StepCard({
           className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-xs font-medium text-[var(--c-text)] hover:border-[var(--c-border)] focus:border-[var(--c-accent)]"
         />
         {state?.status === "running" && <StatusDot state="pending" />}
+        {state?.status === "awaitingApproval" && (
+          <span className="rounded bg-[#f59e0b22] px-1.5 py-0.5 text-[10px] text-[#f59e0b]">en attente d'accord</span>
+        )}
         <button onClick={() => onMove(-1)} disabled={index === 0} title="Monter" className="rounded px-1 text-xs text-[var(--c-text-muted)] hover:bg-[var(--c-bg3)] disabled:opacity-30">↑</button>
         <button onClick={() => onMove(1)} disabled={index === total - 1} title="Descendre" className="rounded px-1 text-xs text-[var(--c-text-muted)] hover:bg-[var(--c-bg3)] disabled:opacity-30">↓</button>
         <button onClick={onDelete} title="Supprimer l'étape" className="rounded p-1 text-[var(--c-text-muted)] hover:bg-[var(--c-bg3)]"><IconTrash size={12} /></button>
@@ -504,7 +558,7 @@ function StepCard({
       </div>
       <ActionEditor action={step.action} onChange={(action) => onChange((s) => ({ ...s, action }))} />
 
-      <div className="mt-1.5 grid grid-cols-1 gap-1.5 pl-6 sm:grid-cols-3">
+      <div className="mt-1.5 grid grid-cols-1 gap-1.5 pl-6 sm:grid-cols-2 lg:grid-cols-4">
         <label className="flex flex-col gap-0.5 text-[10px] text-[var(--c-text-muted)]">
           Tags (tous requis)
           <input
@@ -535,7 +589,26 @@ function StepCard({
             ))}
           </select>
         </label>
+        <label className="flex flex-col gap-0.5 text-[10px] text-[var(--c-text-muted)]">
+          Demander avant de lancer
+          <select
+            value={step.approval}
+            onChange={(e) => onChange((s) => ({ ...s, approval: e.target.value as Approval }))}
+            className="rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1.5 py-1 text-[11px] text-[var(--c-text)]"
+          >
+            {(Object.keys(APPROVAL_LABELS) as Approval[]).map((k) => (
+              <option key={k} value={k}>{APPROVAL_LABELS[k]}</option>
+            ))}
+          </select>
+        </label>
       </div>
+      {step.approval === "beforeIrreversible" && step.action.kind === "command" && (
+        <p className="ml-6 mt-1 text-[10px] text-[var(--c-text-faint)]">
+          Une commande shell libre n'est jamais jugée destructrice : décider si un <code className="font-mono">rm -rf</code>{" "}
+          caché dedans l'est reviendrait à interpréter du shell arbitraire, et deviner donnerait une assurance
+          fausse. Passez sur « toujours » si cette étape doit s'arrêter pour demander.
+        </p>
+      )}
 
       <textarea
         value={step.notes}

@@ -13,7 +13,7 @@
 
 use crate::adaptive;
 use crate::fleet::{FleetTarget, HostOutcome};
-use crate::model::{GroupId, HostId, OnFailure, Runbook, RunbookAction, RunbookStep, RunbookStepId, RunbookStepScope, Workspace};
+use crate::model::{Approval, GroupId, HostId, OnFailure, Runbook, RunbookAction, RunbookStep, RunbookStepId, RunbookStepScope, Workspace};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
@@ -228,6 +228,92 @@ pub fn decide(policy: OnFailure, outcomes: &[HostOutcome], remaining: usize) -> 
 }
 
 
+// ─── La pause d'approbation ──────────────────────────────────────────────────
+
+/// Une opération de l'étape qui ne pourra pas être défaite, et pourquoi.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct IrreversibleOperation {
+    /// La ligne du langage, telle que l'utilisateur l'écrirait
+    /// ([`adaptive::render_operation`]) — pas le shell qu'elle produira, qui
+    /// change d'une plateforme à l'autre et se lit beaucoup moins bien au
+    /// moment de décider.
+    pub operation: String,
+    pub reason: String,
+}
+
+/// Les opérations de `action` que le langage adaptatif déclare irréversibles.
+///
+/// **Rien n'est jugé ici.** La table est [`adaptive::inverse`], un `match`
+/// total sur la liste fermée des opérations du langage : ajouter une fonction
+/// au DSL sans décider ce que veut dire l'annuler ne compile pas. C'est ce qui
+/// permet à cette pause de ne pas avoir de liste de mots-clés à maintenir, et
+/// c'est pour ça que la raison affichée est celle d'`inverse`, verbatim.
+///
+/// Une commande shell libre rend toujours une liste vide, et ce n'est pas un
+/// trou qu'on comblerait avec de l'heuristique : décider si un `rm -rf` caché
+/// dans un `sh -c` est destructeur, c'est interpréter du shell arbitraire.
+/// L'étape le dit — la case « toujours demander » est là pour ça.
+pub fn irreversible_operations(action: &RunbookAction) -> Vec<IrreversibleOperation> {
+    let RunbookAction::Program { program_text } = action else { return Vec::new() };
+    let Ok(program) = adaptive::parse_program(program_text) else { return Vec::new() };
+    program
+        .iter()
+        .filter_map(|stmt| match adaptive::inverse(&stmt.operation, None) {
+            adaptive::Reversibility::Irreversible { reason } => Some(IrreversibleOperation {
+                operation: adaptive::render_operation(&stmt.operation),
+                reason: reason.to_string(),
+            }),
+            _ => None,
+        })
+        .collect()
+}
+
+/// Pourquoi cette étape s'arrête pour demander.
+///
+/// Deux cas et pas un booléen : « ceci va supprimer un compte, voici pourquoi
+/// c'est définitif » et « tu as demandé un point de contrôle ici » n'appellent
+/// pas la même phrase, et les confondre apprendrait à cliquer « Approuver »
+/// sans lire — ce qui viderait la pause de son seul intérêt.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ApprovalReason {
+    /// L'étape porte des opérations sans retour.
+    Irreversible { operations: Vec<IrreversibleOperation> },
+    /// L'étape est réglée sur « toujours demander ».
+    Requested,
+}
+
+/// Faut-il demander avant de lancer cette étape, et pour quelle raison.
+///
+/// `None` aussi quand l'étape ne lancera rien : demander l'accord pour une
+/// étape qui ne vise personne apprend à approuver sans regarder.
+pub fn approval_for(step: &RunbookStep, will_run: bool) -> Option<ApprovalReason> {
+    if !will_run {
+        return None;
+    }
+    let operations = irreversible_operations(&step.action);
+    match step.approval {
+        Approval::Never => None,
+        // « Toujours » demande même quand tout est réversible — mais quand il
+        // y a bien des opérations sans retour, c'est *elles* qu'il faut
+        // montrer, pas un « vous avez demandé un point de contrôle » qui
+        // tairait le vrai motif.
+        Approval::Always => Some(if operations.is_empty() {
+            ApprovalReason::Requested
+        } else {
+            ApprovalReason::Irreversible { operations }
+        }),
+        Approval::BeforeIrreversible => {
+            if operations.is_empty() {
+                None
+            } else {
+                Some(ApprovalReason::Irreversible { operations })
+            }
+        }
+    }
+}
+
 // ─── Le déroulé d'une procédure ──────────────────────────────────────────────
 
 /// Comment une exécution s'est terminée.
@@ -271,6 +357,10 @@ pub struct NextStep {
     pub title: String,
     pub commands: HashMap<FleetTarget, String>,
     pub skipped: Vec<SkippedTarget>,
+    /// Quand c'est `Some`, **rien ne doit partir** avant que l'utilisateur ait
+    /// répondu : l'appelant demande, puis appelle [`RunbookDriver::finish_step`]
+    /// s'il approuve, ou [`RunbookDriver::refuse_step`] sinon.
+    pub approval: Option<ApprovalReason>,
 }
 
 /// Le résultat complet d'une exécution.
@@ -340,11 +430,14 @@ impl RunbookDriver {
     /// L'étape suivante à exécuter, ou `None` quand il n'y en a plus — fin
     /// normale, arrêt demandé, ou étape impossible à composer.
     pub fn next_step(&mut self, workspace: &Workspace) -> Option<NextStep> {
-        if self.cancelled {
-            self.status = RunStatus::Cancelled;
+        // L'ordre compte : une procédure déjà arrêtée (échec, ou étape
+        // refusée) garde son statut. L'inverse ferait rapporter « annulée » une
+        // exécution qui s'était arrêtée toute seule, en effaçant le pourquoi.
+        if self.status != RunStatus::Completed {
             return None;
         }
-        if self.status != RunStatus::Completed {
+        if self.cancelled {
+            self.status = RunStatus::Cancelled;
             return None;
         }
         let step = self.steps.get(self.index)?.clone();
@@ -385,8 +478,36 @@ impl RunbookDriver {
         }
 
         let commands = plan.commands;
+        // « Va-t-elle lancer quelque chose » se lit sur les commandes, pas sur
+        // les cibles : une étape en langage dont aucun hôte ne couvre la
+        // plateforme a des cibles et zéro commande.
+        let approval = approval_for(&step, !commands.is_empty());
         self.current = Some(CurrentStep { step: step.clone(), targets: targets.len(), skipped: skipped.clone() });
-        Some(NextStep { index, title: step.title, commands, skipped })
+        Some(NextStep { index, title: step.title, commands, skipped, approval })
+    }
+
+    /// L'étape courante n'a pas été approuvée : elle n'a rien lancé, et la
+    /// procédure s'arrête là.
+    ///
+    /// **S'arrêter, et non passer à la suivante** : une étape qu'on vient de
+    /// refuser est une étape qui n'a pas eu lieu, or la suivante suppose
+    /// qu'elle a eu lieu — c'est toute la raison d'être d'un ordre. Enchaîner
+    /// serait le pire des deux mondes : avoir demandé, et continuer quand même.
+    ///
+    /// Panique si aucune étape n'est en cours, comme
+    /// [`finish_step`](Self::finish_step) : c'est une erreur de séquence de
+    /// l'appelant, pas un état que des données pourraient produire.
+    pub fn refuse_step(&mut self, reason: String) {
+        let current = self.current.take().expect("refuse_step sans next_step");
+        self.records.push(StepRecord {
+            step_id: current.step.id,
+            title: current.step.title,
+            summary: summary_of(&current.step.action),
+            outcomes: Vec::new(),
+            skipped: current.skipped,
+            stop_reason: Some(reason),
+        });
+        self.status = RunStatus::Stopped;
     }
 
     /// Enregistre les résultats de l'étape courante et applique sa politique
@@ -437,7 +558,7 @@ pub fn summary_of(action: &RunbookAction) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{Group, Host, Runbook, RunbookStep, Workspace};
+    use crate::model::{Group, Host, HostFacts, Runbook, RunbookStep, Workspace};
     use uuid::Uuid;
 
     fn outcome(target: FleetTarget, exit_code: Option<i32>, error: Option<&str>) -> HostOutcome {
@@ -468,6 +589,12 @@ mod tests {
         let mut web = Host::new("web-1", "10.0.0.1", "root");
         web.tags = vec!["web".into(), "prod".into()];
         web.group_id = Some(paris.id);
+        // Seul web-1 porte un état collecté, et c'est voulu : `adaptive` ne
+        // compose une commande que pour une plateforme connue, donc un hôte
+        // sans état est le cas « le programme ne sait pas quoi lancer ici ».
+        // Avoir les deux dans la même fixture évite d'écrire des tests qui
+        // passent parce que rien ne s'exécute.
+        web.last_facts = Some(HostFacts { os_id: Some("debian".into()), ..Default::default() });
         let mut db = Host::new("db-1", "10.0.0.2", "root");
         db.tags = vec!["db".into(), "prod".into()];
         db.group_id = Some(bases.id);
@@ -568,10 +695,23 @@ mod tests {
         let action = RunbookAction::Program { program_text: "install-package nginx".into() };
         let plan = plan_step(&ws, &[ssh(web), FleetTarget::Local], &action).unwrap();
         assert!(plan.skipped.iter().any(|s| s.target == FleetTarget::Local));
-        // web-1 n'a pas d'état collecté, donc sa plateforme est inconnue : le
-        // moteur adaptatif l'écarte avec sa propre note plutôt que d'inventer
-        // une commande.
-        assert!(plan.commands.is_empty() || plan.commands.contains_key(&ssh(web)));
+        // web-1 est connu comme Debian, donc il reçoit bien une commande : sans
+        // cette moitié, le test passerait aussi si le plan était vide — c'est
+        // à dire si le langage n'avait rien composé du tout.
+        assert!(plan.commands[&ssh(web)].contains("nginx"), "{:?}", plan.commands);
+    }
+
+    /// L'autre moitié : un hôte sans état collecté est écarté avec la note du
+    /// moteur adaptatif, jamais avec une commande inventée pour une plateforme
+    /// qu'on ne connaît pas.
+    #[test]
+    fn a_program_step_skips_a_host_whose_platform_is_unknown() {
+        let (ws, _, db, _) = workspace_with_hosts();
+        let action = RunbookAction::Program { program_text: "install-package nginx".into() };
+        let plan = plan_step(&ws, &[ssh(db)], &action).unwrap();
+        assert!(plan.commands.is_empty());
+        assert_eq!(plan.skipped.len(), 1);
+        assert_eq!(plan.skipped[0].target, ssh(db));
     }
 
     #[test]
@@ -653,6 +793,10 @@ mod tests {
             action: RunbookAction::Command { command: command.to_string() },
             scope: RunbookStepScope::default(),
             on_failure,
+            // Les tests de déroulé portent sur l'ordre et la politique
+            // d'échec : une pause d'approbation y ajouterait un aller-retour
+            // qui n'est pas leur sujet (il a le sien, plus bas).
+            approval: Approval::Never,
         }
     }
 
@@ -830,6 +974,181 @@ mod tests {
         }
     }
 
+    // ─── La pause d'approbation ─────────────────────────────────────────
+
+    fn program_step(title: &str, program: &str, approval: Approval) -> RunbookStep {
+        RunbookStep {
+            id: Uuid::new_v4(),
+            title: title.to_string(),
+            notes: String::new(),
+            action: RunbookAction::Program { program_text: program.to_string() },
+            scope: RunbookStepScope::default(),
+            on_failure: OnFailure::Stop,
+            approval,
+        }
+    }
+
+    /// La table d'irréversibilité n'est pas recopiée ici : elle vient
+    /// d'`adaptive::inverse`, et sa raison est relayée verbatim.
+    #[test]
+    fn an_irreversible_operation_is_named_with_the_reason_from_the_dsl() {
+        let ops = irreversible_operations(&RunbookAction::Program {
+            program_text: "remove-user bob".into(),
+        });
+        assert_eq!(ops.len(), 1);
+        assert_eq!(ops[0].operation, "remove-user bob");
+        assert!(ops[0].reason.contains("dossier personnel"), "raison inattendue : {}", ops[0].reason);
+    }
+
+    #[test]
+    fn a_reversible_program_has_nothing_irreversible() {
+        let ops = irreversible_operations(&RunbookAction::Program {
+            program_text: "install-package nginx".into(),
+        });
+        assert!(ops.is_empty());
+    }
+
+    /// Le trou assumé, écrit noir sur blanc : du shell arbitraire est
+    /// indécidable, et deviner avec des mots-clés donnerait une fausse
+    /// assurance — pire que pas d'assurance du tout.
+    #[test]
+    fn a_free_command_is_never_judged_however_destructive_it_looks() {
+        let ops = irreversible_operations(&RunbookAction::Command {
+            command: "rm -rf /var/lib/postgresql".into(),
+        });
+        assert!(ops.is_empty());
+    }
+
+    #[test]
+    fn the_default_asks_before_an_irreversible_step_and_stays_quiet_otherwise() {
+        let destructive = program_step("supprimer", "remove-user bob", Approval::default());
+        assert!(matches!(
+            approval_for(&destructive, true),
+            Some(ApprovalReason::Irreversible { .. })
+        ));
+
+        let harmless = program_step("installer", "install-package nginx", Approval::default());
+        assert_eq!(approval_for(&harmless, true), None);
+    }
+
+    #[test]
+    fn never_asks_nothing_even_when_the_step_is_irreversible() {
+        let step = program_step("supprimer", "remove-user bob", Approval::Never);
+        assert_eq!(approval_for(&step, true), None);
+    }
+
+    /// « Toujours » demande sur une étape réversible — mais quand il y a bien
+    /// des opérations sans retour, ce sont elles qu'on montre : taire le vrai
+    /// motif derrière « vous avez demandé un point de contrôle » serait pire
+    /// que ne rien demander.
+    #[test]
+    fn always_asks_and_still_names_the_irreversible_operations() {
+        let harmless = program_step("bascule", "install-package nginx", Approval::Always);
+        assert_eq!(approval_for(&harmless, true), Some(ApprovalReason::Requested));
+
+        let destructive = program_step("bascule", "remove-user bob", Approval::Always);
+        assert!(matches!(
+            approval_for(&destructive, true),
+            Some(ApprovalReason::Irreversible { .. })
+        ));
+    }
+
+    /// Demander l'accord pour une étape qui ne lancera rien apprend à cliquer
+    /// « Approuver » sans regarder — exactement ce que cette pause doit éviter.
+    #[test]
+    fn a_step_that_will_run_nothing_never_asks() {
+        let step = program_step("supprimer", "remove-user bob", Approval::Always);
+        assert_eq!(approval_for(&step, false), None);
+    }
+
+    /// L'assertion qui compte : refuser n'exécute rien **et** n'enchaîne pas.
+    /// Enchaîner serait le pire des deux mondes — avoir demandé, et continuer
+    /// quand même.
+    #[test]
+    fn refusing_a_step_runs_nothing_and_stops_the_procedure() {
+        let (ws, web, _, _) = workspace_with_hosts();
+        let book = book(vec![
+            program_step("supprimer bob", "remove-user bob", Approval::default()),
+            step("suite", "true", OnFailure::Stop),
+        ]);
+        let mut driver = RunbookDriver::new(&book, vec![ssh(web)]);
+
+        let first = driver.next_step(&ws).unwrap();
+        assert!(first.approval.is_some(), "l étape destructrice doit demander");
+        driver.refuse_step("l approbation a été refusée".to_string());
+
+        assert!(driver.next_step(&ws).is_none(), "la suite ne doit pas partir après un refus");
+        let out = driver.finish();
+        assert_eq!(out.status, RunStatus::Stopped);
+        assert_eq!(out.steps.len(), 1);
+        assert!(out.steps[0].outcomes.is_empty(), "une étape refusée n a rien lancé");
+        assert_eq!(out.steps[0].stop_reason.as_deref(), Some("l approbation a été refusée"));
+    }
+
+    #[test]
+    fn approving_a_step_lets_the_procedure_continue() {
+        let (ws, web, _, _) = workspace_with_hosts();
+        let book = book(vec![
+            program_step("supprimer bob", "remove-user bob", Approval::default()),
+            step("suite", "true", OnFailure::Stop),
+        ]);
+        let mut driver = RunbookDriver::new(&book, vec![ssh(web)]);
+
+        let first = driver.next_step(&ws).unwrap();
+        // Approuver, c'est simplement exécuter puis `finish_step` — le pilote
+        // n'a pas de troisième état à retenir entre les deux.
+        driver.finish_step(first.commands.keys().map(|t| outcome(t.clone(), Some(0), None)).collect());
+        assert!(driver.next_step(&ws).is_some(), "l étape suivante doit pouvoir partir");
+        assert_eq!(driver.finish().status, RunStatus::Completed);
+    }
+
+    #[test]
+    fn a_step_defaults_to_asking_before_something_irreversible() {
+        let step: RunbookStep = serde_json::from_str(
+            r#"{"id":"11111111-1111-1111-1111-111111111111","title":"Redémarrer",
+                "action":{"kind":"command","command":"systemctl restart nginx"}}"#,
+        )
+        .unwrap();
+        assert_eq!(step.approval, Approval::BeforeIrreversible);
+    }
+
+    /// Le frontend lit `kind`/`operations` : un aller-retour Rust → Rust
+    /// resterait vert même si les champs partaient en snake_case.
+    #[test]
+    fn the_approval_reason_serializes_in_camel_case() {
+        let reason = ApprovalReason::Irreversible {
+            operations: vec![IrreversibleOperation {
+                operation: "remove-user bob".into(),
+                reason: "le compte est perdu".into(),
+            }],
+        };
+        let json = serde_json::to_string(&reason).unwrap();
+        assert!(json.contains("\"kind\":\"irreversible\""), "attendu le tag irreversible dans {json}");
+        assert!(json.contains("\"operations\""), "attendu operations dans {json}");
+
+        let requested = serde_json::to_string(&ApprovalReason::Requested).unwrap();
+        assert!(requested.contains("\"kind\":\"requested\""), "attendu le tag requested dans {requested}");
+    }
+
+    /// Un refus pendant qu'une annulation est aussi demandée reste rapporté
+    /// comme un arrêt, pas comme une annulation : le rapport doit dire
+    /// *pourquoi* la procédure s'est arrêtée, et « annulée » effacerait la
+    /// raison portée par l'étape.
+    #[test]
+    fn a_refusal_keeps_its_status_even_if_a_cancel_arrives_after() {
+        let (ws, web, _, _) = workspace_with_hosts();
+        let book = book(vec![
+            program_step("supprimer bob", "remove-user bob", Approval::default()),
+            step("suite", "true", OnFailure::Stop),
+        ]);
+        let mut driver = RunbookDriver::new(&book, vec![ssh(web)]);
+        driver.next_step(&ws).unwrap();
+        driver.refuse_step("l approbation a été refusée".to_string());
+        driver.cancel();
+        assert!(driver.next_step(&ws).is_none());
+        assert_eq!(driver.finish().status, RunStatus::Stopped);
+    }
+
     /// Un `workspace.json` écrit avant les runbooks doit rester lisible — sinon
     /// les hôtes de l'utilisateur disparaissent au premier lancement.
     #[test]
@@ -877,6 +1196,7 @@ mod tests {
                 action: RunbookAction::Program { program_text: "install-package nginx".into() },
                 scope: RunbookStepScope { tags: vec!["web".into()], groups: vec![] },
                 on_failure: OnFailure::DropFailed,
+                approval: Approval::Always,
             }],
         };
         let raw = serde_json::to_string(&book).unwrap();

@@ -69,6 +69,11 @@ describe("sémantique des fenêtres modales", () => {
     // pour les parcours qui demandent l'hôte avant toute autre chose.
     "components/HostTreePicker.tsx",
     "components/QuickEditModal.tsx",
+    // La pause d'approbation d'un runbook. Seule modale du dépôt rendue dans
+    // un portail (son onglet reste monté mais masqué quand un autre est au
+    // premier plan) — ce qui ne change rien ici : le voile et le piège à focus
+    // sont les mêmes, c'est le parent DOM qui diffère.
+    "components/RunbookApprovalModal.tsx",
     "components/SshAuthPromptModal.tsx",
     // Pas un fichier « Modal » : l'onglet de transfert porte la boîte qui
     // demande quoi faire d'un nom déjà pris à destination. Listé ici pour la

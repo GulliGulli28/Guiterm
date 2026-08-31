@@ -209,6 +209,7 @@ fn main() {
             commands::runbook::delete_runbook,
             commands::runbook::run_runbook,
             commands::runbook::cancel_runbook,
+            commands::runbook::answer_runbook_approval,
             commands::runbook::get_runbook_history,
 
             // ── module « netdiag » ───────────────────────────────────────

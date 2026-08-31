@@ -460,6 +460,33 @@ pub struct RunbookStep {
     pub scope: RunbookStepScope,
     #[serde(default)]
     pub on_failure: OnFailure,
+    /// Faut-il s'arrêter pour demander avant de lancer cette étape.
+    #[serde(default)]
+    pub approval: Approval,
+}
+
+/// Quand une étape s'interrompt pour demander l'accord de l'utilisateur.
+///
+/// **Le défaut demande**, contrairement au reste des réglages de ce fichier —
+/// et c'est la seule valeur défendable ici. Une étape qui supprime un compte ou
+/// un dossier n'est pas rattrapable : la faire partir sans rien dire parce que
+/// personne n'a pensé à cocher une case, c'est exactement l'incident que cette
+/// pause existe pour éviter. Le défaut ne coûte rien aux autres étapes — une
+/// commande shell libre est indécidable (voir
+/// [`crate::runbook::irreversible_operations`]), donc elle ne déclenche jamais
+/// ce mode, et une étape en langage qui n'installe que des paquets non plus.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub enum Approval {
+    /// Demander seulement si l'étape porte une opération que le langage
+    /// adaptatif déclare irréversible.
+    #[default]
+    BeforeIrreversible,
+    /// Ne jamais demander — pour une procédure qu'on veut dérouler d'un trait.
+    Never,
+    /// Toujours demander, même quand tout est réversible. Le point de contrôle
+    /// qu'on met avant une bascule, pour aller vérifier ailleurs.
+    Always,
 }
 
 /// Ce qu'une étape exécute.

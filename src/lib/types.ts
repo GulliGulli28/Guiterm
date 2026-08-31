@@ -1211,6 +1211,42 @@ export interface RunbookStep {
   action: RunbookAction;
   scope: RunbookStepScope;
   onFailure: OnFailure;
+  approval: Approval;
+}
+
+/** Quand une étape s'arrête pour demander l'accord.
+ *
+ * Le défaut est `beforeIrreversible` — le seul défendable : une étape qui
+ * supprime un compte n'est pas rattrapable, et la faire partir en silence
+ * parce que personne n'a coché une case est exactement l'incident que cette
+ * pause évite. Ça ne coûte rien aux autres : une commande shell libre est
+ * indécidable, donc elle ne déclenche jamais ce mode. */
+export type Approval = "beforeIrreversible" | "never" | "always";
+
+/** Une opération de l'étape qui ne pourra pas être défaite. `operation` est la
+ * ligne du langage, `reason` vient d'`adaptive::inverse`, verbatim. */
+export interface IrreversibleOperation {
+  operation: string;
+  reason: string;
+}
+
+/** Pourquoi l'étape demande. Deux cas et pas un booléen : « ceci supprime un
+ * compte » et « tu as demandé un point de contrôle » n'appellent pas la même
+ * phrase, et les confondre apprendrait à approuver sans lire. */
+export type RunbookApprovalReason =
+  | { kind: "irreversible"; operations: IrreversibleOperation[] }
+  | { kind: "requested" };
+
+/** Charge utile de `runbook-approval-needed`. */
+export interface RunbookApprovalRequest {
+  runId: string;
+  stepIndex: number;
+  title: string;
+  runbookName: string;
+  reason: RunbookApprovalReason;
+  commands: { target: FleetTarget; command: string }[];
+  /** Au bout de combien de secondes l'absence de réponse vaudra **refus**. */
+  timeoutSecs: number;
 }
 
 /** Ce qu'une étape exécute. Miroir de `termius_core::model::RunbookAction` —
