@@ -339,7 +339,11 @@ the hard way:
 
 ## Roadmap
 
-Recently shipped: **persistent server-side sessions** — an opt-in `tmux`
+Recently shipped: **executable runbooks** — ordered procedures on top of the
+fleet executor: steps with notes, a failure policy per step (stop, carry on, or
+carry on without the machines that failed), an approval pause before anything
+irreversible, a report per run, and a runbook that is one file you can keep in
+Git. Before that: **persistent server-side sessions** — an opt-in `tmux`
 session per host, so a dropped VPN, a closed tab, an app update or a reboot all
 reattach to the exact screen you left, with a manager to list, resume, watch
 read-only, share or end them. Before that: host selection through the folder
@@ -348,13 +352,9 @@ scoped rollback and drift detection for fleet runs, RDP cursor rendering, SSH
 connection pooling, the encrypted secrets vault, dynamic SOCKS tunnels, SSH key
 generation/deployment, and Docker and Kubernetes exec as real backends.
 
-Nothing is committed as the next piece of work. Three candidates, in no
+Nothing is committed as the next piece of work. Two candidates, in no
 particular order:
 
-- **Executable runbooks** — ordered, versioned procedures on top of the fleet
-  executor and the adaptive DSL: markdown notes and steps in one document,
-  captured output per step, an approval pause before destructive steps, and a
-  report at the end. A runbook would be one file, so it can live in Git.
 - **Continuous monitoring and alerts** — the question `core/src/drift.rs`
   leaves open on purpose. Opt-in per host or folder, with thresholds (disk,
   memory, load, a service down, a certificate about to expire, config drift),

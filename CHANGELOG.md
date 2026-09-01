@@ -9,6 +9,58 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+### Added
+
+- **Runbooks exécutables — des procédures ordonnées sur une flotte.** Une
+  opération de flotte répond à « lance ça partout ». Un incident se déroule
+  rarement comme ça : il y a un ordre, et une étape qui échoue ne doit pas
+  laisser la suivante partir sur des machines à moitié préparées. Un runbook
+  est une suite d'étapes, chacune avec son titre, ses notes, sa commande (shell
+  libre ou langage adaptatif), les machines qu'elle vise, et ce qui se passe
+  quand l'une d'elles échoue : arrêter la procédure, continuer avec tout le
+  monde, ou continuer sans les machines tombées. Nouveau bouton « Runbooks »
+  dans la barre latérale.
+
+  Les cibles sont celles cochées pour les opérations de flotte — la même
+  arborescence, pas une deuxième. Une étape peut restreindre cette sélection
+  par tag et par dossier ; jamais par machine nommée, pour qu'une procédure
+  garde son sens ailleurs que sur votre poste.
+
+  **Une pause avant ce qui ne se défait pas.** Chaque étape choisit quand
+  s'arrêter pour demander : avant une opération sans retour (le réglage par
+  défaut), jamais, ou toujours. La boîte nomme les opérations concernées et dit
+  pourquoi elles sont définitives — un compte supprimé emporte son dossier
+  personnel, un dossier retiré ne se recrée pas plein. Tout ce qui n'est pas un
+  « oui » explicite est un non : refuser, fermer la boîte, arrêter la procédure
+  ou ne pas répondre pendant dix minutes mènent au même endroit, l'étape n'a
+  rien lancé et la procédure s'arrête là. Une commande shell libre, elle, n'est
+  jamais présumée destructrice, et l'interface le dit plutôt que de le laisser
+  croire : reconnaître un `rm -rf` caché dans un `sh -c` demanderait
+  d'interpréter du shell arbitraire, et deviner donnerait une assurance fausse.
+  Pour ces étapes-là, « toujours demander » existe.
+
+  **Un runbook est un fichier.** Une procédure s'exporte en `.runbook.json` et
+  se réimporte — dans un dépôt Git, dans une revue, chez un collègue. Le
+  fichier ne contient aucun identifiant de machine, donc il vaut encore
+  ailleurs ; et réimporter le même fichier met la procédure à jour au lieu d'en
+  empiler une copie, ce qui rend « `git pull` puis importer » sans danger. Un
+  fichier qui n'en est pas un est refusé en le disant, et les programmes en
+  langage adaptatif y sont validés à la lecture — mieux vaut un import refusé
+  qu'une procédure qui s'arrête au milieu d'un incident.
+
+  Chaque exécution laisse un rapport : ce que chaque étape a lancé, sur quelles
+  machines, avec quels résultats, les machines non visées et pourquoi, et
+  l'endroit exact où la procédure s'est arrêtée. Il s'exporte en markdown, à
+  coller dans un ticket. Les sorties des machines qui ont réussi n'y sont pas —
+  seulement celles qui ont échoué : un rapport qui recopie le journal de
+  cinquante machines ne se lit pas.
+
+  Deux limites dites plutôt que suggérées : arrêter une exécution prend effet
+  entre deux étapes et non au milieu de l'une, parce que couper une commande à
+  mi-chemin laisserait des machines dans un état que la procédure ne décrit
+  nulle part ; et les notes d'une étape sont conservées telles quelles, sans
+  mise en forme markdown.
+
 ## [3.2.1] - 2026-08-27
 
 ### Added

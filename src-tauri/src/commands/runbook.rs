@@ -11,6 +11,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use tauri::{AppHandle, Emitter, State};
 use termius_core::fleet::{self, FleetTarget, HostOutcome};
+use termius_core::export as ex;
 use termius_core::model::{Runbook, RunbookAction, RunbookId, Workspace};
 use termius_core::runbook::{ApprovalReason, RunStatus, RunbookDriver, SkippedTarget};
 use termius_core::runbook_history::{self, RunbookRun};
@@ -155,6 +156,100 @@ pub fn delete_runbook(state: State<'_, AppState>, runbook_id: RunbookId) -> Resu
 #[tauri::command]
 pub fn get_runbook_history(state: State<'_, AppState>) -> Vec<RunbookRun> {
     state.runbook_history.lock_recover().clone()
+}
+
+// ─── Un runbook = un fichier ────────────────────────────────────────────────
+
+/// Écrit un runbook dans un fichier, seul.
+///
+/// C'est la forme qui donne son sens au chantier : une procédure décrit ce
+/// qu'il faut faire et pas sur quelles machines, donc elle se versionne, se
+/// relit en revue et vaut encore ailleurs. Voir [`ex::RunbookExport`].
+#[tauri::command]
+pub fn export_runbook(state: State<'_, AppState>, runbook_id: RunbookId, path: String) -> Result<(), String> {
+    let workspace = state.workspace.lock_recover();
+    let runbook = workspace
+        .runbooks
+        .iter()
+        .find(|r| r.id == runbook_id)
+        .cloned()
+        .ok_or_else(|| "ce runbook n'existe plus".to_string())?;
+    let file = ex::RunbookExport { export_version: ex::EXPORT_VERSION, runbook };
+    let json = serde_json::to_string_pretty(&file).map_err(|e| e.to_string())?;
+    std::fs::write(&path, json).map_err(|e| e.to_string())
+}
+
+/// Relit un fichier de runbook et l'ajoute — ou remplace celui de même id.
+///
+/// **Validé par le même parseur que l'enregistrement**, et c'est ici que ça
+/// compte le plus : un fichier arrive d'un dépôt Git, d'un collègue, ou d'une
+/// main humaine, donc c'est le seul chemin d'entrée où un programme adaptatif
+/// invalide est vraiment probable. Le refuser en le disant vaut mieux que de
+/// laisser la procédure s'arrêter au milieu d'un incident, plus tard.
+///
+/// **Remplacement par id**, comme `export::import_host` : réimporter le même
+/// fichier après un `git pull` met la procédure à jour au lieu d'en empiler une
+/// copie. Les identifiants étant des UUID, deux runbooks différents ne peuvent
+/// pas se télescoper.
+#[tauri::command]
+pub fn import_runbook(state: State<'_, AppState>, path: String) -> Result<Workspace, String> {
+    let json = std::fs::read_to_string(&path).map_err(|e| e.to_string())?;
+    let file: ex::RunbookExport =
+        serde_json::from_str(&json).map_err(|e| format!("ce fichier n'est pas un runbook : {e}"))?;
+    validate(&file.runbook)?;
+
+    let mut workspace = state.workspace.lock_recover();
+    match workspace.runbooks.iter_mut().find(|r| r.id == file.runbook.id) {
+        Some(existing) => *existing = file.runbook,
+        None => workspace.runbooks.push(file.runbook),
+    }
+    store::save(&workspace).map_err(|e| e.to_string())?;
+    Ok(workspace.clone())
+}
+
+/// Écrit le rapport d'une exécution en markdown.
+///
+/// Le rendu est dans `core` (et testé là-bas) ; ici on ne fait que résoudre le
+/// nom des machines — ce qui demande l'espace de travail, que `core` n'a pas —
+/// et écrire le fichier. Une machine supprimée depuis l'exécution retombe sur
+/// son identifiant plutôt que de laisser une case vide : un rapport qui
+/// n'attribue plus ses résultats à personne ne vaut rien.
+#[tauri::command]
+pub fn export_runbook_report(state: State<'_, AppState>, run_id: uuid::Uuid, path: String) -> Result<(), String> {
+    let run = state
+        .runbook_history
+        .lock_recover()
+        .iter()
+        .find(|r| r.id == run_id)
+        .cloned()
+        .ok_or_else(|| "cette exécution n'est plus dans l'historique".to_string())?;
+    let workspace = state.workspace.lock_recover().clone();
+    let markdown = runbook_history::report_markdown(&run, &|target: &FleetTarget| match target {
+        FleetTarget::Local => "Terminal local".to_string(),
+        FleetTarget::Ssh { host_id } => workspace
+            .host(*host_id)
+            .map(|h| h.label.clone())
+            .unwrap_or_else(|| host_id.to_string()),
+        FleetTarget::Docker { host_id, container_id } => {
+            let host = workspace.host(*host_id).map(|h| h.label.clone());
+            let container = container_id.chars().take(12).collect::<String>();
+            match host {
+                Some(label) => format!("{container} ({label})"),
+                None => container,
+            }
+        }
+        FleetTarget::K8s { host_id, pod_name, container_name } => {
+            let pod = match container_name {
+                Some(c) => format!("{pod_name} › {c}"),
+                None => pod_name.clone(),
+            };
+            match workspace.host(*host_id).map(|h| h.label.clone()) {
+                Some(label) => format!("{pod} ({label})"),
+                None => pod,
+            }
+        }
+    });
+    std::fs::write(&path, markdown).map_err(|e| e.to_string())
 }
 
 /// Demande l'arrêt d'une exécution en cours.

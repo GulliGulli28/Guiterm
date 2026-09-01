@@ -634,6 +634,10 @@ export default function App() {
         .catch((e) => reportError(String(e)));
     },
     deleteRunbook: (id) => api.deleteRunbook(id).then(refreshWorkspace).catch((e) => reportError(String(e))),
+    importRunbook: (path) =>
+      api.importRunbook(path)
+        .then(refreshWorkspace)
+        .catch((e) => reportError(`Import du runbook impossible : ${e}`)),
     openRunbook: (id) => {
       const book = workspace.runbooks.find((r) => r.id === id);
       if (book) openRunbook(book.id, book.name);

@@ -1,6 +1,7 @@
 import { useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import type { Runbook, RunbookId, Workspace } from "../lib/types";
-import { IconPlus, IconPlay, IconTrash } from "./ui-icons";
+import { IconPlus, IconPlay, IconTrash, IconDownload } from "./ui-icons";
 
 interface RunbookPanelProps {
   workspace: Workspace;
@@ -13,6 +14,9 @@ interface RunbookPanelProps {
    * `modules/runbook.tsx` pour pourquoi il n'y en a pas une deuxième. */
   selectedTargets: number;
   onShowTargets: () => void;
+  /** Relire un fichier de runbook. Le chemin arrive du sélecteur natif — le
+   * panneau ne lit rien lui-même. */
+  onImport: (path: string) => void;
 }
 
 /**
@@ -24,7 +28,7 @@ interface RunbookPanelProps {
  * littéralement la même sélection.
  */
 export function RunbookPanel({
-  workspace, onOpen, onCreate, onDelete, selectedTargets, onShowTargets,
+  workspace, onOpen, onCreate, onDelete, selectedTargets, onShowTargets, onImport,
 }: RunbookPanelProps) {
   const [creating, setCreating] = useState(false);
   const [name, setName] = useState("");
@@ -43,13 +47,28 @@ export function RunbookPanel({
         <span className="text-xs font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">
           Runbooks · {workspace.runbooks.length}
         </span>
-        <button
-          onClick={() => setCreating((v) => !v)}
-          title="Nouvelle procédure"
-          className="rounded px-1.5 py-0.5 text-[var(--c-accent-text)] hover:bg-[var(--c-bg3)]"
-        >
-          <IconPlus size={14} />
-        </button>
+        <div className="flex items-center gap-0.5">
+          <button
+            onClick={async () => {
+              const path = await open({
+                multiple: false,
+                filters: [{ name: "Runbook", extensions: ["json"] }],
+              }).catch(() => null);
+              if (typeof path === "string") onImport(path);
+            }}
+            title="Importer un runbook depuis un fichier"
+            className="rounded px-1.5 py-0.5 text-[var(--c-text-muted)] hover:bg-[var(--c-bg3)]"
+          >
+            <IconDownload size={14} />
+          </button>
+          <button
+            onClick={() => setCreating((v) => !v)}
+            title="Nouvelle procédure"
+            className="rounded px-1.5 py-0.5 text-[var(--c-accent-text)] hover:bg-[var(--c-bg3)]"
+          >
+            <IconPlus size={14} />
+          </button>
+        </div>
       </div>
 
       {/* Les cibles ne sont pas dans ce panneau, et le dire vaut mieux que de

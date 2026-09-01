@@ -164,6 +164,7 @@ export interface SidebarActions {
    * colonne étroite). */
   createRunbook: (name: string) => void;
   deleteRunbook: (id: RunbookId) => void;
+  importRunbook: (path: string) => void;
   openRunbook: (id: RunbookId) => void;
   addForward: (input: { hostId: HostId; kind: PortForwardKind; bindAddress: string; bindPort: number; destAddress: string; destPort: number }) => void;
   updateForward: (input: { id: PortForwardId; hostId: HostId; kind: PortForwardKind; bindAddress: string; bindPort: number; destAddress: string; destPort: number }) => Promise<unknown>;

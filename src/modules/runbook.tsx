@@ -47,6 +47,7 @@ export const runbookModule = defineModule({
             onOpen={a.openRunbook}
             onCreate={a.createRunbook}
             onDelete={a.deleteRunbook}
+            onImport={a.importRunbook}
             selectedTargets={count}
             onShowTargets={() => ctx.showSidebarPanel("fleet")}
           />

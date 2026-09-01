@@ -211,6 +211,9 @@ fn main() {
             commands::runbook::cancel_runbook,
             commands::runbook::answer_runbook_approval,
             commands::runbook::get_runbook_history,
+            commands::runbook::export_runbook,
+            commands::runbook::import_runbook,
+            commands::runbook::export_runbook_report,
 
             // ── module « netdiag » ───────────────────────────────────────
             commands::netdiag::run_netdiag,

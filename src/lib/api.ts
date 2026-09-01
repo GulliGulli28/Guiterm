@@ -548,6 +548,19 @@ export const api = {
   cancelRunbook: (runId: string) => invoke<void>("cancel_runbook", { runId }),
   /** Les exécutions passées, la plus récente en tête. */
   getRunbookHistory: () => invoke<RunbookRun[]>("get_runbook_history"),
+  /** Écrit un runbook seul dans un fichier — la forme versionnable : une
+   * procédure décrit ce qu'il faut faire, pas sur quelles machines, donc elle
+   * vaut encore dans un autre dépôt. */
+  exportRunbook: (runbookId: RunbookId, path: string) => invoke<void>("export_runbook", { runbookId, path }),
+  /** Relit un fichier de runbook et l'ajoute — ou remplace celui de même id,
+   * pour qu'un réimport après un `git pull` mette à jour au lieu d'empiler une
+   * copie. Le fichier est validé par le même parseur que l'enregistrement :
+   * c'est le chemin d'entrée où un programme invalide est le plus probable. */
+  importRunbook: (path: string) => invoke<Workspace>("import_runbook", { path }),
+  /** Écrit le rapport d'une exécution en markdown. Les sorties des machines
+   * qui ont réussi n'y sont pas — seulement celles qui ont échoué. */
+  exportRunbookReport: (runId: string, path: string) =>
+    invoke<void>("export_runbook_report", { runId, path }),
   /** Répond à une demande d'approbation. `stepIndex` apparie la réponse à
    * l'étape : une réponse tardive à la précédente ne doit pas approuver
    * celle-ci. Une réponse sans attente correspondante est ignorée côté Rust,

@@ -26,7 +26,7 @@
 // Usage: node scripts/e2e-run.mjs
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile, rm } from "node:fs/promises";
 import net from "node:net";
 import os from "node:os";
 import path from "node:path";
@@ -266,6 +266,7 @@ async function runScenarios(browser) {
   await runFleetTabScenario(browser);
   await runRunbookScenario(browser);
   await runRunbookApprovalScenario(browser);
+  await runRunbookFileScenario(browser);
   await runSidebarPanelsScenario(browser);
   await runSidebarButtonsScenario(browser);
   await runTunnelEditScenario(browser);
@@ -2398,6 +2399,135 @@ async function runRunbookApprovalScenario(browser) {
         try { await window.__TAURI_INTERNALS__.invoke("delete_runbook", { runbookId: id }); } catch { /* rien à nettoyer */ }
       }, runbookId).catch(() => {});
     }
+  }
+}
+
+/**
+ * Un runbook est un fichier : exporté, supprimé de l'app, réimporté à
+ * l'identique — et un rapport écrit en markdown.
+ *
+ * L'aller-retour complet est le seul contrôle qui vaille ici. Un export seul
+ * prouverait qu'on sait écrire du JSON ; c'est la relecture qui dit si le
+ * format tient, si la validation laisse passer ce qu'elle a elle-même écrit, et
+ * si un réimport met à jour au lieu d'empiler une copie — les trois choses qui
+ * feraient d'un runbook versionné une fausse promesse.
+ *
+ * Les **sélecteurs de fichiers natifs ne sont pas pilotés** : ce sont des
+ * fenêtres de l'OS, pas du DOM. Les chemins sont donc passés directement aux
+ * commandes, ce qui laisse hors couverture les deux `save()`/`open()` du
+ * frontend — dit ici plutôt que sous-entendu.
+ */
+async function runRunbookFileScenario(browser) {
+  const NAME = "E2E fichier (supprimable)";
+  const filePath = path.join(outDir, "e2e-runbook.runbook.json");
+  const reportPath = path.join(outDir, "e2e-runbook-rapport.md");
+  let runbookId = null;
+  try {
+    await mkdir(outDir, { recursive: true });
+
+    runbookId = await browser.execute(async (name) => {
+      const runbook = {
+        id: crypto.randomUUID(),
+        name,
+        description: "Vérifie l aller-retour fichier",
+        steps: [{
+          id: crypto.randomUUID(),
+          title: "Dire bonjour",
+          notes: "une note qui doit survivre au fichier",
+          action: { kind: "command", command: "echo depuis-le-fichier" },
+          scope: { tags: ["web"], groups: ["Paris"] },
+          onFailure: "dropFailed",
+          approval: "never",
+        }],
+      };
+      await window.__TAURI_INTERNALS__.invoke("save_runbook", { runbook });
+      return runbook.id;
+    }, NAME);
+
+    await browser.execute(async (id, target) => {
+      await window.__TAURI_INTERNALS__.invoke("export_runbook", { runbookId: id, path: target });
+    }, runbookId, filePath);
+
+    // Le fichier doit être relisible **hors de l'app** : c'est tout l'intérêt.
+    const onDisk = JSON.parse(await readFile(filePath, "utf8"));
+    if (onDisk.exportVersion !== 1 || onDisk.runbook?.name !== NAME) {
+      throw new Error(`enveloppe de fichier inattendue : ${JSON.stringify(onDisk).slice(0, 200)}`);
+    }
+    if (onDisk.runbook.steps[0].scope.groups[0] !== "Paris" || onDisk.runbook.steps[0].approval !== "never") {
+      throw new Error("la portée et le réglage d approbation n ont pas survécu à l export");
+    }
+    // La garantie qui rend un runbook partageable : aucun identifiant de
+    // machine dedans. Une portée par `hostId` ne voudrait rien dire ailleurs.
+    if (/"hostId"/.test(JSON.stringify(onDisk))) {
+      throw new Error("un runbook exporté ne doit porter aucun identifiant d hôte");
+    }
+
+    // Supprimé de l'app, puis relu : c'est la moitié qui compte.
+    await browser.execute(async (id) => {
+      await window.__TAURI_INTERNALS__.invoke("delete_runbook", { runbookId: id });
+    }, runbookId);
+
+    const reimported = await browser.execute(async (source, id) => {
+      const ws = await window.__TAURI_INTERNALS__.invoke("import_runbook", { path: source });
+      const found = ws.runbooks.filter((r) => r.id === id);
+      return { count: found.length, book: found[0] ?? null, total: ws.runbooks.length };
+    }, filePath, runbookId);
+
+    if (reimported.count !== 1) throw new Error("le runbook réimporté est introuvable");
+    if (reimported.book.steps[0].notes !== "une note qui doit survivre au fichier") {
+      throw new Error("les notes de l étape n ont pas survécu à l aller-retour");
+    }
+    if (reimported.book.steps[0].onFailure !== "dropFailed") {
+      throw new Error("la politique d échec n a pas survécu à l aller-retour");
+    }
+
+    // Réimporter le même fichier met à jour au lieu d'empiler une copie —
+    // c'est ce qui rend un `git pull` suivi d'un import inoffensif.
+    const twice = await browser.execute(async (source, id) => {
+      const ws = await window.__TAURI_INTERNALS__.invoke("import_runbook", { path: source });
+      return ws.runbooks.filter((r) => r.id === id).length;
+    }, filePath, runbookId);
+    if (twice !== 1) throw new Error(`un réimport a dupliqué la procédure (${twice} exemplaires)`);
+
+    // Un fichier qui n'en est pas un doit être refusé en le disant, pas
+    // accepté à moitié.
+    const refused = await browser.execute(async (source) => {
+      try {
+        await window.__TAURI_INTERNALS__.invoke("import_runbook", { path: source });
+        return "accepté à tort";
+      } catch (e) {
+        return String(e);
+      }
+    }, reportPath.replace(/\.md$/, "-inexistant.md"));
+    if (refused === "accepté à tort") throw new Error("un fichier absent doit être refusé");
+
+    // ── Le rapport ────────────────────────────────────────────────────────
+    const runId = await browser.execute(async (id) => {
+      const runs = await window.__TAURI_INTERNALS__.invoke("get_runbook_history");
+      return runs.find((r) => r.runbookId !== id)?.id ?? runs[0]?.id ?? null;
+    }, runbookId);
+    if (!runId) throw new Error("aucune exécution dans l historique pour écrire un rapport");
+
+    await browser.execute(async (id, target) => {
+      await window.__TAURI_INTERNALS__.invoke("export_runbook_report", { runId: id, path: target });
+    }, runId, reportPath);
+
+    const report = await readFile(reportPath, "utf8");
+    if (!report.startsWith("# ")) throw new Error(`le rapport n est pas du markdown : ${report.slice(0, 120)}`);
+    if (!report.includes("(UTC)")) throw new Error("le rapport doit dater son exécution sans ambiguïté");
+    if (!/\| Machine \| Résultat \| Durée \|/.test(report)) {
+      throw new Error(`le rapport n a pas son tableau de résultats : ${report.slice(0, 300)}`);
+    }
+
+    console.log("Runbooks : OK (exporté sans aucun identifiant d hôte, supprimé, réimporté à l identique, réimport non dupliquant, rapport markdown écrit).");
+  } finally {
+    if (runbookId) {
+      await browser.execute(async (id) => {
+        try { await window.__TAURI_INTERNALS__.invoke("delete_runbook", { runbookId: id }); } catch { /* rien à nettoyer */ }
+      }, runbookId).catch(() => {});
+    }
+    await rm(filePath, { force: true }).catch(() => {});
+    await rm(reportPath, { force: true }).catch(() => {});
   }
 }
 

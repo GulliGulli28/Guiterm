@@ -29,6 +29,26 @@ pub struct HostExport {
     pub jump_via_hosts: Vec<Host>,
 }
 
+/// Un runbook seul, dans son fichier.
+///
+/// **C'est la forme qui donne son sens au chantier** : une procédure décrit ce
+/// qu'il faut faire, pas sur quelles machines, donc elle vaut encore dans le
+/// dépôt d'à côté et se relit dans une revue de code. C'est aussi pourquoi la
+/// portée d'une étape se dit par tag et par dossier et jamais par identifiant
+/// d'hôte (voir `crate::model::RunbookStepScope`) : un fichier qui porterait
+/// des UUID locaux ne ciblerait plus rien chez quelqu'un d'autre.
+///
+/// Rien d'autre n'accompagne le runbook, contrairement à [`HostExport`] qui
+/// emporte groupes, snippets et clé : une procédure ne référence aucune autre
+/// entité du workspace. C'est une propriété du modèle, pas un raccourci — si
+/// une étape venait un jour à référencer un snippet, ce champ manquerait ici.
+#[derive(Debug, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RunbookExport {
+    pub export_version: u32,
+    pub runbook: crate::model::Runbook,
+}
+
 // ─── Build exports ──────────────────────────────────────────────────────────
 
 /// Builds the exportable workspace. `include_key_material` controls whether the PEM

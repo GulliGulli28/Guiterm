@@ -37,11 +37,11 @@ CHANGELOG.
   « aucun », l'item n'est pas fini. Et le garde-fou ajouté doit être cassé une
   fois pour vérifier qu'il échoue vraiment.
 
-## En cours — Runbooks exécutables (tranche 1 livrée le 2026-08-31)
+## Livré — Runbooks exécutables (trois tranches, 2026-08-31)
 
 Choisi le 2026-08-31 parmi les trois chantiers majeurs restants de
 `roadmap-chantiers-majeurs` (les deux autres — surveillance continue, sync
-chiffrée — restent ouverts). Des procédures ordonnées au-dessus du moteur de
+chiffrée — restent ouverts). Les trois tranches sont livrées. Des procédures ordonnées au-dessus du moteur de
 flotte : étapes, notes, sortie capturée par étape, politique d'échec, rapport.
 
 **Deux décisions prises avec l'utilisateur avant d'écrire :** les cibles sont
@@ -147,10 +147,39 @@ assertions centrales cassées exprès pour vérifier qu'elles échouent.
 **Non prouvé** : le chemin du délai dépassé (10 minutes en fenêtre réelle), et
 aucune approbation contre une vraie flotte distante.
 
-### Tranche 3 — un runbook = un fichier
+### Tranche 3 — **livrée le 2026-08-31**
 
-Export/import `.runbook.json` (`export_text` + tauri-plugin-dialog existent
-déjà), et le rapport final exportable.
+`ex::RunbookExport` (enveloppe `exportVersion` + `runbook`, à côté de
+`WorkspaceExport`/`HostExport`), `export_runbook` / `import_runbook` /
+`export_runbook_report`, et `runbook_history::report_markdown`.
+
+**Trois décisions à ne pas rouvrir sans raison neuve :**
+
+- **Un réimport remplace par id** plutôt que d'empiler, comme
+  `export::import_host` : c'est ce qui rend « `git pull` puis importer »
+  inoffensif. Les id étant des UUID, deux procédures différentes ne peuvent pas
+  se télescoper. Cassé exprès (un `push` au lieu du remplacement) : l'E2E
+  l'attrape.
+- **Le rapport ne recopie pas la sortie des machines qui ont réussi**, et le
+  dit. Un document qui déverse le stdout de cinquante machines n'est pas lu, et
+  ne pas être lu est le pire résultat possible pour un rapport d'incident.
+- **Les dates du rapport sont en UTC, suffixe `Z` visible.** `time` refuse de
+  lire le décalage local dans un processus multithread (c'est unsound), donc
+  l'alternative aurait été de faire formater la date par le frontend — de la
+  présentation traversant la frontière pour un gain d'ambiguïté nul.
+
+**Ce que l'export ne contient pas, et c'est la propriété centrale** : aucun
+identifiant d'hôte. C'est ce que la décision « portée par tag et par dossier »
+de la tranche 1 achète, et l'E2E l'assère directement (`/"hostId"/` sur le
+fichier écrit).
+
+**Prouvé** : 50 tests unitaires sur le moteur et le rapport, et un scénario E2E
+qui exporte, relit le fichier **hors de l'app**, supprime la procédure,
+réimporte, revérifie notes/portée/politique, réimporte une seconde fois sans
+dupliquer, et écrit un rapport markdown.
+**Non prouvé** : les deux sélecteurs de fichiers natifs (`save()`/`open()` du
+frontend) — ce sont des fenêtres de l'OS, pas du DOM, donc WebDriver ne les
+pilote pas ; les scénarios passent les chemins directement aux commandes.
 
 ---
 

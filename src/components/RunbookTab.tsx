@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { save } from "@tauri-apps/plugin-dialog";
 import type {
   Approval, FleetOutcome, FleetTarget, Host, HostId, OnFailure, Runbook, RunbookAction,
   RunbookApprovalRequest, RunbookId, RunbookRun, RunbookRunStatus, RunbookStep, SkippedTarget, Workspace,
@@ -69,6 +70,14 @@ function newStep(): RunbookStep {
     // supprime quelque chose demande, sans qu'on ait à y penser.
     approval: "beforeIrreversible",
   };
+}
+
+/** Un nom de procédure ramené à un nom de fichier proposable. Les accents et
+ * les espaces d'un titre français ne sont pas illégaux partout, mais un fichier
+ * destiné à un dépôt Git traverse des systèmes qui ne s'accordent pas dessus. */
+function fileNameFor(name: string): string {
+  const cleaned = name.normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^\w.-]+/g, "-");
+  return `${cleaned.replace(/^-+|-+$/g, "") || "runbook"}.runbook.json`;
 }
 
 /** Un champ « a, b, c » ↔ une liste. Les espaces autour comptent pour rien, et
@@ -233,7 +242,7 @@ export function RunbookTab({ runbookId, workspace, onError, onWorkspaceUpdate, o
       return { ...book, steps };
     });
 
-  const save = useCallback(async (book: Runbook) => {
+  const persist = useCallback(async (book: Runbook) => {
     setSaving(true);
     try {
       onWorkspaceUpdate(await api.saveRunbook(book));
@@ -255,7 +264,7 @@ export function RunbookTab({ runbookId, workspace, onError, onWorkspaceUpdate, o
     // Le backend déroule le runbook **enregistré**. Lancer sans enregistrer
     // ferait tourner la version d'avant en montrant celle d'après — le genre
     // d'écart qu'on ne remarque qu'après coup.
-    if (dirty && !(await save(draft))) return;
+    if (dirty && !(await persist(draft))) return;
 
     const id = crypto.randomUUID();
     runIdRef.current = id;
@@ -269,6 +278,37 @@ export function RunbookTab({ runbookId, workspace, onError, onWorkspaceUpdate, o
       onError(String(e));
       runIdRef.current = null;
       setRunId(null);
+    }
+  };
+
+  /** Écrire la procédure dans un fichier. Enregistre d'abord si nécessaire :
+   * exporter le brouillon d'avant tout en montrant celui d'après serait le
+   * même écart que lancer sans enregistrer. */
+  const exportBook = async () => {
+    if (!draft) return;
+    if (dirty && !(await persist(draft))) return;
+    const path = await save({
+      defaultPath: fileNameFor(draft.name),
+      filters: [{ name: "Runbook", extensions: ["json"] }],
+    }).catch(() => null);
+    if (!path) return;
+    try {
+      await api.exportRunbook(draft.id, path);
+    } catch (e) {
+      onError(String(e));
+    }
+  };
+
+  const exportReport = async (run: RunbookRun) => {
+    const path = await save({
+      defaultPath: `${fileNameFor(run.name).replace(/\.runbook\.json$/, "")}-rapport.md`,
+      filters: [{ name: "Markdown", extensions: ["md"] }],
+    }).catch(() => null);
+    if (!path) return;
+    try {
+      await api.exportRunbookReport(run.id, path);
+    } catch (e) {
+      onError(String(e));
     }
   };
 
@@ -343,13 +383,20 @@ export function RunbookTab({ runbookId, workspace, onError, onWorkspaceUpdate, o
         </button>
         {dirty && (
           <button
-            onClick={() => save(draft)}
+            onClick={() => persist(draft)}
             disabled={saving}
             className="rounded border border-[var(--c-accent)] px-2 py-1 text-xs text-[var(--c-accent-text)] disabled:opacity-50"
           >
             {saving ? "Enregistrement…" : "Enregistrer"}
           </button>
         )}
+        <button
+          onClick={exportBook}
+          title="Écrire cette procédure dans un fichier versionnable"
+          className="rounded border border-[var(--c-border)] px-2 py-1 text-xs text-[var(--c-text-muted)] hover:border-[var(--c-accent)]"
+        >
+          Exporter
+        </button>
         {running ? (
           <button
             onClick={cancel}
@@ -457,6 +504,20 @@ export function RunbookTab({ runbookId, workspace, onError, onWorkspaceUpdate, o
                     }}
                   >
                     {STATUS_LABELS[run.status]}
+                  </span>
+                  {/* `span` et pas `button` : cette ligne *est* déjà un bouton,
+                      et un bouton imbriqué est un DOM invalide que React rend
+                      quand même — puis le clic déplie l'exécution en plus
+                      d'exporter. */}
+                  <span
+                    role="button"
+                    tabIndex={0}
+                    onClick={(e) => { e.stopPropagation(); exportReport(run); }}
+                    onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); exportReport(run); } }}
+                    title="Écrire le rapport de cette exécution en markdown"
+                    className="cursor-pointer rounded border border-[var(--c-border)] px-1.5 py-0.5 text-[10px] text-[var(--c-text-muted)] hover:border-[var(--c-accent)]"
+                  >
+                    Rapport
                   </span>
                 </button>
                 {openReport === run.id && (
