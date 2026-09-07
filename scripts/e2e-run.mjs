@@ -281,6 +281,7 @@ async function runScenarios(browser) {
   const screenshotPath = path.join(outDir, "e2e-smoke.png");
   await browser.saveScreenshot(screenshotPath);
   console.log("Capture d'écran réelle (via WebDriver) :", screenshotPath);
+
 }
 
 /** Rendered font size of every open terminal, in DOM order (so index 0 is the
@@ -434,7 +435,18 @@ async function runFullscreenScenario(browser) {
   if (await maximizeButton()) {
     await browser.waitUntil(async () => (await viewport()).inner > 800, {
       timeout: 5_000,
-      timeoutMsg: "la fenêtre ne s'est pas maximisée",
+      // Les chiffres, comme les assertions voisines de ce scénario. Sans eux,
+      // cet échec ne dit pas s'il s'agit d'un écran minuscule, d'un
+      // agrandissement ignoré, ou d'une fenêtre restée à sa taille par défaut
+      // (1280×800, d'où le seuil) — trois pannes différentes, et l'une d'elles
+      // n'est même pas une panne de l'application. Constaté en CI, où le
+      // message nu n'a permis de conclure sur rien.
+      timeoutMsg: async () => {
+        const { inner, screen } = await viewport();
+        return `la fenêtre ne s'est pas maximisée : ${inner}px de hauteur utile sur un écran de ${screen}px `
+          + `(elle en fait 800 par défaut). Agrandir est une opération de gestionnaire de fenêtres — `
+          + `s'il n'y en a pas sur cette machine, la demande est simplement ignorée.`;
+      },
     });
   } else if ((await viewport()).inner <= 800) {
     throw new Error("la fenêtre n est ni agrandie ni agrandissable — bouton « Agrandir » absent");
@@ -549,6 +561,26 @@ async function main() {
       }
       throw err;
     } finally {
+      // Rangé **quel que soit le sort du run**, et c'est tout l'intérêt : les
+      // scénarios ouvrent une trentaine d'onglets, l'app les persiste, et la
+      // fois suivante elle les restaure. Le compte grimpe d'une exécution à
+      // l'autre jusqu'à ce que la barre d'onglets devienne un état que plus
+      // aucun scénario n'attend — quelques onglets restaurés suffisent à faire
+      // échouer celui des raccourcis, qui n'a alors plus aucun terminal monté
+      // sous la main.
+      //
+      // Dans le `finally` et pas en fin de parcours nominal : c'est justement
+      // un run en échec qui laisse le plus de désordre derrière lui, et le
+      // nettoyage placé après les scénarios ne s'exécutait jamais dans ce
+      // cas-là. La suite s'empoisonnait donc d'autant plus vite qu'elle allait
+      // mal — chaque échec rendait le suivant plus probable.
+      //
+      // Invisible en CI, où chaque runner est neuf : typiquement la panne qui
+      // n'apparaît que sur la machine de quelqu'un, après coup, sans rapport
+      // apparent avec ce qu'il venait de changer.
+      await browser.execute((key) => {
+        try { localStorage.removeItem(key); } catch { /* stockage inaccessible : rien à ranger */ }
+      }, "gui-termius-tabs").catch(() => {});
       await browser.deleteSession().catch(() => {});
     }
   } catch (err) {
@@ -1042,7 +1074,9 @@ async function runBulkEditScenario(browser) {
  * has zero size, and WebDriver rejects it as not interactable. Focusing
  * xterm's hidden textarea directly is also closer to what a keystroke needs. */
 async function focusVisibleTerminal(browser) {
-  const focused = await browser.execute(() => {
+  // Attendu, et non lu une seule fois : un onglet fraîchement ouvert apparaît
+  // dans le DOM *avant* que xterm y soit monté et dimensionné.
+  const cherche = () => browser.execute(() => {
     const term = Array.from(document.querySelectorAll(".xterm"))
       .find((el) => el.getBoundingClientRect().width > 0);
     const textarea = term?.querySelector("textarea");
@@ -1050,7 +1084,34 @@ async function focusVisibleTerminal(browser) {
     textarea.focus();
     return document.activeElement === textarea;
   });
-  if (!focused) throw new Error("aucun terminal visible à focaliser");
+
+  // Le diagnostic est construit dans un `catch` plutôt que dans `timeoutMsg` :
+  // une fonction asynchrone y est ignorée par cette version de WebdriverIO, qui
+  // affiche son propre « condition timed out » à la place. Le motif existait
+  // déjà ailleurs dans ce fichier sans que personne s'en aperçoive — il n'avait
+  // jamais échoué.
+  //
+  // Le détail compte, parce que « aucun terminal visible » recouvre quatre
+  // pannes distinctes : un onglet actif qui n'est pas un terminal, un terminal
+  // pas encore monté, un terminal de largeur nulle dans un onglet masqué, et
+  // une boîte de dialogue restée ouverte qui reprend le focus.
+  try {
+    await browser.waitUntil(cherche, { timeout: 10_000 });
+  } catch {
+    const etat = await browser.execute(() => ({
+      largeurs: Array.from(document.querySelectorAll(".xterm"), (el) => Math.round(el.getBoundingClientRect().width)),
+      onglets: Array.from(document.querySelectorAll("[data-tab-id]"), (el) => (el.textContent || "").trim().slice(0, 24)),
+      dialogue: document.querySelector("[role='dialog']")?.getAttribute("aria-label") ?? null,
+      focus: document.activeElement?.tagName ?? "(aucun)",
+    }));
+    throw new Error(
+      "aucun terminal visible à focaliser — "
+      + `${etat.onglets.length} onglet(s) : [${etat.onglets.join(" | ")}] ; `
+      + `largeurs des .xterm : [${etat.largeurs.join(", ")}] ; `
+      + `focus sur ${etat.focus}`
+      + (etat.dialogue ? ` ; boîte de dialogue ouverte : « ${etat.dialogue} »` : " ; aucune boîte de dialogue"),
+    );
+  }
 }
 
 /** Index of the active tab in the tab bar, or -1. */
@@ -1076,6 +1137,18 @@ function activeTabIndex(browser) {
 async function runTabShortcutScenario(browser) {
   // A second local terminal, so there is somewhere to jump to. One is already
   // open from the channel scenario above.
+  //
+  // Le seuil est **absolu et bas** (« au moins deux »), et ça a l'air d'un
+  // oubli : on attendrait que le compte augmente de un. C'est pourtant ce qui
+  // fait tenir le scénario, et le changer l'a cassé.
+  //
+  // Attendre l'incrément force la suite à reprendre une fois le *nouvel*
+  // onglet actif — donc sur un terminal qui n'est pas encore monté, que
+  // `focusVisibleTerminal` ne trouve jamais. Avec le seuil bas, la condition
+  // est déjà vraie, et le focus se pose sur le terminal précédent, déjà à
+  // l'écran. Or ce que ce scénario vérifie est que Ctrl+1 et Ctrl+9 traversent
+  // xterm : n'importe quel terminal monté fait l'affaire, et c'est justement
+  // celui-là qu'il faut.
   await browser.keys(["Control", "t"]);
   await browser.waitUntil(
     async () => (await browser.execute(() => document.querySelectorAll("[data-tab-id]").length)) >= 2,

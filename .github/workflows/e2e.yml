@@ -45,7 +45,15 @@ permissions:
 
 jobs:
   e2e-linux:
-    runs-on: ubuntu-latest
+    # Épinglé, comme `release.yml` épingle `ubuntu-22.04` : cette suite pilote
+    # une vraie fenêtre GTK et dépend donc de la version de WebKitGTK sous
+    # elle. Les 35 scénarios ont été validés sous Ubuntu 24.04 + Xvfb sans
+    # gestionnaire de fenêtres ; le premier passage en CI, sur `ubuntu-latest`,
+    # a échoué au plein écran, où GTK ne remplace apparemment plus le
+    # gestionnaire absent comme il le fait en 24.04. Une suite de bout en bout
+    # a besoin d'un environnement reproductible plus que d'un environnement
+    # récent.
+    runs-on: ubuntu-24.04
     # Large exprès : une première exécution avec un cache Rust froid compile
     # tout l'espace de travail plus le sidecar. Les suivantes tiennent
     # largement en deçà.
@@ -77,6 +85,15 @@ jobs:
       #     `scripts/e2e-run.mjs`) ;
       #   - `xvfb` donne un serveur X à une fenêtre GTK qui, sinon, n'a aucun
       #     écran où s'ouvrir sur un runner sans session graphique.
+      #
+      # **Pas de gestionnaire de fenêtres, et c'est délibéré.** Agrandir est
+      # une opération de gestionnaire de fenêtres, donc en ajouter un (openbox)
+      # a bien réparé le scénario de plein écran — mais il en a cassé d'autres
+      # aussitôt : la gestion du focus change, et une modale que le scénario
+      # d'édition en lot referme sans encombre sous Xvfb nu reste ouverte et
+      # masque l'écran pour tout ce qui suit. La suite a été écrite et réglée
+      # contre un environnement sans gestionnaire de fenêtres ; l'y ramener est
+      # plus honnête que de la réécrire pour un environnement de CI.
       - name: Install build, WebDriver and display dependencies
         run: |
           sudo apt-get update
@@ -130,6 +147,16 @@ jobs:
       # l'autre. Cette invocation exacte a été validée en local sous Xvfb —
       # les 35 scénarios passent sans gestionnaire de fenêtres, plein écran
       # compris, ce qui était le doute principal avant d'écrire ce job.
+      # Quelques lignes de contexte, imprimées avant les scénarios : le premier
+      # échec en CI n'a pas pu être diagnostiqué faute de savoir quelle version
+      # d'Ubuntu et de WebKitGTK tournait sous la fenêtre. Ça ne coûte rien et
+      # ça rend le prochain échec concluant.
+      - name: Report the environment under test
+        run: |
+          lsb_release -ds
+          dpkg-query -W -f='${Package} ${Version}\n' libwebkit2gtk-4.1-0 || true
+          echo "gestionnaire de fenêtres : aucun (délibéré, voir plus haut)"
+
       - name: Run the end-to-end scenarios
         run: xvfb-run -a -s "-screen 0 1920x1080x24" node scripts/e2e-run.mjs
 
