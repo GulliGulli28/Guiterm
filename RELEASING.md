@@ -43,14 +43,23 @@ touche cinq fichiers connus d'avance, et les nommer coûte une ligne. Le même
 `-A` avait aussi failli emporter une révision périmée de ce fichier-ci.
 
 4. Suivre l'avancement dans l'onglet **Actions** du dépôt (~10-15 min, les
-   quatre jobs tournant en parallèle). **Vérifier que les quatre jobs sont
-   verts avant de publier** : ils s'ajoutent à la même release brouillon au fur et à
-   mesure, donc un job annulé ou en échec ne se voit pas dans la release —
-   il se voit à un installeur manquant. C'est ce qui est arrivé à la 2.4.0 :
-   le job Intel visait `macos-13`, image de runner qui n'existe plus, n'a
-   donc jamais obtenu de machine et a fini annulé — la release est partie
-   avec le seul `.dmg` Apple Silicon, les trois autres jobs étant verts. Le
-   label est corrigé en `macos-15-intel` depuis.
+   quatre jobs tournant en parallèle). **Le run doit être vert dans son
+   ensemble, y compris son dernier job `verify-release`.**
+
+   Ce dernier existe parce que les quatre jobs de build s'ajoutent à la
+   **même** release brouillon au fur et à mesure : un job annulé ou en échec
+   ne se voit donc pas dans la release — il se voit à un installeur manquant.
+   C'est ce qui est arrivé à la 2.4.0 : le job Intel visait `macos-13`, image
+   de runner qui n'existe plus, n'a donc jamais obtenu de machine et a fini
+   annulé — la release est partie avec le seul `.dmg` Apple Silicon, les trois
+   autres jobs étant verts. Le label est corrigé en `macos-15-intel` depuis.
+
+   `verify-release` (ajouté le 2026-09-07) refait ce contrôle à ta place :
+   il refuse un résultat de matrice qui n'est pas `success`, puis télécharge
+   le `latest.json` du brouillon et vérifie qu'il couvre bien les quatre
+   plateformes (`windows-x86_64`, `linux-x86_64`, `darwin-x86_64`,
+   `darwin-aarch64`). Il tourne même quand la matrice a échoué — c'est le cas
+   qu'il doit attraper. **S'il est rouge, ne pas publier le brouillon.**
 5. Une fois le run vert, ouvrir **Releases**, ouvrir le brouillon `v1.4.1`,
    vérifier les notes puis cliquer **Publish release**.
 6. Les installations existantes verront la mise à jour au prochain

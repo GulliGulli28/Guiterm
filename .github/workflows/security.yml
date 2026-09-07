@@ -11,6 +11,12 @@ on:
     - cron: "0 6 * * 1"
   workflow_dispatch:
 
+# Same reasoning as ci.yml, and harmless on the weekly run: a scheduled scan
+# that overlaps a push-triggered one is answering the same question twice.
+concurrency:
+  group: security-${{ github.ref }}
+  cancel-in-progress: true
+
 # Read-only scanning jobs — no need for anything beyond checking out code.
 permissions:
   contents: read
@@ -19,9 +25,9 @@ jobs:
   cargo-audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: taiki-e/install-action@v2
+      - uses: taiki-e/install-action@84f5ac3124727fb3d284d4d22ee9ab3654fd09a6 # v2.87.7
         with:
           tool: cargo-audit
 
@@ -33,9 +39,9 @@ jobs:
   npm-audit:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
           cache: npm

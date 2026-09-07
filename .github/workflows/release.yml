@@ -13,6 +13,15 @@ on:
       - "v*"
   workflow_dispatch:
 
+# Grouped like the others, but **never cancelled**, and that difference is the
+# whole point: a build interrupted halfway is exactly how v2.4.0 shipped with a
+# missing installer. Grouping still prevents two runs on the same tag (a
+# `workflow_dispatch` fired while the tag push is still building, say); the
+# second one waits its turn instead of killing the first.
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   release:
     strategy:
@@ -44,9 +53,9 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
         with:
           node-version: 20
 
@@ -58,7 +67,7 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable, pinned 2026-07-16 (dtolnay/rust-toolchain has no version tags — branches are the channel selector)
 
-      - uses: Swatinem/rust-cache@v2
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
 
       - name: Install frontend dependencies
         run: npm ci
@@ -68,7 +77,7 @@ jobs:
       # (checked the current runner image's software manifest: no NASM listed
       # as of the Windows Server 2025/VS2026 image windows-latest now points
       # to), so install it explicitly rather than assume. No-op on Linux.
-      - uses: ilammy/setup-nasm@v1
+      - uses: ilammy/setup-nasm@72793074d3c8cdda771dba85f6deafe00623038b # v1.5.2
 
       # rdp-sidecar is its own separate Cargo workspace (see rdp-sidecar/Cargo.toml
       # and CLAUDE.md's "RDP intégré : architecture sidecar" section) — the root
@@ -150,7 +159,7 @@ jobs:
       # Authenticode certificate), so SmartScreen warns on first run of every
       # new release.
       - name: Build and publish
-        uses: tauri-apps/tauri-action@v0
+        uses: tauri-apps/tauri-action@84b9d35b5fc46c1e45415bdb6144030364f7ebc5 # v0.6.2
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
@@ -160,3 +169,77 @@ jobs:
           releaseName: "Guiterm ${{ github.ref_name }}"
           releaseDraft: true
           prerelease: false
+
+  # ── Le contrôle que la 2.4.0 n'avait pas ────────────────────────────────
+  #
+  # Les quatre jobs ci-dessus alimentent la *même* release brouillon : celui
+  # qui finit en premier la crée, les autres y ajoutent leurs artefacts. La
+  # conséquence, découverte en production sur la 2.4.0, est qu'un job qui
+  # n'aboutit pas ne se voit **nulle part** dans la release — elle existe, elle
+  # a l'air normale, il lui manque simplement un installeur. Ce jour-là le job
+  # Intel visait `macos-13`, une image de runner supprimée depuis : il n'a
+  # jamais obtenu de machine, a été annulé au bout de 40 minutes, et la version
+  # est partie avec un seul `.dmg` sur les deux et sans entrée
+  # `darwin-x86_64` dans `latest.json`. Les trois autres jobs étaient verts.
+  #
+  # RELEASING.md demande donc de vérifier les quatre jobs à la main avant de
+  # publier le brouillon. Ce job remplace cette consigne par un échec bruyant.
+  verify-release:
+    needs: release
+    # `always()` est indispensable : sans lui, un job de matrice annulé fait
+    # *sauter* cette vérification — précisément le cas qu'elle existe pour
+    # attraper. La condition sur le tag écarte le seul cas où elle échouerait
+    # pour la mauvaise raison : un `workflow_dispatch` lancé depuis une branche
+    # produit une release nommée d'après la branche, qu'il n'y a pas lieu de
+    # contrôler comme une vraie version.
+    if: always() && startsWith(github.ref, 'refs/tags/')
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    permissions:
+      # Le job ne fait que lire — mais une release **brouillon** n'est visible
+      # que d'un jeton disposant d'un accès en écriture (GitHub ne montre les
+      # brouillons qu'aux comptes qui peuvent pousser). Avec `contents: read`,
+      # le téléchargement échouerait et le contrôle passerait au vert sans
+      # avoir rien contrôlé, ce qui serait pire que pas de contrôle du tout.
+      contents: write
+    steps:
+      - name: Les quatre plateformes ont-elles produit leur installeur ?
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+          MATRIX_RESULT: ${{ needs.release.result }}
+        run: |
+          set -euo pipefail
+
+          # 1. Aucun job de la matrice ne doit avoir échoué, été annulé ou
+          #    sauté. `fail-fast: false` laisse les autres aller au bout, donc
+          #    ce résultat agrégé est le seul endroit où l'absence se voit.
+          if [ "$MATRIX_RESULT" != "success" ]; then
+            echo "::error title=Release incomplète::La matrice de build a fini en « $MATRIX_RESULT ». Un installeur manque probablement dans le brouillon $TAG — NE PAS le publier avant d'avoir relancé le job en échec (Re-run failed jobs suffit si les bundles étaient déjà construits, voir RELEASING.md)."
+            exit 1
+          fi
+
+          # 2. Et le fichier que l'updater consulte doit couvrir les quatre
+          #    plateformes. C'est l'assertion la plus proche du symptôme réel :
+          #    en 2.4.0, c'est l'entrée `darwin-x86_64` qui manquait.
+          if ! gh release download "$TAG" --repo "$GITHUB_REPOSITORY" --pattern latest.json --dir . ; then
+            echo "::error title=latest.json absent::Le brouillon $TAG ne porte pas de latest.json — l'updater intégré n'a rien à consulter, aucune installation existante ne verrait cette version."
+            exit 1
+          fi
+
+          missing=""
+          for platform in windows-x86_64 linux-x86_64 darwin-x86_64 darwin-aarch64; do
+            if ! jq -e --arg p "$platform" '.platforms | has($p)' latest.json > /dev/null; then
+              missing="$missing $platform"
+            fi
+          done
+
+          if [ -n "$missing" ]; then
+            echo "::error title=Plateformes manquantes::latest.json ne couvre pas :$missing. Les installations sur ces plateformes ne verraient jamais la mise à jour. NE PAS publier le brouillon $TAG en l'état."
+            echo "Ce que le brouillon contient réellement :"
+            gh release view "$TAG" --repo "$GITHUB_REPOSITORY" --json assets --jq '.assets[].name' || true
+            exit 1
+          fi
+
+          echo "Les quatre plateformes sont présentes dans latest.json — le brouillon $TAG est publiable."
+          jq -r '.platforms | keys[]' latest.json
