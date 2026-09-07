@@ -112,6 +112,41 @@ nouvelles releases que les installations existantes accepteront : il
 faudrait redistribuer l'app avec une nouvelle clé publique. Gardez une
 copie de la clé privée en lieu sûr (gestionnaire de mots de passe, coffre).
 
+## Attestation de provenance (depuis le 2026-09-07)
+
+Chaque installeur publié porte une **attestation de provenance** signée,
+produite par `release.yml` via `actions/attest-build-provenance`. À ne pas
+confondre avec la clé ci-dessus, qui répond à « cette mise à jour vient-elle
+bien de la clé que l'app connaît » : la provenance répond à « ce fichier a-t-il
+été produit par ce dépôt, sur ce commit, par ce workflow ».
+
+Il n'y a **aucune clé à garder** : le runner obtient un jeton OIDC de GitHub le
+temps du job, ce qui prouve son origine à l'autorité de signature. D'où les
+permissions `id-token: write` et `attestations: write` sur le job de release.
+
+**Vérifier un installeur téléchargé** — n'importe qui peut le faire, sans rien
+installer d'autre que la CLI GitHub :
+
+```bash
+gh attestation verify Guiterm_3.3.0_amd64.deb --repo GulliGulli28/Guiterm
+```
+
+La commande dit quel workflow, sur quel commit, a produit ce fichier exact. Un
+binaire récupéré ailleurs qu'ici — un miroir, un lien reçu par message, un
+dépôt tiers — s'y rattache ou s'y révèle étranger. Pour un client SSH, à qui
+l'on confie des clés privées, c'est la question qu'un utilisateur prudent se
+pose avant de lancer l'exécutable, et c'est une réponse qu'on peut désormais
+lui donner.
+
+Les motifs de fichiers attestés suivent `bundle.targets: "all"` de
+`tauri.conf.json`. **Retirer un format de bundle là-bas fait échouer l'étape
+d'attestation**, faute de fichier correspondant — bruyamment, ce qui est le bon
+comportement : mieux vaut un job rouge qu'une release dont une partie des
+artefacts n'est plus attestée sans que personne le remarque.
+
+Les versions publiées **avant le 2026-09-07 n'ont pas d'attestation** — la
+vérification y échouera, et c'est normal.
+
 ## Signature par le système d'exploitation — câblée, pas encore active
 
 À ne pas confondre avec la clé ci-dessus : celle-ci ne concerne que
