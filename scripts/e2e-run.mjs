@@ -395,6 +395,27 @@ async function runZoomScenario(browser) {
   console.log("Zoom par terminal : OK (isolé entre onglets, préférence intacte).");
 }
 
+/** `waitUntil` dont le message d'échec est calculé **au moment** de l'échec.
+ *
+ * `timeoutMsg` accepte une fonction dans la documentation de WebdriverIO, mais
+ * cette version l'ignore quand elle est asynchrone : elle affiche son propre
+ * « condition timed out after Nms » à la place. Un diagnostic écrit sous cette
+ * forme ne s'affiche donc jamais — et on ne s'en aperçoit que le jour où
+ * l'assertion échoue pour de vrai, c'est-à-dire le jour où on en avait besoin.
+ *
+ * Constaté deux fois de suite en CI, la seconde sur un message écrit
+ * précisément pour diagnostiquer la première. D'où cet assistant plutôt qu'un
+ * `try`/`catch` recopié : la forme qui ne marche pas est celle qui vient
+ * naturellement sous les doigts.
+ */
+async function waitUntilOrExplain(browser, condition, timeout, explain) {
+  try {
+    await browser.waitUntil(condition, { timeout });
+  } catch {
+    throw new Error(await explain());
+  }
+}
+
 /**
  * F11 toggles real fullscreen, hides the app's own title bar, and the window
  * actually covers the screen.
@@ -433,20 +454,16 @@ async function runFullscreenScenario(browser) {
       return true;
     });
   if (await maximizeButton()) {
-    await browser.waitUntil(async () => (await viewport()).inner > 800, {
-      timeout: 5_000,
-      // Les chiffres, comme les assertions voisines de ce scénario. Sans eux,
-      // cet échec ne dit pas s'il s'agit d'un écran minuscule, d'un
-      // agrandissement ignoré, ou d'une fenêtre restée à sa taille par défaut
-      // (1280×800, d'où le seuil) — trois pannes différentes, et l'une d'elles
-      // n'est même pas une panne de l'application. Constaté en CI, où le
-      // message nu n'a permis de conclure sur rien.
-      timeoutMsg: async () => {
-        const { inner, screen } = await viewport();
-        return `la fenêtre ne s'est pas maximisée : ${inner}px de hauteur utile sur un écran de ${screen}px `
-          + `(elle en fait 800 par défaut). Agrandir est une opération de gestionnaire de fenêtres — `
-          + `s'il n'y en a pas sur cette machine, la demande est simplement ignorée.`;
-      },
+    // Les chiffres, comme les assertions voisines. Sans eux, cet échec ne dit
+    // pas s'il s'agit d'un écran minuscule, d'un agrandissement ignoré, ou
+    // d'une fenêtre restée à sa taille par défaut (1280×800, d'où le seuil) —
+    // trois pannes différentes, et l'une d'elles n'est même pas une panne de
+    // l'application.
+    await waitUntilOrExplain(browser, async () => (await viewport()).inner > 800, 5_000, async () => {
+      const { inner, screen } = await viewport();
+      return `la fenêtre ne s'est pas maximisée : ${inner}px de hauteur utile sur un écran de ${screen}px `
+        + `(elle en fait 800 par défaut). Agrandir est une opération de gestionnaire de fenêtres — `
+        + `s'il n'y en a pas sur cette machine, la demande est simplement ignorée.`;
     });
   } else if ((await viewport()).inner <= 800) {
     throw new Error("la fenêtre n est ni agrandie ni agrandissable — bouton « Agrandir » absent");
@@ -462,15 +479,12 @@ async function runFullscreenScenario(browser) {
   // The assertion the bug report came down to: "ça ne prend pas l'entièreté
   // de l'écran". A couple of pixels of tolerance for rounding at non-integer
   // display scaling; the bug itself was ~48px (the taskbar).
-  await browser.waitUntil(async () => {
+  await waitUntilOrExplain(browser, async () => {
     const { inner, screen } = await viewport();
     return Math.abs(inner - screen) <= 2;
-  }, {
-    timeout: 5_000,
-    timeoutMsg: async () => {
-      const { inner, screen } = await viewport();
-      return `la fenêtre plein écran ne couvre pas l'écran : ${inner}px de hauteur utile pour un écran de ${screen}px`;
-    },
+  }, 5_000, async () => {
+    const { inner, screen } = await viewport();
+    return `la fenêtre plein écran ne couvre pas l'écran : ${inner}px de hauteur utile pour un écran de ${screen}px`;
   });
 
   // Out again through the TabBar button rather than F11 — it's the control
@@ -486,11 +500,13 @@ async function runFullscreenScenario(browser) {
   // comes back as soon as the window leaves fullscreen, which is *before* the
   // window manager has finished putting the geometry back, so an immediate
   // read catches the window mid-restore.
-  await browser.waitUntil(async () => Math.abs((await viewport()).inner - maximizedHeight) <= 2, {
-    timeout: 5_000,
-    timeoutMsg: async () =>
+  await waitUntilOrExplain(
+    browser,
+    async () => Math.abs((await viewport()).inner - maximizedHeight) <= 2,
+    5_000,
+    async () =>
       `sortie du plein écran : fenêtre restée à ${(await viewport()).inner}px au lieu de retrouver son état maximisé (${maximizedHeight}px)`,
-  });
+  );
   console.log("Plein écran : OK (depuis une fenêtre maximisée, couvre l'écran, retour à l'état d'origine).");
 }
 
