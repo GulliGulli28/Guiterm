@@ -45,14 +45,16 @@ permissions:
 
 jobs:
   e2e-linux:
-    # Épinglé, comme `release.yml` épingle `ubuntu-22.04` : cette suite pilote
-    # une vraie fenêtre GTK et dépend donc de la version de WebKitGTK sous
-    # elle. Les 35 scénarios ont été validés sous Ubuntu 24.04 + Xvfb sans
-    # gestionnaire de fenêtres ; le premier passage en CI, sur `ubuntu-latest`,
-    # a échoué au plein écran, où GTK ne remplace apparemment plus le
-    # gestionnaire absent comme il le fait en 24.04. Une suite de bout en bout
-    # a besoin d'un environnement reproductible plus que d'un environnement
-    # récent.
+    # Épinglé comme `release.yml` épingle `ubuntu-22.04` : une suite qui pilote
+    # une vraie fenêtre GTK dépend de ce qu'il y a sous elle, donc mieux vaut
+    # que cet environnement ne change pas sans qu'on le décide.
+    #
+    # Ce n'est **pas** ce qui a réparé le premier échec en CI, contrairement à
+    # ce qui était écrit ici : l'étape de diagnostic a montré que le runner
+    # tournait déjà sous Ubuntu 24.04.4 avec exactement le même WebKitGTK
+    # (2.52.6) que la machine où les scénarios passaient. L'épinglage était un
+    # coup d'épée dans l'eau ; il est gardé pour la raison ci-dessus, pas pour
+    # celle-là.
     runs-on: ubuntu-24.04
     # Large exprès : une première exécution avec un cache Rust froid compile
     # tout l'espace de travail plus le sidecar. Les suivantes tiennent
@@ -84,22 +86,32 @@ jobs:
       #     natif que `tauri-driver` pilote à son tour (chemin en dur dans
       #     `scripts/e2e-run.mjs`) ;
       #   - `xvfb` donne un serveur X à une fenêtre GTK qui, sinon, n'a aucun
-      #     écran où s'ouvrir sur un runner sans session graphique.
+      #     écran où s'ouvrir sur un runner sans session graphique ;
+      #   - `openbox` est un gestionnaire de fenêtres minimal, et il n'est pas
+      #     décoratif : agrandir une fenêtre est une opération que l'application
+      #     *demande* au gestionnaire de fenêtres. Sans lui, la demande est
+      #     ignorée, la fenêtre reste à sa taille par défaut (1280×800) et le
+      #     scénario de plein écran échoue sur un comportement qui n'appartient
+      #     pas à l'application.
       #
-      # **Pas de gestionnaire de fenêtres, et c'est délibéré.** Agrandir est
-      # une opération de gestionnaire de fenêtres, donc en ajouter un (openbox)
-      # a bien réparé le scénario de plein écran — mais il en a cassé d'autres
-      # aussitôt : la gestion du focus change, et une modale que le scénario
-      # d'édition en lot referme sans encombre sous Xvfb nu reste ouverte et
-      # masque l'écran pour tout ce qui suit. La suite a été écrite et réglée
-      # contre un environnement sans gestionnaire de fenêtres ; l'y ramener est
-      # plus honnête que de la réécrire pour un environnement de CI.
+      # Reste une chose inexpliquée, et autant l'écrire : la même suite, sur la
+      # même version d'Ubuntu et de WebKitGTK, sous le même Xvfb et sans
+      # gestionnaire de fenêtres, agrandit correctement la fenêtre en local et
+      # pas sur un runner. La différence n'a pas été trouvée. Avec un
+      # gestionnaire de fenêtres la question ne se pose plus des deux côtés,
+      # ce qui vaut mieux que de dépendre d'un repli qu'on ne sait pas
+      # expliquer.
+      #
+      # Un premier essai d'openbox avait été abandonné parce qu'il « cassait
+      # d'autres scénarios » : c'était faux. La machine de test traînait alors
+      # une trentaine d'onglets accumulés par les exécutions précédentes, et
+      # c'est ça qui échouait. Profil propre, openbox passe les 37 scénarios.
       - name: Install build, WebDriver and display dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y \
             libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev \
-            webkit2gtk-driver xvfb
+            webkit2gtk-driver xvfb openbox
 
       # `cargo install` recompile tauri-driver à chaque exécution sinon — une
       # à deux minutes pour un binaire qui ne change jamais entre deux runs.
@@ -155,10 +167,22 @@ jobs:
         run: |
           lsb_release -ds
           dpkg-query -W -f='${Package} ${Version}\n' libwebkit2gtk-4.1-0 || true
-          echo "gestionnaire de fenêtres : aucun (délibéré, voir plus haut)"
+          echo "gestionnaire de fenêtres : openbox (voir plus haut)"
 
+      #
+      # Le gestionnaire de fenêtres démarre *dans* la session Xvfb, avant les
+      # scénarios : il hérite du `DISPLAY` posé par `xvfb-run` et meurt avec
+      # elle. L'ordre compte — une fenêtre ouverte avant que le gestionnaire
+      # soit là ne serait pas gérée par lui.
+      #
+      # Le code de sortie reste celui de node, dernière commande du script.
       - name: Run the end-to-end scenarios
-        run: xvfb-run -a -s "-screen 0 1920x1080x24" node scripts/e2e-run.mjs
+        run: |
+          xvfb-run -a -s "-screen 0 1920x1080x24" bash -c '
+            openbox &
+            sleep 2
+            node scripts/e2e-run.mjs
+          '
 
       # Sans ça, un échec en CI ne se diagnostique qu'en essayant de le
       # reproduire sur sa propre machine — où il ne se reproduit pas toujours.
