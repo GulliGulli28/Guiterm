@@ -26,7 +26,23 @@ on:
     # qui ne touche aucun de ces chemins. Rendu obligatoire tel quel, il
     # bloquerait indéfiniment toute PR purement frontend, en attente d'un
     # rapport qui n'arrivera jamais. Le laisser non obligatoire, ou passer par
-    # un job de repli, avant d'y toucher.
+    # un job de repli, avant d'y toucher. Le déclencheur `push` plus bas n'a
+    # pas ce problème : rien n'attend son rapport.
+    paths:
+      - "src-tauri/**"
+      - "rdp-sidecar/**"
+      - "rdp-ipc/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "package.json"
+      - ".github/workflows/package.yml"
+  # Le travail arrive sur `master` par push direct bien plus souvent que par
+  # pull request dans ce dépôt : s'en tenir aux PR aurait donné un contrôle qui
+  # ne se déclenche presque jamais. Mêmes chemins — la liste est répétée parce
+  # que `paths` se déclare par évènement et que le parseur de GitHub ne suit pas
+  # les ancres YAML.
+  push:
+    branches: [master]
     paths:
       - "src-tauri/**"
       - "rdp-sidecar/**"
