@@ -1,0 +1,155 @@
+name: Package
+
+# « Est-ce que ça s'empaquette encore ? », posé sur la pull request plutôt
+# qu'au moment du tag.
+#
+# `release.yml` ne tourne que sur un tag `v*`. Tant que c'était le seul endroit
+# où l'empaqueteur s'exécutait, une configuration cassée — un chemin
+# `bundle.externalBin`, une icône déplacée, une clé de `tauri.conf.json`
+# invalide, une ressource renommée — ne se découvrait qu'au moment le plus
+# coûteux : la version est taguée, le CHANGELOG est écrit, et il faut
+# redéplacer le tag pour repartir. Rien dans `ci.yml` ne fait tourner
+# l'empaqueteur : ses jobs compilent (`cargo build`), ils n'empaquettent pas.
+#
+# Ce job comble ce trou-là, et rien d'autre. Il ne remplace pas `release.yml`
+# et ne cherche pas à le reproduire.
+
+on:
+  pull_request:
+    # Filtré : une pull request qui ne touche que le frontend ou la
+    # documentation ne peut pas casser l'empaquetage, et lui faire compiler
+    # tout l'espace de travail pour rien serait le meilleur moyen de faire
+    # désactiver ce contrôle.
+    #
+    # **Conséquence à connaître avant de l'ajouter aux « required checks » :**
+    # un job filtré par `paths` ne *rapporte rien du tout* sur une pull request
+    # qui ne touche aucun de ces chemins. Rendu obligatoire tel quel, il
+    # bloquerait indéfiniment toute PR purement frontend, en attente d'un
+    # rapport qui n'arrivera jamais. Le laisser non obligatoire, ou passer par
+    # un job de repli, avant d'y toucher.
+    paths:
+      - "src-tauri/**"
+      - "rdp-sidecar/**"
+      - "rdp-ipc/**"
+      - "Cargo.toml"
+      - "Cargo.lock"
+      - "package.json"
+      - ".github/workflows/package.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: package-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  package-linux:
+    # `ubuntu-22.04` et pas `ubuntu-latest`, pour la même raison que
+    # `release.yml` : c'est l'image sur laquelle les paquets Linux sont
+    # réellement construits, donc la seule qui prouve quelque chose sur eux.
+    runs-on: ubuntu-22.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable, pinned 2026-07-16 (dtolnay/rust-toolchain has no version tags — branches are the channel selector)
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # Deux espaces de travail Cargo distincts — voir CLAUDE.md,
+          # « Pourquoi un processus RDP séparé ».
+          workspaces: |
+            . -> target
+            rdp-sidecar -> target
+
+      # Exactement celles de `release.yml` : ce job ne vaut que s'il installe
+      # le même environnement que celui qui construit les vraies versions.
+      - name: Install Linux dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # Le sidecar doit être en place *avant* l'empaquetage — et même avant la
+      # compilation : le `build.rs` de `tauri-build` vérifie l'existence des
+      # chemins `bundle.externalBin` pour compiler le binaire principal, pas
+      # seulement pour l'empaqueter. C'est d'ailleurs une des ruptures que ce
+      # job existe pour attraper.
+      - name: Build rdp-sidecar and stage it for bundling
+        run: |
+          cd rdp-sidecar && cargo build --release
+          mkdir -p ../src-tauri/binaries
+          cp target/release/rdp-sidecar ../src-tauri/binaries/rdp-sidecar-x86_64-unknown-linux-gnu
+
+      # `--debug` : le profil de compilation n'a rien à voir avec ce qu'on
+      # vérifie ici. Ce qui est en jeu, c'est la configuration d'empaquetage —
+      # `beforeBuildCommand`, la résolution de `externalBin`, les icônes, les
+      # ressources — et l'empaqueteur la parcourt à l'identique dans les deux
+      # profils, en une fraction du temps. Un `--release` doublerait la durée
+      # du job pour ne rien prouver de plus sur la question posée.
+      #
+      # `--bundles deb` : `tauri.conf.json` demande `targets: all`, ce qui sous
+      # Linux ajoute rpm et AppImage. L'AppImage télécharge son propre runtime
+      # à chaque construction — la partie la plus lente et la plus fragile,
+      # pour une configuration qui ne casse presque jamais indépendamment des
+      # autres. Un seul format suffit à faire tourner tout le chemin commun ;
+      # les trois formats restent construits au moment du tag.
+      #
+      # `createUpdaterArtifacts: false` en surcharge, et ce n'est pas un
+      # détail : la configuration du dépôt l'active, donc l'empaqueteur cherche
+      # `TAURI_SIGNING_PRIVATE_KEY` et **sort en erreur** quand il ne la trouve
+      # pas — alors même que le `.deb` a été produit correctement. Sans cette
+      # surcharge, ce job serait rouge en permanence pour une raison qui n'a
+      # rien à voir avec ce qu'il vérifie.
+      #
+      # La clé n'a évidemment pas sa place ici : un workflow déclenché par des
+      # pull requests ne doit pas approcher la clé qui signe les mises à jour
+      # de tous les utilisateurs (et une PR venant d'un fork n'y aurait de
+      # toute façon pas accès). **Limite assumée** : la génération et la
+      # signature des artefacts d'updater ne sont donc pas couvertes ici — elles
+      # le restent au moment du tag, où la clé existe.
+      - name: Package the app
+        run: |
+          npm run tauri -- build --debug --bundles deb \
+            --config '{"bundle":{"createUpdaterArtifacts":false}}'
+
+      # L'empaqueteur sort en erreur quand il échoue, donc ce contrôle vise le
+      # cas plus sournois : une exécution qui réussit sans rien produire.
+      - name: Un paquet a-t-il réellement été produit ?
+        run: |
+          set -euo pipefail
+          deb=$(find target -name '*.deb' -print -quit)
+          if [ -z "$deb" ]; then
+            echo "::error title=Aucun paquet produit::L'empaquetage s'est terminé sans erreur mais n'a écrit aucun .deb — configuration de bundle probablement vide ou mal ciblée."
+            exit 1
+          fi
+          ls -lh "$deb"
+
+          # Le sidecar embarqué : c'est la ressource dont l'absence est la plus
+          # facile à provoquer (un renommage de triple, un chemin changé) et la
+          # plus coûteuse à découvrir tard — une version publiée dont l'aperçu
+          # RDP ne démarre sur aucune machine.
+          #
+          # Le contenu passe par un fichier plutôt que directement dans `grep` :
+          # `grep -q` s'arrête au premier résultat, `dpkg-deb` reçoit alors
+          # SIGPIPE et sort en erreur, et `pipefail` fait échouer le pipeline
+          # **alors même que le motif a été trouvé**. Attrapé en exécutant cette
+          # étape pour de vrai avant de la pousser — elle affirmait que le
+          # sidecar manquait d'un paquet qui le contenait bel et bien.
+          contents=$(mktemp)
+          dpkg-deb -c "$deb" > "$contents"
+          if ! grep -q "rdp-sidecar" "$contents"; then
+            echo "::error title=Sidecar absent du paquet::Le .deb ne contient pas rdp-sidecar : l'aperçu RDP ne démarrerait sur aucune installation."
+            cat "$contents"
+            exit 1
+          fi
+          echo "Le paquet contient bien le sidecar RDP."
