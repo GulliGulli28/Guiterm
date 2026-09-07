@@ -9,6 +9,8 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+## [3.3.0] - 2026-09-07
+
 ### Added
 
 - **Runbooks exécutables — des procédures ordonnées sur une flotte.** Une
