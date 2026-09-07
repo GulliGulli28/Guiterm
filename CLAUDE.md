@@ -171,6 +171,17 @@ Pour étendre la couverture E2E : ajouter des scénarios dans la fonction
 script séparé à chaque fois — le même scénario tourne sur les deux
 plateformes sans modification.
 
+**Depuis le 2026-09-07, l'E2E tourne aussi en CI** (`.github/workflows/e2e.yml`),
+sur les pull requests et les pushes sur `master` : Ubuntu, WebKitGTK, écran
+virtuel Xvfb. Ça ne change rien à l'obligation locale ci-dessus — le CI rend
+via WebKitGTK, pas WebView2, donc il n'attrape aucun bug propre au moteur que
+les utilisateurs Windows exécutent réellement. Deux conséquences pratiques
+quand on ajoute un scénario : il doit passer **sans gestionnaire de fenêtres**
+(le runner n'en a pas), et il ne doit rien supposer de l'outillage présent sur
+la machine — le scénario d'import cloud est le modèle à suivre, il accepte
+aussi bien une réponse valide qu'un échec typé, donc il passe que `az`/`gcloud`
+soient installés ou non.
+
 **Techniques plus légères, en complément (pas en remplacement)** : tests
 unitaires purs (`npm run test`, vitest — piège Node : vitest ≥ 4 exige Node
 ≥ 20, ce WSL est en 18.19, utiliser `vitest@^2`) pour la logique découplée

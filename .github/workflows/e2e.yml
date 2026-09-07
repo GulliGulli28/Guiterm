@@ -1,0 +1,146 @@
+name: E2E
+
+# Les tests de bout en bout, dans un workflow à part et pas comme un job de
+# `ci.yml`. Trois raisons, toutes structurelles plutôt que cosmétiques :
+#
+# 1. **Le déclencheur n'est pas le même.** `ci.yml` tourne sur chaque push de
+#    chaque branche ; celui-ci compile le binaire, installe un pilote natif et
+#    déroule 35 scénarios contre une vraie fenêtre. Le faire sur chaque push
+#    d'une branche de travail serait disproportionné — d'où pull requests et
+#    `master` seulement.
+# 2. **Il peut être rendu obligatoire séparément.** Un E2E qui pilote une
+#    fenêtre réelle flotte toujours un peu au début. Tant qu'il n'est pas dans
+#    les « required checks » de la protection de branche, il échoue
+#    visiblement sans bloquer la fusion — ce qui laisse le temps de mesurer son
+#    taux de faux négatifs. C'est volontairement fait comme ça plutôt qu'avec
+#    `continue-on-error: true`, qui afficherait un job vert sur un échec réel :
+#    un test qui ment est pire qu'un test absent.
+# 3. **Ce qu'il couvre est différent de ce qu'il ne couvre pas.** Le runner
+#    Linux rend via WebKitGTK, alors que les utilisateurs lancent WebView2 sous
+#    Windows. Ce job attrape donc tout ce qui ne dépend pas du moteur — React
+#    qui monte, les allers-retours `invoke`, la casse des champs sur le fil,
+#    les onglets réellement atteignables — et **pas** les bugs propres à
+#    WebView2. Un job Windows serait plus fidèle mais demande un
+#    `msedgedriver` accordé à la version du runtime du runner et un build
+#    release : à envisager une fois celui-ci stable.
+#
+# Bénéfice de côté, pas anecdotique : plusieurs scénarios écrivent dans le vrai
+# `workspace.json` du profil. Sur un runner neuf, il n'y a pas de profil à
+# abîmer — le CI est un meilleur endroit pour ces tests que la machine de
+# quelqu'un.
+
+on:
+  pull_request:
+  push:
+    branches: [master]
+  workflow_dispatch:
+
+concurrency:
+  group: e2e-${{ github.ref }}
+  cancel-in-progress: true
+
+# Le job ne fait que compiler et piloter une fenêtre : rien à écrire.
+permissions:
+  contents: read
+
+jobs:
+  e2e-linux:
+    runs-on: ubuntu-latest
+    # Large exprès : une première exécution avec un cache Rust froid compile
+    # tout l'espace de travail plus le sidecar. Les suivantes tiennent
+    # largement en deçà.
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: 20
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@4cda84d5c5c54efe2404f9d843567869ab1699d4 # stable, pinned 2026-07-16 (dtolnay/rust-toolchain has no version tags — branches are the channel selector)
+
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # Deux espaces de travail Cargo distincts — voir CLAUDE.md,
+          # « Pourquoi un processus RDP séparé ». Le cache par défaut ne verrait
+          # que celui de la racine et recompilerait le sidecar à chaque fois.
+          workspaces: |
+            . -> target
+            rdp-sidecar -> target
+
+      # Trois familles de paquets, et elles ne servent pas à la même chose :
+      #   - les `-dev` sont ce dont Tauri a besoin pour *compiler* (mêmes que
+      #     release.yml) ;
+      #   - `webkit2gtk-driver` fournit `/usr/bin/WebKitWebDriver`, le pilote
+      #     natif que `tauri-driver` pilote à son tour (chemin en dur dans
+      #     `scripts/e2e-run.mjs`) ;
+      #   - `xvfb` donne un serveur X à une fenêtre GTK qui, sinon, n'a aucun
+      #     écran où s'ouvrir sur un runner sans session graphique.
+      - name: Install build, WebDriver and display dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf libxdo-dev \
+            webkit2gtk-driver xvfb
+
+      # `cargo install` recompile tauri-driver à chaque exécution sinon — une
+      # à deux minutes pour un binaire qui ne change jamais entre deux runs.
+      # La clé porte la version : la changer suffit à invalider le cache.
+      - name: Cache tauri-driver
+        id: tauri-driver-cache
+        uses: actions/cache@0057852bfaa89a56745cba8c7296529d2fc39830 # v4.3.0
+        with:
+          path: ~/.cargo/bin/tauri-driver
+          key: tauri-driver-2.0.6-${{ runner.os }}
+
+      - name: Install tauri-driver
+        if: steps.tauri-driver-cache.outputs.cache-hit != 'true'
+        run: cargo install tauri-driver --version 2.0.6 --locked
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      # `rdp-sidecar` est un espace de travail Cargo séparé : le `cargo build`
+      # de la racine ne le touche jamais, et le `build.rs` de `tauri-build`
+      # vérifie l'existence du chemin `bundle.externalBin` **pour compiler** le
+      # binaire principal, pas seulement pour l'empaqueter. Sans cette étape,
+      # l'étape suivante échoue d'emblée sur « resource path ... doesn't
+      # exist ». Même geste que dans `ci.yml` et `release.yml`.
+      - name: Build rdp-sidecar and stage it for bundling
+        run: |
+          cd rdp-sidecar && cargo build
+          mkdir -p ../src-tauri/binaries
+          cp target/debug/rdp-sidecar ../src-tauri/binaries/rdp-sidecar-x86_64-unknown-linux-gnu
+
+      # Debug, pas release : sous Linux le script pilote un binaire debug, qui
+      # charge `devUrl` et donc le serveur Vite que le script démarre lui-même
+      # (voir l'en-tête de `scripts/e2e-run.mjs`). Un build release exigerait
+      # en plus la feature `tauri/custom-protocol` pour embarquer `dist/`.
+      - name: Build the app binary the scenarios will drive
+        run: cargo build --workspace
+
+      # `xvfb-run -a` choisit un numéro d'écran libre et exporte `DISPLAY` ; le
+      # script reprend celui-là plutôt que son défaut `:0`, et force
+      # `GDK_BACKEND=x11` de son côté.
+      #
+      # La géométrie est explicite plutôt que laissée au défaut : celui de
+      # `xvfb-run` a longtemps été en profondeur 8 bits, sur laquelle WebKit
+      # rend mal ou pas du tout, et il varie d'une version de la distribution à
+      # l'autre. Cette invocation exacte a été validée en local sous Xvfb —
+      # les 35 scénarios passent sans gestionnaire de fenêtres, plein écran
+      # compris, ce qui était le doute principal avant d'écrire ce job.
+      - name: Run the end-to-end scenarios
+        run: xvfb-run -a -s "-screen 0 1920x1080x24" node scripts/e2e-run.mjs
+
+      # Sans ça, un échec en CI ne se diagnostique qu'en essayant de le
+      # reproduire sur sa propre machine — où il ne se reproduit pas toujours.
+      # Le script prend une capture au moment exact de la panne.
+      - name: Upload the failure screenshot
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: e2e-failure
+          path: scripts/.output/
+          if-no-files-found: ignore
+          retention-days: 7

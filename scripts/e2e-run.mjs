@@ -535,6 +535,19 @@ async function main() {
     try {
       await runScenarios(browser);
       console.log("PASS : fenêtre réelle lancée, rendue et pilotée via WebDriver.");
+    } catch (err) {
+      // Une capture au moment exact de l'échec, avant que la session ne soit
+      // fermée. En local on relance le scénario pour voir ce qui se passe ;
+      // en CI c'est impossible — sans cette image, un échec ne se diagnostique
+      // qu'en essayant de le reproduire sur sa propre machine, où il ne se
+      // reproduit pas toujours. `catch` puis `throw` : le but est de photographier
+      // la panne, pas de l'avaler.
+      await mkdir(outDir, { recursive: true }).catch(() => {});
+      const shot = path.join(outDir, "e2e-failure.png");
+      if (await browser.saveScreenshot(shot).then(() => true).catch(() => false)) {
+        console.error("Capture de l'écran au moment de l'échec :", shot);
+      }
+      throw err;
     } finally {
       await browser.deleteSession().catch(() => {});
     }
