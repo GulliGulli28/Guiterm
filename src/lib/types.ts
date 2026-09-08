@@ -1048,6 +1048,12 @@ export type TabMeta =
        * ouvert depuis un panneau de transfert (« Terminal ici »). Même
        * mécanisme que `local-terminal` plus bas. */
       initialCommand?: string;
+      /** Le dossier sur lequel ouvrir le panneau distant (`kind: "transfer"`
+       * seulement), au lieu de celui que le backend rend à l'ouverture. C'est
+       * ce qui permet à « ouvrir un transfert sur ce dossier » d'arriver au
+       * bon endroit — voir le bus d'objets. Le panneau retombe sur le dossier
+       * par défaut si celui-ci n'existe plus. */
+      initialPath?: string;
       dockerContainerId?: string;
       k8sPodName?: string;
       k8sContainerName?: string | null;

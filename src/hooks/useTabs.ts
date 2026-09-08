@@ -28,7 +28,11 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
   const [tabs, setTabs] = useState<TabMeta[]>([]);
   const [activeTabId, setActiveTabId] = useState<string | null>(null);
 
-  const openTab = useCallback((kind: "terminal" | "transfer" | "rdp-view", host: Host, dockerContainerId?: string, k8sPodName?: string, k8sContainerName?: string | null, initialCommand?: string) => {
+  // `initialPath` est le septième paramètre et un seul appelant le passe
+  // (`openTransferIn` dans `App.tsx`) : c'était ça, ou une deuxième
+  // implémentation de l'ouverture d'onglet qui aurait redit le calcul du
+  // libellé juste en dessous.
+  const openTab = useCallback((kind: "terminal" | "transfer" | "rdp-view", host: Host, dockerContainerId?: string, k8sPodName?: string, k8sContainerName?: string | null, initialCommand?: string, initialPath?: string) => {
     const id = `tab-${nextTabId++}`;
     const label = kind === "transfer"
       ? `Transfert : ${host.label}`
@@ -39,7 +43,7 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
           : k8sPodName
             ? `${host.label} : ${k8sPodName}`
             : host.label;
-    setTabs((prev) => [...prev, { id, kind, hostId: host.id, label, dockerContainerId, k8sPodName, k8sContainerName, initialCommand }]);
+    setTabs((prev) => [...prev, { id, kind, hostId: host.id, label, dockerContainerId, k8sPodName, k8sContainerName, initialCommand, initialPath }]);
     setActiveTabId(id);
   }, []);
 

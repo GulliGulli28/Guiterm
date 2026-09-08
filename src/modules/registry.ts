@@ -1,7 +1,8 @@
 import type { ReactNode } from "react";
 import type { TabMeta } from "../lib/types";
 import type { SidebarPanelKind } from "../lib/sidebarButtons";
-import type { AppContext, SidebarActions } from "./types";
+import type { AppObject } from "../lib/appObject";
+import type { AppContext, ObjectAction, SidebarActions, TabOpeners } from "./types";
 import { activityModule } from "./activity";
 import { awsModule } from "./aws";
 import { hostsModule } from "./hosts";
@@ -125,6 +126,27 @@ const PANEL_RENDERERS = new Map<SidebarPanelKind, AnyPanelRenderer>(
 export function renderModuleTab(tab: TabMeta, ctx: AppContext, isActive: boolean): ReactNode | undefined {
   const render = TAB_RENDERERS.get(tab.kind);
   return render ? render(tab, ctx, isActive) : undefined;
+}
+
+/** Toutes les actions que les modules offrent sur cet objet, dans l'ordre du
+ * registre.
+ *
+ * **Pas de `Map` ici, contrairement aux onglets et aux panneaux.** Un `kind`
+ * d'onglet a exactement un propriétaire, ce qu'une `Map` exprime bien ; un
+ * objet en a autant qu'il y a de destinataires, et c'est le but. D'où le
+ * parcours de `MODULES` à chaque ouverture de menu — dix-sept appels de
+ * fonction pure sur un geste utilisateur, rien à mettre en cache.
+ *
+ * L'ordre du registre devient donc l'ordre du menu. C'est délibéré : il place
+ * les modules du chemin principal (terminal, transfert) avant les outils, ce
+ * qui est aussi l'ordre dans lequel on les veut sous le curseur.
+ *
+ * **Le risque propre à ce mécanisme, c'est le menu vide** — un `kind` d'objet
+ * que personne n'accepte compile parfaitement et n'affiche rien, la panne
+ * MongoDB sous une autre forme. C'est `objects.test.ts` qui l'attrape, pas
+ * `tsc` : un registre consulté à l'exécution ne se prouve qu'à l'exécution. */
+export function actionsForObject(obj: AppObject, ctx: AppContext, open: TabOpeners): ObjectAction[] {
+  return MODULES.flatMap((m) => ("objects" in m && m.objects ? m.objects.actionsFor(obj, ctx, open) : []));
 }
 
 /** Le rendu du panneau de barre latérale demandé.

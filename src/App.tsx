@@ -15,8 +15,8 @@ import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, loadPrefe
 import { resolveVisiblePanel, type SidebarPanelKind } from "./lib/sidebarButtons";
 import { cdCommand } from "./lib/panePath";
 import { groupPath } from "./lib/hostTree";
-import { renderModuleTab } from "./modules/registry";
-import type { AppContext, SidebarActions } from "./modules/types";
+import { actionsForObject, renderModuleTab } from "./modules/registry";
+import type { AppContext, SidebarActions, TabOpeners } from "./modules/types";
 // Lazy : `SplitPane` monte un terminal, donc importe xterm. Eager, il
 // annulerait à lui seul le gain des deux modules ci-dessus — et il n'est rendu
 // que si l'utilisateur ouvre le panneau scindé.
@@ -329,6 +329,30 @@ export default function App() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [workspace?.hosts, preferences.defaultLocalShell, openLocalTerminal, openTab]);
 
+  /** Le symétrique côté fichiers : ouvrir un panneau de transfert **posé sur**
+   * ce dossier. `openTerminalIn` y arrive en tapant un `cd` une fois la
+   * session ouverte ; ici il n'y a rien à taper, donc le chemin voyage dans
+   * l'onglet et c'est `TransferTab` qui liste là plutôt qu'au dossier par
+   * défaut.
+   *
+   * Une source locale n'a pas d'onglet à ouvrir : le panneau **gauche** de
+   * tout transfert est déjà la machine locale. Renvoyer l'utilisateur sur un
+   * nouvel onglet pour ça serait un aller-retour pour rien. */
+  const openTransferIn = useCallback((source: PaneSource, path: string) => {
+    if (source.kind === "local") { reportError("Le panneau local est déjà ouvert dans chaque transfert."); return; }
+    const host = workspace?.hosts.find((h) => h.id === source.hostId);
+    if (!host) { reportError("Hôte introuvable pour ouvrir un transfert."); return; }
+    openTab(
+      "transfer",
+      host,
+      source.kind === "docker" ? source.containerId : undefined,
+      source.kind === "k8s" ? source.podName : undefined,
+      source.kind === "k8s" ? source.containerName : undefined,
+      undefined,
+      path,
+    );
+  }, [workspace?.hosts, openTab, reportError]);
+
 
   const {
     broadcastMode, setBroadcastMode,
@@ -555,30 +579,12 @@ export default function App() {
   const openFleetTab = () => { showTargetsPanel("fleet"); openFleet(); };
   const openNetdiagTab = (sourceHostId: HostId | null) => { showTargetsPanel("netdiag"); openNetdiag(sourceHostId); };
 
-  const moduleContext: AppContext = {
-    workspace, preferences, updatePreferences, openTerminalIn, reportError, pushNotification, refreshWorkspace,
-    closeTab, detachTab, notifyLongCommand, mirrorInput,
-    // La table des poignées reste ici : la palette, le broadcast, le zoom et
-    // la recherche terminal l'interrogent. Les modules n'ont le droit que d'y
-    // publier la leur.
-    registerTerminalHandle: (tabId, handle) => {
-      if (handle) terminalRefs.current.set(tabId, handle);
-      else terminalRefs.current.delete(tabId);
-    },
-    rememberSessionKey,
-    // La barre est aussi visible : la ramener sans l'ouvrir laisserait le
-    // récapitulatif de cibles cliquer dans le vide quand elle est repliée.
-    showSidebarPanel: showTargetsPanel,
-  };
-
-  const showRightPanel = !!(editingHost || editingGroup || editingSqlConnection);
-  const activeTab = tabs.find((t) => t.id === activeTabId);
-  const activeHostId = activeTab && isHostBoundTab(activeTab) ? activeTab.hostId : null;
-
-  // Ce que les panneaux de la barre latérale peuvent demander à l'app. Même
-  // contenu qu'avant, mais déclaré **une** fois : `SidebarProps` et les 90
-  // lignes de passe-plat de `Sidebar.tsx` ont disparu avec.
-  const sidebarActions: SidebarActions = {
+  /** Ce que n'importe quel module peut ouvrir — la moitié « ouvrir » de ce que
+   * `SidebarActions` portait seule jusqu'au 2026-09-08. Déclaré ici plutôt que
+   * dans le littéral de `sidebarActions` parce qu'`AppContext` en a besoin
+   * aussi : c'est ce qui permet à un **onglet** d'être destinataire du bus
+   * d'objets, pas seulement à un panneau. */
+  const tabOpeners: TabOpeners = {
     connect: (host) => openTab("terminal", host),
     connectDocker: (host, containerId) => openTab("terminal", host, containerId),
     connectK8s: (host, podName, containerName) => openTab("terminal", host, undefined, podName, containerName),
@@ -591,6 +597,40 @@ export default function App() {
     probeReachability: (host) => openNetdiagTab(host.id),
     searchFiles: (host) => setSearchHost(host),
     resumeSession: openPersistentSession,
+    openTerminalIn,
+    openTransferIn,
+  };
+
+  const moduleContext: AppContext = {
+    workspace, preferences, updatePreferences, reportError, pushNotification, refreshWorkspace,
+    closeTab, detachTab, notifyLongCommand, mirrorInput,
+    // La table des poignées reste ici : la palette, le broadcast, le zoom et
+    // la recherche terminal l'interrogent. Les modules n'ont le droit que d'y
+    // publier la leur.
+    registerTerminalHandle: (tabId, handle) => {
+      if (handle) terminalRefs.current.set(tabId, handle);
+      else terminalRefs.current.delete(tabId);
+    },
+    rememberSessionKey,
+    // La barre est aussi visible : la ramener sans l'ouvrir laisserait le
+    // récapitulatif de cibles cliquer dans le vide quand elle est repliée.
+    showSidebarPanel: showTargetsPanel,
+    // La boucle du bus, refermée ici et nulle part ailleurs : le registre
+    // interroge les modules, et les modules reçoivent le résultat par le
+    // contexte — donc aucun d'eux n'importe le registre qui les importe.
+    // L'auto-référence est évaluée à l'appel, jamais à la construction.
+    objectActions: (obj) => actionsForObject(obj, moduleContext, tabOpeners),
+  };
+
+  const showRightPanel = !!(editingHost || editingGroup || editingSqlConnection);
+  const activeTab = tabs.find((t) => t.id === activeTabId);
+  const activeHostId = activeTab && isHostBoundTab(activeTab) ? activeTab.hostId : null;
+
+  // Ce que les panneaux de la barre latérale peuvent demander à l'app. Même
+  // contenu qu'avant, mais déclaré **une** fois : `SidebarProps` et les 90
+  // lignes de passe-plat de `Sidebar.tsx` ont disparu avec.
+  const sidebarActions: SidebarActions = {
+    ...tabOpeners,
 
     newHost: () => { setEditingHost("new"); setNewHostDefaultGroupId(null); setEditingGroup(null); setEditingSqlConnection(null); },
     editHost: (host) => { setEditingHost(host); setEditingGroup(null); setEditingSqlConnection(null); },
@@ -676,7 +716,13 @@ export default function App() {
       {authPromptModal}
       {paletteOpen && <CommandPalette commands={paletteCommands} onClose={() => setPaletteOpen(false)} />}
       {searchHost && (
-        <RemoteSearchPanel host={searchHost} onClose={() => setSearchHost(null)} onError={reportError} />
+        <RemoteSearchPanel
+          host={searchHost}
+          workspace={workspace}
+          objectActions={moduleContext.objectActions}
+          onClose={() => setSearchHost(null)}
+          onError={reportError}
+        />
       )}
       {cloudImport === "picker" && (
         <CloudProviderPicker onPick={setCloudImport} onClose={() => setCloudImport(null)} />

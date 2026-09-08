@@ -261,6 +261,7 @@ async function runScenarios(browser) {
   await runSshTerminalTabScenario(browser);
   await runSqlTabScenario(browser);
   await runHostAttachmentsScenario(browser);
+  await runObjectBusScenario(browser);
   await runAdaptiveComposerScenario(browser);
   await runSqlHistoryScenario(browser);
   await runFleetTabScenario(browser);
@@ -1764,6 +1765,139 @@ async function runAdaptiveComposerScenario(browser) {
  * Crée un hôte et une base tunnelée à travers lui, ouvre le menu de l'hôte, et
  * vérifie que la base y apparaît. Les deux sont supprimés dans un `finally`.
  */
+/**
+ * Le bus d'objets : un menu « Envoyer vers… » qui ouvre vraiment l'onglet d'un
+ * autre module.
+ *
+ * Ce que ça prouve et que les tests unitaires ne peuvent pas : `actionsForObject`
+ * est bien *branché* sur un rendu. Le registre est consulté à l'exécution, donc
+ * un module qui déclare une action sans que rien n'affiche le menu compilerait,
+ * passerait `objects.test.ts` — et ne serait atteignable nulle part. C'est
+ * exactement la panne MongoDB, et seul un clic réel l'exclut.
+ *
+ * Passe par le panneau **gauche** d'un transfert, qui est la machine locale :
+ * il s'ouvre sans réseau, donc le scénario ne dépend d'aucun `sshd` et tient en
+ * CI. L'hôte créé ne sert qu'à ouvrir l'onglet ; sa connexion peut échouer sans
+ * rien changer à ce qui est vérifié.
+ */
+async function runObjectBusScenario(browser) {
+  const HOST_LABEL = `e2e-bus-${Date.now()}`;
+
+  await browser.execute(() => {
+    const btn = Array.from(document.querySelectorAll("aside nav button"))
+      .find((b) => (b.getAttribute("title") || "") === "Hôtes");
+    if (btn instanceof HTMLElement) btn.click();
+  });
+  await clickButtonByText(browser, "Ajouter…");
+  await clickButtonByText(browser, "Nouvel hôte");
+  await setFieldByLabel(browser, "Nom", HOST_LABEL);
+  await setFieldByLabel(browser, "Adresse", "127.0.0.1");
+  await setFieldByLabel(browser, "Utilisateur", "e2e");
+  await clickButtonByText(browser, "Enregistrer");
+
+  const hostId = await browser.execute(async (label) => {
+    try {
+      const ws = await window.__TAURI_INTERNALS__.invoke("get_workspace");
+      return ws.hosts.find((h) => h.label === label)?.id ?? null;
+    } catch {
+      return null;
+    }
+  }, HOST_LABEL);
+  if (!hostId) throw new Error("l hôte de test n a pas été enregistré");
+
+  const terminalsBefore = await browser.execute(() => document.querySelectorAll(".xterm-rows").length);
+
+  try {
+    // Le transfert d'un hôte **SSH** s'ouvre depuis le panneau SFTP, pas depuis
+    // le menu de l'hôte : l'entrée « Transférer des fichiers » de ce menu
+    // n'existe que pour un hôte RDP (`HostsPanel.tsx`, `kind === "rdp"`).
+    await browser.execute(() => {
+      const btn = Array.from(document.querySelectorAll("aside nav button"))
+        .find((b) => (b.getAttribute("title") || "").split(" — ")[0] === "SFTP");
+      if (btn instanceof HTMLElement) btn.click();
+    });
+    const hasSftpPanel = await browser.execute(() => {
+      const btn = Array.from(document.querySelectorAll("aside nav button"))
+        .find((b) => (b.getAttribute("title") || "").split(" — ")[0] === "SFTP");
+      if (!(btn instanceof HTMLElement)) return false;
+      btn.click();
+      return true;
+    });
+    // Seul « Hôtes » est toujours visible : tout autre bouton de la bande peut
+    // être masqué dans les préférences de la machine qui exécute la suite. On
+    // le dit plutôt que d'échouer sur une configuration légitime.
+    if (!hasSftpPanel) {
+      console.log("Bus d objets : ignoré (panneau SFTP masqué dans les préférences de cette machine).");
+      return;
+    }
+
+    // Le panneau est chargé en `lazy(...)` — juste après le clic il affiche
+    // « Chargement… », et une interrogation immédiate du DOM ne voit aucun
+    // hôte. Constaté : c'est ce qui faisait échouer ce scénario.
+    const hostButton = 'button[title^="Transférer — e2e@127.0.0.1"]';
+    await browser.waitUntil(async () => await browser.execute((sel) =>
+      document.querySelector(`aside ${sel}`) !== null, hostButton,
+    ), { timeout: 15_000, timeoutMsg: "l hôte de test n apparaît pas dans le panneau SFTP" });
+    await browser.execute((sel) => {
+      const btn = document.querySelector(`aside ${sel}`);
+      if (btn instanceof HTMLElement) btn.click();
+    }, hostButton);
+
+    // Le panneau local liste sans réseau ; c'est lui qu'on attend, pas le
+    // distant, qui n'a aucun `sshd` en face sur le runner.
+    await browser.waitUntil(async () => await browser.execute(() =>
+      Array.from(document.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Envoyer vers…")
+    ), { timeout: 15_000, timeoutMsg: "le bouton « Envoyer vers… » n apparaît dans aucun panneau de transfert" });
+
+    await browser.execute(() => {
+      const btn = Array.from(document.querySelectorAll("button")).find((b) => b.textContent?.trim() === "Envoyer vers…");
+      if (btn instanceof HTMLElement) btn.click();
+    });
+
+    const items = await browser.waitUntil(async () => {
+      const found = await browser.execute(() => {
+        const menu = document.querySelector("[data-context-menu]");
+        if (!menu) return null;
+        return Array.from(menu.querySelectorAll("button"), (b) => b.textContent?.trim() ?? "");
+      });
+      return found && found.length > 0 ? found : false;
+    }, { timeout: 5_000, timeoutMsg: "le menu du bus d objets ne s est pas ouvert" });
+
+    // Le module terminal accepte un chemin local ; celui du transfert non, et
+    // c'est délibéré (le panneau gauche *est* déjà cette machine). Vérifier
+    // l'absence autant que la présence : une action morte dans un menu est
+    // pire que pas d'action.
+    if (!items.includes("Ouvrir un terminal dans ce dossier")) {
+      throw new Error(`le menu n offre pas l action du module terminal : ${JSON.stringify(items)}`);
+    }
+    if (items.includes("Ouvrir un transfert sur ce dossier")) {
+      throw new Error("le menu offre une action de transfert sur un chemin local, qui ne peut rien ouvrir");
+    }
+
+    await clickButtonByText(browser, "Ouvrir un terminal dans ce dossier");
+
+    // La preuve de bout en bout : le module terminal a réellement ouvert son
+    // onglet, à la demande d'un menu rendu par un autre module.
+    await browser.waitUntil(async () => await browser.execute((before) =>
+      document.querySelectorAll(".xterm-rows").length > before, terminalsBefore,
+    ), { timeout: 15_000, timeoutMsg: "l action du bus n a ouvert aucun terminal" });
+
+    console.log("Bus d objets : OK (menu rendu par le transfert, onglet ouvert par le terminal).");
+  } finally {
+    const cleanup = await browser.execute(async (id) => {
+      try {
+        await window.__TAURI_INTERNALS__.invoke("delete_host", { hostId: id });
+        return { ok: true };
+      } catch (e) {
+        return { __error: String(e) };
+      }
+    }, hostId);
+    if (!cleanup || cleanup.__error !== undefined) {
+      throw new Error(`nettoyage impossible, workspace pollué : ${JSON.stringify(cleanup)}`);
+    }
+  }
+}
+
 async function runHostAttachmentsScenario(browser) {
   const HOST_LABEL = `e2e-relais-${Date.now()}`;
   const DB_LABEL = `e2e-liee-${Date.now()}`;

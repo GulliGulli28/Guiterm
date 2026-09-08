@@ -7,6 +7,7 @@ import type {
   PaneSource, PortForwardId, PortForwardKind, RunbookId, SnippetId, SqlConnection, TabMeta, VaultStatus, Workspace,
 } from "../lib/types";
 import type { SidebarPanelKind } from "../lib/sidebarButtons";
+import type { AppObject } from "../lib/appObject";
 
 /** Ce qu'un module reçoit de l'app pour rendre ses contributions.
  *
@@ -28,11 +29,25 @@ export interface AppContext {
    * bascule « fichiers cachés » d'un panneau de transfert). Le lecteur et
    * l'écrivain vont ensemble ; c'est la seule raison d'ajouter un champ ici. */
   updatePreferences: (p: AppPreferences) => void;
-  /** Ouvre un terminal sur la cible d'un panneau de transfert, dans le dossier
-   * indiqué. Le pendant, côté fichiers, du lien hôte ↔ base de données ajouté
-   * en 3.1.0 : ce sont deux vues de la même machine, et passer de l'une à
-   * l'autre demandait de rouvrir une connexion à la main. */
-  openTerminalIn: (source: PaneSource, cwd: string) => void;
+  /** Ce que les **autres** modules savent faire de cet objet — le bus.
+   *
+   * Un seul champ, là où chaque lien coûtait le sien : `openTerminalIn`
+   * occupait ce contexte jusqu'au 2026-09-08 et ne servait qu'au panneau de
+   * transfert. Il est devenu une action du module terminal, et le panneau ne
+   * sait plus *qui* lui répond.
+   *
+   * **C'est aussi ce qui garde les modules hors du registre.** La forme
+   * évidente — que le module appelle `actionsForObject` lui-même — ferait
+   * importer `registry.ts` par un module que `registry.ts` importe. Le cycle
+   * tient en ESM tant que l'appel reste dans une fermeture, ce qui est
+   * exactement le genre de propriété qu'une refonte de bundler casse sans
+   * prévenir. `App.tsx` referme la boucle, une fois, là où le registre est
+   * déjà importé.
+   *
+   * Noter ce que ce champ **ne donne pas** : aucun accès direct à
+   * `TabOpeners`. Un module agit sur les autres en offrant des actions, pas en
+   * ouvrant leurs onglets quand ça l'arrange. */
+  objectActions: (obj: AppObject) => ObjectAction[];
   /** Bannière d'état + notification d'erreur. Prend un message déjà formulé
    * pour l'utilisateur, pas une exception. */
   reportError: (message: string) => void;
@@ -103,8 +118,44 @@ export interface TabContribution<K extends TabMeta["kind"]> {
   render(tab: TabOfKind<K>, ctx: AppContext, isActive: boolean): ReactNode;
 }
 
+/** Ouvrir quelque chose ailleurs dans l'app.
+ *
+ * Extrait de `SidebarActions` le 2026-09-08, sans rien changer à ce qu'elle
+ * offre : ces mêmes membres étaient déjà là, mais **seuls les panneaux** y
+ * avaient accès. Le bus d'objets a besoin qu'un onglet puisse être
+ * destinataire au même titre qu'un panneau, et c'est ce qu'`AppContext.open`
+ * porte désormais.
+ *
+ * La frontière n'est pas cosmétique : ici, ce qui **ouvre** ; dans
+ * `SidebarActions`, ce qui écrit le workspace ou décrit l'état. Une action du
+ * bus n'a besoin que de la première moitié — lui donner la seconde ferait de
+ * n'importe quel module un éditeur du workspace par la bande.
+ */
+export interface TabOpeners {
+  connect: (host: Host) => void;
+  connectDocker: (host: Host, containerId: string) => void;
+  connectK8s: (host: Host, podName: string, containerName: string | null) => void;
+  connectRdpView: (host: Host) => void;
+  openTransfer: (host: Host, dockerContainerId?: string, k8sPodName?: string, k8sContainerName?: string | null) => void;
+  openLocalTerminal: (shell?: string) => void;
+  quickSSH: (cmd: string) => void;
+  connectSql: (conn: SqlConnection) => void;
+  probeReachability: (host: Host) => void;
+  searchFiles: (host: Host) => void;
+  /** Reprendre une session persistante précise sur cet hôte — l'entrée
+   * « Sessions persistantes » du menu d'un hôte. */
+  resumeSession: (host: Host, sessionKey: string, readOnly?: boolean) => void;
+  /** Ouvre un terminal sur une cible, dans le dossier indiqué. Venu
+   * d'`AppContext` le 2026-09-08 : c'est un ouvreur d'onglet comme les autres,
+   * et l'y laisser aurait voulu dire un champ de contexte par lien. */
+  openTerminalIn: (source: PaneSource, cwd: string) => void;
+  /** Le symétrique, côté fichiers : ouvre un panneau de transfert **positionné
+   * sur** ce dossier plutôt que sur celui que le backend rend à l'ouverture. */
+  openTransferIn: (source: PaneSource, path: string) => void;
+}
+
 /** Ce qu'un panneau de barre latérale peut demander à l'app, en plus
- * d'`AppContext`.
+ * d'`AppContext` et des ouvertures ci-dessus.
  *
  * C'est volontairement une **liste centrale**, et il faut être honnête sur ce
  * que ce commit gagne : la dépendance ne disparaît pas, elle cesse d'être
@@ -120,21 +171,7 @@ export interface TabContribution<K extends TabMeta["kind"]> {
  * changement de responsabilité, pas un déplacement — à faire à part, et à
  * vérifier pour lui-même.
  */
-export interface SidebarActions {
-  // ── Ouvrir un onglet ──────────────────────────────────────────────────
-  connect: (host: Host) => void;
-  connectDocker: (host: Host, containerId: string) => void;
-  connectK8s: (host: Host, podName: string, containerName: string | null) => void;
-  connectRdpView: (host: Host) => void;
-  openTransfer: (host: Host, dockerContainerId?: string, k8sPodName?: string, k8sContainerName?: string | null) => void;
-  openLocalTerminal: (shell?: string) => void;
-  quickSSH: (cmd: string) => void;
-  connectSql: (conn: SqlConnection) => void;
-  probeReachability: (host: Host) => void;
-  searchFiles: (host: Host) => void;
-  /** Reprendre une session persistante précise sur cet hôte — l'entrée
-   * « Sessions persistantes » du menu d'un hôte. */
-  resumeSession: (host: Host, sessionKey: string, readOnly?: boolean) => void;
+export interface SidebarActions extends TabOpeners {
 
   // ── Ouvrir un formulaire ou une modale ────────────────────────────────
   newHost: () => void;
@@ -196,6 +233,33 @@ export interface PanelContribution<P extends SidebarPanelKind> {
   render(ctx: AppContext, actions: SidebarActions): ReactNode;
 }
 
+/** Une action qu'un module offre sur un objet.
+ *
+ * `id` est préfixé par l'identifiant du module (`"terminal.open-here"`) et
+ * `objects.test.ts` le vérifie : c'est ce qui rend un menu lisible quand il
+ * agrège les propositions de dix-sept modules, et ce qui attrape le
+ * copier-coller d'une action d'un module à l'autre.
+ *
+ * `label` est à l'impératif et dit **ce qui va s'ouvrir**, pas le nom du
+ * module : le menu ne montre aucun en-tête par module. */
+export interface ObjectAction {
+  id: string;
+  label: string;
+  run: () => void;
+}
+
+/** Ce qu'un module sait faire d'un objet venu d'ailleurs.
+ *
+ * Rendre `[]` est la réponse normale pour un objet qui ne concerne pas ce
+ * module — c'est ce qui permet d'ajouter un module sans toucher aux autres,
+ * tout l'intérêt du bus.
+ *
+ * Ne reçoit que `TabOpeners`, pas `SidebarActions` : voir la frontière
+ * expliquée sur `TabOpeners`. */
+export interface ObjectContribution {
+  actionsFor(obj: AppObject, ctx: AppContext, open: TabOpeners): ObjectAction[];
+}
+
 /** Un module apporte un onglet, un panneau, ou les deux.
  *
  * Trois formes distinctes plutôt qu'un seul type à propriétés optionnelles, et
@@ -226,6 +290,9 @@ export interface TabModule<K extends TabMeta["kind"]> {
    * C'est ce qui rendra l'étape 3 mécanique : extraire un module en sidecar,
    * c'est déplacer les domaines listés ici. */
   commandDomains?: readonly string[];
+  /** Ce que ce module sait faire des objets qu'on lui envoie — voir
+   * `ObjectContribution`. Absent = ce module n'est destinataire de rien. */
+  objects?: ObjectContribution;
   tab: TabContribution<K>;
 }
 
@@ -244,6 +311,9 @@ export interface PanelModule<P extends SidebarPanelKind> {
    * C'est ce qui rendra l'étape 3 mécanique : extraire un module en sidecar,
    * c'est déplacer les domaines listés ici. */
   commandDomains?: readonly string[];
+  /** Ce que ce module sait faire des objets qu'on lui envoie — voir
+   * `ObjectContribution`. Absent = ce module n'est destinataire de rien. */
+  objects?: ObjectContribution;
   panel: PanelContribution<P>;
 }
 
@@ -262,6 +332,9 @@ export interface TabAndPanelModule<K extends TabMeta["kind"], P extends SidebarP
    * C'est ce qui rendra l'étape 3 mécanique : extraire un module en sidecar,
    * c'est déplacer les domaines listés ici. */
   commandDomains?: readonly string[];
+  /** Ce que ce module sait faire des objets qu'on lui envoie — voir
+   * `ObjectContribution`. Absent = ce module n'est destinataire de rien. */
+  objects?: ObjectContribution;
   tab: TabContribution<K>;
   panel: PanelContribution<P>;
 }

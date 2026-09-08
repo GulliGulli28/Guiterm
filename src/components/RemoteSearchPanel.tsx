@@ -1,11 +1,25 @@
 import { useState } from "react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { api } from "../lib/api";
-import type { Host, RemoteSearchMode, RemoteSearchOutcome } from "../lib/types";
-import { IconClose, IconEdit, IconCopy, IconSearch } from "./ui-icons";
+import type { Host, RemoteSearchMode, RemoteSearchOutcome, Workspace } from "../lib/types";
+import { IconClose, IconDotsVertical, IconEdit, IconCopy, IconSearch } from "./ui-icons";
+import { ContextMenu } from "./ContextMenu";
+import { describeObject, type AppObject } from "../lib/appObject";
+import type { ObjectAction } from "../modules/types";
 
 interface RemoteSearchPanelProps {
   host: Host;
+  /** Pour nommer la provenance dans l'en-tête du menu d'objets — un chemin nu
+   * ne dit pas sur quelle machine il se trouve. */
+  workspace: Workspace;
+  /** Ce que les autres modules savent faire d'un résultat — le bus d'objets.
+   *
+   * C'est ce qui manquait le plus ici : la recherche savait ouvrir un éditeur
+   * sur un fichier trouvé, et rien d'autre. « Je l'ai trouvé, maintenant je
+   * veux un shell dans son dossier » demandait de copier le chemin, d'ouvrir
+   * un terminal, de le recoller — exactement le trajet que l'ouverture dans
+   * l'éditeur avait supprimé pour l'édition. */
+  objectActions: (obj: AppObject) => ObjectAction[];
   onClose: () => void;
   onError: (message: string) => void;
 }
@@ -33,7 +47,7 @@ function nameOf(path: string): string {
  * re-typed — which is the part that actually costs time, and the part that
  * goes wrong on a path with a space in it.
  */
-export function RemoteSearchPanel({ host, onClose, onError }: RemoteSearchPanelProps) {
+export function RemoteSearchPanel({ host, workspace, objectActions, onClose, onError }: RemoteSearchPanelProps) {
   const [mode, setMode] = useState<RemoteSearchMode>("name");
   const [root, setRoot] = useState("/etc");
   const [pattern, setPattern] = useState("");
@@ -42,6 +56,10 @@ export function RemoteSearchPanel({ host, onClose, onError }: RemoteSearchPanelP
   const [error, setError] = useState<string | null>(null);
   const [opening, setOpening] = useState<string | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
+  // Le menu « Envoyer vers… » d'un résultat. Porte le chemin plutôt que
+  // l'index de la ligne : la liste peut être remplacée par une nouvelle
+  // recherche pendant que le menu est ouvert.
+  const [menu, setMenu] = useState<{ x: number; y: number; path: string } | null>(null);
 
   const run = () => {
     setRunning(true);
@@ -189,6 +207,16 @@ export function RemoteSearchPanel({ host, onClose, onError }: RemoteSearchPanelP
                   {copied === hit.path ? <span className="px-0.5 text-[11px] text-emerald-400">✓</span> : <IconCopy size={12} />}
                 </button>
                 <button
+                  onClick={(e) => {
+                    const r = e.currentTarget.getBoundingClientRect();
+                    setMenu({ x: r.left, y: r.bottom + 2, path: hit.path });
+                  }}
+                  title="Envoyer vers un autre onglet"
+                  className="rounded p-1 text-[var(--c-text-muted)] hover:bg-white/5 hover:text-[var(--c-text-secondary)]"
+                >
+                  <IconDotsVertical size={12} />
+                </button>
+                <button
                   onClick={() => openInEditor(hit.path)}
                   disabled={opening === hit.path}
                   title="Ouvrir dans l'éditeur — le fichier est rapatrié, et renvoyé quand tu l'enregistres"
@@ -209,6 +237,20 @@ export function RemoteSearchPanel({ host, onClose, onError }: RemoteSearchPanelP
                 : "Limite de résultats atteinte : il y en a d'autres. Affiner le motif ou le dossier de départ."}
             </p>
           </div>
+        )}
+
+        {menu && (
+          <ContextMenu
+            x={menu.x}
+            y={menu.y}
+            onClose={() => setMenu(null)}
+            header={describeObject({ kind: "remotePath", source: { kind: "remote", hostId: host.id }, path: menu.path, isDir: false }, workspace)}
+            // `isDir: false` sans condition : la sonde ne cherche que des
+            // fichiers et des liens (`find … -type f -o -type l`), jamais un
+            // dossier. Les destinataires remontent donc au répertoire parent,
+            // qui est bien ce qu'on veut ouvrir.
+            items={objectActions({ kind: "remotePath", source: { kind: "remote", hostId: host.id }, path: menu.path, isDir: false })}
+          />
         )}
       </div>
     </div>

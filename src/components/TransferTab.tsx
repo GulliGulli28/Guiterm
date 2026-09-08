@@ -3,6 +3,9 @@ import { getCurrentWebview } from "@tauri-apps/api/webview";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, onTransferDone, onTransferError, onTransferProgress } from "../lib/api";
 import { ConnectionFailed } from "./ConnectionFailed";
+import { ContextMenu } from "./ContextMenu";
+import { describeObject, type AppObject } from "../lib/appObject";
+import type { ObjectAction } from "../modules/types";
 import type { AppPreferences } from "../lib/preferences";
 import type { ArchiveFormat, ConflictPolicy, CopyConflict, DiffHunk, DiffLine, DiffPick, Entry, FileDiff, Host, HostId, PaneComparison, PaneDiskSpace, PaneFindOutcome, SyncItem, PaneListed, PaneOpened, PaneSource, PaneState, RemoteEditListed, Workspace } from "../lib/types";
 import {
@@ -123,7 +126,16 @@ interface TransferTabProps {
   onPreferencesChange?: (next: AppPreferences) => void;
   /** « Ouvrir un terminal ici » : même cible que le panneau, dans le dossier
    * affiché. */
-  onOpenTerminal?: (source: PaneSource, cwd: string) => void;
+  /** Les actions que les autres modules offrent sur un chemin de ces panneaux
+   * — le bus d'objets. Remplace l'ancienne prop `onOpenTerminal`, qui câblait
+   * un unique destinataire : ici l'onglet ne sait plus *qui* répond, ce qui
+   * est exactement ce qui permet d'en ajouter sans le retoucher.
+   *
+   * Absente quand le panneau est monté seul par un contrôle Playwright. */
+  objectActions?: (obj: AppObject) => ObjectAction[];
+  /** Le dossier sur lequel poser le panneau distant, au lieu de celui que le
+   * backend rend à l'ouverture. */
+  initialPath?: string;
   onError: (message: string) => void;
   /** Fires after a successful `pushToRdp` — the RDP clipboard push has no
    * other visible effect (nothing lands in either file pane), so without
@@ -139,7 +151,7 @@ interface TransferTabProps {
   k8sContainerName?: string | null;
 }
 
-export function TransferTab({ host, workspace, preferences, onPreferencesChange, onOpenTerminal, onError, onPushed, dockerContainerId, k8sPodName, k8sContainerName }: TransferTabProps) {
+export function TransferTab({ host, workspace, preferences, onPreferencesChange, objectActions, initialPath, onError, onPushed, dockerContainerId, k8sPodName, k8sContainerName }: TransferTabProps) {
   // RDP hosts have no file-listing backend at all — the right panel is the
   // live embedded view itself (`RdpTab`) instead of a browsable pane, and
   // dropping entries from the left panel onto it pushes them onto the
@@ -170,12 +182,29 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
   const stateRef = useRef(state);
   stateRef.current = state;
 
-  const openPaneFor = async (side: Side, source: PaneSource) => {
+  /** `atPath` ne sert qu'à la toute première ouverture du panneau distant,
+   * quand l'onglet a été ouvert *sur* un dossier (bus d'objets). Deux
+   * aller-retours au lieu d'un : `open_pane` ne prend pas de dossier de
+   * départ, et lui en ajouter un ferait porter à toutes les ouvertures le
+   * coût d'un cas qui n'arrive que là.
+   *
+   * Un chemin devenu introuvable **ne fait pas échouer l'ouverture** : le
+   * panneau reste sur le dossier par défaut et le dit. Un onglet restauré
+   * après le déplacement d'un dossier s'ouvrirait sinon en erreur, sans rien
+   * pour en sortir. */
+  const openPaneFor = async (side: Side, source: PaneSource, atPath?: string) => {
     dispatch({ type: "opening", side, source });
     try {
       const result = await api.openPane(source);
       paneIds.current[side] = result.paneId;
       dispatch({ type: "opened", side, result });
+      if (atPath && atPath !== result.cwd) {
+        try {
+          dispatch({ type: "listed", side, result: await api.listPane(result.paneId, atPath) });
+        } catch {
+          onError(`Dossier « ${atPath} » introuvable — le panneau est resté sur ${result.cwd}.`);
+        }
+      }
     } catch (e) {
       dispatch({ type: "failed", side, error: String(e) });
     }
@@ -185,7 +214,7 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
     openPaneFor("left", { kind: "local" });
     // The right side is a live `RdpTab`, not a pane, for an RDP host —
     // nothing to open there (see `isRdpTarget`'s doc comment above).
-    if (!isRdpTarget) openPaneFor("right", initialRightSource);
+    if (!isRdpTarget) openPaneFor("right", initialRightSource, initialPath);
     return () => {
       if (paneIds.current.left) api.closePane(paneIds.current.left).catch(() => {});
       if (paneIds.current.right) api.closePane(paneIds.current.right).catch(() => {});
@@ -658,7 +687,7 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
     onOpenInEditor: openInEditor,
     onDirSize: dirSize,
     onDiskSpace: diskSpace,
-    onOpenTerminal: onOpenTerminal ? (path: string) => onOpenTerminal(state[side].source, path) : undefined,
+    objectActions,
     onCompare: isRdpTarget ? undefined : comparePanes,
     onPickForDiff: isRdpTarget ? undefined : (name: string) => pickForDiff(side, name),
     onDiffPair: isRdpTarget
@@ -873,7 +902,7 @@ interface PaneViewProps {
   /** Absent quand l'onglet n'a pas de quoi ouvrir un onglet (le contrôle
    * Playwright, qui monte un panneau seul) — le bouton n'est alors pas
    * affiché plutôt que d'être sans effet. */
-  onOpenTerminal?: (path: string) => void;
+  objectActions?: (obj: AppObject) => ObjectAction[];
   /** Absent quand il n'y a pas deux arborescences à comparer (cible RDP, ou
    * panneau monté seul par un contrôle). */
   onCompare?: () => void;
@@ -948,7 +977,7 @@ const SHOW_TYPE_ABOVE = 330;
  * d'entrée : dans l'app, un panneau se rend toujours via `TransferTab`. */
 export function PaneView({
   side, pane, workspace, fontSize, onNavigate, onSourceChange, onCopy, onMkdir, onCreateFile, onRename,
-  onRemove, onChmod, onEdit, onOpenInEditor, onDirSize, onDiskSpace, onOpenTerminal, onCompare, onPickForDiff, onDiffPair, diffPick, diffArmedName,
+  onRemove, onChmod, onEdit, onOpenInEditor, onDirSize, onDiskSpace, objectActions, onCompare, onPickForDiff, onDiffPair, diffPick, diffArmedName,
   onFind, onArchive, onExtract, showHidden,
   onToggleHidden, onDragStart, justDraggedRef, dragging, dropTarget, isRdpPush,
 }: PaneViewProps) {
@@ -1271,6 +1300,9 @@ export function PaneView({
   /** Menu contextuel : la position du clic et la ligne visée. Fermé au
    * prochain clic, à Échap, ou dès qu'on navigue. */
   const [menu, setMenu] = useState<{ x: number; y: number; entry: Entry } | null>(null);
+  // Distinct du menu contextuel ci-dessus : celui-là porte une entrée, celui-ci
+  // désigne le dossier courant et s'ouvre au bouton, pas au clic droit.
+  const [objectMenu, setObjectMenu] = useState<{ x: number; y: number } | null>(null);
 
   const openMenu = (entry: Entry, e: React.MouseEvent) => {
     e.preventDefault();
@@ -1655,13 +1687,16 @@ export function PaneView({
                         : "Comparer ce fichier…"}
                   </button>
                 )}
-                {onOpenTerminal && (
+                {objectActions && (
                   <button
-                    onClick={() => onOpenTerminal(pane.cwd)}
-                    title="Ouvrir un terminal sur cette machine, dans ce dossier"
+                    onClick={(e) => {
+                      const r = e.currentTarget.getBoundingClientRect();
+                      setObjectMenu({ x: r.left, y: r.bottom + 2 });
+                    }}
+                    title="Ce que les autres onglets savent faire de ce dossier"
                     className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
                   >
-                    <IconTerminal size={12} /> Terminal ici
+                    <IconTerminal size={12} /> Envoyer vers…
                   </button>
                 )}
                 {onToggleHidden && (
@@ -1909,9 +1944,6 @@ export function PaneView({
                   ? [
                       { label: "Ouvrir", run: () => openEntry(menu.entry) },
                       { label: "Calculer la taille", run: () => computeDirSize(menu.entry) },
-                      ...(onOpenTerminal
-                        ? [{ label: "Terminal dans ce dossier", run: () => onOpenTerminal(joinPath(pane.cwd, menu.entry.name)) }]
-                        : []),
                     ]
                   : [
                       ...(menu.entry.size <= QUICK_EDIT_MAX_SIZE
@@ -1930,6 +1962,13 @@ export function PaneView({
                           }]
                         : []),
                     ]),
+                // Le bus : dossier **comme** fichier, là où l'ancienne entrée
+                // codée en dur ne valait que pour un dossier. « Ouvrir un
+                // terminal dans son dossier » sur un fichier est le geste qui
+                // manquait le plus.
+                ...(objectActions?.(
+                  { kind: "remotePath", source: pane.source, path: joinPath(pane.cwd, menu.entry.name), isDir: menu.entry.isDir },
+                ) ?? []),
                 {
                   label: isRdpPush
                     ? `Envoyer dans la session RDP (${selectedEntries.length || 1})`
@@ -1944,6 +1983,16 @@ export function PaneView({
                   : []),
                 { label: `Supprimer (${selectedEntries.length || 1})`, run: () => setConfirmDelete(true), danger: true },
               ]}
+            />
+          )}
+
+          {objectMenu && objectActions && (
+            <ContextMenu
+              x={objectMenu.x}
+              y={objectMenu.y}
+              onClose={() => setObjectMenu(null)}
+              header={describeObject({ kind: "remotePath", source: pane.source, path: pane.cwd, isDir: true }, workspace)}
+              items={objectActions({ kind: "remotePath", source: pane.source, path: pane.cwd, isDir: true })}
             />
           )}
 
@@ -2081,70 +2130,6 @@ function ConflictModal({
           </button>
         </div>
       </div>
-    </div>
-  );
-}
-
-/** Menu contextuel du clic droit. Positionné au curseur, replié dans la
- * fenêtre s'il déborde, fermé au moindre clic ailleurs, à Échap ou au
- * défilement — un menu resté ouvert au-dessus d'une liste qui a bougé
- * désignerait autre chose que ce qu'il annonce. */
-function ContextMenu({
-  x, y, items, onClose,
-}: {
-  x: number;
-  y: number;
-  items: { label: string; run: () => void; disabled?: boolean; danger?: boolean }[];
-  onClose: () => void;
-}) {
-  const ref = useRef<HTMLDivElement>(null);
-  const [position, setPosition] = useState({ x, y });
-
-  useEffect(() => {
-    const el = ref.current;
-    if (!el) return;
-    const rect = el.getBoundingClientRect();
-    setPosition({
-      x: Math.min(x, window.innerWidth - rect.width - 8),
-      y: Math.min(y, window.innerHeight - rect.height - 8),
-    });
-  }, [x, y]);
-
-  useEffect(() => {
-    const close = () => onClose();
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") onClose(); };
-    window.addEventListener("mousedown", close);
-    window.addEventListener("wheel", close);
-    window.addEventListener("keydown", onKey);
-    return () => {
-      window.removeEventListener("mousedown", close);
-      window.removeEventListener("wheel", close);
-      window.removeEventListener("keydown", onKey);
-    };
-  }, [onClose]);
-
-  return (
-    <div
-      ref={ref}
-      data-context-menu
-      style={{ left: position.x, top: position.y }}
-      onMouseDown={(e) => e.stopPropagation()}
-      className="fixed z-50 min-w-44 rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] py-1 text-xs shadow-xl"
-    >
-      {items.map((item) => (
-        <button
-          key={item.label}
-          disabled={item.disabled}
-          onClick={() => { item.run(); onClose(); }}
-          className={`block w-full px-3 py-1 text-left disabled:opacity-40 disabled:hover:bg-transparent ${
-            item.danger
-              ? "text-rose-400 hover:bg-rose-900/40 hover:text-rose-300"
-              : "text-[var(--c-text-secondary)] hover:bg-[var(--c-accent)] hover:text-white"
-          }`}
-        >
-          {item.label}
-        </button>
-      ))}
     </div>
   );
 }

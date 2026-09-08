@@ -1,4 +1,5 @@
 import { lazy } from "react";
+import { directoryOf } from "../lib/appObject";
 import { hostOf } from "./hostBound";
 import { defineModule } from "./types";
 
@@ -16,6 +17,23 @@ export const terminalModule = defineModule({
   id: "terminal",
   label: "Terminal SSH",
   commandDomains: ["terminal", "docker", "k8s"],
+  /** « Ouvrir un terminal ici ».
+   *
+   * C'est l'ancien `AppContext.openTerminalIn`, dont le panneau de transfert
+   * était le seul appelant possible parce que c'était lui qui recevait la
+   * prop. Passé par le bus, le même lien vaut désormais pour tout ce qui
+   * désigne un chemin — à commencer par les résultats de recherche distante,
+   * qui savaient jusqu'ici ouvrir un éditeur mais pas un shell. */
+  objects: {
+    actionsFor: (obj, _ctx, open) => {
+      if (obj.kind !== "remotePath") return [];
+      return [{
+        id: "terminal.open-here",
+        label: obj.isDir ? "Ouvrir un terminal dans ce dossier" : "Ouvrir un terminal dans son dossier",
+        run: () => open.openTerminalIn(obj.source, directoryOf(obj)),
+      }];
+    },
+  },
   tab: {
     kind: "terminal",
     render: (tab, ctx, isActive) => {
