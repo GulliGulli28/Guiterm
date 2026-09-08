@@ -9,6 +9,48 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+### Added
+
+- **Une étape de runbook peut jouer un playbook Ansible.** Une procédure
+  enchaînait des commandes shell et des programmes du langage adaptatif ; il lui
+  manquait ce que beaucoup de gens font entre les deux. C'est la troisième forme
+  d'étape, à côté de « Commande » et « Langage ».
+
+  **Le playbook est joué depuis un hôte relais, pas depuis votre poste.** Vous
+  choisissez la machine dans votre liste d'hôtes — un nœud de contrôle, celui
+  qui a déjà Ansible, vos rôles et votre inventaire — puis vous **parcourez son
+  système de fichiers** pour désigner le playbook, et l'inventaire si vous n'en
+  voulez pas celui de son `ansible.cfg`. Rien ne se tape : un chemin saisi à la
+  main ne se vérifie qu'au lancement, c'est-à-dire au pire moment ; le parcourir
+  prouve qu'il existe pendant que vous le choisissez. Conséquence agréable :
+  Ansible n'a pas besoin d'être installé sur votre machine, ce qui compte sous
+  Windows où il ne tourne pas nativement.
+
+  **L'étape ne vise que les machines que vous avez cochées**, et seulement
+  celles qui viennent d'un inventaire importé — ce sont les seules dont Guiterm
+  connaît le nom Ansible. Les autres sont listées comme non visées, avec la
+  raison, plutôt qu'ignorées en silence : un playbook qui toucherait moins de
+  machines que prévu sans le dire est pire qu'une étape qui refuse. Et la
+  commande porte toujours une restriction de portée, jamais l'inventaire entier
+  du relais.
+
+  **Le rapport reste par machine.** Le récapitulatif d'Ansible est relu pour
+  produire un résultat par cible, pas un seul pour le relais : « continuer sans
+  les machines en échec » garde donc tout son sens. Une machine visée mais
+  absente du récapitulatif compte comme un échec, jamais comme une réussite
+  silencieuse.
+
+  **La sortie s'affiche pendant que le playbook tourne**, tâche par tâche, au
+  lieu d'arriver d'un bloc à la fin — un playbook dure des minutes.
+
+  Deux limites dites plutôt que suggérées. Guiterm ne lit pas le playbook, qui
+  vit sur le relais : il ne peut donc rien dire de ce qu'il détruit, et une
+  étape playbook ne déclenche pas la pause d'approbation automatique — passez-la
+  sur « toujours demander » quand elle le mérite. Et une procédure contenant une
+  étape playbook désigne une machine précise, donc elle n'est plus transposable
+  telle quelle chez quelqu'un d'autre, contrairement aux autres étapes dont la
+  portée ne nomme jamais d'hôte.
+
 ## [3.3.0] - 2026-09-07
 
 ### Added
