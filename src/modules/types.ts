@@ -158,11 +158,13 @@ export interface TabOpeners {
   // ouvrent un onglet plutôt qu'un panneau » — ce qui les décrivait déjà comme
   // des ouvreurs. Remontés ici le 2026-09-08 quand le bus en a eu besoin :
   // leur place était de ce côté de la frontière depuis le début.
-  openFleet: () => void;
+  /** `seed` pré-coche des cibles, quand l'onglet est ouvert sur une sélection
+   * faite ailleurs plutôt que sur une liste encore à cocher. */
+  openFleet: (seed?: { targetKeys: string[] }) => void;
   /** `sourceHostId` : depuis quelle machine sonder — `null` pour celle-ci.
    * `seed` pré-remplit la destination, quand l'onglet est ouvert sur une
    * adresse désignée ailleurs plutôt que sur une question encore à écrire. */
-  openNetDiag: (sourceHostId?: HostId | null, seed?: { destination: string; tcpPort?: number }) => void;
+  openNetDiag: (sourceHostId?: HostId | null, seed?: { destination?: string; tcpPort?: number; targetKeys?: string[] }) => void;
 }
 
 /** Ce qu'un panneau de barre latérale peut demander à l'app, en plus

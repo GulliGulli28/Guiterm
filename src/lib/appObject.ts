@@ -33,7 +33,17 @@ export type AppObject =
    * dans un `ss` sur un bastion ne veut rien dire depuis cette machine-ci, et
    * la question utile est « depuis ce bastion, est-ce que tu joins ça ? ».
    * C'est exactement le second sens que `useNetDiagSelection` documente. */
-  | { kind: "endpoint"; address: string; port: number | null; via: HostId | null };
+  | { kind: "endpoint"; address: string; port: number | null; via: HostId | null }
+  /** Un lot de machines déjà choisies, désigné par les clés de
+   * `fleetTargetKey` — hôtes SSH, conteneurs Docker, pods K8s et machine
+   * locale mêlés, comme la flotte les mélange déjà.
+   *
+   * Les **clés** et non les cibles elles-mêmes : c'est ce que les deux
+   * magasins de sélection (`useFleetSelection`, `useNetDiagSelection`)
+   * manipulent, et ce qui survit au fait qu'un conteneur listé il y a dix
+   * minutes n'existe peut-être plus. Le destinataire recoupe avec ce qu'il
+   * sait viser. */
+  | { kind: "targets"; keys: string[] };
 
 /** Comment nommer l'objet dans l'en-tête du menu qui offre ses actions.
  *
@@ -50,6 +60,8 @@ export function describeObject(obj: AppObject, workspace: Workspace): string {
     }
     case "endpoint":
       return obj.port === null ? obj.address : `${obj.address}:${obj.port}`;
+    case "targets":
+      return obj.keys.length === 1 ? "1 cible" : `${obj.keys.length} cibles`;
   }
 }
 

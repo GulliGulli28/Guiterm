@@ -1069,7 +1069,18 @@ export type TabMeta =
       readOnly?: boolean;
     }
   | { id: string; kind: "local-terminal"; label: string; initialCommand?: string; shell?: string | null; status?: "connected" | "placeholder" }
-  | { id: string; kind: "fleet"; label: string; status?: "connected" | "placeholder" }
+  | {
+      id: string;
+      kind: "fleet";
+      label: string;
+      /** Cibles pré-cochées, quand l'onglet a été ouvert sur une sélection
+       * venue d'ailleurs (bus d'objets). Voyage par l'onglet et non par le
+       * magasin partagé : les fournisseurs de sélection enveloppent `App.tsx`,
+       * qui ne peut donc pas les écrire — c'est déjà pour ça que
+       * `initialSourceId` existe côté diagnostic. */
+      initialTargetKeys?: string[];
+      status?: "connected" | "placeholder";
+    }
   | {
       id: string;
       kind: "runbook";
@@ -1096,6 +1107,8 @@ export type TabMeta =
        * répondrait sur un autre port que celui qu'on venait de désigner. */
       initialDestination?: string;
       initialTcpPort?: number;
+      /** Hôtes pré-cochés — voir le champ homonyme de l'onglet de flotte. */
+      initialTargetKeys?: string[];
       status?: "connected" | "placeholder";
     }
   | { id: string; kind: "sql"; label: string; sqlConnectionId: SqlConnectionId; status?: "connected" | "placeholder" };
@@ -1171,6 +1184,18 @@ export type FleetTarget =
 
 /** Stable string key for a `FleetTarget`, used as the React selection/results
  * state key (Sets/Maps need a primitive, not the target object itself). */
+/** Cette clé désigne-t-elle un hôte SSH enregistré ?
+ *
+ * Vit **ici**, collé à `fleetTargetKey` dont il lit le format, et pas chez ses
+ * appelants : le diagnostic réseau en a besoin pour écarter ce qu'il ne sait
+ * pas viser dans le sens « vers » (un conteneur ou la machine locale n'a pas
+ * d'adresse enregistrée), et un module qui testerait le préfixe lui-même se
+ * décorrélerait en silence le jour où la clé change de forme.
+ * `types.test.ts` vérifie l'accord des deux sur les quatre variantes. */
+export function isSshTargetKey(key: string): boolean {
+  return key.startsWith("ssh:");
+}
+
 export function fleetTargetKey(t: FleetTarget): string {
   switch (t.kind) {
     case "ssh":

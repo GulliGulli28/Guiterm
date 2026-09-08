@@ -12,6 +12,7 @@ import type { AppContext, TabOpeners } from "./types";
 const EVERY_OBJECT_KIND: Record<AppObject["kind"], true> = {
   remotePath: true,
   endpoint: true,
+  targets: true,
 };
 
 const HOST_ID = "h1";
@@ -39,6 +40,7 @@ const ctx = {
 const SAMPLES: Record<AppObject["kind"], AppObject> = {
   remotePath: { kind: "remotePath", source: { kind: "remote", hostId: HOST_ID }, path: "/etc/nginx/nginx.conf", isDir: false },
   endpoint: { kind: "endpoint", address: "10.0.3.12", port: 5432, via: HOST_ID },
+  targets: { kind: "targets", keys: [`ssh:${HOST_ID}`, "docker:h2:abc", "local"] },
 };
 
 /** Des ouvreurs qui enregistrent au lieu d'ouvrir. Un `{} as TabOpeners` ne
@@ -112,6 +114,31 @@ describe("bus d'objets", () => {
     const openers = { openNetDiag } as unknown as TabOpeners;
     for (const action of actionsForObject(SAMPLES.endpoint, ctx, openers)) action.run();
     expect(openNetDiag).toHaveBeenCalledWith(HOST_ID, { destination: "10.0.3.12", tcpPort: 5432 });
+  });
+
+  it("n'envoie au diagnostic que les cibles qu'il sait viser", () => {
+    // Le sens « vers » sonde l'adresse d'un hôte enregistré : un conteneur
+    // Docker et la machine locale n'en ont pas. Les passer quand même
+    // ouvrirait un onglet avec des cases impossibles à cocher — pire, le
+    // compte annoncé dans le libellé mentirait sur ce qui sera réellement
+    // sondé. La flotte, elle, prend tout : elle sait exécuter sur les trois.
+    const openNetDiag = vi.fn();
+    const openFleet = vi.fn();
+    const openers = { openNetDiag, openFleet } as unknown as TabOpeners;
+    for (const action of actionsForObject(SAMPLES.targets, ctx, openers)) action.run();
+    expect(openNetDiag).toHaveBeenCalledWith(undefined, { targetKeys: [`ssh:${HOST_ID}`] });
+    expect(openFleet).toHaveBeenCalledWith({ targetKeys: [`ssh:${HOST_ID}`, "docker:h2:abc", "local"] });
+  });
+
+  it("n'offre rien sur un lot de cibles vide", () => {
+    // Un « Envoyer vers… » proposé alors que rien n'est coché ouvrirait un
+    // onglet sans sélection, ce qui n'est pas un envoi.
+    expect(actionsForObject({ kind: "targets", keys: [] }, ctx, spyOpeners())).toEqual([]);
+  });
+
+  it("cache l'action du diagnostic quand aucune cible n'est un hôte SSH", () => {
+    const actions = actionsForObject({ kind: "targets", keys: ["local", "docker:h2:abc"] }, ctx, spyOpeners());
+    expect(actions.map((a) => a.id)).toEqual(["fleet.run-on"]);
   });
 
   it("n'est pas vide — sinon les vérifications ci-dessus se feraient à vide", () => {

@@ -281,6 +281,36 @@ Fichiers : `src/modules/{fleet,netdiag,sql}.tsx` ;
 `src/hooks/{useFleetSelection,useNetDiagSelection}.tsx` (exposer une amorce,
 sur le modèle de `seedSource`).
 
+#### Écarts au plan, constatés en écrivant la tranche 3
+
+- **L'amorce voyage par `TabMeta`, pas par les magasins de sélection.** Les
+  deux fournisseurs (`FleetSelectionProvider`, `NetDiagSelectionProvider`)
+  enveloppent l'arbre dans `App.tsx`, qui ne peut donc pas les écrire. Ce n'est
+  pas un contournement : c'est déjà le chemin qu'`initialSourceId`/`seedSource`
+  prenaient, et le suivre évite de toucher à l'architecture des contextes.
+  Conséquence : les deux onglets sont des **singletons**, donc leur `key` de
+  remontage doit inclure l'amorce — sinon un second envoi ne réamorce rien.
+  Vaut pour la destination (tranche 2) comme pour les cibles.
+- **Le diagnostic écarte ce qu'il ne sait pas viser.** Le sens « vers » sonde
+  l'adresse d'un hôte enregistré : un conteneur Docker, un pod ou la machine
+  locale n'en a pas. Le filtrage est fait **dans le module**, pas dans
+  l'onglet, pour que le libellé annonce le nombre exact et que l'action
+  disparaisse quand il n'en reste aucun. D'où `isSshTargetKey`, posé à côté de
+  `fleetTargetKey` dont il lit le format — un module qui testerait le préfixe
+  lui-même se décorrélerait en silence.
+- **Recevoir des cibles bascule le sens du diagnostic sur « vers ».** Les deux
+  amorces ne peuvent pas coexister : `setDirection` vide la sélection par
+  contrat, donc les cases se posent après.
+- **La sélection SQL → cibles n'est pas faite.** Elle demande une heuristique
+  de colonne et une UI dans `ResultTable` — du travail de destinataire, pas de
+  bus, et bien plus spéculatif que le trajet flotte ⇄ diagnostic qui répond à
+  un incident réel. L'anti-vacuité est satisfaite sans elle.
+
+Et un piège de scénario e2e, payé une fois : **un scénario qui coche des cases
+d'un magasin partagé doit les rendre**. Laisser dix hôtes SSH injoignables
+sélectionnés dans la flotte fait échouer le scénario runbook, qui compte
+s'exécuter sur la seule cible locale — « l exécution n a pas été enregistrée ».
+
 ### Garde-fous — « quel test échouerait si je m'étais trompé ? »
 
 Le risque propre à un registre consulté à l'exécution, c'est **le menu toujours

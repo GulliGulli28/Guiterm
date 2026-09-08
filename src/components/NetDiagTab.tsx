@@ -5,6 +5,9 @@ import { fleetTargetKey } from "../lib/types";
 import type { DiagTool, DiagVerdict, HostId } from "../lib/types";
 import { useNetDiagSelection } from "../hooks/useNetDiagSelection";
 import { IconPlay } from "./ui-icons";
+import { ContextMenu } from "./ContextMenu";
+import type { AppObject } from "../lib/appObject";
+import type { ObjectAction } from "../modules/types";
 
 interface NetDiagTabProps {
   onError: (message: string) => void;
@@ -21,6 +24,12 @@ interface NetDiagTabProps {
   /** Ramène la barre latérale sur le panneau de sélection — ce que fait le
    * récapitulatif de cibles quand elle affiche autre chose. */
   onShowTargets: () => void;
+  /** Hôtes à pré-cocher, quand l'onglet a été ouvert sur une sélection venue
+   * d'ailleurs. Le sens bascule alors sur « vers » : la question posée est
+   * « est-ce que ces machines-là répondent ? ». */
+  initialTargetKeys?: string[];
+  /** Ce que les autres modules savent faire de la sélection courante. */
+  objectActions?: (obj: AppObject) => ObjectAction[];
 }
 
 const inputClass =
@@ -46,10 +55,10 @@ const TONE_CLASS: Record<string, string> = {
  * unresolved name is not a network problem, and a missing tool is not a failed
  * test.
  */
-export function NetDiagTab({ onError, initialSourceId, initialDestination, initialTcpPort, onShowTargets }: NetDiagTabProps) {
+export function NetDiagTab({ onError, initialSourceId, initialDestination, initialTcpPort, initialTargetKeys, objectActions, onShowTargets }: NetDiagTabProps) {
   // Le choix des machines vit dans la barre latérale (`NetDiagTargetsPanel`),
   // donc dans un magasin partagé plutôt que dans cet onglet.
-  const { direction, setDirection, selected, selectable, seedSource } = useNetDiagSelection();
+  const { direction, setDirection, selected, selectable, seedSource, toggleKeys } = useNetDiagSelection();
 
   // Amorcées, pas seulement affichées : l'onglet est remonté à chaque nouvel
   // envoi (voir sa `key` dans `modules/netdiag.tsx`), donc un `useState`
@@ -127,7 +136,21 @@ export function NetDiagTab({ onError, initialSourceId, initialDestination, initi
   // l'onglet depuis le menu d'un autre hôte le remonte, et c'est *ici* que la
   // source repart de cet hôte-là. Sans cet effet, on hériterait silencieusement
   // de la source de l'incident précédent.
+  const [sendMenu, setSendMenu] = useState<{ x: number; y: number } | null>(null);
+
   useEffect(() => {
+    // Une sélection envoyée par un autre onglet l'emporte sur l'amorce de
+    // source, et bascule le sens : on ne demande plus « depuis cette machine,
+    // qu'est-ce qui répond » mais « est-ce que ces machines-là répondent ».
+    // Les deux amorces ne peuvent pas coexister — elles cochent des listes
+    // différentes (voir `selectable`).
+    if (initialTargetKeys && initialTargetKeys.length > 0) {
+      setDirection("to");
+      // `setDirection` vide la sélection par contrat ; les cases sont posées
+      // après, sinon elles seraient effacées dans la foulée.
+      toggleKeys(initialTargetKeys, true);
+      return;
+    }
     seedSource(initialSourceId ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -286,6 +309,27 @@ export function NetDiagTab({ onError, initialSourceId, initialDestination, initi
               ? "Aucune machine choisie"
               : `${selected.size} machine${selected.size > 1 ? "s" : ""} · modifier`}
           </button>
+
+          {objectActions && selected.size > 0 && (
+            <button
+              onClick={(e) => {
+                const r = e.currentTarget.getBoundingClientRect();
+                setSendMenu({ x: r.left, y: r.bottom + 2 });
+              }}
+              title="Reprendre cette sélection dans un autre onglet"
+              className="rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-2.5 py-1.5 text-[11px] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)]"
+            >
+              Envoyer vers…
+            </button>
+          )}
+          {sendMenu && objectActions && (
+            <ContextMenu
+              x={sendMenu.x}
+              y={sendMenu.y}
+              onClose={() => setSendMenu(null)}
+              items={objectActions({ kind: "targets", keys: [...selected] })}
+            />
+          )}
 
           <button
             onClick={run}

@@ -95,14 +95,18 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
   // false for every tab. Only visible in dev builds (StrictMode is a
   // development-only behaviour), which is why it survived until an E2E
   // scenario opened one of these tabs from the palette.
-  const openFleet = useCallback(() => {
+  const openFleet = useCallback((seed?: { targetKeys: string[] }) => {
     const existing = tabs.find((t) => t.kind === "fleet");
     if (existing) {
+      // Même règle que le diagnostic : l'onglet est unique, donc le re-viser
+      // écrase son amorce — y compris avec `undefined`, sinon une sélection
+      // envoyée une fois resterait collée aux ouvertures suivantes.
+      setTabs((prev) => prev.map((t) => (t.id === existing.id ? { ...t, initialTargetKeys: seed?.targetKeys } : t)));
       setActiveTabId(existing.id);
       return;
     }
     const id = `tab-${nextTabId++}`;
-    setTabs((prev) => [...prev, { id, kind: "fleet", label: "Opérations de flotte" }]);
+    setTabs((prev) => [...prev, { id, kind: "fleet", label: "Opérations de flotte", initialTargetKeys: seed?.targetKeys }]);
     setActiveTabId(id);
   }, [tabs]);
 
@@ -126,7 +130,7 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
    * destination re-aims the existing tab rather than stacking a second one:
    * the panel this replaced was a modal, and people open it repeatedly from
    * different hosts during one incident. */
-  const openNetdiag = useCallback((sourceHostId?: HostId | null, seed?: { destination: string; tcpPort?: number }) => {
+  const openNetdiag = useCallback((sourceHostId?: HostId | null, seed?: { destination?: string; tcpPort?: number; targetKeys?: string[] }) => {
     const existing = tabs.find((t) => t.kind === "netdiag");
     if (existing) {
       // L'onglet est unique, donc le re-viser doit écraser son amorce — y
@@ -140,6 +144,7 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
             ...(sourceHostId !== undefined ? { sourceHostId } : {}),
             initialDestination: seed?.destination,
             initialTcpPort: seed?.tcpPort,
+            initialTargetKeys: seed?.targetKeys,
           }
         : t)));
       setActiveTabId(existing.id);
@@ -155,6 +160,7 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
         sourceHostId: sourceHostId ?? null,
         initialDestination: seed?.destination,
         initialTcpPort: seed?.tcpPort,
+        initialTargetKeys: seed?.targetKeys,
       },
     ]);
     setActiveTabId(id);

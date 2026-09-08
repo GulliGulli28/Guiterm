@@ -609,10 +609,10 @@ export default function App() {
   // une composition sans ce sur quoi elle porte. Vaut pour tous les chemins —
   // barre latérale, palette, menu d'un hôte — et pas seulement pour le bouton.
   const showTargetsPanel = (panel: SidebarPanelKind) => { setSidebarVisible(true); setSidebarPanel(panel); };
-  const openFleetTab = () => { showTargetsPanel("fleet"); openFleet(); };
+  const openFleetTab = (seed?: { targetKeys: string[] }) => { showTargetsPanel("fleet"); openFleet(seed); };
   // `sourceHostId` optionnel : la barre latérale rouvre l'onglet sans rien
   // dire de la source, et lui en imposer une écraserait celle déjà choisie.
-  const openNetdiagTab = (sourceHostId?: HostId | null, seed?: { destination: string; tcpPort?: number }) => {
+  const openNetdiagTab = (sourceHostId?: HostId | null, seed?: { destination?: string; tcpPort?: number; targetKeys?: string[] }) => {
     showTargetsPanel("netdiag");
     openNetdiag(sourceHostId, seed);
   };

@@ -266,6 +266,7 @@ async function runScenarios(browser) {
   await runAdaptiveComposerScenario(browser);
   await runSqlHistoryScenario(browser);
   await runFleetTabScenario(browser);
+  await runObjectBusTargetsScenario(browser);
   await runRunbookScenario(browser);
   await runRunbookApprovalScenario(browser);
   await runRunbookFileScenario(browser);
@@ -2061,6 +2062,116 @@ async function runObjectBusSelectionScenario(browser) {
   ), { timeout: 10_000, timeoutMsg: "l onglet de diagnostic ne s est pas ouvert sur l adresse envoyée" });
 
   console.log(`Bus d objets au clavier : OK (${combo} traverse xterm, « ${probe} », destination amorcée).`);
+}
+
+/**
+ * Le bus d'objets sur une **sélection de machines** : les cibles cochées dans
+ * la flotte, reprises telles quelles par le diagnostic réseau.
+ *
+ * Le trajet d'un incident réel : « ma commande a échoué sur ces douze-là » →
+ * « est-ce qu'elles répondent seulement ? ». Sans ça, il fallait recocher les
+ * douze dans un second panneau, de mémoire.
+ *
+ * Ce que ce scénario prouve et que `objects.test.ts` ne peut pas : l'amorce
+ * traverse réellement `TabMeta` jusqu'au magasin de sélection de l'autre
+ * onglet. Les deux magasins sont des contextes React montés **au-dessus**
+ * d'`App.tsx`, qui ne peut donc pas les écrire — c'est le détour que la
+ * tranche a dû prendre, et le seul endroit où il se vérifie de bout en bout.
+ */
+async function runObjectBusTargetsScenario(browser) {
+  await browser.execute(() => {
+    const btn = Array.from(document.querySelectorAll("aside nav button"))
+      .find((b) => (b.getAttribute("title") || "").startsWith("Opérations de flotte"));
+    if (btn instanceof HTMLElement) btn.click();
+  });
+  await browser.waitUntil(
+    async () => await browser.execute(() => !!document.querySelector('[data-sidebar-panel="fleet"]')),
+    { timeout: 15_000, timeoutMsg: "le panneau de cibles de la flotte ne s est pas ouvert" },
+  );
+
+  // Cocher tout ce qui est cochable : le scénario ne suppose rien du workspace
+  // de la machine qui l'exécute — il peut ne contenir que la cible locale.
+  const checked = await browser.execute(() => {
+    const panel = document.querySelector('[data-sidebar-panel="fleet"]');
+    const boxes = Array.from(panel?.querySelectorAll('input[type="checkbox"]') ?? []);
+    for (const box of boxes) if (box instanceof HTMLInputElement && !box.checked) box.click();
+    return boxes.length;
+  });
+  if (checked === 0) throw new Error("aucune cible cochable dans le panneau de la flotte");
+
+  const sent = await browser.waitUntil(async () => {
+    const found = await browser.execute(() => {
+      const btn = Array.from(document.querySelectorAll("button"))
+        .find((b) => b.textContent?.trim() === "Envoyer vers…" && b.offsetParent !== null);
+      if (!(btn instanceof HTMLElement)) return false;
+      btn.click();
+      return true;
+    });
+    return found;
+  }, { timeout: 10_000, timeoutMsg: "le bouton « Envoyer vers… » de la flotte n apparaît pas une fois des cibles cochées" });
+  if (!sent) throw new Error("bouton « Envoyer vers… » introuvable");
+
+  const items = await browser.waitUntil(async () => {
+    const found = await browser.execute(() => {
+      const menu = document.querySelector("[data-context-menu]");
+      return menu ? Array.from(menu.querySelectorAll("button"), (b) => b.textContent?.trim() ?? "") : null;
+    });
+    return found && found.length > 0 ? found : false;
+  }, { timeout: 5_000, timeoutMsg: "le menu du bus ne s est pas ouvert depuis la flotte" });
+
+  // La flotte accepte les trois formes de cible, donc elle se propose
+  // toujours ; le diagnostic n'apparaît que s'il reste un hôte SSH parmi les
+  // cases cochées. Un workspace sans hôte SSH est un cas légitime — le dire
+  // plutôt que d'échouer, comme le fait le scénario d'import cloud.
+  const check = items.find((label) => label.startsWith("Vérifier que"));
+  if (!check) {
+    console.log(`Bus d objets sur une sélection : ignoré (aucun hôte SSH parmi les cibles) — menu : ${JSON.stringify(items)}`);
+    await browser.execute(() => window.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
+    await clearFleetSelection(browser);
+    return;
+  }
+
+  await clickButtonByText(browser, check);
+
+  // L'amorce est arrivée jusqu'au magasin de l'autre onglet : son récapitulatif
+  // annonce des machines choisies, et non « Aucune machine choisie ».
+  await browser.waitUntil(async () => await browser.execute(() =>
+    Array.from(document.querySelectorAll("button"))
+      .some((b) => b.offsetParent !== null && /machine(s)? · modifier$/.test((b.textContent || "").trim()))
+  ), { timeout: 15_000, timeoutMsg: "le diagnostic réseau n a pas repris la sélection envoyée par la flotte" });
+
+  await clearFleetSelection(browser);
+  console.log(`Bus d objets sur une sélection : OK (« ${check} », sélection reprise par le diagnostic).`);
+}
+
+/** Décoche tout dans le panneau de cibles de la flotte.
+ *
+ * **Obligatoire, pas de la politesse.** La sélection de flotte est un magasin
+ * *partagé*, monté au-dessus d'`App.tsx` et lu par les runbooks : la laisser
+ * sur dix hôtes SSH injoignables fait échouer le scénario runbook, qui compte
+ * s'exécuter sur la seule cible locale. Constaté — « l exécution n a pas été
+ * enregistrée : [] ». Un scénario qui coche des cases doit les rendre. */
+async function clearFleetSelection(browser) {
+  await browser.execute(() => {
+    const btn = Array.from(document.querySelectorAll("aside nav button"))
+      .find((b) => (b.getAttribute("title") || "").startsWith("Opérations de flotte"));
+    if (btn instanceof HTMLElement) btn.click();
+  });
+  await browser.waitUntil(
+    async () => await browser.execute(() => !!document.querySelector('[data-sidebar-panel="fleet"]')),
+    { timeout: 10_000, timeoutMsg: "impossible de revenir au panneau de la flotte pour rendre les cases" },
+  );
+  await browser.execute(() => {
+    const panel = document.querySelector('[data-sidebar-panel="fleet"]');
+    for (const box of panel?.querySelectorAll('input[type="checkbox"]') ?? []) {
+      if (box instanceof HTMLInputElement && box.checked) box.click();
+    }
+  });
+  await browser.waitUntil(async () => await browser.execute(() => {
+    const panel = document.querySelector('[data-sidebar-panel="fleet"]');
+    return Array.from(panel?.querySelectorAll('input[type="checkbox"]') ?? [])
+      .every((b) => b instanceof HTMLInputElement && !b.checked);
+  }), { timeout: 10_000, timeoutMsg: "des cibles de flotte sont restées cochées derrière ce scénario" });
 }
 
 async function runHostAttachmentsScenario(browser) {

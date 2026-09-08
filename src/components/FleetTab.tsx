@@ -11,6 +11,9 @@ import { SnippetPicker } from "./SnippetPicker";
 import { IconPlay, IconChevronRight, IconChevronDown, IconSnippets } from "./ui-icons";
 import { useResizablePane } from "../hooks/useResizablePane";
 import { useFleetSelection } from "../hooks/useFleetSelection";
+import { ContextMenu } from "./ContextMenu";
+import type { AppObject } from "../lib/appObject";
+import type { ObjectAction } from "../modules/types";
 
 function formatTimestamp(ms: number): string {
   return new Date(ms).toLocaleString();
@@ -25,6 +28,12 @@ interface FleetTabProps {
   /** Ramène la barre latérale sur le panneau de cibles — ce que fait le
    * récapitulatif de sélection quand elle affiche autre chose. */
   onShowTargets: () => void;
+  /** Cibles à pré-cocher à l'ouverture, quand l'onglet a été ouvert sur une
+   * sélection venue d'ailleurs. L'onglet est remonté à chaque envoi (voir sa
+   * `key` dans `modules/fleet.tsx`), donc un effet au montage suffit. */
+  initialTargetKeys?: string[];
+  /** Ce que les autres modules savent faire de la sélection courante. */
+  objectActions?: (obj: AppObject) => ObjectAction[];
 }
 
 /** One selectable fleet target, resolved from either the workspace (SSH
@@ -85,7 +94,7 @@ function StatusDot({ status }: { status: RowStatus }) {
   return <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: color }} />;
 }
 
-export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets }: FleetTabProps) {
+export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets, initialTargetKeys, objectActions }: FleetTabProps) {
   // Le choix des cibles vit dans la barre latérale (`FleetTargetsPanel`), donc
   // dans un magasin partagé plutôt que dans cet onglet : la liste des machines,
   // le filtre, la sélection et les filtres par état collecté y sont tous
@@ -94,6 +103,18 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets 
     sshHosts, targetsByKey, dockerContainers, selected, setSelected,
     mode, setMode, setHasTargetLine, collectFacts,
   } = useFleetSelection();
+
+  const [sendMenu, setSendMenu] = useState<{ x: number; y: number } | null>(null);
+
+  /** Reprend la sélection envoyée par un autre onglet.
+   *
+   * Au montage seulement, comme `seedSource` côté diagnostic : l'onglet est
+   * unique et remonté à chaque envoi, donc rejouer l'effet à chaque rendu
+   * écraserait les cases que l'utilisateur vient de cocher à la main. */
+  useEffect(() => {
+    if (initialTargetKeys && initialTargetKeys.length > 0) setSelected(new Set(initialTargetKeys));
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
   const hostById = useMemo(() => new Map(workspace.hosts.map((h) => [h.id, h])), [workspace.hosts]);
 
   const [command, setCommand] = useState("");
@@ -506,6 +527,14 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets 
             </button>
           </div>
 
+            {sendMenu && objectActions && (
+              <ContextMenu
+                x={sendMenu.x}
+                y={sendMenu.y}
+                onClose={() => setSendMenu(null)}
+                items={objectActions({ kind: "targets", keys: [...selected] })}
+              />
+            )}
             {/* Le récapitulatif remplace la colonne de cibles : elle est
                 maintenant dans la barre latérale, qui peut afficher autre
                 chose. Sans lui, on lancerait une commande sur une flotte sans
@@ -519,6 +548,22 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets 
                 ? "Aucune cible sélectionnée"
                 : `${selected.size} cible${selected.size > 1 ? "s" : ""} · modifier`}
             </button>
+            {/* La sélection, offerte aux autres onglets. Un menu et non un
+                bouton direct, contrairement au panneau de transfert : ici
+                plusieurs modules ont vraiment quelque chose à proposer d'une
+                liste de machines, et la liste s'allongera. */}
+            {objectActions && selected.size > 0 && (
+              <button
+                onClick={(e) => {
+                  const r = e.currentTarget.getBoundingClientRect();
+                  setSendMenu({ x: r.left, y: r.bottom + 2 });
+                }}
+                title="Reprendre cette sélection dans un autre onglet"
+                className="rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-2.5 py-1 text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)]"
+              >
+                Envoyer vers…
+              </button>
+            )}
           </div>
 
           <div className="flex items-end gap-2">
