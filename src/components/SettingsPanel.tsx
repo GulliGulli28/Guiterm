@@ -8,7 +8,7 @@ import { api } from "../lib/api";
 import type { VaultStatus, Workspace } from "../lib/types";
 import type { AppPreferences } from "../lib/preferences";
 import { TERMINAL_THEMES, FONT_FAMILIES, ACCENT_COLORS, BG_THEMES, type UiAccent, type UiBg, type ColorMode } from "../lib/preferences";
-import { SHORTCUT_ACTIONS, defaultShortcuts, comboFromEvent, shellBindingWarning } from "../lib/shortcuts";
+import { SHORTCUT_ACTIONS, comboConflicts, defaultShortcuts, comboFromEvent, shellBindingWarning, shortcutLabel } from "../lib/shortcuts";
 import { SIDEBAR_BUTTONS, ALWAYS_VISIBLE_SIDEBAR_BUTTONS, isSidebarButtonVisible } from "../lib/sidebarButtons";
 import { IconUpload, IconDownload, IconPalette, IconTerminal, IconTransfer, IconKeyboard, IconBell, IconSettings, IconSun, IconMoon, IconRefresh, IconShield } from "./ui-icons";
 import { VaultSettings } from "./VaultSettings";
@@ -40,7 +40,18 @@ const CATEGORIES: { key: SettingsCategory; label: string; Icon: ComponentType<{ 
   { key: "general", label: "Général", Icon: IconSettings },
 ];
 
-function ShortcutRow({ label, combo, onChange }: { label: string; combo: string; onChange: (combo: string) => void }) {
+function ShortcutRow({ label, combo, shadowedBy, onChange }: {
+  label: string;
+  combo: string;
+  /** L'action qui gagne cette combinaison avant celle-ci, s'il y en a une.
+   *
+   * Sans cet avertissement, réassigner une combinaison déjà prise rendait
+   * l'action perdante inerte sans le moindre signe : `useGlobalShortcuts`
+   * s'arrête au premier appariement. Le seul contrôle existant portait sur les
+   * combinaisons du **shell**, pas sur celles de l'app entre elles. */
+  shadowedBy?: string;
+  onChange: (combo: string) => void;
+}) {
   const [capturing, setCapturing] = useState(false);
   const warning = shellBindingWarning(combo);
   return (
@@ -50,6 +61,14 @@ function ShortcutRow({ label, combo, onChange }: { label: string; combo: string;
         {warning && (
           <span title={`Combinaison déjà utilisée par le shell : ${warning}. Cette action ne se déclenchera donc que lorsque le focus n'est pas dans un terminal.`} className="ml-1.5 cursor-help text-[11px] text-amber-400">
             ⚠
+          </span>
+        )}
+        {shadowedBy && (
+          <span
+            title={`« ${shadowedBy} » porte déjà cette combinaison et passe avant : cette action-ci ne se déclenchera jamais tant que les deux la partagent.`}
+            className="ml-1.5 cursor-help text-[11px] text-rose-400"
+          >
+            ⛔
           </span>
         )}
       </span>
@@ -587,14 +606,29 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
               </button>
             </div>
             <div className="rounded-lg bg-[var(--c-bg3)] p-1.5">
-              {SHORTCUT_ACTIONS.map((action) => (
-                <ShortcutRow
-                  key={action.id}
-                  label={action.label}
-                  combo={preferences.keyboardShortcuts[action.id] ?? ""}
-                  onChange={(combo) => setShortcut(action.id, combo)}
-                />
-              ))}
+              {(() => {
+                // Calculé une fois pour la liste entière : c'est une propriété
+                // de la carte, pas de la ligne, et une action ne peut pas
+                // savoir seule qu'une autre lui prend sa combinaison.
+                const conflicts = comboConflicts(preferences.keyboardShortcuts);
+                return SHORTCUT_ACTIONS.map((action) => {
+                  const combo = preferences.keyboardShortcuts[action.id] ?? "";
+                  const claimants = conflicts.get(combo) ?? [];
+                  // Seules les actions *perdantes* sont signalées : la première
+                  // se déclenche normalement, et la marquer ferait chercher un
+                  // problème là où il n'y en a pas.
+                  const winner = claimants[0];
+                  return (
+                    <ShortcutRow
+                      key={action.id}
+                      label={action.label}
+                      combo={combo}
+                      shadowedBy={winner && winner !== action.id ? shortcutLabel(winner) : undefined}
+                      onChange={(next) => setShortcut(action.id, next)}
+                    />
+                  );
+                });
+              })()}
             </div>
           </section>
         )}

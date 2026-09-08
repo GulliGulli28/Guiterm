@@ -247,6 +247,23 @@ et pas un menu.
   destinataire et non du travail de bus. L'anti-vacuité est déjà satisfaite,
   donc ils peuvent arriver un par un.
 
+**Le piège des préférences vaut aussi pour les raccourcis, et il a mordu.**
+La combinaison par défaut a dû changer après coup (collision avec la palette
+telle que l'utilisateur l'avait réassignée) — sans aucun effet : `AppPreferences`
+vit dans le `localStorage`, donc la carte enregistrée au premier lancement fige
+la valeur, et éditer `SHORTCUT_ACTIONS` ne la déplace pas. Deux conséquences
+inscrites dans le code :
+
+- **Le scénario e2e presse la combinaison *en vigueur*, lue dans le
+  `localStorage`**, jamais celle écrite dans le catalogue. Il échouait sinon sur
+  tout profil déjà utilisé, en accusant xterm à tort — ce qu'il a fait.
+- **Les collisions entre actions sont désormais détectées** (`comboConflicts`),
+  et signalées dans les réglages sur l'action *perdante*. Il n'existait qu'un
+  contrôle des collisions avec le **shell** ; deux actions de l'app sur la même
+  touche laissaient la seconde inerte, en silence, `useGlobalShortcuts`
+  s'arrêtant au premier appariement. C'est ce trou qui a rendu la collision
+  invisible jusqu'à ce qu'un utilisateur la signale.
+
 Et un piège de scénario, à ne pas redécouvrir : **les onglets restent montés
 quand ils sont masqués**, donc `browser.$(".xterm")` désigne un terminal caché
 dès qu'il y a plusieurs onglets, et WebDriver refuse d'y cliquer (« element not

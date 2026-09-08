@@ -63,7 +63,7 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
   // faire remonter le prendrait à tous les shells. D'où une action à part, sur
   // une combinaison de la famille `Ctrl+Shift+lettre`, dont aucune ne heurte
   // readline : elle ouvre la même palette, cadrée sur la sélection.
-  { id: "objects.sendSelection", label: "Envoyer la sélection vers…", defaultKey: "Ctrl+Shift+K", bubblesThroughTerminal: true },
+  { id: "objects.sendSelection", label: "Envoyer la sélection vers…", defaultKey: "Ctrl+Shift+Alt+K", bubblesThroughTerminal: true },
 
   // Tool tabs and panels.
   { id: "fleet.open", label: "Opérations de flotte — exécuter sur plusieurs hôtes…", defaultKey: "Ctrl+Shift+O", bubblesThroughTerminal: true },
@@ -105,6 +105,37 @@ const SHELL_BINDING_WARNINGS: Record<string, string> = {
   // est ce qui empêche de l'oublier en rebranchant une action dessus.
   "Ctrl+B": "recule le curseur d'un caractère — et c'est le préfixe de tmux, donc tout le clavier des sessions persistantes",
 };
+
+/** Les actions qui se disputent une même combinaison, dans la carte
+ * réellement en vigueur.
+ *
+ * **Le trou que ça bouche.** `useGlobalShortcuts` s'arrête au premier appariement
+ * et rend la main : sur deux actions qui portent la même combinaison, la
+ * seconde ne se déclenche jamais et rien ne le dit. Le catalogue par défaut est
+ * vérifié par un test, mais une carte *personnalisée* ne l'était par rien —
+ * or c'est justement là que la collision se produit, puisque l'utilisateur
+ * réassigne sans voir les vingt-cinq autres combinaisons. Rencontré pour de
+ * vrai : une palette déplacée sur la combinaison d'une action ajoutée plus
+ * tard, et cette dernière restée sans effet, en silence.
+ *
+ * Rend, pour chaque combinaison en double, les ids qui la revendiquent — dans
+ * l'ordre où `useGlobalShortcuts` les rencontre, donc le premier est celui qui
+ * gagne et les suivants ceux qui sont perdus. */
+export function comboConflicts(shortcuts: Record<string, string>): Map<string, string[]> {
+  const byCombo = new Map<string, string[]>();
+  for (const [id, combo] of Object.entries(shortcuts)) {
+    if (!combo) continue;
+    const claimants = byCombo.get(combo);
+    if (claimants) claimants.push(id);
+    else byCombo.set(combo, [id]);
+  }
+  return new Map([...byCombo].filter(([, ids]) => ids.length > 1));
+}
+
+/** Le libellé d'une action, pour nommer sa rivale dans un avertissement. */
+export function shortcutLabel(id: string): string {
+  return SHORTCUT_ACTIONS.find((a) => a.id === id)?.label ?? id;
+}
 
 /** Returns a human-readable warning if `combo` collides with a common shell binding, else `undefined`. */
 export function shellBindingWarning(combo: string): string | undefined {

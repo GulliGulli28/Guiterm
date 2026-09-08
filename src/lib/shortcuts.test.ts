@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   SHORTCUT_ACTIONS,
+  comboConflicts,
   comboFromEvent,
   defaultShortcuts,
   matchesCombo,
@@ -78,6 +79,38 @@ describe("le catalogue d'actions", () => {
       .filter((a) => a.bubblesThroughTerminal && shellBindingWarning(a.defaultKey))
       .map((a) => `${a.id} (${a.defaultKey} — ${shellBindingWarning(a.defaultKey)})`);
     expect(offenders).toEqual([]);
+  });
+});
+
+describe("comboConflicts", () => {
+  /** Ce que le test des défauts, deux blocs plus haut, ne peut pas voir : la
+   * carte que l'utilisateur a modifiée. C'est pourtant là que la collision se
+   * produit — il réassigne une combinaison sans voir les vingt-cinq autres, et
+   * `useGlobalShortcuts` s'arrête au premier appariement, donc la perdante ne
+   * se déclenche plus jamais sans que rien ne le dise. */
+  it("nomme les deux actions qui se disputent une combinaison", () => {
+    const conflicts = comboConflicts({ "palette.open": "Ctrl+Shift+K", "objects.sendSelection": "Ctrl+Shift+K" });
+    expect([...conflicts.keys()]).toEqual(["Ctrl+Shift+K"]);
+    expect(conflicts.get("Ctrl+Shift+K")).toEqual(["palette.open", "objects.sendSelection"]);
+  });
+
+  it("rend la gagnante en premier, pour ne signaler que les perdantes", () => {
+    const conflicts = comboConflicts({ a: "Ctrl+J", b: "Ctrl+J", c: "Ctrl+J" });
+    expect(conflicts.get("Ctrl+J")).toEqual(["a", "b", "c"]);
+  });
+
+  it("ne voit pas de conflit là où il n'y en a pas", () => {
+    expect(comboConflicts({ a: "Ctrl+J", b: "Ctrl+L" }).size).toBe(0);
+  });
+
+  it("ignore les actions sans combinaison, qui ne se disputent rien", () => {
+    // Deux actions débranchées porteraient toutes deux `""` — les compter
+    // ferait apparaître un conflit permanent et faux dans les réglages.
+    expect(comboConflicts({ a: "", b: "" }).size).toBe(0);
+  });
+
+  it("ne trouve aucun conflit dans la carte par défaut", () => {
+    expect([...comboConflicts(defaultShortcuts()).keys()]).toEqual([]);
   });
 });
 

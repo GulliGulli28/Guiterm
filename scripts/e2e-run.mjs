@@ -635,6 +635,19 @@ async function closeDialogTitled(browser, heading) {
 }
 
 /** Clicks the first <button> whose visible text is exactly `text`. */
+/** Une combinaison telle que la stocke `AppPreferences.keyboardShortcuts`
+ * (« Ctrl+Shift+Alt+K »), rendue en la suite de touches que WebDriver attend.
+ *
+ * La touche finale est envoyée en minuscule : c'est la touche physique, et
+ * c'est Shift qui décide de la casse — l'envoyer déjà en majuscule ferait
+ * arriver un évènement sans `shiftKey`. */
+function comboToKeys(combo) {
+  const NAMES = { Ctrl: "Control", Shift: "Shift", Alt: "Alt", Meta: "Meta" };
+  const parts = combo.split("+");
+  const key = parts.pop();
+  return [...parts.map((p) => NAMES[p] ?? p), key.length === 1 ? key.toLowerCase() : key];
+}
+
 async function clickButtonByText(browser, text) {
   const found = await browser.execute((label) => {
     const button = Array.from(document.querySelectorAll("button"))
@@ -1985,7 +1998,32 @@ async function runObjectBusSelectionScenario(browser) {
     ],
   }]);
 
-  await browser.keys(["Control", "Shift", "k"]);
+  // **La combinaison en vigueur, pas celle du catalogue.** Les raccourcis
+  // vivent dans le `localStorage` de la webview : une fois la carte enregistrée,
+  // changer une valeur de `DEFAULT_PREFERENCES` n'a aucun effet rétroactif —
+  // c'est le piège que `CLAUDE.md` documente pour les préférences, et il vaut
+  // ici aussi. Un scénario qui presserait la combinaison écrite dans le code
+  // échouerait sur tout profil déjà utilisé, en accusant xterm à tort.
+  const combo = await browser.execute(() => {
+    try {
+      const raw = JSON.parse(localStorage.getItem("gui-termius-prefs") ?? "{}");
+      return raw.keyboardShortcuts?.["objects.sendSelection"] ?? null;
+    } catch {
+      return null;
+    }
+  });
+  const keys = comboToKeys(combo ?? "Ctrl+Shift+Alt+K");
+
+  // Enregistre ce que la fenêtre reçoit vraiment : si le raccourci n'arrive
+  // pas, la question est de savoir si la touche est mal formée ou si elle est
+  // avalée avant le listener global.
+  await browser.execute(() => {
+    window.__e2eKeys = [];
+    window.addEventListener("keydown", (e) => {
+      window.__e2eKeys.push({ key: e.key, code: e.code, ctrl: e.ctrlKey, shift: e.shiftKey, alt: e.altKey });
+    }, true);
+  });
+  await browser.keys(keys);
 
   const entries = await browser.waitUntil(async () => {
     const found = await browser.execute(() => {
@@ -1994,7 +2032,23 @@ async function runObjectBusSelectionScenario(browser) {
       return dialog ? Array.from(dialog.querySelectorAll("button"), (b) => b.textContent?.trim() ?? "") : null;
     });
     return found && found.length > 0 ? found : false;
-  }, { timeout: 10_000, timeoutMsg: "Ctrl+Shift+K n a pas ouvert la palette d objet depuis le terminal — le raccourci ne traverse pas xterm ?" });
+  }, { timeout: 10_000, timeoutMsg: `${combo ?? "Ctrl+Shift+Alt+K"} n a pas ouvert la palette d objet depuis le terminal — le raccourci ne traverse pas xterm ?` })
+    .catch(async (e) => {
+      const seen = await browser.execute(() => window.__e2eKeys ?? []);
+      const stored = await browser.execute(() => {
+        try {
+          const raw = JSON.parse(localStorage.getItem("gui-termius-prefs") ?? "{}");
+          return raw.keyboardShortcuts ?? null;
+        } catch (err) {
+          return { __error: String(err) };
+        }
+      });
+      console.log("Touches reçues par la fenêtre :", JSON.stringify(seen));
+      console.log("Raccourcis persistés :", JSON.stringify(stored && stored["objects.sendSelection"] !== undefined
+        ? { "objects.sendSelection": stored["objects.sendSelection"], "palette.open": stored["palette.open"] }
+        : stored));
+      throw e;
+    });
 
   const probe = entries.find((label) => label.startsWith("Diagnostiquer"));
   if (!probe) {
@@ -2006,7 +2060,7 @@ async function runObjectBusSelectionScenario(browser) {
     Array.from(document.querySelectorAll("input")).some((i) => i.value === "10.0.3.12")
   ), { timeout: 10_000, timeoutMsg: "l onglet de diagnostic ne s est pas ouvert sur l adresse envoyée" });
 
-  console.log(`Bus d objets au clavier : OK (Ctrl+Shift+K traverse xterm, « ${probe} », destination amorcée).`);
+  console.log(`Bus d objets au clavier : OK (${combo} traverse xterm, « ${probe} », destination amorcée).`);
 }
 
 async function runHostAttachmentsScenario(browser) {
