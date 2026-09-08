@@ -96,7 +96,7 @@ la barre latérale, remplit une étape, la lance réellement sur le terminal loc
 lit la sortie de la commande à l'écran et vérifie que le rapport est persisté —
 puis supprime le runbook (le seul scénario qui écrit dans le vrai
 `workspace.json` du profil, d'où la suppression en `finally`).
-**Non prouvé** : aucune procédure lancée contre une vraie flotte distante.
+**Éprouvé** contre une vraie infrastructure par l'utilisateur le 2026-09-08.
 
 **Deux limites assumées de la tranche 1**, à ne pas confondre avec des oublis :
 les notes d'étape sont stockées verbatim mais **rendues en texte brut** (aucun
@@ -194,9 +194,12 @@ elle ne vaut que si le poids du binaire devient un vrai problème. La section
 « Écarté volontairement » en bas reste ce qu'il ne faut pas reproposer sans
 raison neuve.
 
-Trois dettes connues, à traiter au premier usage réel plutôt qu'à planifier :
-l'import Azure/GCP, le tunnel SSM et le diagnostic réseau n'ont jamais tourné
-contre une vraie infrastructure distante (détail sous chaque item).
+Dettes de preuve — **deux des trois sont levées** : le tunnel SSM et le
+diagnostic réseau ont été éprouvés contre une vraie infrastructure par
+l'utilisateur le 2026-09-08, comme les runbooks. **Reste l'import Azure/GCP**,
+et lui seul : le test du 2026-09-08 portait sur l'import **AWS**, qui est un
+autre chemin de code (`aws_inventory`, pas `azure_inventory`/`gcp_inventory`).
+Solder l'un ne solde pas l'autre.
 
 **Et une leçon, vérifiée six fois de suite : les « leviers » de ce fichier
 sont optimistes.** Le rollback ne dépendait pas de la vue d'activité ; la
@@ -384,7 +387,7 @@ l'adresse **et** sur le chemin HTTP, et un scénario E2E qui diagnostique
 127.0.0.1 depuis la machine locale — il a rendu « connexion refusée » et
 « 127.0.0.1 », donc les deux parseurs ont tourné contre de vrais outils. Sous
 WSL il exerce la saveur POSIX, sous Windows la saveur PowerShell.
-**Non prouvé** : aucun diagnostic contre une vraie flotte distante.
+**Éprouvé** contre une vraie flotte par l'utilisateur le 2026-09-08.
 
 ### Tranche 2 — **livrée le 2026-08-10**
 
@@ -407,7 +410,7 @@ sauts muets consécutifs, un seul au milieu étant normal). Sorties réelles
 couvertes en anglais **et** en français, dont le `ping.exe` francophone de
 Windows dont aucun marqueur anglais ne correspond.
 
-**Non prouvé** : aucun diagnostic contre une vraie flotte distante.
+**Éprouvé** contre une vraie flotte par l'utilisateur le 2026-09-08.
 
 **Pièges.** L'adresse saisie passe par `validate_host`, jamais autre chose. Un
 diagnostic ne s'enregistre pas dans `fleet_history` : il pose une question et ne
@@ -461,9 +464,10 @@ le détail est dans le CHANGELOG et dans l'historique git.
   aurait fait six — d'où `db_tunnel::open`/`close`. `tunnel_host_id` est devenu
   l'union `DbTunnel`, avec migration ascendante par `ServerConfigWire`/
   `MongoConfigWire` et double écriture pour rendre un downgrade sûr. Le tunnel
-  reste éphémère par connexion, jamais dans le panneau Tunnels. **Non prouvé
-  contre un vrai couple EC2-SSM + base managée** — couvert par le parsing, une
-  machine à états pilotée par un faux helper, et la migration du format.
+  reste éphémère par connexion, jamais dans le panneau Tunnels. **Éprouvé par
+  l'utilisateur le 2026-09-08**, après avoir longtemps reposé sur le seul
+  parsing, une machine à états pilotée par un faux helper, et la migration du
+  format.
 - **Vue d'activité unifiée** — `core/src/activity.rs`, `core/src/session_index.rs`,
   `ActivityTab.tsx` (2026-08-07). **Le levier annoncé était le plus mince des
   cinq** : un seul des trois silos portait des évènements datés, donc l'item a
