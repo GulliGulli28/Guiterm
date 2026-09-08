@@ -4,7 +4,7 @@ import { getCurrentWindow } from "@tauri-apps/api/window";
 import { api, onTransferDone, onTransferError, onTransferProgress } from "../lib/api";
 import { ConnectionFailed } from "./ConnectionFailed";
 import { ContextMenu } from "./ContextMenu";
-import { describeObject, type AppObject } from "../lib/appObject";
+import type { AppObject } from "../lib/appObject";
 import type { ObjectAction } from "../modules/types";
 import type { AppPreferences } from "../lib/preferences";
 import type { ArchiveFormat, ConflictPolicy, CopyConflict, DiffHunk, DiffLine, DiffPick, Entry, FileDiff, Host, HostId, PaneComparison, PaneDiskSpace, PaneFindOutcome, SyncItem, PaneListed, PaneOpened, PaneSource, PaneState, RemoteEditListed, Workspace } from "../lib/types";
@@ -1007,6 +1007,18 @@ export function PaneView({
   // not for the local filesystem.
   const supportsChmod = pane.source.kind !== "local";
 
+  /** L'action « ouvrir un terminal ici » telle que le module terminal la
+   * définit, promue en bouton de la barre d'outils.
+   *
+   * Retrouvée par son `id` plutôt que reconstruite : le libellé, le calcul du
+   * dossier et l'ouverture restent la propriété du module terminal, et ce
+   * bouton ne peut pas dériver de l'entrée de menu qui fait la même chose.
+   * `undefined` si le module cesse de l'offrir — le bouton disparaît alors au
+   * lieu de rester sans effet, comme le faisait déjà l'ancienne prop absente
+   * sous le contrôle Playwright. */
+  const terminalHere = objectActions?.({ kind: "remotePath", source: pane.source, path: pane.cwd, isDir: true })
+    .find((a) => a.id === "terminal.open-here");
+
   // Largeur réelle du panneau, pour décider quelles colonnes tiennent.
   const rootRef = useRef<HTMLDivElement>(null);
   const [width, setWidth] = useState(0);
@@ -1300,9 +1312,6 @@ export function PaneView({
   /** Menu contextuel : la position du clic et la ligne visée. Fermé au
    * prochain clic, à Échap, ou dès qu'on navigue. */
   const [menu, setMenu] = useState<{ x: number; y: number; entry: Entry } | null>(null);
-  // Distinct du menu contextuel ci-dessus : celui-là porte une entrée, celui-ci
-  // désigne le dossier courant et s'ouvre au bouton, pas au clic droit.
-  const [objectMenu, setObjectMenu] = useState<{ x: number; y: number } | null>(null);
 
   const openMenu = (entry: Entry, e: React.MouseEvent) => {
     e.preventDefault();
@@ -1687,16 +1696,25 @@ export function PaneView({
                         : "Comparer ce fichier…"}
                   </button>
                 )}
-                {objectActions && (
+                {/* Une action, un bouton — pas un menu.
+                    Un « Envoyer vers… » ici demandait deux clics pour le geste
+                    le plus fréquent du panneau, et les autres destinataires du
+                    bus n'ont rien à y proposer : ouvrir un *transfert* sur ce
+                    dossier depuis un transfert déjà posé dessus ne mène nulle
+                    part. Le menu reste sur le clic droit d'une entrée, où
+                    plusieurs actions se disputent vraiment la place.
+
+                    L'action reste résolue par le bus plutôt que recodée ici :
+                    c'est ce qui garantit qu'elle ne peut pas diverger de celle
+                    du menu, et que le lien continue d'appartenir au module
+                    terminal. */}
+                {terminalHere && (
                   <button
-                    onClick={(e) => {
-                      const r = e.currentTarget.getBoundingClientRect();
-                      setObjectMenu({ x: r.left, y: r.bottom + 2 });
-                    }}
-                    title="Ce que les autres onglets savent faire de ce dossier"
+                    onClick={terminalHere.run}
+                    title="Ouvrir un terminal sur cette machine, dans ce dossier"
                     className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
                   >
-                    <IconTerminal size={12} /> Envoyer vers…
+                    <IconTerminal size={12} /> Terminal ici
                   </button>
                 )}
                 {onToggleHidden && (
@@ -1983,16 +2001,6 @@ export function PaneView({
                   : []),
                 { label: `Supprimer (${selectedEntries.length || 1})`, run: () => setConfirmDelete(true), danger: true },
               ]}
-            />
-          )}
-
-          {objectMenu && objectActions && (
-            <ContextMenu
-              x={objectMenu.x}
-              y={objectMenu.y}
-              onClose={() => setObjectMenu(null)}
-              header={describeObject({ kind: "remotePath", source: pane.source, path: pane.cwd, isDir: true }, workspace)}
-              items={objectActions({ kind: "remotePath", source: pane.source, path: pane.cwd, isDir: true })}
             />
           )}
 

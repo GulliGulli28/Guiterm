@@ -1843,38 +1843,44 @@ async function runObjectBusScenario(browser) {
       if (btn instanceof HTMLElement) btn.click();
     }, hostButton);
 
-    // Le panneau local liste sans réseau ; c'est lui qu'on attend, pas le
-    // distant, qui n'a aucun `sshd` en face sur le runner.
+    // Le panneau **gauche** est la machine locale : il liste sans réseau, donc
+    // ce scénario ne dépend d'aucun `sshd`. C'est lui qu'on attend, pas le
+    // distant, qui n'a rien en face sur le runner.
     await browser.waitUntil(async () => await browser.execute(() =>
-      Array.from(document.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Envoyer vers…")
-    ), { timeout: 15_000, timeoutMsg: "le bouton « Envoyer vers… » n apparaît dans aucun panneau de transfert" });
+      Array.from(document.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Terminal ici")
+    ), { timeout: 15_000, timeoutMsg: "le bouton « Terminal ici » n apparaît dans aucun panneau de transfert" });
 
-    await browser.execute(() => {
-      const btn = Array.from(document.querySelectorAll("button")).find((b) => b.textContent?.trim() === "Envoyer vers…");
-      if (btn instanceof HTMLElement) btn.click();
-    });
-
+    // Premier chemin du bus : le clic droit d'une entrée, seul endroit où le
+    // menu agrège plusieurs actions. L'évènement est synthétisé parce que
+    // React écoute `onContextMenu` — un vrai clic droit passerait par le menu
+    // de la webview.
     const items = await browser.waitUntil(async () => {
       const found = await browser.execute(() => {
+        const row = document.querySelector("[data-pane-row]");
+        if (row) row.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, clientX: 200, clientY: 200 }));
         const menu = document.querySelector("[data-context-menu]");
-        if (!menu) return null;
-        return Array.from(menu.querySelectorAll("button"), (b) => b.textContent?.trim() ?? "");
+        return menu ? Array.from(menu.querySelectorAll("button"), (b) => b.textContent?.trim() ?? "") : null;
       });
       return found && found.length > 0 ? found : false;
-    }, { timeout: 5_000, timeoutMsg: "le menu du bus d objets ne s est pas ouvert" });
+    }, { timeout: 10_000, timeoutMsg: "le menu contextuel d une entrée ne s est pas ouvert" });
 
     // Le module terminal accepte un chemin local ; celui du transfert non, et
     // c'est délibéré (le panneau gauche *est* déjà cette machine). Vérifier
     // l'absence autant que la présence : une action morte dans un menu est
     // pire que pas d'action.
-    if (!items.includes("Ouvrir un terminal dans ce dossier")) {
+    if (!items.some((label) => label.startsWith("Ouvrir un terminal dans"))) {
       throw new Error(`le menu n offre pas l action du module terminal : ${JSON.stringify(items)}`);
     }
     if (items.includes("Ouvrir un transfert sur ce dossier")) {
       throw new Error("le menu offre une action de transfert sur un chemin local, qui ne peut rien ouvrir");
     }
+    // Refermer le menu avant de viser la barre d'outils : il se ferme au
+    // `mousedown` fenêtre, exactement comme sous un vrai clic ailleurs.
+    await browser.execute(() => window.dispatchEvent(new MouseEvent("mousedown", { bubbles: true })));
 
-    await clickButtonByText(browser, "Ouvrir un terminal dans ce dossier");
+    // Second chemin : le bouton de la barre d'outils, qui promeut la même
+    // action du bus en un clic — c'est lui qui doit réellement ouvrir l'onglet.
+    await clickButtonByText(browser, "Terminal ici");
 
     // La preuve de bout en bout : le module terminal a réellement ouvert son
     // onglet, à la demande d'un menu rendu par un autre module.
