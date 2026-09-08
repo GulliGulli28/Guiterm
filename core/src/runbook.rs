@@ -109,6 +109,26 @@ pub struct SkippedTarget {
 pub struct StepPlan {
     pub commands: HashMap<FleetTarget, String>,
     pub skipped: Vec<SkippedTarget>,
+    /// Renseigné pour une étape playbook seulement — voir [`PlaybookRun`].
+    pub playbook: Option<PlaybookRun>,
+}
+
+/// Ce qu'une étape playbook a résolu : où la commande part, et à qui rattacher
+/// ce qu'elle rapportera.
+///
+/// Une étape playbook lance **une** commande, sur le relais — donc `commands`
+/// n'a qu'une entrée. Sans ce complément, le rapport dirait « le playbook a
+/// réussi » au lieu de dire ce qu'il a fait machine par machine, et la
+/// politique d'échec s'appliquerait au relais plutôt qu'aux cibles : « continuer
+/// sans les machines en échec » n'aurait plus aucun sens.
+#[derive(Debug, Clone)]
+pub struct PlaybookRun {
+    /// L'hôte d'où `ansible-playbook` est lancé.
+    pub relay: FleetTarget,
+    /// Chaque cible retenue, avec son nom Ansible — la clé de lecture du
+    /// `PLAY RECAP`, que l'appelant utilise pour fabriquer un résultat par
+    /// machine.
+    pub targets: Vec<(FleetTarget, String)>,
 }
 
 /// Compose l'étape : quelle commande part sur quelle cible.
@@ -127,6 +147,7 @@ pub fn plan_step(
         RunbookAction::Command { command } => Ok(StepPlan {
             commands: crate::fleet::uniform_commands(targets, command),
             skipped: Vec::new(),
+            playbook: None,
         }),
         RunbookAction::Program { program_text } => {
             let program = adaptive::parse_program(program_text)?;
@@ -168,7 +189,63 @@ pub fn plan_step(
                     }
                 }
             }
-            Ok(StepPlan { commands, skipped })
+            Ok(StepPlan { commands, skipped, playbook: None })
+        }
+
+        RunbookAction::Playbook { relay_tag, playbook, inventory } => {
+            // Le relais se résout parmi **tous** les hôtes enregistrés, pas
+            // parmi les cibles : le nœud de contrôle n'est presque jamais une
+            // des machines que le playbook configure.
+            let mut relays = workspace.hosts.iter().filter(|h| {
+                h.kind == crate::model::HostKind::Ssh
+                    && h.tags.iter().any(|t| t.eq_ignore_ascii_case(relay_tag))
+            });
+            let relay = relays.next().ok_or_else(|| {
+                format!("aucun hôte SSH ne porte le tag « {relay_tag} » : il désigne la machine d'où le playbook est joué")
+            })?;
+            if relays.next().is_some() {
+                return Err(format!(
+                    "plusieurs hôtes portent le tag « {relay_tag} » : impossible de savoir d'où jouer le playbook"
+                ));
+            }
+
+            // Chaque cible doit avoir un nom Ansible pour entrer dans
+            // `--limit`. Celles qui n'en ont pas sont écartées **nommément**
+            // plutôt que silencieusement : un playbook qui s'appliquerait à
+            // moins de machines que prévu sans le dire est pire qu'une étape
+            // qui refuse.
+            let mut limit = Vec::new();
+            let mut pairs = Vec::new();
+            let mut skipped = Vec::new();
+            for target in targets {
+                let FleetTarget::Ssh { host_id } = target else {
+                    skipped.push(SkippedTarget {
+                        target: target.clone(),
+                        reason: "Ansible ne s'applique qu'aux hôtes SSH".to_string(),
+                    });
+                    continue;
+                };
+                let name = workspace.host(*host_id).and_then(crate::ansible_playbook::ansible_name);
+                match name {
+                    Some(name) => {
+                        limit.push(name.to_string());
+                        pairs.push((target.clone(), name.to_string()));
+                    }
+                    None => skipped.push(SkippedTarget {
+                        target: target.clone(),
+                        reason: "pas de nom Ansible : cet hôte n'a pas été importé depuis un inventaire".to_string(),
+                    }),
+                }
+            }
+
+            let inventory = (!inventory.trim().is_empty()).then_some(inventory.trim());
+            let command = crate::ansible_playbook::build_command(playbook, inventory, &limit)?;
+            let relay_target = FleetTarget::Ssh { host_id: relay.id };
+            Ok(StepPlan {
+                commands: HashMap::from([(relay_target.clone(), command)]),
+                skipped,
+                playbook: Some(PlaybookRun { relay: relay_target, targets: pairs }),
+            })
         }
     }
 }
@@ -254,6 +331,11 @@ pub struct IrreversibleOperation {
 /// trou qu'on comblerait avec de l'heuristique : décider si un `rm -rf` caché
 /// dans un `sh -c` est destructeur, c'est interpréter du shell arbitraire.
 /// L'étape le dit — la case « toujours demander » est là pour ça.
+///
+/// **Une étape playbook est dans le même cas**, et pour une raison plus forte
+/// encore : le playbook n'est même pas ici, il vit sur le relais. Prétendre
+/// juger ce qu'il fait demanderait de le lire à distance et d'interpréter
+/// Ansible. Le réglage honnête pour ce type d'étape est « toujours demander ».
 pub fn irreversible_operations(action: &RunbookAction) -> Vec<IrreversibleOperation> {
     let RunbookAction::Program { program_text } = action else { return Vec::new() };
     let Ok(program) = adaptive::parse_program(program_text) else { return Vec::new() };
@@ -361,6 +443,10 @@ pub struct NextStep {
     /// répondu : l'appelant demande, puis appelle [`RunbookDriver::finish_step`]
     /// s'il approuve, ou [`RunbookDriver::refuse_step`] sinon.
     pub approval: Option<ApprovalReason>,
+    /// Renseigné pour une étape playbook : `commands` n'a alors qu'une entrée,
+    /// celle du relais, et c'est ici que l'appelant trouve de quoi rattacher le
+    /// `PLAY RECAP` à chaque machine.
+    pub playbook: Option<PlaybookRun>,
 }
 
 /// Le résultat complet d'une exécution.
@@ -478,12 +564,13 @@ impl RunbookDriver {
         }
 
         let commands = plan.commands;
+        let playbook = plan.playbook;
         // « Va-t-elle lancer quelque chose » se lit sur les commandes, pas sur
         // les cibles : une étape en langage dont aucun hôte ne couvre la
         // plateforme a des cibles et zéro commande.
         let approval = approval_for(&step, !commands.is_empty());
         self.current = Some(CurrentStep { step: step.clone(), targets: targets.len(), skipped: skipped.clone() });
-        Some(NextStep { index, title: step.title, commands, skipped, approval })
+        Some(NextStep { index, title: step.title, commands, skipped, approval, playbook })
     }
 
     /// L'étape courante n'a pas été approuvée : elle n'a rien lancé, et la
@@ -552,6 +639,13 @@ pub fn summary_of(action: &RunbookAction) -> String {
     match action {
         RunbookAction::Command { command } => command.clone(),
         RunbookAction::Program { program_text } => program_text.clone(),
+        RunbookAction::Playbook { relay_tag, playbook, inventory } => {
+            let mut summary = format!("ansible-playbook {playbook} (depuis un hôte « {relay_tag} »)");
+            if !inventory.trim().is_empty() {
+                summary.push_str(&format!(" avec l'inventaire {inventory}"));
+            }
+            summary
+        }
     }
 }
 
@@ -1147,6 +1241,113 @@ mod tests {
         driver.cancel();
         assert!(driver.next_step(&ws).is_none());
         assert_eq!(driver.finish().status, RunStatus::Stopped);
+    }
+
+    // ─── Étape playbook ──────────────────────────────────────────────────
+
+    fn playbook_step(relay_tag: &str) -> RunbookStep {
+        RunbookStep {
+            id: Uuid::new_v4(),
+            title: "jouer le playbook".into(),
+            notes: String::new(),
+            action: RunbookAction::Playbook {
+                relay_tag: relay_tag.into(),
+                playbook: "/opt/infra/site.yml".into(),
+                inventory: String::new(),
+            },
+            scope: RunbookStepScope::default(),
+            on_failure: OnFailure::Stop,
+            approval: Approval::Never,
+        }
+    }
+
+    /// Un workspace avec un nœud de contrôle taggué et deux cibles, dont une
+    /// seule vient d'un inventaire Ansible.
+    fn workspace_ansible() -> (Workspace, HostId, HostId, HostId) {
+        let mut ws = Workspace::default();
+        let mut relay = Host::new("control", "10.0.0.10", "root");
+        relay.tags = vec!["ansible-control".into()];
+        let mut importe = Host::new("Serveur web de prod", "10.0.0.1", "root");
+        importe.source = Some(crate::model::HostSource::ansible("web-1"));
+        let a_la_main = Host::new("bricolé", "10.0.0.2", "root");
+        let (r, i, m) = (relay.id, importe.id, a_la_main.id);
+        ws.hosts = vec![relay, importe, a_la_main];
+        (ws, r, i, m)
+    }
+
+    #[test]
+    fn le_playbook_part_du_relais_et_ne_vise_que_les_hotes_connus_d_ansible() {
+        let (ws, relay, importe, a_la_main) = workspace_ansible();
+        let action = playbook_step("ansible-control").action;
+        let plan = plan_step(&ws, &[ssh(importe), ssh(a_la_main)], &action).unwrap();
+
+        // Une seule commande, sur le relais — pas sur les cibles.
+        assert_eq!(plan.commands.len(), 1);
+        let commande = &plan.commands[&ssh(relay)];
+        assert!(commande.contains("--limit 'web-1'"), "{commande}");
+        assert!(commande.contains("'/opt/infra/site.yml'"), "{commande}");
+
+        // Et le rattachement du futur PLAY RECAP est prêt.
+        let run = plan.playbook.expect("une étape playbook doit porter son rattachement");
+        assert_eq!(run.relay, ssh(relay));
+        assert_eq!(run.targets, vec![(ssh(importe), "web-1".to_string())]);
+
+        // L'hôte sans nom Ansible est écarté nommément.
+        assert_eq!(plan.skipped.len(), 1);
+        assert_eq!(plan.skipped[0].target, ssh(a_la_main));
+        assert!(plan.skipped[0].reason.contains("nom Ansible"), "{}", plan.skipped[0].reason);
+    }
+
+    /// Le tag ne désigne rien : refuser plutôt que jouer depuis on ne sait où.
+    #[test]
+    fn un_tag_de_relais_qui_ne_correspond_a_rien_est_refuse() {
+        let (ws, _, importe, _) = workspace_ansible();
+        let action = playbook_step("inexistant").action;
+        let err = plan_step(&ws, &[ssh(importe)], &action).unwrap_err();
+        assert!(err.contains("inexistant"), "{err}");
+    }
+
+    /// Deux relais possibles : refuser aussi, parce que choisir au hasard
+    /// jouerait le playbook depuis une machine que personne n'a désignée.
+    #[test]
+    fn un_tag_de_relais_ambigu_est_refuse() {
+        let (mut ws, _, importe, _) = workspace_ansible();
+        let mut second = Host::new("control-2", "10.0.0.11", "root");
+        second.tags = vec!["ansible-control".into()];
+        ws.hosts.push(second);
+        let action = playbook_step("ansible-control").action;
+        let err = plan_step(&ws, &[ssh(importe)], &action).unwrap_err();
+        assert!(err.contains("plusieurs"), "{err}");
+    }
+
+    /// Aucune cible ne porte de nom Ansible : sans `--limit`, le playbook
+    /// s'appliquerait à tout l'inventaire du relais. L'étape doit refuser.
+    #[test]
+    fn aucune_cible_connue_d_ansible_refuse_l_etape() {
+        let (ws, _, _, a_la_main) = workspace_ansible();
+        let action = playbook_step("ansible-control").action;
+        let err = plan_step(&ws, &[ssh(a_la_main)], &action).unwrap_err();
+        assert!(err.contains("tout l'inventaire"), "{err}");
+    }
+
+    /// Le playbook vit sur le relais et l'application ne le lit pas : elle ne
+    /// peut donc rien dire de ce qu'il détruit. Comme une commande shell libre.
+    #[test]
+    fn une_etape_playbook_ne_pretend_pas_juger_ce_qu_elle_fait() {
+        let action = playbook_step("ansible-control").action;
+        assert!(irreversible_operations(&action).is_empty());
+
+        let mut toujours = playbook_step("ansible-control");
+        toujours.approval = Approval::Always;
+        assert_eq!(approval_for(&toujours, true), Some(ApprovalReason::Requested));
+    }
+
+    #[test]
+    fn le_resume_d_une_etape_playbook_dit_le_playbook_et_le_relais() {
+        let action = playbook_step("ansible-control").action;
+        let resume = summary_of(&action);
+        assert!(resume.contains("/opt/infra/site.yml"), "{resume}");
+        assert!(resume.contains("ansible-control"), "{resume}");
     }
 
     /// Un `workspace.json` écrit avant les runbooks doit rester lisible — sinon

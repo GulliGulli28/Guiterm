@@ -741,6 +741,21 @@ pub struct CommandOutput {
     pub stderr: String,
 }
 
+/// Un morceau de sortie, tel qu'il sort de la machine distante.
+///
+/// Les morceaux n'ont aucune raison de tomber sur des fins de ligne : SSH
+/// découpe en paquets, pas en lignes. C'est au consommateur de recoller s'il
+/// affiche ligne par ligne — le faire ici obligerait à retenir une ligne
+/// incomplète indéfiniment quand une commande écrit une invite sans retour
+/// chariot.
+#[derive(Debug, Clone)]
+pub struct OutputChunk {
+    pub text: String,
+    /// Vrai pour `stderr` (SSH_EXTENDED_DATA_STDERR). Ansible écrit ses
+    /// avertissements là, et les mélanger perdrait l'information.
+    pub stderr: bool,
+}
+
 /// Runs `command` on `connection`'s target host to completion — non-interactive,
 /// no PTY (unlike [`open_shell`]) — capturing stdout, stderr and the exit status
 /// separately. This is the "exec + capture" path the fleet executor needs: an
@@ -749,6 +764,31 @@ pub struct CommandOutput {
 pub async fn run_command_capture(
     connection: &Connection,
     command: &str,
+) -> anyhow::Result<CommandOutput> {
+    run_command_streaming(connection, command, None).await
+}
+
+/// Comme [`run_command_capture`], mais transmet chaque morceau à `tx` **au fur
+/// et à mesure** en plus de le cumuler.
+///
+/// Écrit comme une généralisation de la capture, et `run_command_capture` s'y
+/// ramène, plutôt qu'en recopiant la boucle : celle-ci porte trois subtilités
+/// (ne pas s'arrêter sur `Eof` pour ne pas perdre un `exit-status` tardif,
+/// replier les données étendues inconnues sur stderr, rapporter un signal) et
+/// une deuxième copie finirait par en perdre une.
+///
+/// Ce qui justifie ce chemin : une commande longue — un playbook Ansible dure
+/// des minutes — ne donne aucun signe de vie tant que sa sortie n'est rendue
+/// qu'à la fin. Le cumul est conservé quand même, parce que le `PLAY RECAP` ne
+/// se lit qu'une fois la sortie complète.
+///
+/// `tx` fermé (fenêtre partie) n'interrompt rien : l'envoi échoue en silence et
+/// la commande va au bout. Une commande distante coupée en deux parce que
+/// personne ne regardait serait bien pire que quelques morceaux perdus.
+pub async fn run_command_streaming(
+    connection: &Connection,
+    command: &str,
+    tx: Option<&mpsc::UnboundedSender<OutputChunk>>,
 ) -> anyhow::Result<CommandOutput> {
     let mut channel = connection.target().channel_open_session().await?;
     channel.exec(true, command).await?;
@@ -761,10 +801,26 @@ pub async fn run_command_capture(
     // `Eof` — only on `Close`/channel drop — to avoid dropping a late status.
     while let Some(msg) = channel.wait().await {
         match msg {
-            ChannelMsg::Data { data } => stdout.extend_from_slice(&data),
+            ChannelMsg::Data { data } => {
+                stdout.extend_from_slice(&data);
+                if let Some(tx) = tx {
+                    let _ = tx.send(OutputChunk {
+                        text: String::from_utf8_lossy(&data).into_owned(),
+                        stderr: false,
+                    });
+                }
+            }
             // ext == 1 is SSH_EXTENDED_DATA_STDERR; fold any other extended data
             // in with stderr rather than discarding it.
-            ChannelMsg::ExtendedData { data, .. } => stderr.extend_from_slice(&data),
+            ChannelMsg::ExtendedData { data, .. } => {
+                stderr.extend_from_slice(&data);
+                if let Some(tx) = tx {
+                    let _ = tx.send(OutputChunk {
+                        text: String::from_utf8_lossy(&data).into_owned(),
+                        stderr: true,
+                    });
+                }
+            }
             ChannelMsg::ExitStatus { exit_status } => exit_code = Some(exit_status as i32),
             ChannelMsg::ExitSignal { signal_name, error_message, .. } => {
                 stderr.extend_from_slice(

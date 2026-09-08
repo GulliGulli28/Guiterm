@@ -78,6 +78,23 @@ struct ApprovalNeededEvent {
     timeout_secs: u64,
 }
 
+/// Un morceau de sortie d'une étape playbook, transmis pendant qu'elle tourne.
+///
+/// Les autres types d'étape n'en émettent pas : une commande de flotte rend sa
+/// sortie d'un bloc à la fin, et c'est suffisant pour une commande courte. Un
+/// playbook dure des minutes — sans ça, l'utilisateur regarde une barre
+/// d'attente sans savoir si quelque chose se passe.
+#[derive(Serialize, Clone)]
+#[serde(rename_all = "camelCase")]
+struct StepOutputEvent {
+    run_id: String,
+    step_index: usize,
+    text: String,
+    /// Ansible écrit ses avertissements sur stderr ; les mélanger à stdout
+    /// perdrait l'information au moment où elle sert le plus.
+    stderr: bool,
+}
+
 #[derive(Serialize, Clone)]
 #[serde(rename_all = "camelCase")]
 struct StepOutcomeEvent {
@@ -103,6 +120,130 @@ struct RunDoneEvent {
     status: RunStatus,
 }
 
+/// Joue un playbook sur le relais, en transmettant sa sortie au fil de l'eau,
+/// puis fabrique **un résultat par machine** à partir du `PLAY RECAP`.
+///
+/// C'est cette dernière moitié qui fait qu'une étape playbook se comporte comme
+/// les autres : sans elle, le runbook n'aurait qu'un seul résultat — celui du
+/// relais — et « continuer sans les machines en échec » ne voudrait plus rien
+/// dire, puisque la seule machine en échec possible serait le nœud de contrôle.
+async fn run_playbook_step(
+    app: &AppHandle,
+    workspace: &Workspace,
+    run_id: &str,
+    step_index: usize,
+    command: &str,
+    run: &termius_core::runbook::PlaybookRun,
+) -> Vec<HostOutcome> {
+    let started = std::time::Instant::now();
+    let FleetTarget::Ssh { host_id } = run.relay else {
+        return echec_global(run, "le relais d'un playbook doit être un hôte SSH", 0);
+    };
+
+    let connection = match termius_core::ssh_pool::acquire(workspace, host_id).await {
+        Ok(c) => c,
+        Err(e) => return echec_global(run, &format!("relais injoignable : {e}"), started.elapsed().as_millis() as u64),
+    };
+
+    let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<termius_core::ssh::OutputChunk>();
+    let pompe = {
+        let app = app.clone();
+        let run_id = run_id.to_string();
+        tokio::spawn(async move {
+            while let Some(chunk) = rx.recv().await {
+                let _ = app.emit(
+                    "runbook-step-output",
+                    StepOutputEvent { run_id: run_id.clone(), step_index, text: chunk.text, stderr: chunk.stderr },
+                );
+            }
+        })
+    };
+
+    let sortie = termius_core::ssh::run_command_streaming(&connection, command, Some(&tx)).await;
+    // Lâcher l'émetteur ferme le canal, ce qui termine la pompe : sans ça elle
+    // attendrait indéfiniment et le join ne rendrait jamais la main.
+    drop(tx);
+    let _ = pompe.await;
+
+    let duration_ms = started.elapsed().as_millis() as u64;
+    let sortie = match sortie {
+        Ok(sortie) => sortie,
+        Err(e) => return echec_global(run, &format!("le playbook n'a pas pu être lancé : {e}"), duration_ms),
+    };
+
+    let recaps = termius_core::ansible_playbook::parse_recap(&sortie.stdout);
+    if recaps.is_empty() {
+        // Aucun récapitulatif : le playbook ne s'est pas déroulé du tout —
+        // fichier introuvable, inventaire invalide, `ansible-playbook` absent.
+        // Le silence du récapitulatif ne vaut pas succès, et la sortie d'erreur
+        // est ce qui explique pourquoi.
+        let raison = if sortie.stderr.trim().is_empty() {
+            format!("le playbook n'a produit aucun PLAY RECAP (code {:?})", sortie.exit_code)
+        } else {
+            sortie.stderr.trim().to_string()
+        };
+        return echec_global(run, &raison, duration_ms);
+    }
+
+    run.targets
+        .iter()
+        .map(|(target, nom)| {
+            let recap = recaps.iter().find(|r| &r.name == nom);
+            match recap {
+                Some(recap) => HostOutcome {
+                    target: target.clone(),
+                    exit_code: Some(if recap.failed() { 1 } else { 0 }),
+                    stdout: format!(
+                        "ok={} changed={} unreachable={} failed={}",
+                        recap.ok, recap.changed, recap.unreachable, recap.failed
+                    ),
+                    stderr: String::new(),
+                    // La durée du playbook entier, faute de mieux : Ansible ne
+                    // rapporte pas de temps par machine sans greffon de rappel.
+                    duration_ms,
+                    error: None,
+                },
+                // Visée par `--limit` mais absente du récapitulatif : Ansible ne
+                // l'a pas jouée du tout (nom absent de l'inventaire du relais,
+                // le plus souvent). Un résultat manquant compté comme réussite
+                // serait le pire des deux.
+                None => HostOutcome {
+                    target: target.clone(),
+                    exit_code: None,
+                    stdout: String::new(),
+                    stderr: String::new(),
+                    duration_ms,
+                    error: Some(format!(
+                        "« {nom} » n'apparaît pas dans le PLAY RECAP : absent de l'inventaire du relais ?"
+                    )),
+                },
+            }
+        })
+        .collect()
+}
+
+/// Le playbook n'a pas tourné : chaque cible en porte la raison.
+///
+/// Un seul résultat pour le relais laisserait la politique d'échec sans prise,
+/// et le rapport dirait « une machine en échec » là où aucune n'a été touchée.
+fn echec_global(
+    run: &termius_core::runbook::PlaybookRun,
+    raison: &str,
+    duration_ms: u64,
+) -> Vec<HostOutcome> {
+    run.targets
+        .iter()
+        .map(|(target, _)| HostOutcome {
+            target: target.clone(),
+            exit_code: None,
+            stdout: String::new(),
+            stderr: String::new(),
+            duration_ms,
+            error: Some(raison.to_string()),
+        })
+        .collect()
+}
+
 /// Valide un runbook avant de l'écrire.
 ///
 /// Un programme adaptatif est parsé ici, à l'enregistrement, avec le **même**
@@ -123,6 +264,10 @@ fn validate(runbook: &Runbook) -> Result<(), String> {
             }
             RunbookAction::Program { program_text } => {
                 termius_core::adaptive::parse_program(program_text)
+                    .map_err(|e| format!("l'étape « {} » : {e}", step.title))?;
+            }
+            RunbookAction::Playbook { relay_tag, playbook, inventory } => {
+                termius_core::ansible_playbook::validate_step(relay_tag, playbook, inventory)
                     .map_err(|e| format!("l'étape « {} » : {e}", step.title))?;
             }
             _ => {}
@@ -432,7 +577,21 @@ pub async fn run_runbook(
         }
 
         let mut outcomes: Vec<HostOutcome> = Vec::new();
-        if !next.commands.is_empty() {
+        if let Some(run) = &next.playbook {
+            // Une étape playbook lance une seule commande, sur le relais, et
+            // rend malgré tout un résultat par machine — d'où son propre chemin
+            // plutôt que le moteur de flotte, qui est clé par cible.
+            let command = next.commands.values().next().cloned().unwrap_or_default();
+            for outcome in
+                run_playbook_step(&app, &workspace, &run_id, next.index, &command, run).await
+            {
+                outcomes.push(super::fleet::for_history(&outcome));
+                let _ = app.emit(
+                    "runbook-step-outcome",
+                    StepOutcomeEvent { run_id: run_id.clone(), step_index: next.index, outcome },
+                );
+            }
+        } else if !next.commands.is_empty() {
             let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel::<HostOutcome>();
             tokio::spawn(fleet::run_on_hosts(
                 workspace.clone(),

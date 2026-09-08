@@ -503,6 +503,26 @@ pub enum RunbookAction {
     /// plateforme (voir [`crate::adaptive`]). Hôtes SSH uniquement, comme
     /// partout ailleurs pour ce langage.
     Program { program_text: String },
+    /// Un playbook Ansible, joué **depuis un hôte relais** — voir
+    /// [`crate::ansible_playbook`] pour pourquoi un relais plutôt que la
+    /// machine locale.
+    Playbook {
+        /// Le tag qui désigne le relais parmi les hôtes enregistrés.
+        ///
+        /// Un tag, et **jamais** un `HostId` : c'est ce qui garde le fichier
+        /// vrai chez quelqu'un d'autre, exactement la raison pour laquelle
+        /// [`RunbookStepScope`] se dit par tag et par dossier. Chacun taggue
+        /// son propre nœud de contrôle, la procédure reste la même.
+        relay_tag: String,
+        /// Chemin du playbook **sur le relais**, pas sur cette machine — il y
+        /// vit déjà, dans le dépôt que le nœud de contrôle a cloné.
+        playbook: String,
+        /// Chemin de l'inventaire sur le relais. Vide = celui qu'Ansible
+        /// trouve tout seul via son `ansible.cfg`, ce qui est le cas courant
+        /// sur un nœud de contrôle correctement installé.
+        #[serde(default)]
+        inventory: String,
+    },
 }
 
 /// La restriction de cibles d'une étape.

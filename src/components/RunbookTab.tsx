@@ -7,7 +7,7 @@ import type {
 import { fleetTargetKey } from "../lib/types";
 import { targetLabel } from "../lib/fleetLabels";
 import { assertNever } from "../lib/exhaustive";
-import { api, onRunbookApprovalNeeded, onRunbookDone, onRunbookStepDone, onRunbookStepOutcome, onRunbookStepStarted } from "../lib/api";
+import { api, onRunbookApprovalNeeded, onRunbookDone, onRunbookStepDone, onRunbookStepOutcome, onRunbookStepOutput, onRunbookStepStarted } from "../lib/api";
 import { RunbookApprovalModal } from "./RunbookApprovalModal";
 import { useFleetSelection } from "../hooks/useFleetSelection";
 import { IconPlay, IconPlus, IconTrash, IconChevronDown, IconChevronRight, IconClose } from "./ui-icons";
@@ -28,6 +28,10 @@ interface StepRunState {
   commands: Map<string, string>;
   skipped: SkippedTarget[];
   outcomes: Map<string, FleetOutcome>;
+  /** La sortie d'une étape playbook, recollée. Plafonnée : un playbook bavard
+   * sur cinquante machines produit des mégaoctets, et tout garder ferait ramer
+   * le rendu bien avant d'être utile — ce qu'on veut voir, c'est la fin. */
+  output: string;
   stop: boolean;
   stopReason: string | null;
   dropped: FleetTarget[];
@@ -36,7 +40,7 @@ interface StepRunState {
 function emptyStepState(): StepRunState {
   return {
     status: "waiting", commands: new Map(), skipped: [],
-    outcomes: new Map(), stop: false, stopReason: null, dropped: [],
+    outcomes: new Map(), output: "", stop: false, stopReason: null, dropped: [],
   };
 }
 
@@ -45,6 +49,26 @@ const FAILURE_LABELS: Record<OnFailure, string> = {
   continue: "continuer avec tout le monde",
   dropFailed: "continuer sans les machines en échec",
 };
+
+/** Les trois formes qu'une étape peut prendre. Le libellé « Playbook » plutôt
+ * qu'« Ansible » : c'est le mot que les gens emploient. */
+const ACTION_LABELS: Record<RunbookAction["kind"], string> = {
+  command: "Commande",
+  program: "Langage",
+  playbook: "Playbook",
+};
+
+/** L'action vide d'un type donné, quand on bascule d'une forme à l'autre.
+ * Fermée sur `assertNever` : une quatrième forme ajoutée côté Rust sans
+ * décider de sa valeur initiale deviendrait une erreur `tsc`. */
+function emptyAction(kind: RunbookAction["kind"]): RunbookAction {
+  switch (kind) {
+    case "command": return { kind: "command", command: "" };
+    case "program": return { kind: "program", programText: "" };
+    case "playbook": return { kind: "playbook", relayTag: "", playbook: "", inventory: "" };
+    default: return assertNever(kind, "type d'action de runbook");
+  }
+}
 
 const APPROVAL_LABELS: Record<Approval, string> = {
   beforeIrreversible: "avant une opération sans retour",
@@ -196,6 +220,15 @@ export function RunbookTab({ runbookId, workspace, onError, onWorkspaceUpdate, o
         if (request.runId !== runIdRef.current) return;
         setApproval(request);
         patch(request.stepIndex, (prev) => ({ ...prev, status: "awaitingApproval" }));
+      }),
+      onRunbookStepOutput((id, stepIndex, text) => {
+        if (id !== runIdRef.current) return;
+        patch(stepIndex, (prev) => ({
+          ...prev,
+          // Plafonné par la fin : c'est le `PLAY RECAP` et la dernière tâche
+          // qui intéressent, pas le début d'une sortie de plusieurs mégaoctets.
+          output: (prev.output + text).slice(-40_000),
+        }));
       }),
       onRunbookStepDone((id, payload) => {
         if (id !== runIdRef.current) return;
@@ -602,18 +635,13 @@ function StepCard({
           `assertNever` plus bas garantit qu'une troisième forme d'action ne
           pourrait pas être ajoutée sans décider de son rendu ici. */}
       <div className="mt-1.5 flex gap-1 pl-6 text-[11px]">
-        {(["command", "program"] as const).map((kind) => (
+        {(Object.keys(ACTION_LABELS) as RunbookAction["kind"][]).map((kind) => (
           <button
             key={kind}
-            onClick={() =>
-              onChange((s) => ({
-                ...s,
-                action: kind === "command" ? { kind: "command", command: "" } : { kind: "program", programText: "" },
-              }))
-            }
+            onClick={() => onChange((s) => ({ ...s, action: emptyAction(kind) }))}
             className={`rounded px-1.5 py-0.5 ${step.action.kind === kind ? "bg-[var(--c-bg3)] text-[var(--c-text)]" : "text-[var(--c-text-muted)] hover:bg-[var(--c-bg3)]"}`}
           >
-            {kind === "command" ? "Commande" : "Langage"}
+            {ACTION_LABELS[kind]}
           </button>
         ))}
       </div>
@@ -680,8 +708,17 @@ function StepCard({
       />
 
       {/* ── Résultats de l'exécution ──────────────────────────────────── */}
-      {state && (state.status !== "waiting" || state.skipped.length > 0) && (
+      {state && (state.status !== "waiting" || state.skipped.length > 0 || state.output !== "") && (
         <div className="ml-6 mt-2 space-y-1">
+          {/* La sortie du playbook pendant qu'il tourne. `flex-col-reverse` colle
+              la vue au bas du flux sans script de défilement : le contenu
+              s'empile vers le haut, donc la dernière ligne reste visible même
+              quand elle arrive par paquets. */}
+          {state.output && (
+            <pre className="flex max-h-72 flex-col-reverse overflow-auto whitespace-pre-wrap break-all rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1.5 py-1 font-mono text-[10px] leading-relaxed text-[var(--c-text-muted)]">
+              <span>{state.output}</span>
+            </pre>
+          )}
           {state.stopReason && (
             <p className="rounded bg-[#ef444411] px-1.5 py-1 text-[10px] text-[#ef4444]">Arrêt : {state.stopReason}</p>
           )}
@@ -761,6 +798,48 @@ function ActionEditor({ action, onChange }: { action: RunbookAction; onChange: (
           </p>
         </div>
       );
+    case "playbook": {
+      const champ = (
+        libelle: string,
+        valeur: string,
+        placeholder: string,
+        maj: (v: string) => RunbookAction,
+        aide?: string,
+      ) => (
+        <label className="flex flex-col gap-0.5 text-[10px] text-[var(--c-text-muted)]">
+          {libelle}
+          <input
+            value={valeur}
+            onChange={(e) => onChange(maj(e.target.value))}
+            placeholder={placeholder}
+            className="rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1.5 py-1 font-mono text-[11px] text-[var(--c-text)]"
+          />
+          {aide && <span className="text-[10px] text-[var(--c-text-faint)]">{aide}</span>}
+        </label>
+      );
+      return (
+        <div className="ml-6 mt-1 flex w-[calc(100%-1.5rem)] flex-col gap-1.5">
+          <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
+            {champ("Tag du relais", action.relayTag, "ansible-control",
+              (v) => ({ ...action, relayTag: v }),
+              "l'hôte qui porte ce tag joue le playbook")}
+            {champ("Playbook", action.playbook, "/opt/infra/site.yml",
+              (v) => ({ ...action, playbook: v }),
+              "chemin sur le relais")}
+            {champ("Inventaire", action.inventory, "(celui d'ansible.cfg)",
+              (v) => ({ ...action, inventory: v }),
+              "facultatif")}
+          </div>
+          <p className="text-[10px] leading-relaxed text-[var(--c-text-faint)]">
+            Le playbook est joué <strong>depuis</strong> le relais, pas depuis cette machine — Ansible n'a donc
+            pas besoin d'être installé ici. Il ne vise que les cibles cochées qui viennent d'un inventaire
+            importé : les autres n'ont pas de nom Ansible et sont écartées nommément. Un playbook n'étant pas
+            lisible d'ici, l'app ne peut rien dire de ce qu'il détruit — passez l'approbation sur
+            « toujours » si l'étape le mérite.
+          </p>
+        </div>
+      );
+    }
     default:
       return assertNever(action, "action d'étape de runbook");
   }

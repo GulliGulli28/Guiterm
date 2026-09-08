@@ -1253,7 +1253,19 @@ export interface RunbookApprovalRequest {
  * union discriminée, donc tout dispatch dessus se ferme sur `assertNever`. */
 export type RunbookAction =
   | { kind: "command"; command: string }
-  | { kind: "program"; programText: string };
+  | { kind: "program"; programText: string }
+  | {
+      kind: "playbook";
+      /** Le tag qui désigne l'hôte d'où le playbook est joué. Un tag et jamais
+       * un identifiant d'hôte : c'est ce qui garde le fichier vrai chez
+       * quelqu'un d'autre, même raison que `RunbookStepScope`. */
+      relayTag: string;
+      /** Chemin du playbook **sur le relais**, pas sur cette machine. */
+      playbook: string;
+      /** Chemin de l'inventaire sur le relais. Vide = celui qu'Ansible trouve
+       * seul via son `ansible.cfg`. */
+      inventory: string;
+    };
 
 /** La restriction de cibles d'une étape : par tag et par dossier, jamais par
  * identifiant d'hôte. Les deux champs se combinent par ET ; **tous** les tags

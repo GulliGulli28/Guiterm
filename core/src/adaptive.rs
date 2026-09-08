@@ -1091,7 +1091,11 @@ pub async fn generate_program(existing_text: &str, intent: &str) -> anyhow::Resu
 /// template — restrict to a conservative safe charset so an argument (from
 /// the LLM, ultimately derived from free-form user text, or typed by hand)
 /// can never break out of the intended single shell token.
-fn is_safe_token(s: &str) -> bool {
+///
+/// `pub(crate)` depuis que `crate::ansible_playbook` compose lui aussi une
+/// ligne de commande à partir de chaînes saisies : le même besoin, donc la
+/// même liste blanche plutôt qu'une deuxième, qui divergerait.
+pub(crate) fn is_safe_token(s: &str) -> bool {
     !s.is_empty() && s.chars().all(|c| c.is_ascii_alphanumeric() || matches!(c, '-' | '_' | '.' | '+'))
 }
 
@@ -1102,7 +1106,7 @@ fn is_safe_token(s: &str) -> bool {
 /// itself can't contain one, it can never break out of that quoting (POSIX
 /// single quotes disable all expansion; PowerShell single-quoted strings
 /// are equally literal).
-fn is_safe_path(s: &str) -> bool {
+pub(crate) fn is_safe_path(s: &str) -> bool {
     !s.is_empty()
         && !s.contains('\'')
         && s.chars().all(|c| c.is_alphanumeric() || matches!(c, '-' | '_' | '.' | '+' | '/' | '\\' | ':' | ' ' | '~'))

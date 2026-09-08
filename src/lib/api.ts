@@ -799,6 +799,22 @@ export function onRunbookStepOutcome(
   );
 }
 
+/** La sortie d'une étape playbook, au fil de l'eau.
+ *
+ * Seules les étapes playbook en émettent : une commande de flotte rend sa
+ * sortie d'un bloc à la fin, ce qui suffit pour une commande courte. Un playbook
+ * dure des minutes — sans ça, on regarde une attente sans savoir si quelque
+ * chose se passe. Les morceaux ne tombent pas sur des fins de ligne : SSH
+ * découpe en paquets, c'est au consommateur de recoller. */
+export function onRunbookStepOutput(
+  handler: (runId: string, stepIndex: number, text: string, stderr: boolean) => void,
+): Promise<UnlistenFn> {
+  return listen<{ runId: string; stepIndex: number; text: string; stderr: boolean }>(
+    "runbook-step-output",
+    (event) => handler(event.payload.runId, event.payload.stepIndex, event.payload.text, event.payload.stderr),
+  );
+}
+
 /** Une étape est finie : la politique d'échec a tranché. `stop` arrête la
  * procédure, `dropped` sort ces cibles de la suite. */
 export function onRunbookStepDone(
