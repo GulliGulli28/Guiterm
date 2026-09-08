@@ -126,19 +126,36 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
    * destination re-aims the existing tab rather than stacking a second one:
    * the panel this replaced was a modal, and people open it repeatedly from
    * different hosts during one incident. */
-  const openNetdiag = useCallback((sourceHostId?: HostId | null) => {
+  const openNetdiag = useCallback((sourceHostId?: HostId | null, seed?: { destination: string; tcpPort?: number }) => {
     const existing = tabs.find((t) => t.kind === "netdiag");
     if (existing) {
-      if (sourceHostId) {
-        setTabs((prev) => prev.map((t) => (t.id === existing.id ? { ...t, sourceHostId } : t)));
-      }
+      // L'onglet est unique, donc le re-viser doit écraser son amorce — y
+      // compris avec une destination vide, sinon celle d'un incident précédent
+      // resterait sous une question qui ne la nomme plus. `sourceHostId` garde
+      // sa garde `undefined` : la barre latérale rouvre l'onglet sans rien
+      // dire de la source, et lui écraser la sienne serait une régression.
+      setTabs((prev) => prev.map((t) => (t.id === existing.id
+        ? {
+            ...t,
+            ...(sourceHostId !== undefined ? { sourceHostId } : {}),
+            initialDestination: seed?.destination,
+            initialTcpPort: seed?.tcpPort,
+          }
+        : t)));
       setActiveTabId(existing.id);
       return;
     }
     const id = `tab-${nextTabId++}`;
     setTabs((prev) => [
       ...prev,
-      { id, kind: "netdiag", label: "Diagnostic réseau", sourceHostId: sourceHostId ?? null },
+      {
+        id,
+        kind: "netdiag",
+        label: "Diagnostic réseau",
+        sourceHostId: sourceHostId ?? null,
+        initialDestination: seed?.destination,
+        initialTcpPort: seed?.tcpPort,
+      },
     ]);
     setActiveTabId(id);
   }, [tabs]);

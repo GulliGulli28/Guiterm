@@ -262,6 +262,7 @@ async function runScenarios(browser) {
   await runSqlTabScenario(browser);
   await runHostAttachmentsScenario(browser);
   await runObjectBusScenario(browser);
+  await runObjectBusSelectionScenario(browser);
   await runAdaptiveComposerScenario(browser);
   await runSqlHistoryScenario(browser);
   await runFleetTabScenario(browser);
@@ -1902,6 +1903,110 @@ async function runObjectBusScenario(browser) {
       throw new Error(`nettoyage impossible, workspace pollué : ${JSON.stringify(cleanup)}`);
     }
   }
+}
+
+/**
+ * Le bus d'objets au clavier : une adresse surlignée dans un terminal, envoyée
+ * au diagnostic réseau par `Ctrl+Shift+K`.
+ *
+ * Trois choses que rien d'autre ne prouve, et qui tombent séparément :
+ *
+ * 1. **Le raccourci traverse xterm.** `palette.open` (Ctrl+K) ne remonte
+ *    volontairement pas — c'est `kill-line` — donc l'action du bus est une
+ *    action à part, et `bubblesThroughTerminal` est ce qui la rend atteignable
+ *    là où on s'en sert. Un test unitaire lit la déclaration ; seul un vrai
+ *    terminal focalisé prouve que la touche arrive.
+ * 2. **La sélection est lue au déclenchement**, pas au rendu de la palette,
+ *    qui prend le focus en s'ouvrant.
+ * 3. **L'onglet visé est réellement amorcé** sur l'adresse et son port.
+ *
+ * Tout se joue dans un terminal **local** : aucun réseau, donc aucun `sshd`
+ * requis et le scénario tient en CI.
+ */
+async function runObjectBusSelectionScenario(browser) {
+  const before = await browser.execute(() => document.querySelectorAll(".xterm-rows").length);
+  await browser.keys(["Control", "t"]);
+  await browser.waitUntil(
+    async () => (await browser.execute((n) => document.querySelectorAll(".xterm-rows").length > n, before)),
+    { timeout: 10_000, timeoutMsg: "aucun terminal local pour la sélection" },
+  );
+
+  // **Le terminal visible**, pas `browser.$(".xterm")`. À ce stade de la suite
+  // une dizaine d'onglets sont ouverts, et ils restent *montés* quand ils sont
+  // masqués : le premier `.xterm` du DOM est donc un terminal caché, sur lequel
+  // WebDriver refuse de cliquer (« element not interactable » — constaté).
+  // Le focus est posé sur la zone de saisie cachée de xterm, ce que fait aussi
+  // un vrai clic, et c'est elle qui reçoit les frappes.
+  const focused = await browser.execute(() => {
+    const visible = Array.from(document.querySelectorAll(".xterm"))
+      .filter((el) => el.getBoundingClientRect().width > 0);
+    const area = visible[visible.length - 1]?.querySelector(".xterm-helper-textarea");
+    if (!(area instanceof HTMLElement)) return false;
+    area.focus();
+    return document.activeElement === area;
+  });
+  if (!focused) throw new Error("impossible de donner le focus au terminal visible");
+
+  // Faire écrire l'adresse au shell, seule sur sa ligne — c'est cette ligne
+  // qu'on surlignera, et `echo` la produit sans rien autour.
+  const ADDRESS = "10.0.3.12:5432";
+  for (const ch of `echo ${ADDRESS}`) await browser.keys(ch);
+  await browser.keys("Enter");
+
+  // Un **vrai** glisser de souris sur la ligne, plutôt qu'un appel à l'API de
+  // sélection de xterm : la sélection est précisément ce que le raccourci va
+  // lire, et l'obtenir autrement que par le geste de l'utilisateur laisserait
+  // passer une régression sur le geste lui-même. On repère la ligne par son
+  // texte, donc rien ne dépend de la police ni du nombre de lignes au-dessus.
+  const row = await browser.waitUntil(async () => {
+    const box = await browser.execute((wanted) => {
+      const visible = Array.from(document.querySelectorAll(".xterm"))
+        .filter((el) => el.getBoundingClientRect().width > 0);
+      const screen = visible[visible.length - 1];
+      const found = Array.from(screen?.querySelectorAll(".xterm-rows > div") ?? [])
+        .find((r) => (r.textContent || "").trim() === wanted);
+      if (!found) return null;
+      const r = found.getBoundingClientRect();
+      if (r.width < 4) return null;
+      return { left: Math.round(r.left) + 1, right: Math.round(r.right) - 1, y: Math.round(r.top + r.height / 2) };
+    }, ADDRESS);
+    return box ?? false;
+  }, { timeout: 10_000, timeoutMsg: `la ligne « ${ADDRESS} » n a jamais été rendue par le terminal` });
+
+  await browser.performActions([{
+    type: "pointer",
+    id: "souris",
+    parameters: { pointerType: "mouse" },
+    actions: [
+      { type: "pointerMove", duration: 0, x: row.left, y: row.y },
+      { type: "pointerDown", button: 0 },
+      { type: "pointerMove", duration: 60, x: row.right, y: row.y },
+      { type: "pointerUp", button: 0 },
+    ],
+  }]);
+
+  await browser.keys(["Control", "Shift", "k"]);
+
+  const entries = await browser.waitUntil(async () => {
+    const found = await browser.execute(() => {
+      const dialog = Array.from(document.querySelectorAll('[role="dialog"]'))
+        .find((d) => (d.textContent || "").includes("Envoyer «"));
+      return dialog ? Array.from(dialog.querySelectorAll("button"), (b) => b.textContent?.trim() ?? "") : null;
+    });
+    return found && found.length > 0 ? found : false;
+  }, { timeout: 10_000, timeoutMsg: "Ctrl+Shift+K n a pas ouvert la palette d objet depuis le terminal — le raccourci ne traverse pas xterm ?" });
+
+  const probe = entries.find((label) => label.startsWith("Diagnostiquer"));
+  if (!probe) {
+    throw new Error(`la palette d objet n offre pas l action du diagnostic : ${JSON.stringify(entries)}`);
+  }
+
+  await clickButtonByText(browser, probe);
+  await browser.waitUntil(async () => await browser.execute(() =>
+    Array.from(document.querySelectorAll("input")).some((i) => i.value === "10.0.3.12")
+  ), { timeout: 10_000, timeoutMsg: "l onglet de diagnostic ne s est pas ouvert sur l adresse envoyée" });
+
+  console.log(`Bus d objets au clavier : OK (Ctrl+Shift+K traverse xterm, « ${probe} », destination amorcée).`);
 }
 
 async function runHostAttachmentsScenario(browser) {

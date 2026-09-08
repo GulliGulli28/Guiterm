@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { describeObject, describeSource, directoryOf } from "./appObject";
+import { describeObject, describeSource, directoryOf, parseEndpoint } from "./appObject";
 import type { Workspace } from "./types";
 
 const workspace = {
@@ -65,5 +65,62 @@ describe("directoryOf", () => {
     // `panePath.ts`.
     expect(at("C:\\Users\\moi\\notes.txt", false)).toBe("C:\\Users\\moi");
     expect(at("C:\\notes.txt", false)).toBe("C:\\");
+  });
+});
+
+describe("parseEndpoint", () => {
+  const at = (text: string) => parseEndpoint(text);
+
+  it("lit une adresse nue, sans port", () => {
+    expect(at("10.0.3.12")).toEqual({ address: "10.0.3.12", port: null });
+    expect(at("db.interne.lan")).toEqual({ address: "db.interne.lan", port: null });
+    expect(at("localhost")).toEqual({ address: "localhost", port: null });
+  });
+
+  it("lit la forme hôte:port des sorties de ss, netstat et des journaux", () => {
+    expect(at("10.0.3.12:5432")).toEqual({ address: "10.0.3.12", port: 5432 });
+    expect(at("db.interne.lan:6379")).toEqual({ address: "db.interne.lan", port: 6379 });
+  });
+
+  it("ne garde que l'hôte d'une forme SSH", () => {
+    // C'est la machine qui est joignable, pas le compte.
+    expect(at("deploy@bastion.example.com")).toEqual({ address: "bastion.example.com", port: null });
+    expect(at("deploy@10.0.3.12:22")).toEqual({ address: "10.0.3.12", port: 22 });
+  });
+
+  it("exige les crochets pour une IPv6 portant un port", () => {
+    expect(at("[2001:db8::1]:5432")).toEqual({ address: "2001:db8::1", port: 5432 });
+    expect(at("[2001:db8::1]")).toEqual({ address: "2001:db8::1", port: null });
+  });
+
+  it("ne devine pas un port au bout d'une IPv6 nue", () => {
+    // `2001:db8::1:5432` est une adresse valide à part entière. Deviner qu'on
+    // voulait dire « port 5432 » ferait viser une machine qui n'est pas celle
+    // affichée — un tunnel silencieusement branché ailleurs.
+    expect(at("2001:db8::1:5432")).toEqual({ address: "2001:db8::1:5432", port: null });
+  });
+
+  it("refuse un mot quelconque d'une sortie de commande", () => {
+    // Le point est exigé dans un nom : sans ça, proposer « ouvrir un tunnel
+    // vers failed » discréditerait le menu entier.
+    for (const noise of ["failed", "root", "nginx", "", "   ", "Connection", "--verbose", "42"]) {
+      expect(at(noise), `« ${noise} » ne devrait pas passer pour une adresse`).toBeNull();
+    }
+  });
+
+  it("refuse un port impossible plutôt que de l'ignorer", () => {
+    // Rendre l'hôte sans son port ferait viser le port par défaut d'un autre
+    // service, en silence.
+    expect(at("10.0.3.12:0")).toBeNull();
+    expect(at("10.0.3.12:70000")).toBeNull();
+    expect(at("10.0.3.12:http")).toBeNull();
+  });
+
+  it("refuse une IPv4 hors bornes", () => {
+    expect(at("999.1.1.1")).toBeNull();
+  });
+
+  it("tolère les espaces autour d'une sélection", () => {
+    expect(at("  10.0.3.12:5432 \n")).toEqual({ address: "10.0.3.12", port: 5432 });
   });
 });

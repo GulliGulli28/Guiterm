@@ -24,6 +24,14 @@ export interface TerminalTabHandle {
   runCommand: (command: string) => void;
   writeRaw: (data: string) => void;
   getScrollbackText: () => string;
+  /** Ce que l'utilisateur a surligné, ou `null` s'il n'a rien surligné.
+   *
+   * Lu par le bus d'objets, qui n'analyse **que** la sélection : rien ne
+   * tourne en continu sur le tampon, donc aucun coût de rendu et aucun faux
+   * positif visible en permanence. Une chaîne vide devient `null` — xterm rend
+   * `""` quand il n'y a pas de sélection, et « rien de sélectionné » est une
+   * réponse, pas une sélection vide. */
+  getSelection: () => string | null;
   /** Backend session id and current geometry, for session recording — the
    * recorder lives in Rust but only xterm knows the real size. `null` before
    * the session is open (or after it closed), which is also the answer to
@@ -216,6 +224,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
         if (id) api.writeTerminal(id, new TextEncoder().encode(data));
       },
       getScrollbackText: () => (termRef.current ? scrollbackText(termRef.current) : ""),
+      getSelection: () => termRef.current?.getSelection() || null,
       getRecordingTarget: () => {
         const id = sessionIdRef.current;
         const term = termRef.current;

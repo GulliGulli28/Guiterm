@@ -47,6 +47,20 @@ describe("le catalogue d'actions", () => {
     expect(clashes).toEqual([]);
   });
 
+  it("garde le bus d'objets remontant à travers un terminal", () => {
+    // Sans `bubblesThroughTerminal`, l'action ne se déclencherait jamais
+    // depuis un terminal — or c'est exactement là qu'on sélectionne une
+    // adresse dans une sortie de commande. Elle existe précisément parce que
+    // la palette (`Ctrl+K`) est, elle, volontairement non remontante.
+    //
+    // Le versant collision est déjà couvert pour *toutes* les actions
+    // remontantes, deux tests plus bas : reposer celle-ci sur un `Ctrl+lettre`
+    // nu y ferait rouge sans avoir à le redire ici.
+    const action = SHORTCUT_ACTIONS.find((a) => a.id === "objects.sendSelection");
+    expect(action, "l'action du bus d'objets a disparu du catalogue").toBeDefined();
+    expect(action?.bubblesThroughTerminal, "elle ne remonterait pas depuis un terminal").toBe(true);
+  });
+
   it("donne une combinaison par défaut à chaque action", () => {
     const defaults = defaultShortcuts();
     for (const action of SHORTCUT_ACTIONS) {

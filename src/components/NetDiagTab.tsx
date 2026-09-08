@@ -12,6 +12,12 @@ interface NetDiagTabProps {
    * entry has always meant "probe *from* this host" — and `null` from the
    * palette, which preselects this machine instead. */
   initialSourceId?: HostId | null;
+  /** Destination et port pré-remplis, quand l'onglet a été ouvert sur une
+   * adresse désignée ailleurs — une sélection dans un terminal, via le bus
+   * d'objets. Le sens est alors « depuis » : la question est de savoir si la
+   * machine où l'adresse a été lue la joint. */
+  initialDestination?: string;
+  initialTcpPort?: number;
   /** Ramène la barre latérale sur le panneau de sélection — ce que fait le
    * récapitulatif de cibles quand elle affiche autre chose. */
   onShowTargets: () => void;
@@ -40,18 +46,24 @@ const TONE_CLASS: Record<string, string> = {
  * unresolved name is not a network problem, and a missing tool is not a failed
  * test.
  */
-export function NetDiagTab({ onError, initialSourceId, onShowTargets }: NetDiagTabProps) {
+export function NetDiagTab({ onError, initialSourceId, initialDestination, initialTcpPort, onShowTargets }: NetDiagTabProps) {
   // Le choix des machines vit dans la barre latérale (`NetDiagTargetsPanel`),
   // donc dans un magasin partagé plutôt que dans cet onglet.
   const { direction, setDirection, selected, selectable, seedSource } = useNetDiagSelection();
 
-  const [destination, setDestination] = useState("");
+  // Amorcées, pas seulement affichées : l'onglet est remonté à chaque nouvel
+  // envoi (voir sa `key` dans `modules/netdiag.tsx`), donc un `useState`
+  // initialisé suffit — pas besoin d'un effet qui écraserait la saisie en
+  // cours à chaque rendu.
+  const [destination, setDestination] = useState(initialDestination ?? "");
   const [running, setRunning] = useState(false);
 
   // Which tools are on, and their parameters. TCP and HTTP carry a port, so
   // they are more than a checkbox.
   const [tcpOn, setTcpOn] = useState(true);
-  const [tcpPort, setTcpPort] = useState("443");
+  // Le port désigné plutôt que le 443 par défaut : sonder autre chose que ce
+  // qu'on vient de pointer répondrait à une question qu'on n'a pas posée.
+  const [tcpPort, setTcpPort] = useState(initialTcpPort !== undefined ? String(initialTcpPort) : "443");
   const [dnsOn, setDnsOn] = useState(true);
   const [httpOn, setHttpOn] = useState(false);
   const [httpSecure, setHttpSecure] = useState(true);

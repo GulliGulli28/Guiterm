@@ -112,6 +112,10 @@ export const RdpTab = forwardRef<TerminalTabHandle, RdpTabProps>(function RdpTab
       writeRaw: (data: string) => sendInputRef.current({ type: "typeText", text: data }),
       // No text scrollback here — this is a picture, not a terminal.
       getScrollbackText: () => "",
+      // Pas de sélection de texte non plus : un canevas RDP n'a pas de tampon
+      // de caractères à surligner. Le bus d'objets n'a donc jamais rien à lire
+      // ici — `null`, comme un terminal où rien n'est sélectionné.
+      getSelection: () => null,
       // Nor anything to record as an asciicast: an RDP session is a stream of
       // framebuffer updates, not of terminal bytes. Recording one would be a
       // screen recorder, a different feature entirely.

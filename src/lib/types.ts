@@ -1090,6 +1090,12 @@ export type TabMeta =
        * palette's way in) preselects this machine instead, which is the other
        * half of the question during an incident. */
       sourceHostId?: HostId | null;
+      /** Destination pré-remplie, quand l'onglet a été ouvert sur une adresse
+       * lue ailleurs (bus d'objets). Le port, s'il y en avait un, arme la
+       * sonde TCP dessus plutôt que sur le 443 par défaut — sinon l'onglet
+       * répondrait sur un autre port que celui qu'on venait de désigner. */
+      initialDestination?: string;
+      initialTcpPort?: number;
       status?: "connected" | "placeholder";
     }
   | { id: string; kind: "sql"; label: string; sqlConnectionId: SqlConnectionId; status?: "connected" | "placeholder" };

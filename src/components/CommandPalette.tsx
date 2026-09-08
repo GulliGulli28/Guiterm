@@ -14,10 +14,18 @@ export interface PaletteCommand {
 
 interface CommandPaletteProps {
   commands: PaletteCommand[];
+  /** Sur quoi porte cette liste, quand elle ne porte pas sur toute l'app.
+   *
+   * Le bus d'objets rouvre la même palette réduite aux actions d'une chose
+   * précise — sans ce titre, une liste de trois entrées sortie de nulle part
+   * ne dirait pas *sur quoi* elle agit, et c'est justement ce que l'utilisateur
+   * vient de sélectionner du bout de la souris. */
+  title?: string;
+  placeholder?: string;
   onClose: () => void;
 }
 
-export function CommandPalette({ commands, onClose }: CommandPaletteProps) {
+export function CommandPalette({ commands, title, placeholder, onClose }: CommandPaletteProps) {
   const { ref, dialogProps } = useModalSurface({ onClose, label: "Palette de commandes" });
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
@@ -47,6 +55,11 @@ export function CommandPalette({ commands, onClose }: CommandPaletteProps) {
         className="w-full max-w-lg overflow-hidden rounded-lg bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]"
         onClick={(e) => e.stopPropagation()}
       >
+        {title && (
+          <p className="truncate border-b border-[var(--c-border)] px-4 pb-1.5 pt-2.5 text-[11px] text-[var(--c-text-muted)]" title={title}>
+            {title}
+          </p>
+        )}
         <input
           ref={inputRef}
           value={query}
@@ -58,11 +71,15 @@ export function CommandPalette({ commands, onClose }: CommandPaletteProps) {
             if (e.key === "ArrowUp") { e.preventDefault(); setActiveIndex((i) => Math.max(i - 1, 0)); }
             if (e.key === "Enter") { e.preventDefault(); runAt(activeIndex); }
           }}
-          placeholder="Tapez une commande… (se connecter, fermer l'onglet, paramètres…)"
+          placeholder={placeholder ?? "Tapez une commande… (se connecter, fermer l'onglet, paramètres…)"}
           className="w-full border-b border-[var(--c-border)] bg-transparent px-4 py-3 text-[14px] text-[var(--c-text)] placeholder:text-[var(--c-text-muted)]"
         />
         <div className="sidebar-scroll max-h-80 overflow-y-auto py-1">
-          {filtered.length === 0 && <p className="px-4 py-6 text-center text-sm text-[var(--c-text-muted)]">Aucun résultat</p>}
+          {filtered.length === 0 && (
+            <p className="px-4 py-6 text-center text-sm text-[var(--c-text-muted)]">
+              {commands.length === 0 && title ? "Aucun onglet ne sait quoi faire de ça." : "Aucun résultat"}
+            </p>
+          )}
           {filtered.map((cmd, i) => (
             <button
               key={cmd.id}

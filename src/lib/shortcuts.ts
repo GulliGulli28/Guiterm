@@ -57,6 +57,13 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
   // this combo as their hint, so the shortcut is still discoverable there.
   { id: "terminal.toggleRecording", label: "Enregistrer / arrêter l'enregistrement de la session", defaultKey: "Ctrl+Shift+S", bubblesThroughTerminal: true, paletteHidden: true },
   { id: "terminal.exportScrollback", label: "Exporter le scrollback du terminal actif…", defaultKey: "Ctrl+Shift+X", bubblesThroughTerminal: true },
+  // Le bus d'objets, vu du clavier. **Pas `Ctrl+K`** : la palette s'ouvre bien
+  // dessus, mais `palette.open` ne remonte volontairement pas à travers un
+  // terminal — `Ctrl+K` est `kill-line` (voir `SHELL_BINDING_WARNINGS`), et le
+  // faire remonter le prendrait à tous les shells. D'où une action à part, sur
+  // une combinaison de la famille `Ctrl+Shift+lettre`, dont aucune ne heurte
+  // readline : elle ouvre la même palette, cadrée sur la sélection.
+  { id: "objects.sendSelection", label: "Envoyer la sélection vers…", defaultKey: "Ctrl+Shift+K", bubblesThroughTerminal: true },
 
   // Tool tabs and panels.
   { id: "fleet.open", label: "Opérations de flotte — exécuter sur plusieurs hôtes…", defaultKey: "Ctrl+Shift+O", bubblesThroughTerminal: true },

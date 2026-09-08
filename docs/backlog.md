@@ -219,6 +219,39 @@ transfert et les résultats de recherche sont des contextes souris. Deux
 rendus, **un seul `actionsForObject`** — c'est ce qui prouve que c'est un bus
 et pas un menu.
 
+#### Écarts au plan, constatés en écrivant la tranche 2
+
+- **`AppObject.endpoint` porte `via`**, l'hôte depuis lequel l'adresse a été
+  lue (`null` pour un terminal local). Non prévu, et c'est ce qui fait la
+  valeur de l'action : une IP privée vue dans un `ss` sur un bastion ne veut
+  rien dire depuis cette machine-ci, et la question utile est « depuis ce
+  bastion, est-ce que tu joins ça ? » — le second sens que
+  `useNetDiagSelection` documente déjà. Conséquence : `parseEndpoint` rend un
+  `ParsedEndpoint` (texte analysé) et non un `AppObject`, `via` venant du
+  contexte d'appel.
+- **`openFleet` et `openNetDiag` ont rejoint `TabOpeners`.** Ils étaient restés
+  dans `SidebarActions`, sous une section intitulée « Boutons de la bande qui
+  ouvrent un onglet plutôt qu'un panneau » — qui les décrivait déjà comme des
+  ouvreurs. Leur place était de ce côté de la frontière depuis le début.
+- **L'onglet de diagnostic est un singleton dont le remontage passe par sa
+  `key`.** Envoyer une seconde adresse depuis un terminal ne change pas la
+  source, donc n'aurait rien remonté : le champ serait resté sur l'adresse
+  précédente, sous un onglet qu'on vient pourtant de viser. La destination
+  entre donc dans la `key`.
+- **`ObjectActionsMenu` n'existe toujours pas** : la palette réduite et le
+  menu contextuel sont deux rendus d'un seul `actionsForObject`. La palette a
+  gagné un `title` optionnel, rien de plus.
+- **Un seul destinataire d'`endpoint` pour l'instant** — le diagnostic réseau.
+  Le tunnel, la création d'hôte et la connexion SQL restent à faire : chacun
+  demande sa propre amorce de formulaire, ce qui est du travail par
+  destinataire et non du travail de bus. L'anti-vacuité est déjà satisfaite,
+  donc ils peuvent arriver un par un.
+
+Et un piège de scénario, à ne pas redécouvrir : **les onglets restent montés
+quand ils sont masqués**, donc `browser.$(".xterm")` désigne un terminal caché
+dès qu'il y a plusieurs onglets, et WebDriver refuse d'y cliquer (« element not
+interactable »). Filtrer sur une largeur non nulle.
+
 ### Tranche 3 — l'objet `targets` (aucun Rust)
 
 Amorcer la sélection d'un module depuis un autre : une colonne d'IPs d'un

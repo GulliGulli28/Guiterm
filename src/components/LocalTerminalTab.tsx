@@ -76,6 +76,7 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
         if (id) api.writeLocalTerminal(id, new TextEncoder().encode(data));
       },
       getScrollbackText: () => (termRef.current ? scrollbackText(termRef.current) : ""),
+      getSelection: () => termRef.current?.getSelection() || null,
       getRecordingTarget: () => {
         const id = sessionIdRef.current;
         const term = termRef.current;

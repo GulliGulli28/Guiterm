@@ -152,6 +152,17 @@ export interface TabOpeners {
   /** Le symétrique, côté fichiers : ouvre un panneau de transfert **positionné
    * sur** ce dossier plutôt que sur celui que le backend rend à l'ouverture. */
   openTransferIn: (source: PaneSource, path: string) => void;
+
+  // ── Onglets sans hôte ─────────────────────────────────────────────────
+  // Vivaient plus bas dans `SidebarActions`, sous « Boutons de la bande qui
+  // ouvrent un onglet plutôt qu'un panneau » — ce qui les décrivait déjà comme
+  // des ouvreurs. Remontés ici le 2026-09-08 quand le bus en a eu besoin :
+  // leur place était de ce côté de la frontière depuis le début.
+  openFleet: () => void;
+  /** `sourceHostId` : depuis quelle machine sonder — `null` pour celle-ci.
+   * `seed` pré-remplit la destination, quand l'onglet est ouvert sur une
+   * adresse désignée ailleurs plutôt que sur une question encore à écrire. */
+  openNetDiag: (sourceHostId?: HostId | null, seed?: { destination: string; tcpPort?: number }) => void;
 }
 
 /** Ce qu'un panneau de barre latérale peut demander à l'app, en plus
@@ -220,9 +231,6 @@ export interface SidebarActions extends TabOpeners {
   onVaultStatusChange: () => void;
   updatePreferences: (p: AppPreferences) => void;
 
-  // ── Boutons de la bande qui ouvrent un onglet plutôt qu'un panneau ────
-  openFleet: () => void;
-  openNetDiag: () => void;
 }
 
 /** Le rendu d'un panneau de barre latérale. Même contrat que `TabContribution` :

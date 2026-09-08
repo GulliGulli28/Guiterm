@@ -14,6 +14,7 @@ import { TabLoadingFallback } from "./components/TabLoadingFallback";
 import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, loadPreferences, savePreferences } from "./lib/preferences";
 import { resolveVisiblePanel, type SidebarPanelKind } from "./lib/sidebarButtons";
 import { cdCommand } from "./lib/panePath";
+import { describeObject, parseEndpoint, type AppObject } from "./lib/appObject";
 import { groupPath } from "./lib/hostTree";
 import { actionsForObject, renderModuleTab } from "./modules/registry";
 import type { AppContext, SidebarActions, TabOpeners } from "./modules/types";
@@ -74,6 +75,11 @@ export default function App() {
   const [splitSource, setSplitSource] = useState<"local" | HostId>("local");
   const toggleSplit = useCallback(() => setSplitOpen((v) => !v), []);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  /** La même palette, réduite aux actions d'un objet précis. Un état à part
+   * plutôt qu'un mode de `paletteOpen` : les deux ne s'ouvrent jamais par le
+   * même geste, et une union à deux cas ferait porter à chaque lecture de
+   * `paletteOpen` une question qu'elle n'a pas à se poser. */
+  const [objectPalette, setObjectPalette] = useState<AppObject | null>(null);
   const [snippetPickerOpen, setSnippetPickerOpen] = useState(false);
   /** Which cloud import is on screen. `"picker"` is the provider choice that
    * the single "Importer depuis le cloud" menu entry opens; the others are the
@@ -407,6 +413,33 @@ export default function App() {
     "netdiag.open": () => openNetdiagTab(null),
     "database.open": () => { setSidebarVisible(true); setSidebarPanel("database"); },
     "broadcast.toggle": () => toggleBroadcastMode(),
+    /** Le bus d'objets au clavier : ce qui est surligné dans le terminal actif,
+     * offert aux autres modules.
+     *
+     * **La sélection est lue ici, au déclenchement** — pas au rendu de la
+     * palette, qui prend le focus en s'ouvrant. Et seule la sélection est
+     * analysée : rien ne tourne en continu sur le tampon du terminal.
+     *
+     * Les deux refus sont distincts exprès. « Rien de sélectionné » et « ça ne
+     * ressemble pas à une adresse » demandent deux gestes différents pour s'en
+     * sortir, et un message commun laisserait chercher lequel. */
+    "objects.sendSelection": () => {
+      const selection = activeTabId ? terminalRefs.current.get(activeTabId)?.getSelection() ?? null : null;
+      if (!selection) {
+        reportError("Rien de sélectionné — surligner une adresse dans le terminal, puis réessayer.");
+        return;
+      }
+      const parsed = parseEndpoint(selection);
+      if (!parsed) {
+        const shown = selection.trim().slice(0, 40);
+        reportError(`« ${shown} » ne ressemble pas à une adresse joignable.`);
+        return;
+      }
+      // L'hôte **depuis lequel** l'adresse a été lue. Une IP privée vue dans un
+      // `ss` sur un bastion ne veut rien dire depuis cette machine-ci.
+      const tab = tabs.find((t) => t.id === activeTabId);
+      setObjectPalette({ kind: "endpoint", ...parsed, via: tab && isHostBoundTab(tab) ? tab.hostId : null });
+    },
     "host.new": () => {
       setSidebarVisible(true);
       setSidebarPanel("hosts");
@@ -577,7 +610,12 @@ export default function App() {
   // barre latérale, palette, menu d'un hôte — et pas seulement pour le bouton.
   const showTargetsPanel = (panel: SidebarPanelKind) => { setSidebarVisible(true); setSidebarPanel(panel); };
   const openFleetTab = () => { showTargetsPanel("fleet"); openFleet(); };
-  const openNetdiagTab = (sourceHostId: HostId | null) => { showTargetsPanel("netdiag"); openNetdiag(sourceHostId); };
+  // `sourceHostId` optionnel : la barre latérale rouvre l'onglet sans rien
+  // dire de la source, et lui en imposer une écraserait celle déjà choisie.
+  const openNetdiagTab = (sourceHostId?: HostId | null, seed?: { destination: string; tcpPort?: number }) => {
+    showTargetsPanel("netdiag");
+    openNetdiag(sourceHostId, seed);
+  };
 
   /** Ce que n'importe quel module peut ouvrir — la moitié « ouvrir » de ce que
    * `SidebarActions` portait seule jusqu'au 2026-09-08. Déclaré ici plutôt que
@@ -599,6 +637,8 @@ export default function App() {
     resumeSession: openPersistentSession,
     openTerminalIn,
     openTransferIn,
+    openFleet: openFleetTab,
+    openNetDiag: openNetdiagTab,
   };
 
   const moduleContext: AppContext = {
@@ -692,8 +732,6 @@ export default function App() {
     onVaultStatusChange: refreshVaultStatus,
     updatePreferences,
 
-    openFleet: openFleetTab,
-    openNetDiag: () => openNetdiagTab(null),
   };
 
   // Resolves a tab to its host's group color tag (if the host, its group, and a
@@ -715,6 +753,14 @@ export default function App() {
       {vaultUnlockModal}
       {authPromptModal}
       {paletteOpen && <CommandPalette commands={paletteCommands} onClose={() => setPaletteOpen(false)} />}
+      {objectPalette && (
+        <CommandPalette
+          commands={moduleContext.objectActions(objectPalette)}
+          title={`Envoyer « ${describeObject(objectPalette, workspace)} » vers…`}
+          placeholder="Filtrer les actions…"
+          onClose={() => setObjectPalette(null)}
+        />
+      )}
       {searchHost && (
         <RemoteSearchPanel
           host={searchHost}

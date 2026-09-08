@@ -11,6 +11,7 @@ import type { AppContext, TabOpeners } from "./types";
 // l'exécution est invisible pour le compilateur.
 const EVERY_OBJECT_KIND: Record<AppObject["kind"], true> = {
   remotePath: true,
+  endpoint: true,
 };
 
 const HOST_ID = "h1";
@@ -37,6 +38,7 @@ const ctx = {
  * `tsc` réclame la clé manquante avant que le test ne tourne. */
 const SAMPLES: Record<AppObject["kind"], AppObject> = {
   remotePath: { kind: "remotePath", source: { kind: "remote", hostId: HOST_ID }, path: "/etc/nginx/nginx.conf", isDir: false },
+  endpoint: { kind: "endpoint", address: "10.0.3.12", port: 5432, via: HOST_ID },
 };
 
 /** Des ouvreurs qui enregistrent au lieu d'ouvrir. Un `{} as TabOpeners` ne
@@ -99,6 +101,17 @@ describe("bus d'objets", () => {
     for (const action of actionsForObject(SAMPLES.remotePath, ctx, openers)) action.run();
     expect(openTerminalIn).toHaveBeenCalledWith({ kind: "remote", hostId: HOST_ID }, "/etc/nginx");
     expect(openTransferIn).toHaveBeenCalledWith({ kind: "remote", hostId: HOST_ID }, "/etc/nginx");
+  });
+
+  it("sonde une adresse depuis la machine où elle a été lue, sur le port désigné", () => {
+    // Les deux moitiés du lien, et les deux comptent : sonder depuis *cette*
+    // machine-ci une IP privée vue sur un bastion répondrait à côté, et sonder
+    // le 443 par défaut répondrait sur un autre port que celui qu'on venait de
+    // pointer.
+    const openNetDiag = vi.fn();
+    const openers = { openNetDiag } as unknown as TabOpeners;
+    for (const action of actionsForObject(SAMPLES.endpoint, ctx, openers)) action.run();
+    expect(openNetDiag).toHaveBeenCalledWith(HOST_ID, { destination: "10.0.3.12", tcpPort: 5432 });
   });
 
   it("n'est pas vide — sinon les vérifications ci-dessus se feraient à vide", () => {
