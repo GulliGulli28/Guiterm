@@ -167,3 +167,9 @@ name = "redis_wsl_smoke"
 
 [[example]]
 name = "mongo_wsl_smoke"
+
+# `libsqlite3-sys` est déclarée pour forcer le SQLite de `sqlx-sqlite` à être
+# embarqué statiquement (voir son commentaire plus haut) : elle est *liée*,
+# jamais appelée depuis ce crate. Même raison que l'exception de `src-tauri`.
+[package.metadata.cargo-machete]
+ignored = ["libsqlite3-sys"]
