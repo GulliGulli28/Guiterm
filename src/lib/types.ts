@@ -1256,10 +1256,19 @@ export type RunbookAction =
   | { kind: "program"; programText: string }
   | {
       kind: "playbook";
-      /** Le tag qui désigne l'hôte d'où le playbook est joué. Un tag et jamais
-       * un identifiant d'hôte : c'est ce qui garde le fichier vrai chez
-       * quelqu'un d'autre, même raison que `RunbookStepScope`. */
-      relayTag: string;
+      /** L'hôte d'où le playbook est joué, choisi dans la liste des hôtes.
+       *
+       * **Un identifiant, contrairement à `RunbookStepScope`**, et c'est une
+       * exception assumée : un tag est fait pour grouper, donc désigner une
+       * machine avec obligeait à remanier ses tags, et un libellé n'est pas
+       * garanti unique. Conséquence : une procédure qui contient une étape
+       * playbook n'est plus portable telle quelle. La portée des étapes, elle,
+       * continue de ne jamais nommer de machine. */
+      relayHostId: HostId;
+      /** Le libellé de cet hôte au moment où l'étape a été écrite : ce qui rend
+       * le fichier lisible en revue, et ce qui permet de dire *quelle* machine
+       * manque quand l'identifiant ne correspond à rien. */
+      relayHostLabel: string;
       /** Chemin du playbook **sur le relais**, pas sur cette machine. */
       playbook: string;
       /** Chemin de l'inventaire sur le relais. Vide = celui qu'Ansible trouve

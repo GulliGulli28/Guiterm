@@ -1,13 +1,29 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import type { Entry, Host, HostId, Workspace } from "../lib/types";
 import { HostTreeModal } from "./HostTreePicker";
 import { IconFolder, IconChevronRight, IconDatabase } from "./ui-icons";
 
-interface SqliteRemoteFilePickerProps {
+/** Parcourir le système de fichiers d'un hôte SSH pour y choisir un fichier.
+ *
+ * S'appelait `SqliteRemoteFilePicker` : il ne servait qu'à désigner une base
+ * SQLite distante, mais rien dedans n'était propre à SQLite. Les étapes de
+ * runbook qui jouent un playbook Ansible ont besoin exactement du même geste,
+ * pour le playbook comme pour l'inventaire — d'où le renommage plutôt qu'un
+ * second composant qui aurait divergé.
+ */
+interface RemoteFilePickerProps {
   workspace: Workspace;
   onCancel: () => void;
   onSelect: (hostId: HostId, path: string) => void;
+  /** Ouvrir directement sur cet hôte, sans demander lequel.
+   *
+   * Le cas d'une étape playbook : la machine est déjà choisie — c'est le
+   * relais — et proposer d'en changer ici mènerait à parcourir une machine
+   * pendant que la commande partirait sur une autre. */
+  hostId?: HostId | null;
+  /** Ce que le titre dit chercher, quand « un fichier » est trop vague. */
+  what?: string;
 }
 
 function parentPath(path: string): string {
@@ -28,12 +44,25 @@ function joinPath(base: string, segment: string): string {
  * picker — and nothing is fetched yet at pick time: the actual SFTP
  * download happens later, when the connection is opened
  * (`core::sql::connect`'s `connect_sqlite`). */
-export function SqliteRemoteFilePicker({ workspace, onCancel, onSelect }: SqliteRemoteFilePickerProps) {
+export function RemoteFilePicker({ workspace, onCancel, onSelect, hostId = null, what }: RemoteFilePickerProps) {
   const [host, setHost] = useState<Host | null>(null);
   const [paneId, setPaneId] = useState<string | null>(null);
   const [cwd, setCwd] = useState("");
   const [entries, setEntries] = useState<Entry[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!hostId) return;
+    const h = workspace.hosts.find((x) => x.id === hostId);
+    if (!h) return;
+    setHost(h);
+    api.openPane({ kind: "remote", hostId })
+      .then((res) => { setPaneId(res.paneId); setCwd(res.cwd); setEntries(res.entries); })
+      .catch((e) => setError(String(e)));
+    // Volontairement sur le seul `hostId` : rouvrir un panneau distant à chaque
+    // rendu ouvrirait une connexion par frappe de touche.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hostId]);
 
   const openHost = (id: string) => {
     const h = workspace.hosts.find((x) => x.id === id);
@@ -76,6 +105,18 @@ export function SqliteRemoteFilePicker({ workspace, onCancel, onSelect }: Sqlite
   };
 
   if (!host) {
+    // Hôte imposé : on attend l'ouverture du panneau plutôt que de demander
+    // lequel — la question n'a pas lieu d'être posée.
+    if (hostId) {
+      return (
+        <>
+          <div className="fixed inset-0 z-30 bg-black/50" onClick={cancel} />
+          <div className="fixed left-1/2 top-1/2 z-40 -translate-x-1/2 -translate-y-1/2 rounded-lg bg-[var(--c-bg2)] px-4 py-3 text-[12.5px] text-[var(--c-text-muted)] shadow-[var(--shadow-lg)]">
+            {error ?? "Connexion à l'hôte…"}
+          </div>
+        </>
+      );
+    }
     const sshHosts = workspace.hosts.filter((h) => (h.kind ?? "ssh") === "ssh");
     return (
       <HostTreeModal
@@ -97,7 +138,9 @@ export function SqliteRemoteFilePicker({ workspace, onCancel, onSelect }: Sqlite
       <div className="fixed inset-0 z-30 bg-black/50" onClick={cancel} />
       <div className="fixed left-1/2 top-1/2 z-40 flex max-h-[80vh] w-[440px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]">
         <div className="border-b border-[var(--c-border)] px-4 py-3">
-          <p className="text-[14px] font-medium text-[var(--c-text)]">Parcourir « {host.label} »</p>
+          <p className="text-[14px] font-medium text-[var(--c-text)]">
+            {what ? `Choisir ${what} sur « ${host.label} »` : `Parcourir « ${host.label} »`}
+          </p>
           <p className="mt-0.5 truncate font-mono text-[11px] text-[var(--c-text-muted)]">{cwd}</p>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
@@ -145,9 +188,11 @@ export function SqliteRemoteFilePicker({ workspace, onCancel, onSelect }: Sqlite
           )}
         </div>
         <div className="flex gap-2 border-t border-[var(--c-border)] p-2">
-          <button onClick={changeHost} className="flex-1 rounded-md bg-[var(--c-bg3)] py-1.5 text-center text-[12px] text-[var(--c-text-secondary)] hover:bg-white/5">
-            Changer d'hôte
-          </button>
+          {!hostId && (
+            <button onClick={changeHost} className="flex-1 rounded-md bg-[var(--c-bg3)] py-1.5 text-center text-[12px] text-[var(--c-text-secondary)] hover:bg-white/5">
+              Changer d'hôte
+            </button>
+          )}
           <button onClick={cancel} className="flex-1 rounded-md bg-[var(--c-bg3)] py-1.5 text-center text-[12px] text-[var(--c-text-secondary)] hover:bg-white/5">
             Annuler
           </button>

@@ -118,7 +118,7 @@ describe("sémantique des fenêtres modales", () => {
     "components/RemoteSavePathPicker.tsx",
     "components/RemoteSearchPanel.tsx",
     "components/SnippetPicker.tsx",
-    "components/SqliteRemoteFilePicker.tsx",
+    "components/RemoteFilePicker.tsx",
     "hooks/useContainerPicker.tsx",
   ];
 

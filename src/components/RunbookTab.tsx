@@ -9,6 +9,8 @@ import { targetLabel } from "../lib/fleetLabels";
 import { assertNever } from "../lib/exhaustive";
 import { api, onRunbookApprovalNeeded, onRunbookDone, onRunbookStepDone, onRunbookStepOutcome, onRunbookStepOutput, onRunbookStepStarted } from "../lib/api";
 import { RunbookApprovalModal } from "./RunbookApprovalModal";
+import { HostTreePicker } from "./HostTreePicker";
+import { RemoteFilePicker } from "./RemoteFilePicker";
 import { useFleetSelection } from "../hooks/useFleetSelection";
 import { IconPlay, IconPlus, IconTrash, IconChevronDown, IconChevronRight, IconClose } from "./ui-icons";
 
@@ -65,7 +67,7 @@ function emptyAction(kind: RunbookAction["kind"]): RunbookAction {
   switch (kind) {
     case "command": return { kind: "command", command: "" };
     case "program": return { kind: "program", programText: "" };
-    case "playbook": return { kind: "playbook", relayTag: "", playbook: "", inventory: "" };
+    case "playbook": return { kind: "playbook", relayHostId: "", relayHostLabel: "", playbook: "", inventory: "" };
     default: return assertNever(kind, "type d'action de runbook");
   }
 }
@@ -500,6 +502,7 @@ export function RunbookTab({ runbookId, workspace, onError, onWorkspaceUpdate, o
                   onChange={(update) => editStep(index, update)}
                   onMove={(delta) => moveStep(index, delta)}
                   onDelete={() => edit((b) => ({ ...b, steps: b.steps.filter((_, i) => i !== index) }))}
+                  workspace={workspace}
                 />
               );
             })}
@@ -589,9 +592,12 @@ export function RunbookTab({ runbookId, workspace, onError, onWorkspaceUpdate, o
 
 /** Une étape : son édition, et son résultat quand une exécution est passée. */
 function StepCard({
-  step, index, total, state, labelOf, expanded, onToggleExpanded, onChange, onMove, onDelete,
+  step, index, total, state, labelOf, expanded, onToggleExpanded, onChange, onMove, onDelete, workspace,
 }: {
   step: RunbookStep;
+  /** Pour l'éditeur d'étape playbook : choisir le relais et parcourir ses
+   * fichiers demandent la liste des hôtes. */
+  workspace: Workspace;
   index: number;
   total: number;
   state: StepRunState | undefined;
@@ -645,7 +651,11 @@ function StepCard({
           </button>
         ))}
       </div>
-      <ActionEditor action={step.action} onChange={(action) => onChange((s) => ({ ...s, action }))} />
+      <ActionEditor
+        action={step.action}
+        onChange={(action) => onChange((s) => ({ ...s, action }))}
+        workspace={workspace}
+      />
 
       <div className="mt-1.5 grid grid-cols-1 gap-1.5 pl-6 sm:grid-cols-2 lg:grid-cols-4">
         <label className="flex flex-col gap-0.5 text-[10px] text-[var(--c-text-muted)]">
@@ -770,7 +780,11 @@ function StepCard({
  * `switch` fermé par `assertNever` : ajouter une variante à `RunbookAction`
  * sans décider de son rendu devient une erreur `tsc`, et pas un champ qui
  * n'apparaît nulle part (voir `lib/exhaustive.ts`). */
-function ActionEditor({ action, onChange }: { action: RunbookAction; onChange: (a: RunbookAction) => void }) {
+function ActionEditor({ action, onChange, workspace }: {
+  action: RunbookAction;
+  onChange: (a: RunbookAction) => void;
+  workspace: Workspace;
+}) {
   switch (action.kind) {
     case "command":
       return (
@@ -798,49 +812,122 @@ function ActionEditor({ action, onChange }: { action: RunbookAction; onChange: (
           </p>
         </div>
       );
-    case "playbook": {
-      const champ = (
-        libelle: string,
-        valeur: string,
-        placeholder: string,
-        maj: (v: string) => RunbookAction,
-        aide?: string,
-      ) => (
-        <label className="flex flex-col gap-0.5 text-[10px] text-[var(--c-text-muted)]">
-          {libelle}
-          <input
-            value={valeur}
-            onChange={(e) => onChange(maj(e.target.value))}
-            placeholder={placeholder}
-            className="rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1.5 py-1 font-mono text-[11px] text-[var(--c-text)]"
-          />
-          {aide && <span className="text-[10px] text-[var(--c-text-faint)]">{aide}</span>}
-        </label>
-      );
-      return (
-        <div className="ml-6 mt-1 flex w-[calc(100%-1.5rem)] flex-col gap-1.5">
-          <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-3">
-            {champ("Tag du relais", action.relayTag, "ansible-control",
-              (v) => ({ ...action, relayTag: v }),
-              "l'hôte qui porte ce tag joue le playbook")}
-            {champ("Playbook", action.playbook, "/opt/infra/site.yml",
-              (v) => ({ ...action, playbook: v }),
-              "chemin sur le relais")}
-            {champ("Inventaire", action.inventory, "(celui d'ansible.cfg)",
-              (v) => ({ ...action, inventory: v }),
-              "facultatif")}
-          </div>
-          <p className="text-[10px] leading-relaxed text-[var(--c-text-faint)]">
-            Le playbook est joué <strong>depuis</strong> le relais, pas depuis cette machine — Ansible n'a donc
-            pas besoin d'être installé ici. Il ne vise que les cibles cochées qui viennent d'un inventaire
-            importé : les autres n'ont pas de nom Ansible et sont écartées nommément. Un playbook n'étant pas
-            lisible d'ici, l'app ne peut rien dire de ce qu'il détruit — passez l'approbation sur
-            « toujours » si l'étape le mérite.
-          </p>
-        </div>
-      );
-    }
+    case "playbook":
+      return <PlaybookEditor action={action} onChange={onChange} workspace={workspace} />;
     default:
       return assertNever(action, "action d'étape de runbook");
   }
+}
+
+/** Les trois champs d'une étape playbook, tous à sélection plutôt qu'à saisie.
+ *
+ * Écrit à part de `ActionEditor` parce qu'il porte son propre état — quel
+ * sélecteur de fichier est ouvert — et qu'un hook ne peut pas vivre dans une
+ * branche de `switch`.
+ *
+ * Rien ne se tape ici, et c'est le sujet : un chemin saisi à la main ne se
+ * vérifie qu'au lancement, c'est-à-dire au milieu d'un incident. Parcourir le
+ * relais prouve que le fichier existe au moment où on le désigne. Les deux
+ * boutons restent donc désactivés tant qu'aucun relais n'est choisi — il n'y a
+ * rien à parcourir avant.
+ */
+function PlaybookEditor({ action, onChange, workspace }: {
+  action: Extract<RunbookAction, { kind: "playbook" }>;
+  onChange: (a: RunbookAction) => void;
+  workspace: Workspace;
+}) {
+  const [browsing, setBrowsing] = useState<"playbook" | "inventory" | null>(null);
+  const relais = workspace.hosts.find((h) => h.id === action.relayHostId) ?? null;
+
+  const chemin = (
+    libelle: string,
+    valeur: string,
+    vide: string,
+    cible: "playbook" | "inventory",
+    aide: string,
+  ) => (
+    <label className="flex flex-col gap-0.5 text-[10px] text-[var(--c-text-muted)]">
+      {libelle}
+      <div className="flex gap-1">
+        <span
+          className={`min-w-0 flex-1 truncate rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1.5 py-1 font-mono text-[11px] ${valeur ? "text-[var(--c-text)]" : "text-[var(--c-text-faint)]"}`}
+          title={valeur || vide}
+        >
+          {valeur || vide}
+        </span>
+        <button
+          onClick={() => setBrowsing(cible)}
+          disabled={!relais}
+          title={relais ? `Parcourir « ${relais.label} »` : "Choisir d'abord le relais"}
+          className="shrink-0 rounded border border-[var(--c-border)] px-1.5 py-1 text-[11px] text-[var(--c-text-muted)] hover:border-[var(--c-accent)] disabled:opacity-40"
+        >
+          Parcourir…
+        </button>
+        {valeur && (
+          <button
+            onClick={() => onChange({ ...action, [cible]: "" })}
+            title="Vider"
+            className="shrink-0 rounded border border-[var(--c-border)] px-1.5 py-1 text-[11px] text-[var(--c-text-muted)] hover:border-[var(--c-accent)]"
+          >
+            <IconClose size={11} />
+          </button>
+        )}
+      </div>
+      <span className="text-[10px] text-[var(--c-text-faint)]">{aide}</span>
+    </label>
+  );
+
+  return (
+    <div className="ml-6 mt-1 flex w-[calc(100%-1.5rem)] flex-col gap-1.5">
+      <label className="flex flex-col gap-0.5 text-[10px] text-[var(--c-text-muted)]">
+        Relais — la machine qui joue le playbook
+        <HostTreePicker
+          hosts={workspace.hosts.filter((h) => (h.kind ?? "ssh") === "ssh")}
+          groups={workspace.groups}
+          customIcons={workspace.customIcons}
+          value={action.relayHostId || null}
+          onChange={(id) => {
+            const host = workspace.hosts.find((h) => h.id === id);
+            onChange({
+              ...action,
+              relayHostId: host?.id ?? "",
+              relayHostLabel: host?.label ?? "",
+              // Les chemins appartiennent à l'ancien relais : les garder
+              // désignerait des fichiers dont rien ne dit qu'ils existent sur
+              // la nouvelle machine.
+              playbook: "",
+              inventory: "",
+            });
+          }}
+          placeholder="Choisir le relais…"
+          className="rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1.5 py-1 text-[11px]"
+        />
+      </label>
+
+      <div className="grid grid-cols-1 gap-1.5 sm:grid-cols-2">
+        {chemin("Playbook", action.playbook, "(à choisir)", "playbook", "sur le relais")}
+        {chemin("Inventaire", action.inventory, "(celui d'ansible.cfg)", "inventory", "facultatif")}
+      </div>
+
+      <p className="text-[10px] leading-relaxed text-[var(--c-text-faint)]">
+        Le playbook est joué <strong>depuis</strong> le relais — Ansible n'a donc pas besoin d'être installé
+        ici. Il ne vise que les cibles cochées qui viennent d'un inventaire importé : les autres n'ont pas de
+        nom Ansible et sont écartées nommément. Un playbook n'étant pas lisible d'ici, l'app ne peut rien dire
+        de ce qu'il détruit — passez l'approbation sur « toujours » si l'étape le mérite.
+      </p>
+
+      {browsing && relais && (
+        <RemoteFilePicker
+          workspace={workspace}
+          hostId={relais.id}
+          what={browsing === "playbook" ? "le playbook" : "l'inventaire"}
+          onCancel={() => setBrowsing(null)}
+          onSelect={(_, path) => {
+            onChange({ ...action, [browsing]: path });
+            setBrowsing(null);
+          }}
+        />
+      )}
+    </div>
+  );
 }

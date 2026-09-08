@@ -192,20 +192,50 @@ pub fn plan_step(
             Ok(StepPlan { commands, skipped, playbook: None })
         }
 
-        RunbookAction::Playbook { relay_tag, playbook, inventory } => {
-            // Le relais se résout parmi **tous** les hôtes enregistrés, pas
+        RunbookAction::Playbook { relay_host_id, relay_host_label, playbook, inventory } => {
+            // Le relais se cherche parmi **tous** les hôtes enregistrés, pas
             // parmi les cibles : le nœud de contrôle n'est presque jamais une
             // des machines que le playbook configure.
-            let mut relays = workspace.hosts.iter().filter(|h| {
-                h.kind == crate::model::HostKind::Ssh
-                    && h.tags.iter().any(|t| t.eq_ignore_ascii_case(relay_tag))
-            });
-            let relay = relays.next().ok_or_else(|| {
-                format!("aucun hôte SSH ne porte le tag « {relay_tag} » : il désigne la machine d'où le playbook est joué")
-            })?;
-            if relays.next().is_some() {
+            //
+            // L'identifiant d'abord, puis le libellé. Le repli sert au cas où
+            // la procédure vient d'ailleurs : l'identifiant n'y correspond à
+            // rien, mais un hôte du même nom fait souvent l'affaire. Il n'est
+            // tenté que si **un seul** hôte porte ce libellé — sinon on
+            // choisirait une machine au hasard pour y jouer un playbook, ce qui
+            // est exactement ce qu'il ne faut pas faire.
+            let relay = match workspace.host(*relay_host_id) {
+                Some(host) => host,
+                None => {
+                    let mut par_libelle = workspace
+                        .hosts
+                        .iter()
+                        .filter(|h| !relay_host_label.is_empty() && h.label == *relay_host_label);
+                    match (par_libelle.next(), par_libelle.next()) {
+                        (Some(host), None) => host,
+                        (Some(_), Some(_)) => {
+                            return Err(format!(
+                                "le relais « {relay_host_label} » n'existe plus sous cet identifiant, et \
+                                 plusieurs hôtes portent ce nom : impossible de savoir d'où jouer le playbook"
+                            ));
+                        }
+                        _ => {
+                            let nom = if relay_host_label.is_empty() {
+                                "l'hôte relais".to_string()
+                            } else {
+                                format!("le relais « {relay_host_label} »")
+                            };
+                            return Err(format!(
+                                "{nom} n'existe plus dans cet espace de travail : rechoisissez la machine \
+                                 d'où jouer le playbook"
+                            ));
+                        }
+                    }
+                }
+            };
+            if relay.kind != crate::model::HostKind::Ssh {
                 return Err(format!(
-                    "plusieurs hôtes portent le tag « {relay_tag} » : impossible de savoir d'où jouer le playbook"
+                    "« {} » n'est pas un hôte SSH : un playbook se joue depuis un shell",
+                    relay.label
                 ));
             }
 
@@ -639,8 +669,9 @@ pub fn summary_of(action: &RunbookAction) -> String {
     match action {
         RunbookAction::Command { command } => command.clone(),
         RunbookAction::Program { program_text } => program_text.clone(),
-        RunbookAction::Playbook { relay_tag, playbook, inventory } => {
-            let mut summary = format!("ansible-playbook {playbook} (depuis un hôte « {relay_tag} »)");
+        RunbookAction::Playbook { relay_host_label, playbook, inventory, .. } => {
+            let relais = if relay_host_label.is_empty() { "le relais" } else { relay_host_label };
+            let mut summary = format!("ansible-playbook {playbook} (depuis {relais})");
             if !inventory.trim().is_empty() {
                 summary.push_str(&format!(" avec l'inventaire {inventory}"));
             }
@@ -1245,13 +1276,14 @@ mod tests {
 
     // ─── Étape playbook ──────────────────────────────────────────────────
 
-    fn playbook_step(relay_tag: &str) -> RunbookStep {
+    fn playbook_step(relay: HostId) -> RunbookStep {
         RunbookStep {
             id: Uuid::new_v4(),
             title: "jouer le playbook".into(),
             notes: String::new(),
             action: RunbookAction::Playbook {
-                relay_tag: relay_tag.into(),
+                relay_host_id: relay,
+                relay_host_label: "control".into(),
                 playbook: "/opt/infra/site.yml".into(),
                 inventory: String::new(),
             },
@@ -1265,8 +1297,7 @@ mod tests {
     /// seule vient d'un inventaire Ansible.
     fn workspace_ansible() -> (Workspace, HostId, HostId, HostId) {
         let mut ws = Workspace::default();
-        let mut relay = Host::new("control", "10.0.0.10", "root");
-        relay.tags = vec!["ansible-control".into()];
+        let relay = Host::new("control", "10.0.0.10", "root");
         let mut importe = Host::new("Serveur web de prod", "10.0.0.1", "root");
         importe.source = Some(crate::model::HostSource::ansible("web-1"));
         let a_la_main = Host::new("bricolé", "10.0.0.2", "root");
@@ -1278,7 +1309,7 @@ mod tests {
     #[test]
     fn le_playbook_part_du_relais_et_ne_vise_que_les_hotes_connus_d_ansible() {
         let (ws, relay, importe, a_la_main) = workspace_ansible();
-        let action = playbook_step("ansible-control").action;
+        let action = playbook_step(relay).action;
         let plan = plan_step(&ws, &[ssh(importe), ssh(a_la_main)], &action).unwrap();
 
         // Une seule commande, sur le relais — pas sur les cibles.
@@ -1298,24 +1329,44 @@ mod tests {
         assert!(plan.skipped[0].reason.contains("nom Ansible"), "{}", plan.skipped[0].reason);
     }
 
-    /// Le tag ne désigne rien : refuser plutôt que jouer depuis on ne sait où.
+    /// Le relais a été supprimé de l'espace de travail : refuser en le nommant,
+    /// plutôt que jouer le playbook depuis on ne sait où.
     #[test]
-    fn un_tag_de_relais_qui_ne_correspond_a_rien_est_refuse() {
+    fn un_relais_disparu_est_refuse_en_le_nommant() {
         let (ws, _, importe, _) = workspace_ansible();
-        let action = playbook_step("inexistant").action;
+        let mut action = playbook_step(Uuid::new_v4()).action;
+        if let RunbookAction::Playbook { relay_host_label, .. } = &mut action {
+            *relay_host_label = "control-supprimé".into();
+        }
         let err = plan_step(&ws, &[ssh(importe)], &action).unwrap_err();
-        assert!(err.contains("inexistant"), "{err}");
+        assert!(err.contains("control-supprimé"), "{err}");
     }
 
-    /// Deux relais possibles : refuser aussi, parce que choisir au hasard
-    /// jouerait le playbook depuis une machine que personne n'a désignée.
+    /// Une procédure venue d'ailleurs porte un identifiant qui ne correspond à
+    /// rien ici. Le libellé sert alors de repli — c'est la raison pour laquelle
+    /// il est stocké en plus de l'identifiant.
     #[test]
-    fn un_tag_de_relais_ambigu_est_refuse() {
+    fn un_relais_inconnu_est_retrouve_par_son_libelle() {
+        let (ws, relay, importe, _) = workspace_ansible();
+        let mut action = playbook_step(Uuid::new_v4()).action;
+        if let RunbookAction::Playbook { relay_host_label, .. } = &mut action {
+            *relay_host_label = "control".into();
+        }
+        let plan = plan_step(&ws, &[ssh(importe)], &action).unwrap();
+        assert!(plan.commands.contains_key(&ssh(relay)), "le repli doit retrouver « control »");
+    }
+
+    /// Mais le repli s'arrête net si le libellé est ambigu : rien n'impose
+    /// qu'un libellé soit unique, et choisir au hasard la machine d'où jouer un
+    /// playbook est exactement ce qu'il ne faut pas faire.
+    #[test]
+    fn un_repli_par_libelle_ambigu_est_refuse() {
         let (mut ws, _, importe, _) = workspace_ansible();
-        let mut second = Host::new("control-2", "10.0.0.11", "root");
-        second.tags = vec!["ansible-control".into()];
-        ws.hosts.push(second);
-        let action = playbook_step("ansible-control").action;
+        ws.hosts.push(Host::new("control", "10.0.0.11", "root"));
+        let mut action = playbook_step(Uuid::new_v4()).action;
+        if let RunbookAction::Playbook { relay_host_label, .. } = &mut action {
+            *relay_host_label = "control".into();
+        }
         let err = plan_step(&ws, &[ssh(importe)], &action).unwrap_err();
         assert!(err.contains("plusieurs"), "{err}");
     }
@@ -1324,8 +1375,8 @@ mod tests {
     /// s'appliquerait à tout l'inventaire du relais. L'étape doit refuser.
     #[test]
     fn aucune_cible_connue_d_ansible_refuse_l_etape() {
-        let (ws, _, _, a_la_main) = workspace_ansible();
-        let action = playbook_step("ansible-control").action;
+        let (ws, relay, _, a_la_main) = workspace_ansible();
+        let action = playbook_step(relay).action;
         let err = plan_step(&ws, &[ssh(a_la_main)], &action).unwrap_err();
         assert!(err.contains("tout l'inventaire"), "{err}");
     }
@@ -1334,20 +1385,21 @@ mod tests {
     /// peut donc rien dire de ce qu'il détruit. Comme une commande shell libre.
     #[test]
     fn une_etape_playbook_ne_pretend_pas_juger_ce_qu_elle_fait() {
-        let action = playbook_step("ansible-control").action;
+        let (_, relay, _, _) = workspace_ansible();
+        let action = playbook_step(relay).action;
         assert!(irreversible_operations(&action).is_empty());
 
-        let mut toujours = playbook_step("ansible-control");
+        let mut toujours = playbook_step(relay);
         toujours.approval = Approval::Always;
         assert_eq!(approval_for(&toujours, true), Some(ApprovalReason::Requested));
     }
 
     #[test]
     fn le_resume_d_une_etape_playbook_dit_le_playbook_et_le_relais() {
-        let action = playbook_step("ansible-control").action;
-        let resume = summary_of(&action);
+        let (_, relay, _, _) = workspace_ansible();
+        let resume = summary_of(&playbook_step(relay).action);
         assert!(resume.contains("/opt/infra/site.yml"), "{resume}");
-        assert!(resume.contains("ansible-control"), "{resume}");
+        assert!(resume.contains("control"), "le libellé rend le résumé lisible : {resume}");
     }
 
     /// Un `workspace.json` écrit avant les runbooks doit rester lisible — sinon

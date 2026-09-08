@@ -4,7 +4,7 @@ import type { DbTunnel, HostId, SqlConnection, SqlConnectionId, SqlEngine, SqlEn
 import { DIRECT_TUNNEL, sqlConnectionTunnel } from "../lib/types";
 import { IconTrash } from "./ui-icons";
 import { DbTunnelPicker, type ProbeTarget } from "./DbTunnelPicker";
-import { SqliteRemoteFilePicker } from "./SqliteRemoteFilePicker";
+import { RemoteFilePicker } from "./RemoteFilePicker";
 
 /** What the form submits: the identity/grouping fields plus exactly the
  * engine-specific config that engine actually has (see `SqlEngineConfig`),
@@ -441,7 +441,7 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
       </div>
 
       {showRemotePicker && (
-        <SqliteRemoteFilePicker workspace={workspace} onCancel={() => setShowRemotePicker(false)} onSelect={onRemoteFilePicked} />
+        <RemoteFilePicker workspace={workspace} onCancel={() => setShowRemotePicker(false)} onSelect={onRemoteFilePicked} />
       )}
     </div>
   );

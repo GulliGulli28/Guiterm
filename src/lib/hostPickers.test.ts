@@ -99,7 +99,7 @@ describe("sélection d'hôtes", () => {
     "components/RemoteSavePathPicker.tsx",
     "components/SplitPane.tsx",
     "components/SqlExportPanel.tsx",
-    "components/SqliteRemoteFilePicker.tsx",
+    "components/RemoteFilePicker.tsx",
     "components/TransferTab.tsx",
     "components/TunnelsPanel.tsx",
   ];

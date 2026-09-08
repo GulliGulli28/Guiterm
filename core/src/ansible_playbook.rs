@@ -115,10 +115,7 @@ pub fn build_command(
 /// que cette fonction ne peut pas vérifier — que le tag désigne exactement un
 /// hôte, que le playbook existe sur le relais — dépend de l'espace de travail
 /// ou de la machine distante, et se voit au lancement.
-pub fn validate_step(relay_tag: &str, playbook: &str, inventory: &str) -> Result<(), String> {
-    if relay_tag.trim().is_empty() {
-        return Err("le tag du relais est vide : rien ne dit d'où jouer le playbook".to_string());
-    }
+pub fn validate_step(playbook: &str, inventory: &str) -> Result<(), String> {
     if playbook.trim().is_empty() {
         return Err("le chemin du playbook est vide".to_string());
     }
@@ -234,11 +231,10 @@ db-1                       : ok=1    changed=0    unreachable=1    failed=0    s
 
     #[test]
     fn une_etape_incomplete_est_refusee_des_l_enregistrement() {
-        assert!(validate_step("", "site.yml", "").unwrap_err().contains("tag du relais"));
-        assert!(validate_step("ansible", "", "").unwrap_err().contains("playbook"));
-        assert!(validate_step("ansible", "s.yml'; id; '", "").is_err());
-        assert!(validate_step("ansible", "site.yml", "").is_ok());
-        assert!(validate_step("ansible", "site.yml", "/etc/ansible/hosts").is_ok());
+        assert!(validate_step("", "").unwrap_err().contains("playbook"));
+        assert!(validate_step("s.yml'; id; '", "").is_err());
+        assert!(validate_step("site.yml", "").is_ok());
+        assert!(validate_step("site.yml", "/etc/ansible/hosts").is_ok());
     }
 
     #[test]

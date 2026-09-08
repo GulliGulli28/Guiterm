@@ -31,7 +31,7 @@ function joinPath(base: string, segment: string): string {
 
 /** Directory browser for picking *where to write* a new file on a saved
  * host's filesystem — same host-picker + `open_pane`/`list_pane`/`close_pane`
- * plumbing as `SqliteRemoteFilePicker`, but for a "save" rather than an
+ * plumbing as `RemoteFilePicker`, but for a "save" rather than an
  * "open": clicking a directory navigates into it, clicking an existing file
  * fills the filename field (to confirm overwriting it) instead of
  * immediately closing the picker, and a dedicated filename input + "Enregistrer

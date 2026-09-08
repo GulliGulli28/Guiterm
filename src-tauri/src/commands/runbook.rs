@@ -266,8 +266,8 @@ fn validate(runbook: &Runbook) -> Result<(), String> {
                 termius_core::adaptive::parse_program(program_text)
                     .map_err(|e| format!("l'étape « {} » : {e}", step.title))?;
             }
-            RunbookAction::Playbook { relay_tag, playbook, inventory } => {
-                termius_core::ansible_playbook::validate_step(relay_tag, playbook, inventory)
+            RunbookAction::Playbook { playbook, inventory, .. } => {
+                termius_core::ansible_playbook::validate_step(playbook, inventory)
                     .map_err(|e| format!("l'étape « {} » : {e}", step.title))?;
             }
             _ => {}

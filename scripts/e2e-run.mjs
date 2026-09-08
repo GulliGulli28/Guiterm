@@ -2559,10 +2559,19 @@ async function runRunbookFileScenario(browser) {
     if (onDisk.runbook.steps[0].scope.groups[0] !== "Paris" || onDisk.runbook.steps[0].approval !== "never") {
       throw new Error("la portée et le réglage d approbation n ont pas survécu à l export");
     }
-    // La garantie qui rend un runbook partageable : aucun identifiant de
-    // machine dedans. Une portée par `hostId` ne voudrait rien dire ailleurs.
-    if (/"hostId"/.test(JSON.stringify(onDisk))) {
-      throw new Error("un runbook exporté ne doit porter aucun identifiant d hôte");
+    // La garantie qui rend un runbook partageable : la **portée** d'une étape
+    // ne nomme jamais de machine, elle se dit par tag et par dossier. Une portée
+    // par `hostId` ne voudrait rien dire ailleurs.
+    //
+    // L'assertion vise la portée et non le fichier entier depuis qu'une étape
+    // playbook désigne son relais par identifiant : c'est une exception
+    // assumée et documentée (`RunbookAction::Playbook`), qui rend ce type
+    // d'étape machine-spécifique — mais elle ne doit pas contaminer le
+    // ciblage, qui décide *qui* est touché.
+    for (const step of onDisk.runbook.steps) {
+      if (/hostId/i.test(JSON.stringify(step.scope))) {
+        throw new Error(`la portée de « ${step.title} » nomme une machine : ${JSON.stringify(step.scope)}`);
+      }
     }
 
     // Supprimé de l'app, puis relu : c'est la moitié qui compte.
@@ -2635,27 +2644,33 @@ async function runRunbookFileScenario(browser) {
 }
 
 /**
- * Une étape playbook : l'éditeur la propose, elle s'enregistre, et lancée avec
- * un relais introuvable elle refuse en le disant.
+ * Une étape playbook : l'éditeur propose ses trois champs à sélection, et le
+ * moteur refuse de jouer quand le relais n'existe plus.
  *
- * Ce qui **ne peut pas** être vérifié ici, et c'est assumé : jouer un vrai
- * playbook demanderait un nœud de contrôle Ansible et des machines à
- * configurer. Ce que le scénario couvre est tout le reste — la variante
- * traverse serde dans les deux sens (le piège de casse qui s'est produit six
- * fois dans ce dépôt), l'éditeur l'expose, la validation à l'enregistrement
- * l'accepte, et le moteur refuse proprement plutôt que de jouer le playbook
- * depuis une machine choisie au hasard.
+ * Le scénario est en deux moitiés parce que l'interface et le moteur ne se
+ * testent pas au même endroit. Côté interface, on vérifie que la forme
+ * « Playbook » existe, qu'elle affiche un sélecteur de relais et deux boutons
+ * « Parcourir… », et que **ces boutons restent désactivés tant qu'aucun relais
+ * n'est choisi** — il n'y a rien à parcourir avant, et un champ de chemin qu'on
+ * pourrait remplir sans machine serait un chemin qu'on ne vérifie qu'au
+ * lancement, c'est-à-dire au milieu d'un incident.
  *
- * Ce dernier point est le plus important : un playbook joué depuis le mauvais
- * relais, ou sans `--limit`, s'appliquerait à des machines que personne n'a
- * cochées.
+ * Ce qui **ne peut pas** être piloté ici, et c'est assumé : le parcours du
+ * système de fichiers distant, qui demande une vraie connexion SSH, et a
+ * fortiori le jeu d'un playbook, qui demanderait un nœud de contrôle Ansible et
+ * des machines à configurer.
+ *
+ * La seconde moitié passe donc par les commandes, sans l'interface : une étape
+ * dont le relais a disparu doit arrêter la procédure en nommant la machine
+ * manquante, sans rien exécuter nulle part. C'est la garantie qui compte — un
+ * playbook joué depuis une machine choisie au hasard serait le pire résultat
+ * possible.
  */
 async function runRunbookPlaybookScenario(browser) {
   const NAME = "E2E playbook (supprimable)";
   let runbookId = null;
   try {
-    // L'éditeur d'abord : la troisième forme doit être proposée et montrer ses
-    // trois champs. C'est ce qu'aucun test de compilation ne voit.
+    // ── L'éditeur ────────────────────────────────────────────────────────
     await browser.execute(() => {
       const btn = Array.from(document.querySelectorAll("aside nav button"))
         .find((b) => (b.getAttribute("title") || "").startsWith("Runbooks"));
@@ -2667,127 +2682,152 @@ async function runRunbookPlaybookScenario(browser) {
         .some((b) => (b.getAttribute("title") || "") === "Nouvelle procédure");
     }), { timeout: 15_000, timeoutMsg: "le panneau Runbooks ne s est pas rendu" });
 
-    const cree = await browser.execute((name) => {
+    await browser.execute((name) => {
       const panel = document.querySelector('[data-sidebar-panel="runbook"]');
       panel.querySelector('button[title="Nouvelle procédure"]').click();
       const input = panel.querySelector('input[placeholder="Nom de la procédure"]');
       Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(input, name);
       input.dispatchEvent(new Event("input", { bubbles: true }));
       Array.from(panel.querySelectorAll("button")).find((b) => b.textContent?.trim() === "Créer").click();
-      return "ok";
     }, NAME);
-    if (cree !== "ok") throw new Error(cree);
 
     await browser.waitUntil(async () => await browser.execute(() =>
-      Array.from(document.querySelectorAll("button")).some((b) => (b.textContent || "").includes("Ajouter une étape"))
+      Array.from(document.querySelectorAll("button"))
+        .some((b) => b.offsetParent !== null && (b.textContent || "").includes("Ajouter une étape"))
     ), { timeout: 15_000, timeoutMsg: "l onglet de la procédure ne s est pas ouvert" });
 
-    const rempli = await browser.execute(() => {
-      const setValue = (el, value) => {
-        Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, "value").set.call(el, value);
-        el.dispatchEvent(new Event("input", { bubbles: true }));
-      };
-      Array.from(document.querySelectorAll("button"))
-        .find((b) => (b.textContent || "").includes("Ajouter une étape")).click();
-      const card = document.querySelector('[data-runbook-step="0"]');
+    // Le clic et la lecture du DOM dans deux appels séparés : React rend de
+    // façon asynchrone, donc la carte n'existe pas encore à la fin de l'appel
+    // qui vient de cliquer. Les autres scénarios de ce fichier séparent déjà
+    // les deux — ne pas le faire ici a coûté un aller-retour de CI.
+    // `visibles()` et non `querySelectorAll` : les onglets inactifs restent
+    // montés, et les scénarios runbook précédents en laissent derrière eux dont
+    // l'éditeur est toujours rendu — leur suppression par `invoke` n'atteint
+    // jamais l'état React. Sans ce filtre, le clic part sur le « Ajouter une
+    // étape » d'un autre onglet, et la carte n'apparaît jamais ici.
+    await browser.execute(() => {
+      const visibles = Array.from(document.querySelectorAll("button")).filter((b) => b.offsetParent !== null);
+      visibles.find((b) => (b.textContent || "").includes("Ajouter une étape")).click();
+    });
+    await browser.waitUntil(async () => await browser.execute(() =>
+      Array.from(document.querySelectorAll('[data-runbook-step="0"]')).some((el) => el.offsetParent !== null)
+    ), { timeout: 10_000, timeoutMsg: "la carte de la première étape ne s est pas rendue" });
+
+    const forme = await browser.execute(() => {
+      const card = Array.from(document.querySelectorAll('[data-runbook-step="0"]'))
+        .find((el) => el.offsetParent !== null);
       if (!card) return "carte d étape introuvable";
-      setValue(card.querySelector('input[placeholder="Ce que fait cette étape"]'), "Jouer le playbook");
-
       const bouton = Array.from(card.querySelectorAll("button")).find((b) => b.textContent?.trim() === "Playbook");
-      if (!(bouton instanceof HTMLElement)) return "la forme « Playbook » n est pas proposée dans l éditeur";
+      if (!(bouton instanceof HTMLElement)) return "la forme « Playbook » n est pas proposée";
       bouton.click();
-
-      const relais = card.querySelector('input[placeholder="ansible-control"]');
-      const chemin = card.querySelector('input[placeholder="/opt/infra/site.yml"]');
-      if (!relais || !chemin) return "les champs de l étape playbook ne sont pas affichés";
-      setValue(relais, "relais-qui-nexiste-pas");
-      setValue(chemin, "/opt/infra/site.yml");
       return "ok";
     });
-    if (rempli !== "ok") throw new Error(rempli);
+    if (forme !== "ok") throw new Error(forme);
 
-    // L'enregistrement doit passer : les chemins sont valides, seul le tag ne
-    // désigne rien — et ça, ça ne se voit qu'au lancement.
-    const enregistre = await browser.execute(() => {
-      const btn = Array.from(document.querySelectorAll("button")).find((b) => b.textContent?.trim() === "Enregistrer");
-      if (!(btn instanceof HTMLElement)) return "bouton « Enregistrer » absent : le brouillon n est pas modifié ?";
-      btn.click();
+    await browser.waitUntil(async () => await browser.execute(() => {
+      const card = Array.from(document.querySelectorAll('[data-runbook-step="0"]'))
+        .find((el) => el.offsetParent !== null);
+      return !!card && Array.from(card.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Parcourir…");
+    }), { timeout: 10_000, timeoutMsg: "les champs de l étape playbook ne se sont pas affichés" });
+
+    const champs = await browser.execute(() => {
+      const card = Array.from(document.querySelectorAll('[data-runbook-step="0"]'))
+        .find((el) => el.offsetParent !== null);
+      const relais = Array.from(card.querySelectorAll("button"))
+        .some((b) => (b.textContent || "").includes("Choisir le relais"));
+      const parcourir = Array.from(card.querySelectorAll("button"))
+        .filter((b) => b.textContent?.trim() === "Parcourir…");
+      if (!relais) return "le sélecteur de relais n est pas affiché";
+      if (parcourir.length !== 2) return `attendu deux boutons « Parcourir… », vu ${parcourir.length}`;
+      if (!parcourir.every((b) => b.disabled)) {
+        return "les boutons « Parcourir… » doivent rester désactivés tant qu aucun relais n est choisi";
+      }
       return "ok";
     });
-    if (enregistre !== "ok") throw new Error(enregistre);
+    if (champs !== "ok") throw new Error(champs);
 
-    await browser.waitUntil(async () => {
-      runbookId = await browser.execute(async (name) => {
-        const ws = await window.__TAURI_INTERNALS__.invoke("get_workspace");
-        const book = ws.runbooks.find((r) => r.name === name);
-        return book && book.steps.length === 1 && book.steps[0].action.kind === "playbook" ? book.id : null;
-      }, NAME);
-      return !!runbookId;
-    }, { timeout: 15_000, timeoutMsg: "l étape playbook n a pas été enregistrée avec kind: playbook" });
+    // ── Le moteur ────────────────────────────────────────────────────────
+    // Écrite par la commande plutôt que par l'interface : remplir les chemins
+    // demanderait de parcourir une machine distante, ce que ce scénario ne peut
+    // pas faire. Ce qui est vérifié ici est le refus, pas la saisie.
+    runbookId = await browser.execute(async (name) => {
+      const runbook = {
+        id: crypto.randomUUID(),
+        name: `${name} (moteur)`,
+        description: "",
+        steps: [{
+          id: crypto.randomUUID(),
+          title: "Jouer le playbook",
+          notes: "",
+          action: {
+            kind: "playbook",
+            relayHostId: crypto.randomUUID(),
+            relayHostLabel: "control-disparu",
+            playbook: "/opt/infra/site.yml",
+            inventory: "",
+          },
+          scope: { tags: [], groups: [] },
+          onFailure: "stop",
+          approval: "never",
+        }],
+      };
+      await window.__TAURI_INTERNALS__.invoke("save_runbook", { runbook });
+      return runbook.id;
+    }, NAME);
 
-    // La casse sur le fil : `relayTag`, pas `relay_tag`. Un aller-retour
+    // La casse sur le fil : `relayHostId`, pas `relay_host_id`. Un aller-retour
     // Rust → Rust resterait vert même si le champ partait en snake_case.
     const action = await browser.execute(async (id) => {
       const ws = await window.__TAURI_INTERNALS__.invoke("get_workspace");
-      return ws.runbooks.find((r) => r.id === id).steps[0].action;
+      return ws.runbooks.find((r) => r.id === id)?.steps?.[0]?.action ?? null;
     }, runbookId);
-    if (action.relayTag !== "relais-qui-nexiste-pas" || action.playbook !== "/opt/infra/site.yml") {
+    if (!action || action.relayHostLabel !== "control-disparu" || action.playbook !== "/opt/infra/site.yml") {
       throw new Error(`l action playbook n a pas traversé serde correctement : ${JSON.stringify(action)}`);
     }
 
-    // Et le verdict : lancée, l'étape doit refuser en nommant le tag, sans rien
-    // exécuter nulle part.
-    await browser.execute(() => {
-      const btn = Array.from(document.querySelectorAll("aside nav button"))
-        .find((b) => (b.getAttribute("title") || "").startsWith("Opérations de flotte"));
-      if (btn instanceof HTMLElement) btn.click();
-    });
-    await browser.waitUntil(async () => await browser.execute(() => {
-      const panel = document.querySelector('[data-sidebar-panel="fleet"]');
-      const label = panel && Array.from(panel.querySelectorAll("label"))
-        .find((l) => (l.textContent || "").includes("Terminal local"));
-      const box = label?.querySelector('input[type="checkbox"]');
-      if (!(box instanceof HTMLInputElement)) return false;
-      if (!box.checked) box.click();
-      return true;
-    }), { timeout: 10_000, timeoutMsg: "impossible de cocher une cible" });
+    const rapport = await browser.execute(async (id) => {
+      await window.__TAURI_INTERNALS__.invoke("run_runbook", {
+        runId: crypto.randomUUID(),
+        runbookId: id,
+        targets: [{ kind: "local" }],
+      });
+      const runs = await window.__TAURI_INTERNALS__.invoke("get_runbook_history");
+      return runs.find((r) => r.runbookId === id) ?? null;
+    }, runbookId);
 
+    if (!rapport) throw new Error("aucun rapport pour la procédure playbook");
+    if (rapport.status !== "stopped") {
+      throw new Error(`un relais disparu doit arrêter la procédure, statut : ${rapport.status}`);
+    }
+    const raison = rapport.steps[0]?.stopReason || "";
+    if (!raison.includes("control-disparu")) {
+      throw new Error(`l arrêt doit nommer le relais manquant, reçu : ${JSON.stringify(raison)}`);
+    }
+    if ((rapport.steps[0].outcomes || []).length !== 0) {
+      throw new Error("une étape playbook au relais disparu ne doit rien avoir exécuté");
+    }
+
+    console.log("Runbooks : OK (éditeur playbook à sélection, parcours verrouillé sans relais, et un relais disparu arrête sans rien exécuter).");
+  } finally {
+    // Fermer l'onglet, et pas seulement supprimer les procédures : il reste
+    // sinon un brouillon modifié, dont l'en-tête affiche un bouton
+    // « Enregistrer ». Les onglets inactifs restent montés, donc ce bouton
+    // reste dans le document — et le scénario du sélecteur d'hôte, bien plus
+    // loin, cliquait dessus au lieu du sien. Un scénario qui laisse l'interface
+    // dans un état inattendu fait échouer un autre scénario, à un endroit qui
+    // n'a aucun rapport : c'est la panne la plus coûteuse à diagnostiquer.
     await browser.execute((label) => {
       const tab = Array.from(document.querySelectorAll("[data-tab-id]"))
         .find((el) => (el.textContent || "").includes(label));
-      if (tab instanceof HTMLElement) tab.click();
-    }, NAME);
+      const fermer = tab?.querySelector('[aria-label="Fermer l\'onglet"]');
+      if (fermer instanceof HTMLElement) fermer.click();
+    }, NAME).catch(() => {});
 
-    await browser.execute(() => {
-      const btn = Array.from(document.querySelectorAll("button")).find((b) => (b.textContent || "").trim() === "Lancer");
-      if (btn instanceof HTMLElement) btn.click();
-    });
-
-    const rapport = await browser.waitUntil(async () => {
-      const runs = await browser.execute(async (id) => {
-        const all = await window.__TAURI_INTERNALS__.invoke("get_runbook_history");
-        return all.filter((r) => r.runbookId === id);
-      }, runbookId);
-      return runs.length > 0 ? runs[0] : false;
-    }, { timeout: 30_000, timeoutMsg: "aucun rapport pour la procédure playbook" });
-
-    if (rapport.status !== "stopped") {
-      throw new Error(`un relais introuvable doit arrêter la procédure, statut : ${rapport.status}`);
-    }
-    const raison = rapport.steps[0]?.stopReason || "";
-    if (!raison.includes("relais-qui-nexiste-pas")) {
-      throw new Error(`l arrêt doit nommer le tag introuvable, reçu : ${JSON.stringify(raison)}`);
-    }
-    if ((rapport.steps[0].outcomes || []).length !== 0) {
-      throw new Error("une étape playbook au relais introuvable ne doit rien avoir exécuté");
-    }
-
-    console.log("Runbooks : OK (étape playbook proposée, enregistrée, casse serde correcte, et un relais introuvable arrête sans rien exécuter).");
-  } finally {
-    if (runbookId) {
+    const ws = await browser.execute(async () => await window.__TAURI_INTERNALS__.invoke("get_workspace")).catch(() => null);
+    for (const book of (ws?.runbooks ?? []).filter((r) => r.name.startsWith(NAME))) {
       await browser.execute(async (id) => {
         try { await window.__TAURI_INTERNALS__.invoke("delete_runbook", { runbookId: id }); } catch { /* rien à nettoyer */ }
-      }, runbookId).catch(() => {});
+      }, book.id).catch(() => {});
     }
   }
 }
