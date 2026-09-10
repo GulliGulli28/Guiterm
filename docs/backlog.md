@@ -37,7 +37,7 @@ CHANGELOG.
   « aucun », l'item n'est pas fini. Et le garde-fou ajouté doit être cassé une
   fois pour vérifier qu'il échoue vraiment.
 
-## En cours — Bus d'objets (trois tranches, planifié le 2026-09-08)
+## Livré — Bus d'objets (trois tranches, 2026-09-08 → 2026-09-10)
 
 Choisi le 2026-09-08 après une revue « qu'est-ce qui ferait évoluer l'app »
 d'où l'alerting et les runbooks étaient écartés d'avance. Le sujet n'est pas
@@ -129,7 +129,7 @@ export function actionsForObject(obj, ctx, open): ObjectAction[]  // flatMap sur
 
 Un module rend `[]` pour ce qui ne le concerne pas.
 
-### Tranche 1 — le bus, prouvé sur `remotePath` (aucun Rust)
+### Tranche 1 — **livrée le 2026-09-08** — le bus, prouvé sur `remotePath` (aucun Rust)
 
 Chemin complet atteignable dès ce commit : un résultat de **recherche
 distante** — qui aujourd'hui sait seulement « ouvrir dans l'éditeur » et
@@ -186,7 +186,7 @@ un. `open_pane` ne prend pas de dossier de départ, donc `initialPath` coûte un
 second aller-retour (`list_pane`) après l'ouverture, plus le repli sur le
 dossier par défaut quand le chemin a disparu.
 
-### Tranche 2 — l'objet `endpoint`, depuis le terminal (aucun Rust)
+### Tranche 2 — **livrée le 2026-09-08** — l'objet `endpoint`, depuis le terminal (aucun Rust)
 
 Décidé avec l'utilisateur le 2026-09-08, deux choix qui réduisent la tranche :
 **détection sur la sélection seulement** (pas de `registerLinkProvider`, donc
@@ -269,7 +269,7 @@ quand ils sont masqués**, donc `browser.$(".xterm")` désigne un terminal cach�
 dès qu'il y a plusieurs onglets, et WebDriver refuse d'y cliquer (« element not
 interactable »). Filtrer sur une largeur non nulle.
 
-### Tranche 3 — l'objet `targets` (aucun Rust)
+### Tranche 3 — **livrée le 2026-09-10** — l'objet `targets` (aucun Rust)
 
 Amorcer la sélection d'un module depuis un autre : une colonne d'IPs d'un
 résultat SQL → cibles de flotte ; la sélection de flotte → diagnostic réseau et
@@ -488,10 +488,15 @@ pilote pas ; les scénarios passent les chemins directement aux commandes.
 
 Les trois vagues prévues le 2026-08-04 sont terminées, l'onglet de diagnostic
 réseau demandé après elles aussi (ses deux tranches, 2026-08-10), et le registre
-de modules a été livré le 2026-08-17 en cinq commits. **Un item en cours** : le
-bus d'objets, planifié le 2026-09-08, en haut de ce fichier — trois tranches,
-aucune ligne de Rust. Il prolonge le registre de modules plutôt que d'ouvrir un
-domaine de plus.
+de modules a été livré le 2026-08-17 en cinq commits, et le bus d'objets le
+2026-09-10 (trois tranches, aucune ligne de Rust — il prolonge le registre de
+modules plutôt que d'ouvrir un domaine de plus). **Aucun item en attente.**
+
+Ce que le bus laisse ouvert, et qui est le plus évident à reprendre : une
+adresse ne va qu'au diagnostic réseau (tunnel, création d'hôte et connexion SQL
+restent à écrire, un destinataire à la fois), le terminal ne connaît pas son
+répertoire courant (OSC 7, du travail dans `core/`), et une colonne d'un
+résultat SQL n'est pas encore une source de cibles.
 
 La prochaine étape de « noyau + extensions » (extraire un module en sidecar)
 est analysée dans `docs/architecture-extensions.md` mais n'est pas planifiée :

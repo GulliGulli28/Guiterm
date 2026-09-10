@@ -11,6 +11,52 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ### Added
 
+- **Envoyer une chose d'un onglet à l'autre.** L'app savait faire beaucoup de
+  choses côte à côte, et presque rien entre elles : un chemin trouvé dans un
+  onglet se recopiait à la main dans un autre, une liste de machines cochée
+  quelque part se recochait ailleurs. Quatre gestes remplacent ça, tous sur le
+  même mécanisme.
+
+  **Un résultat de recherche de fichiers** savait s'ouvrir dans votre éditeur,
+  et rien d'autre. Le bouton ⋮ à côté d'un résultat ouvre maintenant un
+  terminal dans le dossier du fichier trouvé, ou un panneau de transfert posé
+  dessus.
+
+  **Le clic droit dans un panneau de transfert** propose les mêmes
+  destinations — et cette fois **sur un fichier**, pas seulement sur un
+  dossier : « ouvrir un terminal dans son dossier » est le geste qui manquait
+  le plus. Le bouton « Terminal ici » de la barre d'outils, lui, ne change pas.
+
+  **Une adresse surlignée dans un terminal** (`10.0.3.12:5432`,
+  `db.interne.lan`, `deploy@bastion.lan`) part vers le diagnostic réseau avec
+  `Ctrl+Shift+Alt+K` : l'onglet s'ouvre sur cette adresse, sur ce port, et
+  sonde **depuis la machine où vous avez lu l'adresse** — une IP privée
+  aperçue dans un `ss` sur un bastion ne veut rien dire depuis votre poste. Le
+  raccourci traverse le terminal, contrairement à celui de la palette qui ne
+  peut pas le faire sans prendre `Ctrl+K` à tous vos shells.
+
+  **Les cibles cochées pour une opération de flotte** s'envoient au diagnostic
+  réseau, et inversement : « ma commande a échoué sur ces douze-là » puis
+  « est-ce qu'elles répondent seulement ? » ne demande plus de les recocher de
+  mémoire. Le diagnostic écarte ce qu'il ne sait pas viser — un conteneur
+  Docker, un pod ou la machine locale n'a pas d'adresse enregistrée — et
+  annonce dans son libellé le nombre exact d'hôtes qu'il reprendra, plutôt que
+  d'en perdre en chemin.
+
+  Ce qui n'y est pas, dit plutôt que suggéré. **Une adresse ne va pour
+  l'instant qu'au diagnostic réseau** : ouvrir un tunnel, créer un hôte ou une
+  connexion de base de données depuis une adresse lue viendra ensuite. **Un
+  terminal ne sait pas dans quel dossier il se trouve**, donc il ne propose pas
+  d'y ouvrir un transfert. Et **une colonne d'adresses dans un résultat SQL**
+  n'est pas encore une source de machines.
+
+- **Les réglages signalent une combinaison de touches qui en écrase une
+  autre.** Deux actions sur le même raccourci, et la seconde ne se déclenchait
+  jamais — sans le moindre signe, puisque seule la première est retenue. Le
+  seul avertissement existant portait sur les combinaisons que le **shell**
+  utilise déjà, pas sur celles de l'app entre elles. Réglages → Raccourcis
+  marque désormais l'action perdante d'un ⛔ nommant celle qui passe avant.
+
 - **Une étape de runbook peut jouer un playbook Ansible.** Une procédure
   enchaînait des commandes shell et des programmes du langage adaptatif ; il lui
   manquait ce que beaucoup de gens font entre les deux. C'est la troisième forme
