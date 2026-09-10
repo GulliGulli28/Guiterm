@@ -9,6 +9,8 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+## [3.4.0] - 2026-09-10
+
 ### Added
 
 - **Envoyer une chose d'un onglet à l'autre.** L'app savait faire beaucoup de
