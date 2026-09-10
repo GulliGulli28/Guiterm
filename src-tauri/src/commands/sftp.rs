@@ -12,8 +12,10 @@ use termius_core::model::HostId;
 use termius_core::pane_ops::{self, ArchiveFormat, FindOutcome, PaneExec, ShellExec, SshShellExec};
 use termius_core::file_diff;
 use termius_core::pane_sync;
+use termius_core::interactive_auth::{InfoRequest, PromptField};
 use termius_core::sftp::{Entry, RemoteFileClient, SftpClient};
 use termius_core::ssh_pool;
+use termius_core::sudo_session;
 use termius_core::transfer::{self, PaneRef};
 use uuid::Uuid;
 
@@ -71,14 +73,7 @@ pub async fn open_pane(
         PaneSource::Local => {
             let cwd = termius_core::local_fs::home_dir();
             let entries = termius_core::local_fs::list(&cwd).map_err(|e| e.to_string())?;
-            state.panes.lock_recover().insert(
-                pane_id.clone(),
-                Pane {
-                    connection: None,
-                    client: None,
-                    exec: None,
-                },
-            );
+            state.panes.lock_recover().insert(pane_id.clone(), Pane::local());
             Ok(PaneOpened {
                 pane_id,
                 cwd,
@@ -105,11 +100,7 @@ pub async fn open_pane(
             let exec: Arc<dyn ShellExec> = Arc::new(SshShellExec::new(connection.connection()));
             state.panes.lock_recover().insert(
                 pane_id.clone(),
-                Pane {
-                    connection: Some(Arc::new(connection)),
-                    client: Some(client),
-                    exec: Some(exec),
-                },
+                Pane::remote(Some(Arc::new(connection)), client, exec),
             );
             Ok(PaneOpened {
                 pane_id,
@@ -131,14 +122,7 @@ pub async fn open_pane(
             // minimal image.
             let cwd = "/".to_string();
             let entries = client.list(&cwd).await.map_err(|e| e.to_string())?;
-            state.panes.lock_recover().insert(
-                pane_id.clone(),
-                Pane {
-                    connection: None,
-                    client: Some(client),
-                    exec: Some(exec),
-                },
-            );
+            state.panes.lock_recover().insert(pane_id.clone(), Pane::remote(None, client, exec));
             Ok(PaneOpened {
                 pane_id,
                 cwd,
@@ -158,14 +142,7 @@ pub async fn open_pane(
             // directory" query for an arbitrary pod, `/` always exists.
             let cwd = "/".to_string();
             let entries = client.list(&cwd).await.map_err(|e| e.to_string())?;
-            state.panes.lock_recover().insert(
-                pane_id.clone(),
-                Pane {
-                    connection: None,
-                    client: Some(client),
-                    exec: Some(exec),
-                },
-            );
+            state.panes.lock_recover().insert(pane_id.clone(), Pane::remote(None, client, exec));
             Ok(PaneOpened {
                 pane_id,
                 cwd,
@@ -173,6 +150,167 @@ pub async fn open_pane(
             })
         }
     }
+}
+
+/// Liste `path`, ou le premier de ses parents qui se laisse lister.
+///
+/// La racine est la dernière tentative : un panneau qui ne peut lister nulle
+/// part est un panneau cassé, et il vaut mieux le dire que rendre un listing
+/// vide qui passerait pour un dossier vide.
+async fn first_readable_ancestor(pane: &PaneRef, path: &str) -> Result<PaneListed, String> {
+    let mut current = path.to_string();
+    loop {
+        let failure = match transfer::list(pane, &current).await {
+            Ok(entries) => return Ok(PaneListed { cwd: current, entries }),
+            Err(e) => e.to_string(),
+        };
+        let parent = termius_core::sftp::join(&current, "..");
+        // La racine est son propre parent : c'est la condition d'arrêt.
+        if parent == current {
+            return Err(failure);
+        }
+        current = parent;
+    }
+}
+
+/// Fait basculer un panneau entre l'utilisateur SSH et root, et relit le
+/// dossier courant avec les droits obtenus.
+///
+/// Élever ne rouvre **pas** de connexion : le shell root part sur un canal de
+/// la connexion que le panneau tient déjà (voir
+/// `termius_core::sudo_session`), et les octets des fichiers continuent de
+/// passer par la session SFTP existante à travers un fichier de transit (voir
+/// `termius_core::sudo_pane`). Redescendre remet simplement en place les
+/// clients mis de côté à l'aller.
+///
+/// Le mot de passe, quand `sudo` en demande un, est réclamé par le même
+/// chemin que l'authentification interactive du serveur
+/// (`commands::interactive_auth`) : même modale, même délai d'attente, même
+/// annulation. Rien à réécrire, et l'utilisateur voit une invite qu'il
+/// connaît déjà.
+#[tauri::command]
+pub async fn set_pane_elevated(
+    state: State<'_, AppState>,
+    pane_id: String,
+    elevated: bool,
+    cwd: String,
+    host_label: String,
+) -> Result<PaneListed, String> {
+    if !elevated {
+        {
+            let mut panes = state.panes.lock_recover();
+            let pane = panes.get_mut(&pane_id).ok_or_else(|| "pane inconnu".to_string())?;
+            pane.client = pane.plain_client.clone();
+            pane.exec = pane.plain_exec.clone();
+            // Lâcher la session ferme le `sh` root distant. C'est voulu :
+            // laisser un shell root ouvert sur un panneau qui ne l'est plus
+            // serait un privilège qui traîne sans rien pour le montrer.
+            pane.sudo = None;
+        }
+        // Le dossier courant peut n'être lisible que par root — c'est même la
+        // raison d'y être monté. Redescendre en rendant une erreur laisserait
+        // le panneau affichant un listing qu'il n'a plus le droit de relire :
+        // on remonte donc jusqu'au premier dossier que l'utilisateur peut voir.
+        let reference = pane_ref(&state, &pane_id)?;
+        return first_readable_ancestor(&reference, &cwd).await;
+    }
+
+    // Ce qu'il faut pour élever, sorti du verrou avant toute attente : garder
+    // le mutex des panneaux pendant un aller-retour réseau bloquerait tous les
+    // autres panneaux, y compris un transfert en cours.
+    let (lease, plain_client, plain_exec, remembered) = {
+        let panes = state.panes.lock_recover();
+        let pane = panes.get(&pane_id).ok_or_else(|| "pane inconnu".to_string())?;
+        (
+            pane.connection.clone(),
+            pane.plain_client.clone(),
+            pane.plain_exec.clone(),
+            pane.sudo_password.as_ref().map(|p| p.to_string()),
+        )
+    };
+    let Some(lease) = lease else {
+        return Err(
+            "l'élévation n'est possible que sur un panneau SSH — un conteneur Docker ou un pod \
+             Kubernetes s'ouvre directement en root"
+                .to_string(),
+        );
+    };
+    let (Some(plain_client), Some(plain_exec)) = (plain_client, plain_exec) else {
+        return Err("ce panneau n'a pas de client distant".to_string());
+    };
+    let connection = lease.connection();
+
+    // Demander le mot de passe seulement si `sudo` en veut un : l'écrire alors
+    // qu'il n'en demande pas le ferait consommer par le shell lancé derrière.
+    let password = match sudo_session::probe(&connection).await.map_err(|e| e.to_string())? {
+        sudo_session::SudoNeed::NoPassword => None,
+        sudo_session::SudoNeed::Password => match remembered {
+            Some(known) => Some(known),
+            None => Some(ask_sudo_password(&host_label).await?),
+        },
+    };
+
+    let opened = termius_core::sudo_session::SudoSession::open(&connection, password).await;
+    let session = match opened {
+        Ok(session) => Arc::new(session),
+        Err(e) => {
+            // Un mot de passe mémorisé qui a cessé d'être bon (changé sur
+            // l'hôte, ou mal tapé la première fois) doit être oublié : sans
+            // ça, chaque nouvelle tentative rejouerait le même faux sans plus
+            // jamais rien demander, et brûlerait des essais côté serveur.
+            let mut panes = state.panes.lock_recover();
+            if let Some(pane) = panes.get_mut(&pane_id) {
+                pane.sudo_password = None;
+            }
+            return Err(e.to_string());
+        }
+    };
+    let identity = termius_core::sudo_pane::probe_identity(plain_exec.as_ref())
+        .await
+        .map_err(|e| e.to_string())?;
+    let elevated_client = Arc::new(termius_core::sudo_pane::SudoPaneClient::new(
+        session.clone(),
+        plain_client,
+        identity,
+    ));
+    // Le même objet vu par ses deux traits (voir `Pane::exec`).
+    let exec: Arc<dyn ShellExec> = elevated_client.clone();
+    let client: Arc<dyn RemoteFileClient> = elevated_client;
+
+    {
+        let mut panes = state.panes.lock_recover();
+        // Le panneau a pu être fermé pendant qu'on demandait le mot de passe.
+        let pane = panes.get_mut(&pane_id).ok_or_else(|| "pane inconnu".to_string())?;
+        pane.sudo_password = session.remembered_password().map(zeroize::Zeroizing::new);
+        pane.client = Some(client);
+        pane.exec = Some(exec);
+        pane.sudo = Some(session);
+    }
+    list_pane(state, pane_id, cwd).await
+}
+
+/// Réutilise la modale d'authentification interactive pour l'invite `sudo`.
+///
+/// `echo: false` parce que c'est un mot de passe ; le libellé reprend
+/// volontairement la forme de celui de `sudo` en console, pour que l'invite
+/// soit reconnaissable.
+async fn ask_sudo_password(host_label: &str) -> Result<String, String> {
+    let prompter = termius_core::interactive_auth::prompter()
+        .ok_or_else(|| "aucune interface disponible pour demander le mot de passe".to_string())?;
+    let answers = prompter
+        .prompt(
+            host_label,
+            InfoRequest {
+                name: "Élévation de privilèges".to_string(),
+                instructions: "Le mot de passe reste en mémoire pour cet onglet. Il n'est ni \
+                               enregistré sur le disque, ni confié au coffre ou au trousseau."
+                    .to_string(),
+                prompts: vec![PromptField { prompt: "Mot de passe sudo".to_string(), echo: false }],
+            },
+        )
+        .await
+        .map_err(|e| e.to_string())?;
+    answers.into_iter().next().ok_or_else(|| "aucun mot de passe saisi".to_string())
 }
 
 #[tauri::command]

@@ -59,6 +59,8 @@ pub mod ssh_config;
 pub mod ssh_pool;
 pub mod ssm_tunnel;
 pub mod store;
+pub mod sudo_pane;
+pub mod sudo_session;
 pub mod sync_ext;
 pub mod transfer;
 pub mod vault;

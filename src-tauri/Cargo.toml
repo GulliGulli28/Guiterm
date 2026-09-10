@@ -15,6 +15,10 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = [] }
 termius-core.workspace = true
 tokio.workspace = true
+# `Pane::sudo_password` : le mot de passe sudo « retenu pour cet onglet » vit en
+# mémoire vive et doit être effacé avec le panneau, pas laissé traîner dans un
+# tas réutilisé.
+zeroize.workspace = true
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 uuid = { version = "1", features = ["v4", "serde"] }

@@ -44,18 +44,22 @@ export function SshAuthPromptModal({ prompt, onSubmit, onCancel }: SshAuthPrompt
       >
         <div className="space-y-1">
           <h2 className="text-[15px] font-semibold text-[var(--c-text)]">
-            Authentification — {prompt.hostLabel}
+            {prompt.request.name || "Authentification"} — {prompt.hostLabel}
           </h2>
-          <p className="text-[12px] text-[var(--c-text-muted)]">
-            Le serveur demande une vérification supplémentaire.
-          </p>
+          {/* La phrase générique ne vaut que pour le cas d'origine : ces mêmes
+              champs servent aussi à demander un mot de passe `sudo`
+              (`set_pane_elevated`), qui ne vient d'aucune vérification du
+              serveur. Un demandeur qui se nomme (`request.name`) porte alors
+              son propre intitulé, et `instructions` dit le reste. */}
+          {!prompt.request.name && (
+            <p className="text-[12px] text-[var(--c-text-muted)]">
+              Le serveur demande une vérification supplémentaire.
+            </p>
+          )}
         </div>
 
-        {/* Server-provided title/instructions, shown only when non-empty —
-            most servers leave them blank. */}
-        {prompt.request.name && (
-          <p className="text-[13px] font-medium text-[var(--c-text-secondary)]">{prompt.request.name}</p>
-        )}
+        {/* Server-provided instructions, shown only when non-empty — most
+            servers leave them blank. */}
         {prompt.request.instructions && (
           <p className="whitespace-pre-wrap text-[12px] leading-relaxed text-[var(--c-text-secondary)]">
             {prompt.request.instructions}

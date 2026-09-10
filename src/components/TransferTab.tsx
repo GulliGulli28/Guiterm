@@ -20,6 +20,7 @@ import { useContainerPicker } from "../hooks/useContainerPicker";
 import { useModalSurface } from "../hooks/useModalSurface";
 import { DIFFERENCE_LABEL, movesInDirection } from "../lib/paneSync";
 import { baseName, breadcrumbs, containingDir, joinPath, parentPath } from "../lib/panePath";
+import { isPermissionDenied } from "../lib/permissionDenied";
 import { usePaneDrag } from "../hooks/usePaneDrag";
 import type { PaneDropTarget, PaneSide } from "../hooks/usePaneDrag";
 
@@ -56,19 +57,28 @@ type Action =
   | { type: "opening"; side: Side; source: PaneSource }
   | { type: "opened"; side: Side; result: PaneOpened }
   | { type: "failed"; side: Side; error: string }
-  | { type: "listed"; side: Side; result: PaneListed };
+  | { type: "listed"; side: Side; result: PaneListed }
+  | { type: "elevation"; side: Side; elevated: boolean; result: PaneListed };
 
 function reducer(state: PanesState, action: Action): PanesState {
   const pane = state[action.side];
   switch (action.type) {
     case "opening":
-      return { ...state, [action.side]: { source: action.source, status: "connecting", paneId: null, cwd: "", entries: [] } };
+      return { ...state, [action.side]: { source: action.source, status: "connecting", paneId: null, cwd: "", entries: [], elevated: false } };
     case "opened":
       return { ...state, [action.side]: { ...pane, status: "open", paneId: action.result.paneId, cwd: action.result.cwd, entries: action.result.entries } };
     case "failed":
       return { ...state, [action.side]: { ...pane, status: "failed", error: action.error } };
     case "listed":
       return { ...state, [action.side]: { ...pane, cwd: action.result.cwd, entries: action.result.entries } };
+    // Le listing arrive avec la bascule : c'est la même réponse backend, et
+    // afficher « root » au-dessus d'entrées lues en utilisateur ordinaire (ou
+    // l'inverse) serait un mensonge d'une frame.
+    case "elevation":
+      return {
+        ...state,
+        [action.side]: { ...pane, elevated: action.elevated, cwd: action.result.cwd, entries: action.result.entries },
+      };
   }
 }
 
@@ -179,6 +189,12 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
     right: { source: initialRightSource, status: "connecting", paneId: null, cwd: "", entries: [] },
   }));
   const paneIds = useRef<Record<Side, string | null>>({ left: null, right: null });
+  /** D'où vers où va chaque copie en cours, pour savoir quel panneau proposer
+   * d'élever si elle échoue sur un refus de droits. Une ref et non un état :
+   * elle est lue depuis l'écouteur de `transfer-error`, monté une seule fois,
+   * qui ne verrait sinon que la valeur du premier rendu. Un dépôt venu de
+   * l'Explorateur n'y figure pas — il n'a pas de panneau source. */
+  const transferSides = useRef<Record<string, { source: Side; dest: Side }>>({});
   const stateRef = useRef(state);
   stateRef.current = state;
 
@@ -222,6 +238,47 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
+  /** Un refus de droits en attente d'une décision : « passer ce panneau en
+   * root ? ». Un seul à la fois par panneau — une bannière par erreur les
+   * empilerait au lieu d'en régler une. */
+  const [denied, setDenied] = useState<Partial<Record<Side, string>>>({});
+
+  /** Le point de passage de toutes les erreurs d'action d'un panneau.
+   *
+   * Une erreur ordinaire remonte telle quelle. Un refus de droits sur un
+   * panneau SSH pas encore élevé arme en plus la bannière : c'est le seul
+   * moment où l'élévation a une chance de débloquer quelque chose, et
+   * l'utilisateur est justement à l'endroit où il vient de se cogner. */
+  const reportPaneError = (side: Side, error: unknown) => {
+    const message = String(error);
+    const pane = stateRef.current[side];
+    if (isPermissionDenied(message) && pane.source.kind === "remote" && !pane.elevated) {
+      setDenied((prev) => ({ ...prev, [side]: message }));
+      return;
+    }
+    onError(message);
+  };
+
+  /** Fait basculer un panneau entre l'utilisateur SSH et root.
+   *
+   * Le listing rendu par la commande remplace celui à l'écran : ce qui est
+   * visible correspond alors exactement aux droits annoncés par le badge. Un
+   * échec (mot de passe refusé, `sudo` absent, modale annulée) laisse le
+   * panneau intact — le backend ne touche à rien avant d'avoir un shell
+   * élevé qui répond. */
+  const setElevated = async (side: Side, elevated: boolean) => {
+    const paneId = paneIds.current[side];
+    const pane = stateRef.current[side];
+    if (!paneId || pane.source.kind !== "remote") return;
+    setDenied((prev) => ({ ...prev, [side]: undefined }));
+    try {
+      const result = await api.setPaneElevated(paneId, elevated, pane.cwd, host.label);
+      dispatch({ type: "elevation", side, elevated, result });
+    } catch (e) {
+      onError(String(e));
+    }
+  };
+
   const navigate = async (side: Side, path: string) => {
     const paneId = paneIds.current[side];
     if (!paneId) return;
@@ -229,7 +286,7 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
       const result = await api.listPane(paneId, path);
       dispatch({ type: "listed", side, result });
     } catch (e) {
-      onError(String(e));
+      reportPaneError(side, e);
     }
   };
 
@@ -257,9 +314,10 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
     try {
       const id = await api.copyEntries(sourceId, stateRef.current[side].cwd, entries, destId, destCwd, conflict);
       const label = entries.length === 1 ? entries[0].name : `${entries.length} éléments`;
+      transferSides.current[id] = { source: side, dest: destSide };
       setTransfers((prev) => ({ ...prev, [id]: { id, fileName: label, bytesDone: 0, bytesTotal: 0, status: "active" } }));
     } catch (e) {
-      onError(String(e));
+      reportPaneError(destSide, e);
     }
   };
 
@@ -345,7 +403,7 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
     try {
       const result = await api.paneMkdir(paneId, state[side].cwd, name);
       dispatch({ type: "listed", side, result });
-    } catch (e) { onError(String(e)); }
+    } catch (e) { reportPaneError(side, e); }
   };
 
   const createFile = async (side: Side, name: string) => {
@@ -355,7 +413,7 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
       await api.writePaneFile(paneId, state[side].cwd, name, "");
       const result = await api.listPane(paneId, state[side].cwd);
       dispatch({ type: "listed", side, result });
-    } catch (e) { onError(String(e)); }
+    } catch (e) { reportPaneError(side, e); }
   };
 
   const rename = async (side: Side, oldName: string, newName: string) => {
@@ -364,7 +422,7 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
     try {
       const result = await api.paneRename(paneId, state[side].cwd, oldName, newName);
       dispatch({ type: "listed", side, result });
-    } catch (e) { onError(String(e)); }
+    } catch (e) { reportPaneError(side, e); }
   };
 
   const remove = async (side: Side, entries: Entry[]) => {
@@ -373,7 +431,7 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
     try {
       const result = await api.paneRemove(paneId, state[side].cwd, entries);
       dispatch({ type: "listed", side, result });
-    } catch (e) { onError(String(e)); }
+    } catch (e) { reportPaneError(side, e); }
   };
 
   const chmod = async (side: Side, name: string, mode: number) => {
@@ -382,7 +440,7 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
     try {
       const result = await api.paneChmod(paneId, state[side].cwd, name, mode);
       dispatch({ type: "listed", side, result });
-    } catch (e) { onError(String(e)); }
+    } catch (e) { reportPaneError(side, e); }
   };
 
   /** Taille récursive d'un dossier, calculée là où il vit. Rejette plutôt que
@@ -413,7 +471,7 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
       const result = await api.paneArchive(paneId, state[side].cwd, names, archiveName, format);
       dispatch({ type: "listed", side, result });
       onPushed?.(`Archive créée dans ${state[side].cwd}.`);
-    } catch (e) { onError(String(e)); }
+    } catch (e) { reportPaneError(side, e); }
   };
 
   const extract = async (side: Side, name: string, destName: string) => {
@@ -423,7 +481,7 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
       const result = await api.paneExtract(paneId, state[side].cwd, name, destName || undefined);
       dispatch({ type: "listed", side, result });
       onPushed?.(destName ? `« ${name} » extraite dans ${destName}.` : `« ${name} » extraite dans ${state[side].cwd}.`);
-    } catch (e) { onError(String(e)); }
+    } catch (e) { reportPaneError(side, e); }
   };
 
   // ── Comparaison des deux arborescences ───────────────────────────────────
@@ -546,7 +604,7 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
       // is no copy to track.
       const edit = await api.openRemoteFileInEditor(paneId, state[side].cwd, name);
       if (edit) setRemoteEdits((prev) => [...prev.filter((e) => e.id !== edit.id), edit]);
-    } catch (e) { onError(String(e)); }
+    } catch (e) { reportPaneError(side, e); }
   };
 
   const endRemoteEdit = async (id: string) => {
@@ -661,6 +719,19 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
         if (paneIds.current.right) api.listPane(paneIds.current.right, stateRef.current.right.cwd).then((result) => dispatch({ type: "listed", side: "right", result })).catch(() => {});
       });
       unlistenError = await onTransferError((transferId, message) => {
+        // Une copie refusée pour cause de droits est le cas que l'utilisateur
+        // rencontre le plus souvent — proposer l'élévation plutôt que de le
+        // laisser avec une ligne rouge dans la liste. La destination l'emporte
+        // quand les deux côtés sont élevables : c'est elle qui écrit, donc
+        // elle qui se fait refuser en premier.
+        const sides = transferSides.current[transferId];
+        if (sides && isPermissionDenied(message)) {
+          const blocked = [sides.dest, sides.source].find((side) => {
+            const pane = stateRef.current[side];
+            return pane.source.kind === "remote" && !pane.elevated;
+          });
+          if (blocked) setDenied((current) => ({ ...current, [blocked]: message }));
+        }
         setTransfers((prev) => (prev[transferId] ? { ...prev, [transferId]: { ...prev[transferId], status: "error", error: message } } : prev));
         setTimeout(() => setTransfers((prev) => { const next = { ...prev }; delete next[transferId]; return next; }), 5000);
       });
@@ -706,6 +777,9 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
     justDraggedRef: draggedRef,
     dragging: drag !== null,
     dropTarget: drag && drag.target?.side === side ? drag.target : null,
+    onSetElevated: setElevated,
+    deniedError: denied[side] ?? null,
+    onDismissDenied: () => setDenied((prev) => ({ ...prev, [side]: undefined })),
   });
 
   return (
@@ -926,6 +1000,15 @@ interface PaneViewProps {
   /** Absent quand le panneau n'a pas de quoi enregistrer la préférence — la
    * bascule n'est alors pas affichée plutôt que d'être sans effet. */
   onToggleHidden?: () => void;
+  /** Fait passer le panneau en root, ou l'en fait redescendre. N'est offert
+   * que sur un panneau SSH : le panneau local est déjà la session de
+   * l'utilisateur, et un conteneur Docker ou un pod Kubernetes s'ouvre déjà
+   * en root. */
+  onSetElevated: (side: Side, elevated: boolean) => Promise<void>;
+  /** Le dernier refus de droits sur ce panneau, en attente d'une décision.
+   * `null` quand il n'y en a pas. */
+  deniedError: string | null;
+  onDismissDenied: () => void;
   onDragStart: (side: Side, entries: Entry[], event: React.MouseEvent) => void;
   justDraggedRef: React.MutableRefObject<boolean>;
   dragging: boolean;
@@ -980,6 +1063,7 @@ export function PaneView({
   onRemove, onChmod, onEdit, onOpenInEditor, onDirSize, onDiskSpace, objectActions, onCompare, onPickForDiff, onDiffPair, diffPick, diffArmedName,
   onFind, onArchive, onExtract, showHidden,
   onToggleHidden, onDragStart, justDraggedRef, dragging, dropTarget, isRdpPush,
+  onSetElevated, deniedError, onDismissDenied,
 }: PaneViewProps) {
   const [query, setQuery] = useState("");
   const [find, setFind] = useState<FindState | null>(null);
@@ -1006,6 +1090,16 @@ export function PaneView({
   // shells out to `chmod` — see `core::docker_pane::DockerPaneClient`), just
   // not for the local filesystem.
   const supportsChmod = pane.source.kind !== "local";
+  /** L'élévation ne concerne que les panneaux SSH : le panneau local est déjà
+   * la session de l'utilisateur (et Windows n'a pas de `sudo`), et un
+   * conteneur Docker ou un pod Kubernetes s'ouvre déjà avec les droits de son
+   * `exec`. */
+  const canElevate = pane.source.kind === "remote";
+  const elevated = pane.elevated === true;
+  /** Bascule en cours : `sudo` peut demander un mot de passe, donc le
+   * changement n'est pas instantané et le bouton ne doit pas pouvoir être
+   * cliqué deux fois. */
+  const [elevating, setElevating] = useState(false);
 
   /** L'action « ouvrir un terminal ici » telle que le module terminal la
    * définit, promue en bouton de la barre d'outils.
@@ -1393,7 +1487,20 @@ export function PaneView({
     // `min-w-0` : sans lui, la grille des lignes impose sa largeur minimale au
     // panneau, qui déborde alors de son conteneur (rogné par l'`overflow-hidden`
     // du parent) au lieu de comprimer la colonne « Nom ».
-    <div ref={rootRef} className={`flex min-h-0 w-full min-w-0 flex-1 flex-col ${dropHighlight ? "ring-2 ring-inset ring-[var(--c-accent)]" : ""}`}>
+    <div
+      ref={rootRef}
+      // Le liseré ambre est la seule chose qui distingue, du coin de l'œil, un
+      // panneau root d'un panneau ordinaire — et supprimer dans le mauvais des
+      // deux ne se rattrape pas. Il cède la place à la surbrillance de dépôt,
+      // qui est un état passager qu'il faut voir tout aussi nettement.
+      className={`flex min-h-0 w-full min-w-0 flex-1 flex-col ${
+        dropHighlight
+          ? "ring-2 ring-inset ring-[var(--c-accent)]"
+          : elevated
+            ? "ring-1 ring-inset ring-amber-500/50"
+            : ""
+      }`}
+    >
       {/* Source selector */}
       <div className="flex items-center gap-2 border-b border-[var(--c-border)] p-2">
         <HostTreePicker
@@ -1412,7 +1519,56 @@ export function PaneView({
           className="flex min-w-0 max-w-[280px] flex-1 items-center justify-between gap-2 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-left text-sm text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
         />
         {pane.status === "connecting" && <span className="text-xs text-[var(--c-text-muted)]">connexion…</span>}
+        {canElevate && pane.status === "open" && (
+          <button
+            data-pane-elevate={side}
+            onClick={() => { setElevating(true); onSetElevated(side, !elevated).finally(() => setElevating(false)); }}
+            disabled={elevating}
+            aria-pressed={elevated}
+            title={
+              elevated
+                ? "Repasser en utilisateur ordinaire. Le shell root est fermé ; le mot de passe reste retenu pour cet onglet."
+                : "Voir et modifier les fichiers avec les droits de root (sudo). Le mot de passe, si l'hôte en demande un, n'est retenu que pour cet onglet."
+            }
+            className={`ml-auto flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs disabled:opacity-50 ${
+              elevated
+                ? "bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/50 hover:bg-amber-500/30"
+                : "bg-[var(--c-bg3)] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+            }`}
+          >
+            <IconShield size={12} />
+            {elevating ? "…" : "root"}
+          </button>
+        )}
       </div>
+
+      {/* La proposition d'élévation, à l'endroit où l'utilisateur vient de se
+          cogner. Elle ne remplace pas le message d'erreur : elle le montre,
+          puis offre la seule action qui puisse le lever. */}
+      {deniedError && (
+        <div className="flex items-start gap-2 border-b border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-200">
+          <IconShield size={12} className="mt-0.5 shrink-0" />
+          <div className="min-w-0 flex-1">
+            <p className="font-medium">Permission refusée</p>
+            <p className="break-words text-amber-200/70">{deniedError}</p>
+          </div>
+          <button
+            onClick={() => { onDismissDenied(); setElevating(true); onSetElevated(side, true).finally(() => setElevating(false)); }}
+            disabled={elevating}
+            className="shrink-0 rounded-md bg-amber-500/20 px-2 py-1 font-medium text-amber-100 ring-1 ring-amber-500/50 hover:bg-amber-500/30 disabled:opacity-50"
+          >
+            Passer ce panneau en root
+          </button>
+          <button
+            onClick={onDismissDenied}
+            aria-label="Ignorer"
+            title="Ignorer"
+            className="shrink-0 rounded p-1 text-amber-200/60 hover:bg-white/5 hover:text-amber-100"
+          >
+            <IconClose size={11} />
+          </button>
+        </div>
+      )}
 
       {pickerModal}
 

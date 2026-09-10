@@ -154,6 +154,7 @@ fn main() {
 
             // ── module « transfer » ──────────────────────────────────────
             commands::sftp::open_pane,
+            commands::sftp::set_pane_elevated,
             commands::sftp::close_pane,
             commands::sftp::list_pane,
             commands::sftp::copy_entries,

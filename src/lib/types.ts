@@ -970,6 +970,13 @@ export interface PaneState {
   cwd: string;
   entries: Entry[];
   error?: string;
+  /** Le panneau voit les fichiers avec les droits de root (`set_pane_elevated`).
+   *
+   * Jamais restauré depuis un onglet enregistré, même si la propriété y est
+   * sérialisée : un panneau rouvert est un panneau neuf côté backend, où
+   * aucun shell élevé n'existe. Le rallumer redemanderait un mot de passe,
+   * donc c'est un geste que l'utilisateur refait sciemment. */
+  elevated?: boolean;
 }
 
 /** Une session persistante qui tourne sur un hôte. Miroir de

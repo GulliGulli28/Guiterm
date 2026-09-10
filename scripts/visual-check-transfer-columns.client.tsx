@@ -98,6 +98,9 @@ window.__renderPane = async ({ fontSize, width }) => {
       justDraggedRef={{ current: false }}
       dragging={false}
       dropTarget={null}
+      onSetElevated={() => Promise.resolve()}
+      deniedError={null}
+      onDismissDenied={noop}
     />,
   );
   // Deux images pour le rendu, puis un temps mort pour le `ResizeObserver`

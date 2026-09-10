@@ -426,6 +426,17 @@ export const api = {
 
   openPane: (source: PaneSource) => invoke<PaneOpened>("open_pane", { source }),
   closePane: (paneId: string) => invoke<void>("close_pane", { paneId }),
+  /** Fait passer un panneau distant en root, ou l'en fait redescendre, et rend
+   * le dossier courant relu avec les droits obtenus.
+   *
+   * Élever n'ouvre pas de connexion : le shell root part sur un canal de celle
+   * que le panneau tient déjà. Quand `sudo` réclame un mot de passe, il est
+   * demandé par la même modale que l'authentification interactive du serveur
+   * (`onSshAuthPrompt`), puis retenu pour ce panneau — donc éteindre puis
+   * rallumer la bascule ne le redemande pas. Réservé aux panneaux SSH : un
+   * conteneur Docker ou un pod Kubernetes s'ouvre déjà en root. */
+  setPaneElevated: (paneId: string, elevated: boolean, cwd: string, hostLabel: string) =>
+    invoke<PaneListed>("set_pane_elevated", { paneId, elevated, cwd, hostLabel }),
   listPane: (paneId: string, path: string) => invoke<PaneListed>("list_pane", { paneId, path }),
   /** Copie `entries` vers l'autre panneau, en tâche de fond. Rend un
    * identifiant de transfert tout de suite : la suite arrive par

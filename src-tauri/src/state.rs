@@ -59,6 +59,57 @@ pub struct Pane {
     /// `termius_core::pane_ops` pour ce que ça permet (taille d'un dossier,
     /// recherche récursive, archivage — tous exécutés sur place).
     pub exec: Option<Arc<dyn ShellExec>>,
+    /// Les versions **non élevées** de `client`/`exec`, mises de côté quand le
+    /// panneau passe en root : redescendre est alors un simple échange, sans
+    /// rouvrir de session SFTP ni relister le dossier depuis zéro.
+    pub plain_client: Option<Arc<dyn RemoteFileClient>>,
+    pub plain_exec: Option<Arc<dyn ShellExec>>,
+    /// Le shell root, tant que le panneau est élevé. Le garder ici, et pas
+    /// seulement dans le `SudoPaneClient`, c'est ce qui le fait vivre aussi
+    /// longtemps que le panneau : le `sh` distant meurt dès que son canal est
+    /// lâché, et il faudrait alors retaper le mot de passe.
+    pub sudo: Option<Arc<termius_core::sudo_session::SudoSession>>,
+    /// « Retenu pour cet onglet » : le mot de passe sudo reste en mémoire vive
+    /// tant que ce panneau existe, pour qu'une bascule éteinte puis rallumée
+    /// ne le redemande pas. Jamais écrit sur disque, jamais confié au coffre
+    /// ni au trousseau, effacé avec le panneau.
+    pub sudo_password: Option<zeroize::Zeroizing<String>>,
+}
+
+impl Pane {
+    /// Le système de fichiers de la machine qui fait tourner l'app : rien à
+    /// tenir, et aucune élévation possible (c'est déjà la session de
+    /// l'utilisateur, et Windows n'a pas de `sudo`).
+    pub fn local() -> Self {
+        Self {
+            connection: None,
+            client: None,
+            exec: None,
+            plain_client: None,
+            plain_exec: None,
+            sudo: None,
+            sudo_password: None,
+        }
+    }
+
+    /// Un panneau distant, non élevé. `plain_*` part sur les mêmes valeurs que
+    /// `client`/`exec` : c'est l'état auquel « repasser en utilisateur
+    /// ordinaire » revient.
+    pub fn remote(
+        connection: Option<Arc<SshLease>>,
+        client: Arc<dyn RemoteFileClient>,
+        exec: Arc<dyn ShellExec>,
+    ) -> Self {
+        Self {
+            connection,
+            client: Some(client.clone()),
+            exec: Some(exec.clone()),
+            plain_client: Some(client),
+            plain_exec: Some(exec),
+            sudo: None,
+            sudo_password: None,
+        }
+    }
 }
 
 pub struct ForwardSession {

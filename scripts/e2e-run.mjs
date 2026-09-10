@@ -262,6 +262,7 @@ async function runScenarios(browser) {
   await runSqlTabScenario(browser);
   await runHostAttachmentsScenario(browser);
   await runObjectBusScenario(browser);
+  await runPaneElevationScenario(browser);
   await runObjectBusSelectionScenario(browser);
   await runAdaptiveComposerScenario(browser);
   await runSqlHistoryScenario(browser);
@@ -1942,6 +1943,72 @@ async function runObjectBusScenario(browser) {
       throw new Error(`nettoyage impossible, workspace pollué : ${JSON.stringify(cleanup)}`);
     }
   }
+}
+
+
+/**
+ * L'élévation d'un panneau de transfert : ce qui l'offre, et ce qui la refuse.
+ *
+ * Ce que ça prouve et que rien d'autre ne peut : `set_pane_elevated` est
+ * réellement branché (un nom de commande absent de `generate_handler!` rejette
+ * avec « not found », pas avec notre message), et le garde-fou « seulement un
+ * panneau SSH » tient jusque dans le vrai binaire. Un panneau local n'a aucun
+ * `sudo` à offrir — sous Windows il n'en existe même pas — et proposer la
+ * bascule là serait un bouton qui ne peut rien faire.
+ *
+ * Ce que ça ne prouve pas : l'élévation réussie. Elle demande un `sudo`
+ * utilisable sur un hôte joignable, ce qu'un runner n'a pas ; c'est
+ * `core/tests/sudo_pane_integration.rs` qui la couvre, contre un vrai `sshd`.
+ * Le scénario est donc écrit sur le modèle de l'import cloud : il accepte une
+ * réponse valide **ou** un échec typé, et passe dans les deux cas.
+ */
+async function runPaneElevationScenario(browser) {
+  const outcome = await browser.execute(async () => {
+    const invoke = window.__TAURI_INTERNALS__?.invoke;
+    if (typeof invoke !== "function") return { __error: "invoke absent" };
+    let pane;
+    try {
+      pane = await invoke("open_pane", { source: { kind: "local" } });
+    } catch (e) {
+      return { __error: `open_pane a échoué : ${String(e)}` };
+    }
+    // Un panneau local ouvert *et* affiché ne doit porter aucune bascule.
+    const toggles = document.querySelectorAll('[data-pane-elevate="left"]').length;
+    let refusal = null;
+    try {
+      await invoke("set_pane_elevated", {
+        paneId: pane.paneId,
+        elevated: true,
+        cwd: pane.cwd,
+        hostLabel: "e2e",
+      });
+    } catch (e) {
+      refusal = String(e);
+    } finally {
+      await invoke("close_pane", { paneId: pane.paneId }).catch(() => {});
+    }
+    return { refusal, toggles };
+  });
+
+  if (!outcome || outcome.__error !== undefined) {
+    throw new Error(`scénario d élévation impossible à jouer : ${JSON.stringify(outcome)}`);
+  }
+  if (outcome.toggles !== 0) {
+    throw new Error(
+      `le panneau local (gauche) affiche ${outcome.toggles} bascule(s) « root » alors qu'il ne peut pas s élever`,
+    );
+  }
+  if (outcome.refusal === null) {
+    throw new Error("élever un panneau local a été accepté — le garde-fou « seulement un panneau SSH » ne tient pas");
+  }
+  // Le message doit être le nôtre. « command not found » voudrait dire que la
+  // commande n est pas enregistrée, et le test passerait pour de mauvaises
+  // raisons — c est précisément le trou que ce scénario existe pour fermer.
+  if (!outcome.refusal.includes("SSH")) {
+    throw new Error(`refus inattendu de set_pane_elevated : ${outcome.refusal}`);
+  }
+
+  console.log("Élévation d un panneau : OK (refusée sur un panneau local, commande bien enregistrée).");
 }
 
 /**
