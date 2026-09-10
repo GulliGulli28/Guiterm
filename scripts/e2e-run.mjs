@@ -636,6 +636,31 @@ async function closeDialogTitled(browser, heading) {
 }
 
 /** Clicks the first <button> whose visible text is exactly `text`. */
+/** Attend que l'onglet **actif** soit celui qui porte ce libellé.
+ *
+ * **La course que ça ferme.** `createRunbook` enregistre la procédure par un
+ * aller-retour Tauri *puis* ouvre son onglet. Entre le clic sur « Créer » et
+ * l'ouverture, l'onglet précédent est encore l'onglet visible — et s'il s'agit
+ * d'un autre runbook, il affiche lui aussi « Ajouter une étape ». Un scénario
+ * qui attend ce bouton se croit alors prêt, clique dans l'onglet d'à côté,
+ * puis attend en vain la carte d'étape dans le nouvel onglet, resté vide.
+ *
+ * Observé sur le scénario playbook : rouge deux fois sur six, vert au
+ * relancement, sans rien changer — la latence de l'IPC décidait. Filtrer sur
+ * `offsetParent` ne suffit pas : le mauvais onglet est *réellement* visible à
+ * cet instant. C'est l'identité de l'onglet actif qu'il faut attendre, et
+ * `data-tab-active` existe précisément pour la rendre lisible du dehors.
+ */
+async function waitForActiveTab(browser, label) {
+  await browser.waitUntil(async () => await browser.execute((wanted) => {
+    const active = document.querySelector('[data-tab-active="true"]');
+    return !!active && (active.textContent || "").includes(wanted);
+  }, label), {
+    timeout: 15_000,
+    timeoutMsg: `l onglet « ${label} » n est jamais devenu l onglet actif`,
+  });
+}
+
 /** Une combinaison telle que la stocke `AppPreferences.keyboardShortcuts`
  * (« Ctrl+Shift+Alt+K »), rendue en la suite de touches que WebDriver attend.
  *
@@ -2579,8 +2604,12 @@ async function runRunbookScenario(browser) {
 
     // La création doit ouvrir l'onglet elle-même : une procédure vide dans une
     // liste, sans nulle part où la remplir, serait un cul-de-sac.
+    //
+    // Sur *cet* onglet-ci, et pas sur celui d'à côté : voir `waitForActiveTab`.
+    await waitForActiveTab(browser, NAME);
     await browser.waitUntil(async () => await browser.execute(() =>
-      Array.from(document.querySelectorAll("button")).some((b) => (b.textContent || "").includes("Ajouter une étape"))
+      Array.from(document.querySelectorAll("button"))
+        .some((b) => b.offsetParent !== null && (b.textContent || "").includes("Ajouter une étape"))
     ), { timeout: 15_000, timeoutMsg: "l onglet du runbook ne s est pas ouvert après la création" });
 
     runbookId = await browser.execute(async (name) => {
@@ -2592,8 +2621,11 @@ async function runRunbookScenario(browser) {
     // Une étape : titre + commande. `echo` existe sous PowerShell comme sous
     // sh, donc le même scénario tourne sur les deux plateformes.
     const filled = await browser.execute(() => {
+      // Le bouton de l'onglet **visible** : les onglets inactifs restent
+      // montés, donc le premier du document peut appartenir à un runbook
+      // laissé ouvert par un scénario précédent.
       const add = Array.from(document.querySelectorAll("button"))
-        .find((b) => (b.textContent || "").includes("Ajouter une étape"));
+        .find((b) => b.offsetParent !== null && (b.textContent || "").includes("Ajouter une étape"));
       add.click();
       return true;
     });
@@ -2758,8 +2790,10 @@ async function runRunbookApprovalScenario(browser) {
     }, NAME);
     if (created !== "ok") throw new Error(created);
 
+    await waitForActiveTab(browser, NAME);
     await browser.waitUntil(async () => await browser.execute(() =>
-      Array.from(document.querySelectorAll("button")).some((b) => (b.textContent || "").includes("Ajouter une étape"))
+      Array.from(document.querySelectorAll("button"))
+        .some((b) => b.offsetParent !== null && (b.textContent || "").includes("Ajouter une étape"))
     ), { timeout: 15_000, timeoutMsg: "l onglet de la procédure d approbation ne s est pas ouvert" });
 
     runbookId = await browser.execute(async (name) => {
@@ -2785,7 +2819,7 @@ async function runRunbookApprovalScenario(browser) {
       ];
       for (let i = 0; i < wanted.length; i++) {
         const add = Array.from(document.querySelectorAll("button"))
-          .find((b) => (b.textContent || "").includes("Ajouter une étape"));
+          .find((b) => b.offsetParent !== null && (b.textContent || "").includes("Ajouter une étape"));
         if (!(add instanceof HTMLElement)) return "bouton « Ajouter une étape » introuvable";
         add.click();
       }
@@ -3101,6 +3135,7 @@ async function runRunbookPlaybookScenario(browser) {
       Array.from(panel.querySelectorAll("button")).find((b) => b.textContent?.trim() === "Créer").click();
     }, NAME);
 
+    await waitForActiveTab(browser, NAME);
     await browser.waitUntil(async () => await browser.execute(() =>
       Array.from(document.querySelectorAll("button"))
         .some((b) => b.offsetParent !== null && (b.textContent || "").includes("Ajouter une étape"))
