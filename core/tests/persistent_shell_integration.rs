@@ -57,6 +57,47 @@ fn test_session_key() -> String {
     )
 }
 
+/// Tue une session tmux à la sortie du test, **panique comprise**.
+///
+/// Les tests tuent déjà la leur en fin de scénario — mais c'est une ligne
+/// comme une autre, et un `wait_for` qui panique au milieu la saute. C'est
+/// exactement comme ça que la suite s'empoisonnait : l'échec d'une assertion
+/// laissait derrière lui une session, parfois avec un client attaché.
+/// [`reap_stale_sessions`] rattrape au run **suivant** ; ceci évite la fuite
+/// tout court.
+///
+/// `Drop` est le seul endroit qui s'exécute dans les deux cas, et il le fait
+/// bel et bien ici : `panic = "abort"` est délibérément absent des profils de
+/// ce dépôt (voir le commentaire dans le `Cargo.toml` racine), donc une
+/// panique déroule la pile.
+///
+/// **La commande est lancée localement, pas par SSH.** `Drop` ne peut pas
+/// attendre un futur, et bloquer sur le runtime depuis un de ses fils
+/// paniquerait à son tour. Ce n'est pas un contournement : le sshd de test
+/// écoute sur `127.0.0.1` sous le même utilisateur, donc le serveur tmux que
+/// les tests pilotent **est** celui de cette machine — c'est le même `tmux ls`
+/// qui les montre. Si `tmux` manquait du PATH local, rien ne fuiterait
+/// durablement pour autant : le ramassage par exécution reste derrière.
+struct SessionGuard {
+    key: String,
+}
+
+impl SessionGuard {
+    fn new(key: &str) -> Self {
+        Self { key: key.to_string() }
+    }
+}
+
+impl Drop for SessionGuard {
+    fn drop(&mut self) {
+        let _ = std::process::Command::new("tmux")
+            .args(["kill-session", "-t", &self.key])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+    }
+}
+
 /// Supprime les sessions laissées par des exécutions **précédentes** de cette
 /// suite.
 ///
@@ -229,6 +270,8 @@ async fn a_shell_survives_the_connection_that_opened_it() {
     workspace.hosts.push(host);
 
     let session_key = test_session_key();
+    // Nommé, pas `_` : un binding anonyme serait détruit sur-le-champ.
+    let _session_guard = SessionGuard::new(&session_key);
 
     // ── Première connexion : rien ne tourne encore ────────────────────────
     let first = ssh::connect(&workspace, host_id).await.expect("première connexion");
@@ -345,6 +388,10 @@ async fn a_session_this_app_did_not_open_is_never_killed() {
     // Un nom qui ne porte pas le préfixe de l'app, unique pour ne pas marcher
     // sur une vraie session de la machine de test.
     let foreign = format!("perso-{}", uuid::Uuid::new_v4().simple());
+    // Celle-ci ne porte pas le préfixe de l'app, donc le ramassage par
+    // exécution ne la reprendra jamais : c'est la seule dont une fuite
+    // durerait indéfiniment. Le garde est ici sa seule protection.
+    let _session_guard = SessionGuard::new(&foreign);
     ssh::run_command_capture(
         &connection,
         &format!("tmux new-session -d -s {}", quote(&foreign)),
@@ -429,6 +476,8 @@ async fn observing_a_session_does_not_resize_it() {
     workspace.hosts.push(host);
 
     let session_key = test_session_key();
+    // Nommé, pas `_` : un binding anonyme serait détruit sur-le-champ.
+    let _session_guard = SessionGuard::new(&session_key);
     let connection = ssh::connect(&workspace, host_id).await.expect("connexion");
     if persistent_shell::probe(&connection, None).await == Probe::NoTmux {
         eprintln!("tmux absent de la machine de test — scénario ignoré");
@@ -528,6 +577,9 @@ async fn observing_an_absent_session_fails_rather_than_creating_one() {
     // jour ce test échouait *parce qu'*une session a été créée, elle serait
     // ramassée par le run suivant au lieu de traîner sans propriétaire.
     let absent = test_session_key();
+    // Aucune session ne doit naître ici — le garde est là pour le cas où un
+    // jour une en naîtrait quand même, ce que ce test existe pour interdire.
+    let _session_guard = SessionGuard::new(&absent);
     let output = ssh::run_command_capture(&connection, &persistent_shell::observe_command(&absent))
         .await
         .expect("la commande doit s'exécuter");
@@ -562,6 +614,8 @@ async fn session_appearance_options_are_applied_and_readable() {
     }
     reap_stale_sessions(&connection).await;
     let session_key = test_session_key();
+    // Nommé, pas `_` : un binding anonyme serait détruit sur-le-champ.
+    let _session_guard = SessionGuard::new(&session_key);
 
     let hidden = ssh::open_shell_with_command(
         &connection, 100, 30, false, Some(&persistent_shell::attach_command(&session_key, HIDE_STATUS)),
