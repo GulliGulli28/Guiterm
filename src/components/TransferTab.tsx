@@ -27,6 +27,14 @@ import type { PaneDropTarget, PaneSide } from "../hooks/usePaneDrag";
 type Side = PaneSide;
 type PanesState = Record<Side, PaneState>;
 
+/** Une action refusée pour cause de droits, et de quoi la rejouer en root.
+ * `retry` est l'action elle-même, pas une description : la rejouer ne demande
+ * donc aucune duplication de ce que fait chaque bouton. */
+interface DeniedAction {
+  message: string;
+  retry: () => Promise<void>;
+}
+
 const otherSide = (side: Side): Side => (side === "left" ? "right" : "left");
 
 // Files above this size don't get a quick-edit button — they'd be unwieldy
@@ -194,9 +202,23 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
    * elle est lue depuis l'écouteur de `transfer-error`, monté une seule fois,
    * qui ne verrait sinon que la valeur du premier rendu. Un dépôt venu de
    * l'Explorateur n'y figure pas — il n'a pas de panneau source. */
-  const transferSides = useRef<Record<string, { source: Side; dest: Side }>>({});
+  const transferSides = useRef<Record<string, { source: Side; dest: Side; retry: () => Promise<void> }>>({});
   const stateRef = useRef(state);
   stateRef.current = state;
+
+  /** `dispatch`, plus la mise à jour immédiate de `stateRef`.
+   *
+   * `stateRef` n'est rafraîchi qu'au rendu suivant, or plusieurs actions
+   * enchaînent deux appels au backend autour d'un `dispatch` — le rejeu d'une
+   * action refusée, par exemple, navigue puis redescend des droits en
+   * s'appuyant sur le dossier courant. Entre les deux, React n'a pas
+   * forcément re-rendu, et lire `stateRef` rendait le dossier d'avant : la
+   * seconde commande partait sur un chemin périmé. Rejouer le réducteur ici
+   * coûte une passe et rend cette classe d'erreurs impossible. */
+  const apply = (action: Action) => {
+    stateRef.current = reducer(stateRef.current, action);
+    dispatch(action);
+  };
 
   /** `atPath` ne sert qu'à la toute première ouverture du panneau distant,
    * quand l'onglet a été ouvert *sur* un dossier (bus d'objets). Deux
@@ -209,20 +231,20 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
    * après le déplacement d'un dossier s'ouvrirait sinon en erreur, sans rien
    * pour en sortir. */
   const openPaneFor = async (side: Side, source: PaneSource, atPath?: string) => {
-    dispatch({ type: "opening", side, source });
+    apply({ type: "opening", side, source });
     try {
       const result = await api.openPane(source);
       paneIds.current[side] = result.paneId;
-      dispatch({ type: "opened", side, result });
+      apply({ type: "opened", side, result });
       if (atPath && atPath !== result.cwd) {
         try {
-          dispatch({ type: "listed", side, result: await api.listPane(result.paneId, atPath) });
+          apply({ type: "listed", side, result: await api.listPane(result.paneId, atPath) });
         } catch {
           onError(`Dossier « ${atPath} » introuvable — le panneau est resté sur ${result.cwd}.`);
         }
       }
     } catch (e) {
-      dispatch({ type: "failed", side, error: String(e) });
+      apply({ type: "failed", side, error: String(e) });
     }
   };
 
@@ -241,22 +263,38 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
   /** Un refus de droits en attente d'une décision : « passer ce panneau en
    * root ? ». Un seul à la fois par panneau — une bannière par erreur les
    * empilerait au lieu d'en régler une. */
-  const [denied, setDenied] = useState<Partial<Record<Side, string>>>({});
+  const [denied, setDenied] = useState<Partial<Record<Side, DeniedAction>>>({});
 
   /** Le point de passage de toutes les erreurs d'action d'un panneau.
    *
    * Une erreur ordinaire remonte telle quelle. Un refus de droits sur un
-   * panneau SSH pas encore élevé arme en plus la bannière : c'est le seul
-   * moment où l'élévation a une chance de débloquer quelque chose, et
-   * l'utilisateur est justement à l'endroit où il vient de se cogner. */
-  const reportPaneError = (side: Side, error: unknown) => {
+   * panneau SSH pas encore élevé arme en plus la bannière, avec de quoi
+   * **rejouer cette action-là** : c'est le seul moment où l'élévation a une
+   * chance de débloquer quelque chose, et l'utilisateur est justement à
+   * l'endroit où il vient de se cogner. */
+  const reportPaneError = (side: Side, error: unknown, retry: () => Promise<void>) => {
     const message = String(error);
     const pane = stateRef.current[side];
     if (isPermissionDenied(message) && pane.source.kind === "remote" && !pane.elevated) {
-      setDenied((prev) => ({ ...prev, [side]: message }));
+      setDenied((prev) => ({ ...prev, [side]: { message, retry } }));
       return;
     }
     onError(message);
+  };
+
+  /** Joue une action de panneau, et retient de quoi la refaire si les droits
+   * la refusent.
+   *
+   * Toutes les actions du panneau passent par là plutôt que par leur propre
+   * `try`/`catch` : sans la fermeture qui les rejoue, la bannière ne pourrait
+   * proposer que d'élever le panneau entier — ce qui est un bien plus gros
+   * geste que l'action refusée. */
+  const runPaneAction = async (side: Side, action: () => Promise<void>) => {
+    try {
+      await action();
+    } catch (e) {
+      reportPaneError(side, e, action);
+    }
   };
 
   /** Fait basculer un panneau entre l'utilisateur SSH et root.
@@ -273,22 +311,66 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
     setDenied((prev) => ({ ...prev, [side]: undefined }));
     try {
       const result = await api.setPaneElevated(paneId, elevated, pane.cwd, host.label);
-      dispatch({ type: "elevation", side, elevated, result });
+      apply({ type: "elevation", side, elevated, result });
     } catch (e) {
       onError(String(e));
     }
   };
 
-  const navigate = async (side: Side, path: string) => {
+  /** Rejoue l'action refusée avec les droits de root, puis rend les droits.
+   *
+   * L'élévation porte sur **l'action**, pas sur le panneau : c'est un geste
+   * bien plus petit que « tout ce panneau passe en root », et c'est ce que
+   * l'utilisateur demande quand il se cogne sur un fichier précis. Le panneau
+   * est élevé le temps de l'action puis redescendu.
+   *
+   * L'exception est assumée et vient du backend : redescendre est refusé
+   * quand le dossier courant n'est plus lisible sans élévation. C'est
+   * exactement le cas « entrer dans un dossier fermé » — y être *est* l'effet
+   * de l'action, et rendre les droits tout de suite en ferait ressortir
+   * aussitôt. Le panneau reste alors élevé, et le badge le dit.
+   *
+   * Compromis assumé : pendant ce court intervalle, le panneau est élevé pour
+   * de bon, donc une autre action lancée en parallèle sur ce même panneau
+   * partirait en root elle aussi. La fenêtre tient à une seule action lancée
+   * par un clic explicite ; l'alternative (un drapeau « élevé » sur chacune
+   * des douze commandes de panneau) élargissait beaucoup de code déjà rodé
+   * pour un gain de sûreté théorique. */
+  const retryElevated = async (side: Side) => {
     const paneId = paneIds.current[side];
-    if (!paneId) return;
+    const pending = denied[side];
+    if (!paneId || !pending) return;
+    setDenied((prev) => ({ ...prev, [side]: undefined }));
     try {
-      const result = await api.listPane(paneId, path);
-      dispatch({ type: "listed", side, result });
+      const elevatedListing = await api.setPaneElevated(paneId, true, stateRef.current[side].cwd, host.label);
+      apply({ type: "elevation", side, elevated: true, result: elevatedListing });
     } catch (e) {
-      reportPaneError(side, e);
+      onError(String(e));
+      return;
+    }
+    try {
+      await pending.retry();
+    } catch (e) {
+      // Refusée même en root : ce n'était pas une question de droits (disque
+      // plein, fichier verrouillé, chemin disparu). On le dit tel quel plutôt
+      // que de reproposer une élévation déjà en place.
+      onError(String(e));
+    }
+    try {
+      const back = await api.setPaneElevated(paneId, false, stateRef.current[side].cwd, host.label);
+      apply({ type: "elevation", side, elevated: false, result: back });
+    } catch {
+      // Le dossier courant n'est lisible qu'en root : y rester est le résultat
+      // de l'action. Rien à signaler — le badge du panneau porte l'information.
     }
   };
+
+  const navigate = (side: Side, path: string) =>
+    runPaneAction(side, async () => {
+      const paneId = paneIds.current[side];
+      if (!paneId) return;
+      apply({ type: "listed", side, result: await api.listPane(paneId, path) });
+    });
 
   const changeSource = async (side: Side, source: PaneSource) => {
     const oldId = paneIds.current[side];
@@ -308,17 +390,21 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
    * compris, et le rafraîchissement des deux panneaux à la fin est déjà
    * branché sur `transfer-done`. */
   const copyTo = async (side: Side, entries: Entry[], destSide: Side, destCwd: string, conflict: ConflictPolicy = "overwrite") => {
-    const sourceId = paneIds.current[side];
-    const destId = paneIds.current[destSide];
-    if (!sourceId || !destId || entries.length === 0) return;
-    try {
+    const start = async () => {
+      const sourceId = paneIds.current[side];
+      const destId = paneIds.current[destSide];
+      if (!sourceId || !destId || entries.length === 0) return;
       const id = await api.copyEntries(sourceId, stateRef.current[side].cwd, entries, destId, destCwd, conflict);
       const label = entries.length === 1 ? entries[0].name : `${entries.length} éléments`;
-      transferSides.current[id] = { source: side, dest: destSide };
+      // De quoi rejouer la copie en root si elle échoue sur les droits — le
+      // refus n'arrive qu'en cours de transfert, par `transfer-error`, bien
+      // après que cet appel a rendu la main.
+      transferSides.current[id] = { source: side, dest: destSide, retry: start };
       setTransfers((prev) => ({ ...prev, [id]: { id, fileName: label, bytesDone: 0, bytesTotal: 0, status: "active" } }));
-    } catch (e) {
-      reportPaneError(destSide, e);
-    }
+    };
+    // Le refus attribué à la destination : c'est elle qui écrit, donc elle qui
+    // se fait refuser en premier.
+    await runPaneAction(destSide, start);
   };
 
   /** Une copie demandée par l'utilisateur : on regarde d'abord ce qui existe
@@ -397,51 +483,46 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
     },
   });
 
-  const mkdir = async (side: Side, name: string) => {
-    const paneId = paneIds.current[side];
-    if (!paneId) return;
-    try {
-      const result = await api.paneMkdir(paneId, state[side].cwd, name);
-      dispatch({ type: "listed", side, result });
-    } catch (e) { reportPaneError(side, e); }
-  };
+  const mkdir = (side: Side, name: string) =>
+    runPaneAction(side, async () => {
+      const paneId = paneIds.current[side];
+      if (!paneId) return;
+      const result = await api.paneMkdir(paneId, stateRef.current[side].cwd, name);
+      apply({ type: "listed", side, result });
+    });
 
-  const createFile = async (side: Side, name: string) => {
-    const paneId = paneIds.current[side];
-    if (!paneId) return;
-    try {
-      await api.writePaneFile(paneId, state[side].cwd, name, "");
-      const result = await api.listPane(paneId, state[side].cwd);
-      dispatch({ type: "listed", side, result });
-    } catch (e) { reportPaneError(side, e); }
-  };
+  const createFile = (side: Side, name: string) =>
+    runPaneAction(side, async () => {
+      const paneId = paneIds.current[side];
+      if (!paneId) return;
+      const cwd = stateRef.current[side].cwd;
+      await api.writePaneFile(paneId, cwd, name, "");
+      apply({ type: "listed", side, result: await api.listPane(paneId, cwd) });
+    });
 
-  const rename = async (side: Side, oldName: string, newName: string) => {
-    const paneId = paneIds.current[side];
-    if (!paneId) return;
-    try {
-      const result = await api.paneRename(paneId, state[side].cwd, oldName, newName);
-      dispatch({ type: "listed", side, result });
-    } catch (e) { reportPaneError(side, e); }
-  };
+  const rename = (side: Side, oldName: string, newName: string) =>
+    runPaneAction(side, async () => {
+      const paneId = paneIds.current[side];
+      if (!paneId) return;
+      const result = await api.paneRename(paneId, stateRef.current[side].cwd, oldName, newName);
+      apply({ type: "listed", side, result });
+    });
 
-  const remove = async (side: Side, entries: Entry[]) => {
-    const paneId = paneIds.current[side];
-    if (!paneId) return;
-    try {
-      const result = await api.paneRemove(paneId, state[side].cwd, entries);
-      dispatch({ type: "listed", side, result });
-    } catch (e) { reportPaneError(side, e); }
-  };
+  const remove = (side: Side, entries: Entry[]) =>
+    runPaneAction(side, async () => {
+      const paneId = paneIds.current[side];
+      if (!paneId) return;
+      const result = await api.paneRemove(paneId, stateRef.current[side].cwd, entries);
+      apply({ type: "listed", side, result });
+    });
 
-  const chmod = async (side: Side, name: string, mode: number) => {
-    const paneId = paneIds.current[side];
-    if (!paneId) return;
-    try {
-      const result = await api.paneChmod(paneId, state[side].cwd, name, mode);
-      dispatch({ type: "listed", side, result });
-    } catch (e) { reportPaneError(side, e); }
-  };
+  const chmod = (side: Side, name: string, mode: number) =>
+    runPaneAction(side, async () => {
+      const paneId = paneIds.current[side];
+      if (!paneId) return;
+      const result = await api.paneChmod(paneId, stateRef.current[side].cwd, name, mode);
+      apply({ type: "listed", side, result });
+    });
 
   /** Taille récursive d'un dossier, calculée là où il vit. Rejette plutôt que
    * de rendre 0 : le panneau distingue « pas encore calculé » de « n'a pas
@@ -464,25 +545,25 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
     return api.paneFind(paneId, root, pattern);
   };
 
-  const archive = async (side: Side, names: string[], archiveName: string, format: ArchiveFormat) => {
-    const paneId = paneIds.current[side];
-    if (!paneId) return;
-    try {
-      const result = await api.paneArchive(paneId, state[side].cwd, names, archiveName, format);
-      dispatch({ type: "listed", side, result });
-      onPushed?.(`Archive créée dans ${state[side].cwd}.`);
-    } catch (e) { reportPaneError(side, e); }
-  };
+  const archive = (side: Side, names: string[], archiveName: string, format: ArchiveFormat) =>
+    runPaneAction(side, async () => {
+      const paneId = paneIds.current[side];
+      if (!paneId) return;
+      const cwd = stateRef.current[side].cwd;
+      const result = await api.paneArchive(paneId, cwd, names, archiveName, format);
+      apply({ type: "listed", side, result });
+      onPushed?.(`Archive créée dans ${cwd}.`);
+    });
 
-  const extract = async (side: Side, name: string, destName: string) => {
-    const paneId = paneIds.current[side];
-    if (!paneId) return;
-    try {
-      const result = await api.paneExtract(paneId, state[side].cwd, name, destName || undefined);
-      dispatch({ type: "listed", side, result });
-      onPushed?.(destName ? `« ${name} » extraite dans ${destName}.` : `« ${name} » extraite dans ${state[side].cwd}.`);
-    } catch (e) { reportPaneError(side, e); }
-  };
+  const extract = (side: Side, name: string, destName: string) =>
+    runPaneAction(side, async () => {
+      const paneId = paneIds.current[side];
+      if (!paneId) return;
+      const cwd = stateRef.current[side].cwd;
+      const result = await api.paneExtract(paneId, cwd, name, destName || undefined);
+      apply({ type: "listed", side, result });
+      onPushed?.(destName ? `« ${name} » extraite dans ${destName}.` : `« ${name} » extraite dans ${cwd}.`);
+    });
 
   // ── Comparaison des deux arborescences ───────────────────────────────────
   /** `null` : pas de comparaison en cours. Vit ici et non dans un panneau —
@@ -596,16 +677,15 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
     return () => window.removeEventListener("focus", onFocus);
   }, []);
 
-  const openInEditor = async (side: Side, name: string) => {
-    const paneId = paneIds.current[side];
-    if (!paneId) return;
-    try {
+  const openInEditor = (side: Side, name: string) =>
+    runPaneAction(side, async () => {
+      const paneId = paneIds.current[side];
+      if (!paneId) return;
       // `null` means a local pane: the real file was opened directly, there
       // is no copy to track.
-      const edit = await api.openRemoteFileInEditor(paneId, state[side].cwd, name);
+      const edit = await api.openRemoteFileInEditor(paneId, stateRef.current[side].cwd, name);
       if (edit) setRemoteEdits((prev) => [...prev.filter((e) => e.id !== edit.id), edit]);
-    } catch (e) { reportPaneError(side, e); }
-  };
+    });
 
   const endRemoteEdit = async (id: string) => {
     try {
@@ -715,8 +795,8 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
         setTransfers((prev) => (prev[transferId] ? { ...prev, [transferId]: { ...prev[transferId], status: "done" } } : prev));
         setTimeout(() => setTransfers((prev) => { const next = { ...prev }; delete next[transferId]; return next; }), 2500);
         // Refresh whichever pane the upload landed in (harmless if it wasn't this one).
-        if (paneIds.current.left) api.listPane(paneIds.current.left, stateRef.current.left.cwd).then((result) => dispatch({ type: "listed", side: "left", result })).catch(() => {});
-        if (paneIds.current.right) api.listPane(paneIds.current.right, stateRef.current.right.cwd).then((result) => dispatch({ type: "listed", side: "right", result })).catch(() => {});
+        if (paneIds.current.left) api.listPane(paneIds.current.left, stateRef.current.left.cwd).then((result) => apply({ type: "listed", side: "left", result })).catch(() => {});
+        if (paneIds.current.right) api.listPane(paneIds.current.right, stateRef.current.right.cwd).then((result) => apply({ type: "listed", side: "right", result })).catch(() => {});
       });
       unlistenError = await onTransferError((transferId, message) => {
         // Une copie refusée pour cause de droits est le cas que l'utilisateur
@@ -730,7 +810,7 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
             const pane = stateRef.current[side];
             return pane.source.kind === "remote" && !pane.elevated;
           });
-          if (blocked) setDenied((current) => ({ ...current, [blocked]: message }));
+          if (blocked) setDenied((current) => ({ ...current, [blocked]: { message, retry: sides.retry } }));
         }
         setTransfers((prev) => (prev[transferId] ? { ...prev, [transferId]: { ...prev[transferId], status: "error", error: message } } : prev));
         setTimeout(() => setTransfers((prev) => { const next = { ...prev }; delete next[transferId]; return next; }), 5000);
@@ -778,7 +858,8 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
     dragging: drag !== null,
     dropTarget: drag && drag.target?.side === side ? drag.target : null,
     onSetElevated: setElevated,
-    deniedError: denied[side] ?? null,
+    deniedError: denied[side]?.message ?? null,
+    onRetryElevated: () => retryElevated(side),
     onDismissDenied: () => setDenied((prev) => ({ ...prev, [side]: undefined })),
   });
 
@@ -1008,6 +1089,10 @@ interface PaneViewProps {
   /** Le dernier refus de droits sur ce panneau, en attente d'une décision.
    * `null` quand il n'y en a pas. */
   deniedError: string | null;
+  /** Rejoue l'action refusée avec les droits de root. Le panneau n'est élevé
+   * que le temps de l'action — sauf si en redescendre ferait sortir du
+   * dossier où l'action vient d'entrer. */
+  onRetryElevated: () => Promise<void>;
   onDismissDenied: () => void;
   onDragStart: (side: Side, entries: Entry[], event: React.MouseEvent) => void;
   justDraggedRef: React.MutableRefObject<boolean>;
@@ -1063,7 +1148,7 @@ export function PaneView({
   onRemove, onChmod, onEdit, onOpenInEditor, onDirSize, onDiskSpace, objectActions, onCompare, onPickForDiff, onDiffPair, diffPick, diffArmedName,
   onFind, onArchive, onExtract, showHidden,
   onToggleHidden, onDragStart, justDraggedRef, dragging, dropTarget, isRdpPush,
-  onSetElevated, deniedError, onDismissDenied,
+  onSetElevated, deniedError, onRetryElevated, onDismissDenied,
 }: PaneViewProps) {
   const [query, setQuery] = useState("");
   const [find, setFind] = useState<FindState | null>(null);
@@ -1553,11 +1638,12 @@ export function PaneView({
             <p className="break-words text-amber-200/70">{deniedError}</p>
           </div>
           <button
-            onClick={() => { onDismissDenied(); setElevating(true); onSetElevated(side, true).finally(() => setElevating(false)); }}
+            onClick={() => { setElevating(true); onRetryElevated().finally(() => setElevating(false)); }}
             disabled={elevating}
+            title="Rejoue cette action avec les droits de root. Le panneau redescend ensuite — sauf s'il ne pouvait plus lire le dossier où l'action vient de l'amener."
             className="shrink-0 rounded-md bg-amber-500/20 px-2 py-1 font-medium text-amber-100 ring-1 ring-amber-500/50 hover:bg-amber-500/30 disabled:opacity-50"
           >
-            Passer ce panneau en root
+            {elevating ? "Exécution…" : "Réessayer en root"}
           </button>
           <button
             onClick={onDismissDenied}

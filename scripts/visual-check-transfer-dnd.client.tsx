@@ -86,6 +86,7 @@ function Harness() {
     onToggleHidden: noop,
     onSetElevated: () => Promise.resolve(),
     deniedError: null,
+    onRetryElevated: () => Promise.resolve(),
     onDismissDenied: noop,
     onDragStart: begin,
     justDraggedRef,

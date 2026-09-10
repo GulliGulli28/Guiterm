@@ -100,6 +100,7 @@ window.__renderPane = async ({ fontSize, width }) => {
       dropTarget={null}
       onSetElevated={() => Promise.resolve()}
       deniedError={null}
+      onRetryElevated={() => Promise.resolve()}
       onDismissDenied={noop}
     />,
   );

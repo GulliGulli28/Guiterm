@@ -38,23 +38,29 @@ describe("bascule d'élévation du panneau de transfert", () => {
     // La bascule doit passer par la commande : la mettre à jour dans le
     // réducteur seul afficherait « root » sans rien élever du tout.
     expect(source).toMatch(/api\.setPaneElevated\(paneId, elevated, pane\.cwd, host\.label\)/);
-    expect(source).toMatch(/dispatch\(\{ type: "elevation", side, elevated, result \}\)/);
+    expect(source).toMatch(/apply\(\{ type: "elevation", side, elevated, result \}\)/);
     // Et la prop doit être passée au composant, sinon le bouton est inerte.
     expect(source).toMatch(/onSetElevated: setElevated/);
   });
 
-  it("propose l'élévation quand une action se heurte aux droits", () => {
+  it("propose de rejouer l'action refusée, et pas d'élever le panneau", () => {
     // La moitié « proposée après un échec » de la fonctionnalité. Sans ce
     // routage, `reportPaneError` existerait mais toutes les erreurs
     // repartiraient en notification globale, et la bannière ne s'afficherait
     // jamais.
     expect(source).toMatch(/isPermissionDenied\(message\) && pane\.source\.kind === "remote" && !pane\.elevated/);
-    expect(source).toContain("Passer ce panneau en root");
-    // Les actions d'un panneau doivent passer par `reportPaneError`, pas par
-    // `onError` : c'est là que le refus de droits est reconnu. Le compte n'a
-    // pas à être exact — ce qui compte est qu'elles ne repartent pas toutes
-    // en notification globale.
-    const routed = source.match(/reportPaneError\(\s*(?:side|destSide)\s*,/g) ?? [];
-    expect(routed.length).toBeGreaterThanOrEqual(6);
+    // L'élévation porte sur l'action, pas sur le panneau : basculer le
+    // panneau entier pour un fichier refusé est un bien plus gros geste, et
+    // c'est précisément ce qui a été corrigé.
+    expect(source).toContain("Réessayer en root");
+    expect(source).not.toContain("Passer ce panneau en root");
+    // Le rejeu doit vraiment redescendre après coup, sinon « en root » est un
+    // synonyme de la bascule.
+    expect(source).toMatch(/api\.setPaneElevated\(paneId, true,[\s\S]{0,400}pending\.retry\(\)[\s\S]{0,400}api\.setPaneElevated\(paneId, false,/);
+    // Les actions d'un panneau doivent passer par `runPaneAction`, qui retient
+    // de quoi les rejouer. Le compte n'a pas à être exact — ce qui compte est
+    // qu'elles ne repartent pas toutes en notification globale.
+    const routed = source.match(/runPaneAction\(\s*(?:side|destSide)\s*,/g) ?? [];
+    expect(routed.length).toBeGreaterThanOrEqual(8);
   });
 });

@@ -152,27 +152,6 @@ pub async fn open_pane(
     }
 }
 
-/// Liste `path`, ou le premier de ses parents qui se laisse lister.
-///
-/// La racine est la dernière tentative : un panneau qui ne peut lister nulle
-/// part est un panneau cassé, et il vaut mieux le dire que rendre un listing
-/// vide qui passerait pour un dossier vide.
-async fn first_readable_ancestor(pane: &PaneRef, path: &str) -> Result<PaneListed, String> {
-    let mut current = path.to_string();
-    loop {
-        let failure = match transfer::list(pane, &current).await {
-            Ok(entries) => return Ok(PaneListed { cwd: current, entries }),
-            Err(e) => e.to_string(),
-        };
-        let parent = termius_core::sftp::join(&current, "..");
-        // La racine est son propre parent : c'est la condition d'arrêt.
-        if parent == current {
-            return Err(failure);
-        }
-        current = parent;
-    }
-}
-
 /// Fait basculer un panneau entre l'utilisateur SSH et root, et relit le
 /// dossier courant avec les droits obtenus.
 ///
@@ -197,22 +176,30 @@ pub async fn set_pane_elevated(
     host_label: String,
 ) -> Result<PaneListed, String> {
     if !elevated {
-        {
-            let mut panes = state.panes.lock_recover();
-            let pane = panes.get_mut(&pane_id).ok_or_else(|| "pane inconnu".to_string())?;
-            pane.client = pane.plain_client.clone();
-            pane.exec = pane.plain_exec.clone();
-            // Lâcher la session ferme le `sh` root distant. C'est voulu :
-            // laisser un shell root ouvert sur un panneau qui ne l'est plus
-            // serait un privilège qui traîne sans rien pour le montrer.
-            pane.sudo = None;
-        }
-        // Le dossier courant peut n'être lisible que par root — c'est même la
-        // raison d'y être monté. Redescendre en rendant une erreur laisserait
-        // le panneau affichant un listing qu'il n'a plus le droit de relire :
-        // on remonte donc jusqu'au premier dossier que l'utilisateur peut voir.
-        let reference = pane_ref(&state, &pane_id)?;
-        return first_readable_ancestor(&reference, &cwd).await;
+        // Le dossier courant peut n'être lisible que par root — c'est même
+        // souvent la raison d'y être monté. On l'essaie **avant** de rendre
+        // les droits : redescendre d'abord laisserait le panneau affichant un
+        // listing qu'il n'a plus le droit de relire, ou le téléporterait
+        // ailleurs sans prévenir. Un refus ici ne change rien à l'état du
+        // panneau, qui reste élevé et continue de le dire.
+        let plain = {
+            let panes = state.panes.lock_recover();
+            let pane = panes.get(&pane_id).ok_or_else(|| "pane inconnu".to_string())?;
+            pane.plain_client.clone()
+        };
+        let reference = plain.map_or(PaneRef::Local, PaneRef::Remote);
+        let entries = transfer::list(&reference, &cwd).await.map_err(|e| {
+            format!("impossible de quitter le mode root dans {cwd} — ce dossier n'est pas lisible sans élévation ({e}). Remontez d'abord d'un niveau.")
+        })?;
+        let mut panes = state.panes.lock_recover();
+        let pane = panes.get_mut(&pane_id).ok_or_else(|| "pane inconnu".to_string())?;
+        pane.client = pane.plain_client.clone();
+        pane.exec = pane.plain_exec.clone();
+        // Lâcher la session ferme le `sh` root distant. C'est voulu : laisser
+        // un shell root ouvert sur un panneau qui ne l'est plus serait un
+        // privilège qui traîne sans rien pour le montrer.
+        pane.sudo = None;
+        return Ok(PaneListed { cwd, entries });
     }
 
     // Ce qu'il faut pour élever, sorti du verrou avant toute attente : garder
