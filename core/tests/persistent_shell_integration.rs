@@ -28,7 +28,37 @@ const SHOW_STATUS: persistent_shell::SessionAppearance =
 const HIDE_STATUS: persistent_shell::SessionAppearance =
     persistent_shell::SessionAppearance { hide_status_bar: true, mouse: true };
 
-/// Supprime les sessions laissées par des exécutions **précédentes**.
+/// Le marqueur que porte toute session créée par **cette** exécution de la
+/// suite.
+///
+/// Le pid suffit à distinguer deux exécutions : `cargo test` lance un
+/// processus par binaire de test et y fait tourner les tests en fils, donc
+/// toutes les sessions d'un même run le partagent, et aucune de celles d'un
+/// autre run. (Un lanceur qui isolerait chaque test dans son propre processus
+/// — `cargo nextest` — casserait cette hypothèse : les tests s'entre-tueraient
+/// leurs sessions. Ce dépôt lance `cargo test`, en local comme en CI.)
+fn run_marker() -> String {
+    format!("itest{}", std::process::id())
+}
+
+/// Une clé de session pour un test, reconnaissable comme telle.
+///
+/// **Ce n'est pas `persistent_shell::new_session_key()`**, et c'est tout le
+/// sujet : celle-là rend `guiterm-<uuid>`, indiscernable d'une session que
+/// l'utilisateur de la machine aurait ouverte avec l'app. Le nettoyage ne
+/// pouvait alors trier que par âge — d'où le seuil de dix minutes qui posait
+/// deux problèmes à la fois (voir [`reap_stale_sessions`]).
+fn test_session_key() -> String {
+    format!(
+        "{}{}-{}",
+        persistent_shell::SESSION_PREFIX,
+        run_marker(),
+        uuid::Uuid::new_v4().simple()
+    )
+}
+
+/// Supprime les sessions laissées par des exécutions **précédentes** de cette
+/// suite.
 ///
 /// Sans ça la suite s'empoisonne elle-même : un test qui échoue au milieu
 /// laisse sa session tourner — parfois avec un client encore attaché — et
@@ -36,18 +66,45 @@ const HIDE_STATUS: persistent_shell::SessionAppearance =
 /// à son tour. Une demi-journée perdue à chercher un bug dans tmux avant de
 /// comprendre que le coupable était la vingtaine de sessions accumulées.
 ///
-/// Le seuil d'âge est ce qui rend l'opération sûre malgré les tests qui
-/// tournent **en parallèle** dans le même binaire : leurs sessions ont
-/// quelques secondes, celles d'un run précédent des minutes.
+/// **Le tri se fait par run, plus par âge.** La version précédente supprimait
+/// toute session `guiterm-` de plus de dix minutes, ce qui ratait les deux
+/// bouts :
+///
+/// - **inefficace quand ça compte.** Une session fuitée a quelques secondes,
+///   or le relancement suit l'échec de près — précisément la situation où on
+///   relance. La suite restait donc rouge dix minutes durant, sans que rien ne
+///   dise pourquoi. Observé deux fois dans la même journée.
+/// - **trop large.** Une vraie session de l'utilisateur de la machine, ouverte
+///   par l'app contre `localhost` et vieille de plus de dix minutes, était un
+///   candidat parfaitement valide à la suppression.
+///
+/// Le marqueur règle les deux : on ne touche qu'à ce que la suite a créé, et
+/// on y touche tout de suite. Une clé produite par l'app ne peut pas être
+/// confondue avec une des nôtres — elle vaut `guiterm-` suivi d'un UUID, dont
+/// l'alphabet hexadécimal ne contient ni `i`, ni `t`, ni `s`.
+///
+/// Le seuil d'âge survit en second filet, restreint aux sessions de test :
+/// deux exécutions séparées peuvent recevoir le même pid, et sans lui les
+/// sessions fuitées par la première seraient adoptées par la seconde puis
+/// gardées indéfiniment.
 async fn reap_stale_sessions(connection: &termius_core::ssh::Connection) {
     const STALE_AFTER_MS: u64 = 10 * 60 * 1000;
     let now_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as u64)
         .unwrap_or(0);
+    let from_this_suite = format!("{}itest", persistent_shell::SESSION_PREFIX);
+    let from_this_run = format!("{}{}-", persistent_shell::SESSION_PREFIX, run_marker());
     let Ok(listing) = persistent_shell::list(connection).await else { return };
     for session in listing.sessions {
-        if session.created_at_ms.is_some_and(|ms| now_ms.saturating_sub(ms) > STALE_AFTER_MS) {
+        if !session.key.starts_with(&from_this_suite) {
+            continue;
+        }
+        let another_run = !session.key.starts_with(&from_this_run);
+        let too_old = session
+            .created_at_ms
+            .is_some_and(|ms| now_ms.saturating_sub(ms) > STALE_AFTER_MS);
+        if another_run || too_old {
             let _ = ssh::run_command_capture(
                 connection,
                 &format!("tmux kill-session -t {}", quote(&session.key)),
@@ -171,7 +228,7 @@ async fn a_shell_survives_the_connection_that_opened_it() {
     let mut workspace = Workspace::default();
     workspace.hosts.push(host);
 
-    let session_key = persistent_shell::new_session_key();
+    let session_key = test_session_key();
 
     // ── Première connexion : rien ne tourne encore ────────────────────────
     let first = ssh::connect(&workspace, host_id).await.expect("première connexion");
@@ -371,7 +428,7 @@ async fn observing_a_session_does_not_resize_it() {
     let mut workspace = Workspace::default();
     workspace.hosts.push(host);
 
-    let session_key = persistent_shell::new_session_key();
+    let session_key = test_session_key();
     let connection = ssh::connect(&workspace, host_id).await.expect("connexion");
     if persistent_shell::probe(&connection, None).await == Probe::NoTmux {
         eprintln!("tmux absent de la machine de test — scénario ignoré");
@@ -467,7 +524,10 @@ async fn observing_an_absent_session_fails_rather_than_creating_one() {
     }
     reap_stale_sessions(&connection).await;
 
-    let absent = persistent_shell::new_session_key();
+    // Marquée comme les autres bien qu'aucune session ne doive naître : si un
+    // jour ce test échouait *parce qu'*une session a été créée, elle serait
+    // ramassée par le run suivant au lieu de traîner sans propriétaire.
+    let absent = test_session_key();
     let output = ssh::run_command_capture(&connection, &persistent_shell::observe_command(&absent))
         .await
         .expect("la commande doit s'exécuter");
@@ -501,7 +561,7 @@ async fn session_appearance_options_are_applied_and_readable() {
         return;
     }
     reap_stale_sessions(&connection).await;
-    let session_key = persistent_shell::new_session_key();
+    let session_key = test_session_key();
 
     let hidden = ssh::open_shell_with_command(
         &connection, 100, 30, false, Some(&persistent_shell::attach_command(&session_key, HIDE_STATUS)),
