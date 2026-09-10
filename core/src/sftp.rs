@@ -174,10 +174,19 @@ impl SftpClient {
         Ok(self.session.rename(from, to).await?)
     }
 
+    /// **`Metadata::empty()`, jamais `Metadata::default()`.** Le `Default` de
+    /// `russh_sftp` n'est pas un jeu d'attributs vide mais un jeu *factice*
+    /// (`size: Some(0)`, `uid`/`gid: Some(0)`, `permissions: 0o777|DIR`,
+    /// dates à 0) — or un `SSH_FXP_SETSTAT` qui porte un attribut de taille
+    /// **tronque le fichier**. Écrit avec `..Default::default()`, ce chmod
+    /// vidait le fichier qu'il était censé seulement repermissionner, puis
+    /// échouait sur le `chown` vers root — et `set_modified`, dont l'erreur
+    /// est volontairement ignorée après une copie, le faisait en silence :
+    /// c'est ce qui rendait un fichier de 0 octet à l'arrivée d'un transfert.
     pub async fn set_permissions(&self, path: &str, mode: u32) -> anyhow::Result<()> {
         let attrs = Metadata {
             permissions: Some(mode),
-            ..Default::default()
+            ..Metadata::empty()
         };
         Ok(self.session.set_metadata(path, attrs).await?)
     }
@@ -192,7 +201,7 @@ impl SftpClient {
         let attrs = Metadata {
             atime: Some(stamp),
             mtime: Some(stamp),
-            ..Default::default()
+            ..Metadata::empty()
         };
         Ok(self.session.set_metadata(path, attrs).await?)
     }
@@ -222,6 +231,9 @@ impl SftpClient {
         use tokio::io::AsyncWriteExt;
         let mut file = self.session.create(path).await?;
         file.write_all(content.as_bytes()).await?;
+        // Même raison que dans `upload` : sans `shutdown`, une écriture
+        // refusée par le serveur passerait pour une sauvegarde réussie.
+        file.shutdown().await?;
         Ok(())
     }
 
@@ -260,6 +272,17 @@ impl SftpClient {
             }
             done += n as u64;
             on_progress(done, total);
+        };
+        // `tokio::fs::File` rend la main dès que l'écriture est *confiée* au
+        // pool bloquant, jamais quand elle a atteint le disque, et son `Drop`
+        // n'attend rien. Sans ce `flush`, un appelant qui rouvre le fichier
+        // aussitôt après peut le trouver vide : c'est exactement ce qui rendait
+        // un fichier de 0 octet à l'arrivée d'une copie hôte→hôte, dont le
+        // relais est un fichier temporaire téléchargé puis immédiatement
+        // ré-envoyé (`transfer::copy_remote_to_remote_file`).
+        let result = match result {
+            Ok(()) => local_file.flush().await.map_err(anyhow::Error::from),
+            Err(e) => Err(e),
         };
         if result.is_err() {
             drop(local_file);
@@ -303,6 +326,15 @@ impl SftpClient {
             }
             done += n as u64;
             on_progress(done, total);
+        };
+        // Les écritures SFTP de russh sont envoyées sans attendre leur accusé
+        // de réception : seul `shutdown` (qui les draine puis ferme le
+        // descripteur distant) peut rapporter un « disque plein » ou un quota
+        // dépassé. Sans lui, `Drop` ferme le fichier en silence et un envoi
+        // tronqué se lit comme un envoi réussi.
+        let result = match result {
+            Ok(()) => remote_file.shutdown().await.map_err(anyhow::Error::from),
+            Err(e) => Err(e),
         };
         if result.is_err() {
             drop(remote_file);

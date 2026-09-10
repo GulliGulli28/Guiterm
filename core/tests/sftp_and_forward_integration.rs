@@ -6,6 +6,7 @@ use common::{ClientKey, TestSshd, test_host};
 use std::sync::Arc;
 use std::sync::atomic::AtomicBool;
 use termius_core::model::{PortForward, PortForwardKind, Workspace};
+use termius_core::transfer::{self, PaneRef};
 use termius_core::{port_forward, sftp, ssh};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
@@ -321,4 +322,136 @@ async fn dynamic_port_forward_reaches_a_local_service() {
     assert_eq!(&buf, b"ping");
 
     active.stop(&connection).await;
+}
+
+/// Une copie d'hôte à hôte doit rendre le contenu, pas un fichier vide — et un
+/// chmod ne doit pas vider le fichier qu'il repermissionne.
+///
+/// Les deux tenaient au même piège : `FileAttributes::default()` de
+/// `russh_sftp` n'est pas un jeu d'attributs vide mais un jeu *factice*, avec
+/// `size: Some(0)`. Un `SSH_FXP_SETSTAT` qui porte une taille tronque, donc le
+/// report de date fait après chaque copie (`transfer::preserve_modified`,
+/// dont l'erreur est volontairement ignorée) vidait silencieusement le
+/// fichier qu'on venait d'envoyer. Rien ne pouvait l'attraper sans serveur
+/// réel : côté Rust, les deux appels sont typés pareil.
+///
+/// Le relais distant→distant est un fichier temporaire local, donc ce test
+/// couvre aussi `download` puis `upload` enchaînés sans délai.
+#[tokio::test]
+async fn remote_copies_and_chmod_keep_file_contents() {
+    let key = ClientKey::generate();
+    let sshd = TestSshd::start("sftp-r2r", &key.public);
+    let host = test_host(&sshd, &key, "test-sftp-r2r");
+    let host_id = host.id;
+
+    let mut workspace = Workspace::default();
+    workspace.hosts.push(host);
+
+    // Deux connexions : une copie d'hôte à hôte a deux sessions SFTP
+    // distinctes, même quand les deux bouts sont la même machine de test.
+    let source_connection = ssh::connect(&workspace, host_id).await.expect("connect source");
+    let dest_connection = ssh::connect(&workspace, host_id).await.expect("connect dest");
+    let source_client: Arc<dyn sftp::RemoteFileClient> =
+        Arc::new(sftp::SftpClient::open(&source_connection).await.expect("sftp source"));
+    let dest_client: Arc<dyn sftp::RemoteFileClient> =
+        Arc::new(sftp::SftpClient::open(&dest_connection).await.expect("sftp dest"));
+
+    let home = sftp::SftpClient::open(&source_connection)
+        .await
+        .expect("sftp home")
+        .home_dir()
+        .await
+        .expect("home dir");
+    let root = sftp::join(&home, &format!("guiterm-test-{}", Uuid::new_v4()));
+    let source_dir = sftp::join(&root, "src");
+    let dest_dir = sftp::join(&root, "dst");
+    source_client.make_dir(&root).await.expect("mkdir root");
+    source_client.make_dir(&source_dir).await.expect("mkdir src");
+    source_client.make_dir(&dest_dir).await.expect("mkdir dst");
+
+    // Plus d'un morceau de 256 Ko, pour que la boucle de transfert fasse
+    // vraiment plusieurs tours.
+    let payload = "guiterm".repeat(100_000);
+    let staged = std::env::temp_dir().join(format!("guiterm-r2r-{}.txt", Uuid::new_v4()));
+    tokio::fs::write(&staged, payload.as_bytes()).await.unwrap();
+    source_client
+        .upload(
+            &staged,
+            &sftp::join(&source_dir, "big.txt"),
+            &AtomicBool::new(false),
+            &mut |_, _| {},
+        )
+        .await
+        .expect("mise en place du fichier source");
+
+    let entry = source_client
+        .list(&source_dir)
+        .await
+        .expect("list src")
+        .into_iter()
+        .find(|e| e.name == "big.txt")
+        .expect("le fichier source doit exister");
+    assert_eq!(entry.size, payload.len() as u64, "taille du fichier source");
+
+    let cancel = AtomicBool::new(false);
+    let mut report = |_: u64, _: &str| {};
+    let mut progress = transfer::CopyProgress { cancel: &cancel, report: &mut report, done: 0 };
+    transfer::copy_entry(
+        &PaneRef::Remote(source_client.clone()),
+        &source_dir,
+        &entry,
+        &PaneRef::Remote(dest_client.clone()),
+        &dest_dir,
+        &mut progress,
+    )
+    .await
+    .expect("copie d'hôte à hôte");
+
+    let copied = dest_client
+        .list(&dest_dir)
+        .await
+        .expect("list dst")
+        .into_iter()
+        .find(|e| e.name == "big.txt")
+        .expect("le fichier copié doit exister à destination");
+    assert_eq!(
+        copied.size,
+        payload.len() as u64,
+        "la copie doit porter le contenu de l'original, pas 0 octet"
+    );
+
+    let copied_path = sftp::join(&dest_dir, "big.txt");
+    dest_client.set_permissions(&copied_path, 0o600).await.expect("chmod");
+    let after_chmod = dest_client
+        .list(&dest_dir)
+        .await
+        .expect("list dst après chmod")
+        .into_iter()
+        .find(|e| e.name == "big.txt")
+        .expect("le fichier doit survivre au chmod");
+    assert_eq!(
+        after_chmod.size,
+        payload.len() as u64,
+        "un chmod ne doit pas tronquer le fichier"
+    );
+    assert_eq!(after_chmod.permissions, Some(0o600), "le chmod doit avoir pris");
+
+    // `set_modified` est best-effort côté copie : ici on veut qu'il réussisse
+    // vraiment, pour que son échec ne masque plus une troncature.
+    dest_client.set_modified(&copied_path, 1_600_000_000).await.expect("set_modified");
+    let after_touch = dest_client
+        .list(&dest_dir)
+        .await
+        .expect("list dst après set_modified")
+        .into_iter()
+        .find(|e| e.name == "big.txt")
+        .expect("le fichier doit survivre au report de date");
+    assert_eq!(
+        after_touch.size,
+        payload.len() as u64,
+        "le report de date ne doit pas tronquer le fichier"
+    );
+    assert_eq!(after_touch.modified, Some(1_600_000_000));
+
+    let _ = tokio::fs::remove_file(&staged).await;
 }
