@@ -3,7 +3,8 @@ import { api } from "../lib/api";
 import type { Group, GroupId, Host, Workspace } from "../lib/types";
 import { HostIcon } from "./icons";
 import { hostKindMeta } from "../lib/hostKinds";
-import { IconSearch, IconFolder, IconTransfer, IconChevronDown, IconChevronRight } from "./ui-icons";
+import { IconSearch, IconFolder, IconTransfer } from "./ui-icons";
+import { EntityRow, EntityMono, EntityTags, GroupRow } from "./EntityRow";
 import { usePolledHostStat } from "../hooks/usePolledHostStat";
 import { useContainerPicker } from "../hooks/useContainerPicker";
 
@@ -68,13 +69,11 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
     const subtitle = isDocker || isK8s ? host.address : `${host.username}@${host.address}${host.port !== 22 ? `:${host.port}` : ""}`;
     const online = hostStatus[host.id];
     return (
-      <div key={host.id} className="list-row group mb-0.5 min-h-11 py-1.5 pr-1.5" style={{ paddingLeft: 8 + depth * 14 }}>
-        <button
-          onClick={() => (isDocker ? openDockerPicker(host) : isK8s ? openK8sPicker(host) : onOpenTransfer(host))}
-          className="flex min-w-0 flex-1 items-start gap-2.5 text-left"
-          title={isDocker || isK8s ? kindLabel : `Transférer — ${subtitle}`}
-        >
-          <span className="relative mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--c-bg3)] text-[var(--c-text-secondary)]">
+      <EntityRow
+        key={host.id}
+        depth={depth}
+        icon={
+          <>
             {host.icon
               ? <HostIcon iconId={host.icon} customIcons={workspace.customIcons} size={16} />
               : <KindIcon size={13} />}
@@ -84,23 +83,14 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
                 className={`dot absolute -bottom-0.5 -right-0.5 ring-2 ring-[var(--c-bg2)] ${online ? "dot-ok" : ""}`}
               />
             )}
-          </span>
-          <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 leading-tight">
-            <span className="truncate text-[12.5px] font-medium text-[var(--c-text)]">{host.label}</span>
-            <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span className="max-w-full break-all font-mono text-[10.5px] text-[var(--c-text-muted)]">{subtitle}</span>
-              {host.tags.length > 0 && (
-                <span className="flex flex-wrap gap-1">
-                  {host.tags.map((tag) => <span key={tag} className="tag">{tag}</span>)}
-                </span>
-              )}
-            </span>
-          </span>
-        </button>
-        <span className="flex h-6 w-6 shrink-0 items-center justify-center text-[var(--c-text-muted)] opacity-0 transition-opacity group-hover:opacity-100">
-          <IconTransfer size={13} />
-        </span>
-      </div>
+          </>
+        }
+        title={host.label}
+        title_={isDocker || isK8s ? kindLabel : `Transférer — ${subtitle}`}
+        secondary={<><EntityMono>{subtitle}</EntityMono><EntityTags tags={host.tags} /></>}
+        onClick={() => (isDocker ? openDockerPicker(host) : isK8s ? openK8sPicker(host) : onOpenTransfer(host))}
+        actions={<span className="flex h-6 w-6 items-center justify-center text-[var(--c-text-muted)]"><IconTransfer size={13} /></span>}
+      />
     );
   };
 
@@ -109,26 +99,16 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
     const expanded = isExpanded(group.id);
     return (
       <div key={group.id}>
-        <div
-          style={{ paddingLeft: 4 + depth * 14 }}
-          className="mt-1 flex h-7 items-center gap-1 rounded-md pr-1 hover:bg-[var(--c-hover)]"
-        >
-          <button
-            onClick={() => toggleGroup(group.id)}
-            aria-label={expanded ? `Replier ${group.name}` : `Déplier ${group.name}`}
-            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-[var(--c-text-muted)] hover:text-[var(--c-text)]"
-          >
-            {expanded ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
-          </button>
-          <button onClick={() => toggleGroup(group.id)} className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left text-[12.5px] font-medium text-[var(--c-text-secondary)]">
-            {group.icon ? (
-              <HostIcon iconId={group.icon} customIcons={workspace.customIcons} size={15} />
-            ) : (
-              <IconFolder size={14} className="shrink-0 text-[var(--c-text-muted)]" />
-            )}
-            <span className="truncate">{group.name}</span>
-          </button>
-        </div>
+        <GroupRow
+          depth={depth}
+          expanded={expanded}
+          onToggle={() => toggleGroup(group.id)}
+          icon={group.icon
+            ? <HostIcon iconId={group.icon} customIcons={workspace.customIcons} size={15} />
+            : <IconFolder size={14} />}
+          name={group.name}
+          count={hostsIn(group.id).length}
+        />
         {expanded && (
           <div>
             {hostsIn(group.id).map((h) => renderHost(h, depth + 1))}

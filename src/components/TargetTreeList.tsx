@@ -4,6 +4,7 @@ import type { TargetLike, TargetRow } from "../lib/targetTree";
 import { hostKindMeta } from "../lib/hostKinds";
 import { HostIcon } from "./icons";
 import { IconChevronDown, IconChevronRight, IconFolder, IconTerminal } from "./ui-icons";
+import { EntityRow, EntityMono, EntityTags, GroupRow } from "./EntityRow";
 
 /**
  * Le rendu commun des listes de cibles à cocher (flotte, diagnostic réseau),
@@ -20,7 +21,7 @@ import { IconChevronDown, IconChevronRight, IconFolder, IconTerminal } from "./u
  *
  * Ne décide rien du contenu : `buildTargetTree` (`lib/targetTree.ts`) a déjà
  * produit les lignes ordonnées et indentées. L'appelant ne fournit que les
- * lignes *supplémentaires* d'une carte (`renderExtra`) — la flotte y montre
+ * compléments d'une ligne (`renderMeta`, `renderSecondary`) — la flotte y montre
  * l'OS et la RAM collectés, le diagnostic réseau rien. Le libellé, le
  * sous-titre et les tags sont rendus ici, sans quoi la typographie
  * divergerait dès le premier ajustement d'un des deux appelants.
@@ -39,9 +40,11 @@ interface TargetTreeListProps<T extends TargetLike> {
    * sélection vient du programme. */
   isDisabled?: (target: T) => boolean;
   disabledTitle?: string;
-  /** Sous le libellé et l'adresse, quand l'appelant a quelque chose de plus à
-   * dire. */
-  renderExtra?: (target: T) => React.ReactNode;
+  /** Calé à droite du libellé : un chiffre court (la RAM collectée). */
+  renderMeta?: (target: T) => React.ReactNode;
+  /** Dans la ligne secondaire, avec l'adresse et les tags — passe à la ligne
+   * si besoin (le système collecté). */
+  renderSecondary?: (target: T) => React.ReactNode;
   /** Cocher/décocher tout un dossier ou tout un hôte relais. Absent = pas de
    * case sur les en-têtes. */
   onToggleKeys?: (keys: string[], checked: boolean) => void;
@@ -49,16 +52,6 @@ interface TargetTreeListProps<T extends TargetLike> {
    * d'en-tête (vide / indéterminée / pleine). */
   countChecked?: (keys: string[]) => number;
   emptyMessage?: string;
-}
-
-/** Étiquettes d'une ligne — au plus deux, le reste compté. */
-function TagChips({ tags }: { tags: string[] }) {
-  if (tags.length === 0) return null;
-  return (
-    <span className="flex flex-wrap gap-1">
-      {tags.map((tag) => <span key={tag} className="tag">{tag}</span>)}
-    </span>
-  );
 }
 
 /** Case d'un en-tête : cochée si tout l'est, indéterminée si une partie
@@ -87,7 +80,7 @@ function RowIcon({ host, customIcons, fallback }: { host: Host | undefined; cust
   const kind = host?.kind ?? "ssh";
   const { label: kindLabel, Icon: KindIcon } = hostKindMeta(kind);
   return (
-    <span title={host ? kindLabel : undefined} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--c-bg3)] text-[var(--c-text-secondary)]">
+    <span title={host ? kindLabel : undefined} className="flex items-center justify-center">
       {host?.icon
         ? <HostIcon iconId={host.icon} customIcons={customIcons} size={16} />
         : fallback === "terminal" && !host ? <IconTerminal size={13} /> : <KindIcon size={13} />}
@@ -97,7 +90,7 @@ function RowIcon({ host, customIcons, fallback }: { host: Host | undefined; cust
 
 export function TargetTreeList<T extends TargetLike>({
   rows, hosts, customIcons, isChecked, onToggle, isDisabled, disabledTitle,
-  renderExtra, onToggleKeys, countChecked, emptyMessage = "Aucune cible.",
+  renderMeta, renderSecondary, onToggleKeys, countChecked, emptyMessage = "Aucune cible.",
 }: TargetTreeListProps<T>) {
   // Replier un dossier, comme dans Hôtes et SFTP. L'état est local au
   // composant : c'est du confort d'affichage, il n'a rien à faire dans le
@@ -142,33 +135,24 @@ export function TargetTreeList<T extends TargetLike>({
         if (row.kind === "group") {
           const expanded = !collapsed.has(row.id);
           return (
-            <div
+            <GroupRow
               key={row.id}
-              style={{ paddingLeft: 4 + row.depth * 14 }}
-              className="mt-1 flex h-7 items-center gap-1 rounded-md pr-1 hover:bg-[var(--c-hover)]"
-            >
-              <button
-                onClick={() => toggleCollapsed(row.id)}
-                aria-label={expanded ? `Replier ${row.group.name}` : `Déplier ${row.group.name}`}
-                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-[var(--c-text-muted)] hover:text-[var(--c-text)]"
-              >
-                {expanded ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
-              </button>
-              {onToggleKeys && countChecked && row.keys.length > 0 && (
+              depth={row.depth}
+              expanded={expanded}
+              onToggle={() => toggleCollapsed(row.id)}
+              icon={row.group.icon
+                ? <HostIcon iconId={row.group.icon} customIcons={customIcons} size={15} />
+                : <IconFolder size={14} />}
+              name={row.group.name}
+              leading={onToggleKeys && countChecked && row.keys.length > 0 ? (
                 <BulkCheckbox
                   keys={row.keys}
                   checkedCount={countChecked(row.keys)}
                   onToggle={(checked) => onToggleKeys(row.keys, checked)}
                   title={`Tout sélectionner — ${row.group.name}`}
                 />
-              )}
-              <button onClick={() => toggleCollapsed(row.id)} className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left text-[12.5px] font-medium text-[var(--c-text-secondary)]">
-                {row.group.icon
-                  ? <HostIcon iconId={row.group.icon} customIcons={customIcons} size={15} />
-                  : <IconFolder size={14} className="shrink-0 text-[var(--c-text-muted)]" />}
-                <span className="truncate">{row.group.name}</span>
-              </button>
-            </div>
+              ) : undefined}
+            />
           );
         }
 
@@ -178,35 +162,33 @@ export function TargetTreeList<T extends TargetLike>({
         if (row.kind === "host") {
           const expanded = !collapsed.has(row.id);
           return (
-            <div
+            <EntityRow
               key={row.id}
-              style={{ paddingLeft: 4 + row.depth * 14 }}
-              className="list-row mb-0.5 min-h-11 py-1.5 pr-1.5"
-            >
-              <button
-                onClick={() => toggleCollapsed(row.id)}
-                aria-label={expanded ? "Replier" : "Déplier"}
-                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-[var(--c-text-muted)] hover:text-[var(--c-text)]"
-              >
-                {expanded ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
-              </button>
-              {onToggleKeys && countChecked && row.keys.length > 0 && (
-                <BulkCheckbox
-                  keys={row.keys}
-                  checkedCount={countChecked(row.keys)}
-                  onToggle={(checked) => onToggleKeys(row.keys, checked)}
-                  title={`Tout sélectionner — ${row.host.label}`}
-                />
-              )}
-              <RowIcon host={row.host} customIcons={customIcons} />
-              <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 leading-tight">
-                <span className="truncate text-[12.5px] font-medium text-[var(--c-text)]">{row.host.label}</span>
-                <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                  <span className="max-w-full break-all font-mono text-[10.5px] text-[var(--c-text-muted)]">{row.host.address}</span>
-                  <TagChips tags={row.host.tags} />
-                </span>
-              </span>
-            </div>
+              depth={row.depth}
+              leading={
+                <>
+                  <button
+                    onClick={() => toggleCollapsed(row.id)}
+                    aria-label={expanded ? "Replier" : "Déplier"}
+                    className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-[var(--c-text-muted)] hover:text-[var(--c-text)]"
+                  >
+                    {expanded ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
+                  </button>
+                  {onToggleKeys && countChecked && row.keys.length > 0 && (
+                    <BulkCheckbox
+                      keys={row.keys}
+                      checkedCount={countChecked(row.keys)}
+                      onToggle={(checked) => onToggleKeys(row.keys, checked)}
+                      title={`Tout sélectionner — ${row.host.label}`}
+                    />
+                  )}
+                </>
+              }
+              icon={<RowIcon host={row.host} customIcons={customIcons} />}
+              title={row.host.label}
+              secondary={<><EntityMono>{row.host.address}</EntityMono><EntityTags tags={row.host.tags} /></>}
+              onClick={() => toggleCollapsed(row.id)}
+            />
           );
         }
 
@@ -214,34 +196,37 @@ export function TargetTreeList<T extends TargetLike>({
         const disabled = isDisabled?.(row.target) ?? false;
         const checked = isChecked(row.target);
         const host = row.target.hostId ? hostById.get(row.target.hostId) : undefined;
-        const extra = renderExtra?.(row.target);
+        const meta = renderMeta?.(row.target);
+        const extra = renderSecondary?.(row.target);
         return (
-          <label
+          <EntityRow
             key={row.id}
-            title={disabled ? disabledTitle : undefined}
-            data-active={checked ? "true" : undefined}
-            style={{ paddingLeft: 8 + row.depth * 14 }}
-            className={`list-row mb-0.5 min-h-11 py-1.5 pr-2 ${disabled ? "opacity-50" : "cursor-pointer"}`}
-          >
-            <input
-              type="checkbox"
-              checked={checked}
-              disabled={disabled}
-              onChange={() => onToggle(row.target)}
-              className="shrink-0"
-            />
-            <RowIcon host={host} customIcons={customIcons} fallback="terminal" />
-            <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 leading-tight">
-              <span className="flex items-center gap-1.5">
-                <span className="truncate text-[12.5px] font-medium text-[var(--c-text)]">{row.target.label}</span>
-                {extra && <span className="ml-auto flex shrink-0 items-center gap-1.5">{extra}</span>}
-              </span>
-              <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-                {row.target.sub && <span className="max-w-full break-all font-mono text-[10.5px] text-[var(--c-text-muted)]">{row.target.sub}</span>}
-                <TagChips tags={row.tags} />
-              </span>
-            </span>
-          </label>
+            depth={row.depth}
+            active={checked}
+            className={disabled ? "opacity-50" : "cursor-pointer"}
+            leading={
+              <input
+                type="checkbox"
+                checked={checked}
+                disabled={disabled}
+                onChange={() => onToggle(row.target)}
+                aria-label={`Sélectionner ${row.target.label}`}
+                title={disabled ? disabledTitle : undefined}
+              />
+            }
+            icon={<RowIcon host={host} customIcons={customIcons} fallback="terminal" />}
+            title={row.target.label}
+            title_={disabled ? disabledTitle : undefined}
+            meta={meta}
+            secondary={
+              <>
+                {row.target.sub && <EntityMono>{row.target.sub}</EntityMono>}
+                {extra}
+                <EntityTags tags={row.tags} />
+              </>
+            }
+            onClick={disabled ? undefined : () => onToggle(row.target)}
+          />
         );
       })}
     </>

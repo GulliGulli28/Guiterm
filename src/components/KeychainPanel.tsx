@@ -4,6 +4,7 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { api } from "../lib/api";
 import type { HostId, KeyAlgorithm, KeyId, PrivateKey, Workspace } from "../lib/types";
 import { IconPlus, IconTrash, IconEdit, IconKeychain, IconFolder, IconCopy, IconUpload, IconEye, IconEyeOff, IconCheck } from "./ui-icons";
+import { EntityRow, EntityMono } from "./EntityRow";
 import { HostTreePicker } from "./HostTreePicker";
 import { ConfirmDialog } from "./ConfirmDialog";
 
@@ -116,17 +117,17 @@ export function KeychainPanel({ workspace, onAddKey, onGenerateKey, onDeleteKey,
 
   return (
     <div className="flex h-full min-w-0 flex-col">
-      <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-1.5 overflow-y-auto pb-2">
+      <div className="sidebar-scroll -mx-1 min-h-0 min-w-0 flex-1 overflow-y-auto px-1 pb-2">
         {/* Add form at top */}
         <div>
           <button
             onClick={() => (showForm ? resetForm() : setShowForm(true))}
-            className={`btn w-full ${showForm ? "btn-secondary" : "btn-primary"}`}
+            className={`btn mb-3 w-full ${showForm ? "btn-secondary" : "btn-primary"}`}
           >
             <IconPlus size={13} /> {showForm ? "Fermer le formulaire" : "Nouvelle clé"}
           </button>
           {showForm && (
-            <div className="card mt-1.5 space-y-2 p-2.5">
+            <div className="card -mt-1.5 mb-3 space-y-2 p-3">
               {error && <p className="callout callout-danger py-1">{error}</p>}
               <div className="segmented flex w-full">
                 {([["import", "Importer"], ["generate", "Générer"]] as [typeof mode, string][]).map(([m, label]) => (
@@ -208,51 +209,36 @@ export function KeychainPanel({ workspace, onAddKey, onGenerateKey, onDeleteKey,
           </div>
         )}
         {workspace.keychain.map((key: PrivateKey) => (
-          <div key={key.id} className="card group p-2 transition-colors hover:border-[var(--c-border-strong)]">
-            <div className="flex items-center gap-2">
-              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--c-bg2)] text-[var(--c-text-secondary)]">
-                <IconKeychain size={13} />
-              </div>
-              <div className="min-w-0 flex-1">
-                {editingName?.id === key.id ? (
-                  <input
-                    value={editingName.draft}
-                    onChange={(e) => setEditingName({ id: key.id, draft: e.target.value })}
-                    onBlur={() => commitRename(key)}
-                    onKeyDown={(e) => {
-                      if (e.key === "Enter") commitRename(key);
-                      if (e.key === "Escape") setEditingName(null);
-                    }}
-                    autoFocus
-                    className="input h-6 w-full font-medium"
-                  />
-                ) : (
-                  <div className="flex items-baseline gap-1.5">
-                    <p className="truncate text-[12.5px] font-medium text-[var(--c-text)]">{key.name}</p>
-                    {/* Says what depends on this key *before* anyone reaches
-                        for the bin, not only in the confirmation. */}
-                    {(keyUsage[key.id]?.length ?? 0) > 0 && (
-                      <span
-                        title={`Utilisée par : ${keyUsage[key.id].join(", ")}`}
-                        className="tag"
-                      >
-                        {keyUsage[key.id].length} hôte{keyUsage[key.id].length > 1 ? "s" : ""}
-                      </span>
-                    )}
-                  </div>
-                )}
-                {key.content ? (
-                  <p className="flex items-center gap-1 text-[10.5px] text-[var(--c-ok)]"><IconCheck size={10} /> Contenu intégré</p>
-                ) : (
-                  <p className="truncate font-mono text-[10.5px] text-[var(--c-text-muted)]" title={key.path}>{key.path}</p>
-                )}
-              </div>
-              <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100">
-                <button
-                  onClick={() => copyPublicKey(key)}
-                  title="Copier la clé publique"
-                  className="btn btn-ghost btn-sm btn-icon"
-                >
+          <EntityRow
+            key={key.id}
+            variant="card"
+            icon={<IconKeychain size={13} />}
+            title={editingName?.id === key.id ? (
+              <input
+                value={editingName.draft}
+                onChange={(e) => setEditingName({ id: key.id, draft: e.target.value })}
+                onBlur={() => commitRename(key)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") commitRename(key);
+                  if (e.key === "Escape") setEditingName(null);
+                }}
+                autoFocus
+                className="input h-6 w-full font-medium"
+              />
+            ) : key.name}
+            // Says what depends on this key *before* anyone reaches for the
+            // bin, not only in the confirmation.
+            badges={(keyUsage[key.id]?.length ?? 0) > 0 && (
+              <span title={`Utilisée par : ${keyUsage[key.id].join(", ")}`} className="tag">
+                {keyUsage[key.id].length} hôte{keyUsage[key.id].length > 1 ? "s" : ""}
+              </span>
+            )}
+            secondary={key.content
+              ? <span className="flex items-center gap-1 text-[var(--c-ok)]"><IconCheck size={10} /> Contenu intégré</span>
+              : <EntityMono title={key.path}>{key.path}</EntityMono>}
+            actions={
+              <>
+                <button onClick={() => copyPublicKey(key)} title="Copier la clé publique" className="btn btn-ghost btn-sm btn-icon">
                   {copiedKeyId === key.id ? <IconCheck size={12} className="text-[var(--c-ok)]" /> : <IconCopy size={12} />}
                 </button>
                 <button
@@ -262,11 +248,7 @@ export function KeychainPanel({ workspace, onAddKey, onGenerateKey, onDeleteKey,
                 >
                   <IconUpload size={12} />
                 </button>
-                <button
-                  onClick={() => setEditingName({ id: key.id, draft: key.name })}
-                  title="Renommer"
-                  className="btn btn-ghost btn-sm btn-icon"
-                >
+                <button onClick={() => setEditingName({ id: key.id, draft: key.name })} title="Renommer" className="btn btn-ghost btn-sm btn-icon">
                   <IconEdit size={12} />
                 </button>
                 <button
@@ -279,10 +261,11 @@ export function KeychainPanel({ workspace, onAddKey, onGenerateKey, onDeleteKey,
                 >
                   <IconTrash size={12} />
                 </button>
-              </div>
-            </div>
+              </>
+            }
+          >
             {copyError?.id === key.id && (
-              <p className="callout callout-danger mt-1.5 py-1 text-[11px]">{copyError.text}</p>
+              <p className="callout callout-danger mt-2 py-1 text-[11px]">{copyError.text}</p>
             )}
             {deployingKeyId === key.id && (
               <div className="mt-2 space-y-1.5 border-t border-[var(--c-border)] pt-2">
@@ -308,7 +291,7 @@ export function KeychainPanel({ workspace, onAddKey, onGenerateKey, onDeleteKey,
                 </div>
               </div>
             )}
-          </div>
+          </EntityRow>
         ))}
       </div>
 

@@ -174,7 +174,21 @@ export interface AppPreferences {
    * jamais d'un défaut modifié. Une liste d'affichés serait absente chez tous
    * les utilisateurs actuels — et leur viderait la barre à la mise à jour. */
   hiddenSidebarButtons: SidebarButtonId[];
+  /** Taille des lignes de dossier dans les arborescences (hôtes, SFTP,
+   * cibles). Une préférence de lecture : quelqu'un qui range trente
+   * machines en cinq dossiers veut des en-têtes qui se voient, quelqu'un
+   * qui en a deux les veut discrets. */
+  hostGroupSize: HostGroupSize;
 }
+
+export type HostGroupSize = "small" | "medium" | "large";
+
+/** Ce que chaque taille pose comme variables CSS — lues par `GroupRow`. */
+export const HOST_GROUP_SIZES: Record<HostGroupSize, { label: string; font: string; height: string }> = {
+  small:  { label: "Petits",  font: "11.5px", height: "24px" },
+  medium: { label: "Normaux", font: "12.5px", height: "28px" },
+  large:  { label: "Grands",  font: "14px",   height: "34px" },
+};
 
 export interface TerminalThemeEntry {
   label: string;
@@ -344,6 +358,7 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   terminalWebglRenderer: true,
   terminalRenderStats: false,
   hiddenSidebarButtons: [],
+  hostGroupSize: "medium",
 };
 
 const STORAGE_KEY = "gui-termius-prefs";

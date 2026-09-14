@@ -140,7 +140,12 @@ const scenes = [
   }],
   // Panneau au plus étroit : les tags et le système passent à la ligne,
   // rien n'est tronqué sauf une adresse plus large que le panneau.
+  ["23b-flotte-etroite", async (page) => {
+    await clickNav(page, "Opérations de flotte");
+    await settle(page, 400);
+  }],
   ["24-panneau-etroit", async (page) => {
+    await clickNav(page, "Hôtes");
     await page.setViewportSize({ width: 1440, height: 900 });
     await page.evaluate(() => {
       const handle = document.querySelector(".cursor-col-resize");
@@ -152,6 +157,10 @@ const scenes = [
     });
     await settle(page, 500);
   }],
+  ["25-cles-etroit", async (page) => { await clickNav(page, "Clés"); }],
+  ["26-bases-etroit", async (page) => { await clickNav(page, "Bases de données"); }],
+  ["27-tunnels-etroit", async (page) => { await clickNav(page, "Tunnels"); }],
+  ["28-snippets-etroit", async (page) => { await clickNav(page, "Snippets"); }],
 ];
 
 try {

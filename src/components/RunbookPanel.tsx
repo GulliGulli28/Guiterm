@@ -2,6 +2,7 @@ import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { Runbook, RunbookId, Workspace } from "../lib/types";
 import { IconPlus, IconTrash, IconDownload, IconFleet, IconRunbook } from "./ui-icons";
+import { EntityRow } from "./EntityRow";
 
 interface RunbookPanelProps {
   workspace: Workspace;
@@ -43,8 +44,8 @@ export function RunbookPanel({
 
   return (
     <div className="flex h-full min-w-0 flex-col">
-      <div className="flex shrink-0 items-center gap-1.5">
-        <button onClick={() => setCreating((v) => !v)} title="Nouvelle procédure" className={`btn flex-1 ${creating ? "btn-secondary" : "btn-primary"}`}>
+      <div className="flex shrink-0 flex-wrap items-center gap-2">
+        <button onClick={() => setCreating((v) => !v)} title="Nouvelle procédure" className={`btn min-w-[10rem] flex-1 ${creating ? "btn-secondary" : "btn-primary"}`}>
           <IconPlus size={13} /> {creating ? "Annuler" : "Nouvelle procédure"}
         </button>
         <button
@@ -90,7 +91,7 @@ export function RunbookPanel({
         </span>
       </button>
 
-      <div className="sidebar-scroll -mx-1 mt-2 min-h-0 flex-1 overflow-y-auto px-1 pb-2">
+      <div className="sidebar-scroll -mx-1 mt-3 min-h-0 flex-1 overflow-y-auto px-1 pb-2">
         {workspace.runbooks.length === 0 && !creating && (
           <div className="px-2 py-8 text-center">
             <p className="text-[12.5px] font-medium text-[var(--c-text-secondary)]">Aucune procédure</p>
@@ -100,34 +101,31 @@ export function RunbookPanel({
           </div>
         )}
         {workspace.runbooks.map((book: Runbook) => (
-          <div key={book.id} className="list-row group mb-0.5 h-11 pr-1.5">
-            <button onClick={() => onOpen(book.id)} className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
-              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--c-bg3)] text-[var(--c-text-secondary)]">
-                <IconRunbook size={13} />
-              </span>
-              <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 leading-tight">
-                <span className="truncate text-[12.5px] font-medium text-[var(--c-text)]">{book.name}</span>
-                <span className="truncate text-[10.5px] text-[var(--c-text-muted)]">
-                  {book.steps.length} étape{book.steps.length > 1 ? "s" : ""}{book.description ? ` · ${book.description}` : ""}
-                </span>
-              </span>
-            </button>
-            {confirming === book.id ? (
-              <span className="flex shrink-0 items-center gap-1">
-                <button onClick={() => setConfirming(null)} className="btn btn-ghost btn-sm">Annuler</button>
-                <button onClick={() => { onDelete(book.id); setConfirming(null); }} className="btn btn-danger btn-sm">Supprimer</button>
-              </span>
-            ) : (
+          <EntityRow
+            key={book.id}
+            variant="card"
+            icon={<IconRunbook size={13} />}
+            title={book.name}
+            badges={<span className="tag">{book.steps.length} étape{book.steps.length > 1 ? "s" : ""}</span>}
+            secondary={book.description ? <span>{book.description}</span> : undefined}
+            onClick={() => onOpen(book.id)}
+            actions={confirming === book.id ? undefined : (
               <button
                 onClick={() => setConfirming(book.id)}
                 title="Supprimer"
                 aria-label={`Supprimer ${book.name}`}
-                className="btn btn-ghost btn-sm btn-icon shrink-0 opacity-0 hover:text-[var(--c-danger)] focus-visible:opacity-100 group-hover:opacity-100"
+                className="btn btn-ghost btn-sm btn-icon hover:text-[var(--c-danger)]"
               >
                 <IconTrash size={13} />
               </button>
             )}
-          </div>
+            alwaysVisibleActions={confirming === book.id ? (
+              <>
+                <button onClick={() => setConfirming(null)} className="btn btn-ghost btn-sm">Annuler</button>
+                <button onClick={() => { onDelete(book.id); setConfirming(null); }} className="btn btn-danger btn-sm">Supprimer</button>
+              </>
+            ) : undefined}
+          />
         ))}
       </div>
     </div>

@@ -11,10 +11,11 @@ import { buildHostTree } from "../lib/hostTree";
 import { usePolledHostStat } from "../hooks/usePolledHostStat";
 import { useContainerPicker } from "../hooks/useContainerPicker";
 import { BulkEditPanel } from "./BulkEditPanel";
+import { EntityRow, EntityMono, EntityTags, GroupRow } from "./EntityRow";
 import { PersistentSessionsModal } from "./PersistentSessionsModal";
 import {
   IconHosts, IconSearch, IconPlus, IconKeyboard, IconFlash,
-  IconFolder, IconChevronDown, IconChevronRight,
+  IconFolder, IconChevronDown,
   IconDotsVertical, IconEdit,
   IconUpload, IconDownload, IconTransfer, IconTunnels, IconTerminal, IconChecklist,
 } from "./ui-icons";
@@ -279,28 +280,22 @@ export function HostsPanel({
       host.lastFactsAtMs != null ? `état ${formatRelativeTime(host.lastFactsAtMs)}` : null,
     ].filter(Boolean).join("\n");
     return (
-      <div
+      <EntityRow
         key={host.id}
-        data-host-row={host.label}
-        data-active={isActive ? "true" : undefined}
-        className={`list-row group mb-0.5 min-h-11 py-1.5 pr-1.5 ${menuOpen ? "bg-[var(--c-hover)]" : ""}`}
-        style={{ paddingLeft: 8 + depth * 14 }}
-      >
-        {selecting && (
+        dataAttrs={{ "data-host-row": host.label }}
+        active={isActive}
+        depth={depth}
+        className={menuOpen ? "bg-[var(--c-hover)]" : ""}
+        leading={selecting ? (
           <input
             type="checkbox"
             checked={selectedHosts.has(host.id)}
             onChange={() => toggleSelected(host.id)}
             aria-label={`Sélectionner ${host.label}`}
-            className="shrink-0"
           />
-        )}
-        <button
-          onClick={() => (selecting ? toggleSelected(host.id) : handleConnect(host))}
-          className="flex min-w-0 flex-1 items-start gap-2.5 text-left"
-          title={tooltip}
-        >
-          <span className="relative mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--c-bg3)] text-[var(--c-text-secondary)]">
+        ) : undefined}
+        icon={
+          <>
             {host.icon
               ? <HostIcon iconId={host.icon} customIcons={workspace.customIcons} size={16} />
               : <KindIcon size={13} />}
@@ -310,53 +305,41 @@ export function HostsPanel({
                 className={`dot absolute -bottom-0.5 -right-0.5 ring-2 ring-[var(--c-bg2)] ${online ? "dot-ok" : ""}`}
               />
             )}
+          </>
+        }
+        title={host.label}
+        title_={tooltip}
+        badges={runningCount != null && <span className="tag tag-accent">{runningCount} actif{runningCount === 1 ? "" : "s"}</span>}
+        meta={facts?.memUsedPct != null && (
+          <span className="font-mono text-[10.5px] font-medium tabular-nums" style={{ color: ramColor(facts.memUsedPct) }}>
+            {Math.round(facts.memUsedPct)}%
           </span>
-          {/* Rien n'est sacrifié à la largeur : ce qui ne tient pas sur la
-              ligne de l'adresse (système, tags) passe à la ligne suivante, et
-              la ligne grandit. Seule l'adresse elle-même se tronque, si elle
-              dépasse à elle seule la largeur du panneau. */}
-          <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 leading-tight">
-            <span className="flex items-center gap-1.5">
-              <span className="truncate text-[12.5px] font-medium text-[var(--c-text)]">{host.label}</span>
-              {runningCount != null && (
-                <span className="tag tag-accent">{runningCount} actif{runningCount === 1 ? "" : "s"}</span>
-              )}
-              {facts?.memUsedPct != null && (
-                <span className="ml-auto shrink-0 font-mono text-[10.5px] font-medium tabular-nums" style={{ color: ramColor(facts.memUsedPct) }}>
-                  {Math.round(facts.memUsedPct)}%
-                </span>
-              )}
-            </span>
-            <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
-              <span className="max-w-full break-all font-mono text-[10.5px] text-[var(--c-text-muted)]">{subtitle}</span>
-              {(facts?.osName || facts?.osId) && (
-                <span className="shrink-0 text-[10.5px] text-[var(--c-text-faint)]">{facts.osName || facts.osId}</span>
-              )}
-              {host.tags.length > 0 && (
-                <span className="flex flex-wrap gap-1">
-                  {host.tags.map((tag) => <span key={tag} className="tag">{tag}</span>)}
-                </span>
-              )}
-            </span>
-          </span>
-        </button>
-        <button
-          onClick={(e) => {
-            e.stopPropagation();
-            if (menuOpen) { setOpenMenuHostId(null); return; }
-            const rect = e.currentTarget.getBoundingClientRect();
-            setMenuAnchor({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
-            setOpenMenuHostId(host.id);
-          }}
-          className={`btn btn-ghost btn-sm btn-icon shrink-0 focus-visible:opacity-100 ${
-            menuOpen ? "bg-[var(--c-active)] text-[var(--c-text)]" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
-          }`}
-          title="Options"
-          aria-label={`Options de ${host.label}`}
-        >
-          <IconDotsVertical size={14} />
-        </button>
-      </div>
+        )}
+        secondary={
+          <>
+            <EntityMono>{subtitle}</EntityMono>
+            {(facts?.osName || facts?.osId) && <span className="text-[var(--c-text-faint)]">{facts.osName || facts.osId}</span>}
+            <EntityTags tags={host.tags} />
+          </>
+        }
+        onClick={() => (selecting ? toggleSelected(host.id) : handleConnect(host))}
+        actions={
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              if (menuOpen) { setOpenMenuHostId(null); return; }
+              const rect = e.currentTarget.getBoundingClientRect();
+              setMenuAnchor({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+              setOpenMenuHostId(host.id);
+            }}
+            className={`btn btn-ghost btn-sm btn-icon ${menuOpen ? "bg-[var(--c-active)] text-[var(--c-text)]" : ""}`}
+            title="Options"
+            aria-label={`Options de ${host.label}`}
+          >
+            <IconDotsVertical size={14} />
+          </button>
+        }
+      />
     );
   };
 
@@ -461,32 +444,23 @@ export function HostsPanel({
     const expanded = isExpanded(group.id);
     return (
       <div key={group.id}>
-        <div
-          style={{ paddingLeft: 4 + depth * 14 }}
-          className="group mt-1 flex h-7 items-center gap-1 rounded-md pr-1 hover:bg-[var(--c-hover)]"
-        >
-          <button
-            onClick={() => toggleGroup(group.id)}
-            aria-label={expanded ? `Replier ${group.name}` : `Déplier ${group.name}`}
-            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-[var(--c-text-muted)] hover:text-[var(--c-text)]"
-          >
-            {expanded ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
-          </button>
-          <button onClick={() => toggleGroup(group.id)} className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left text-[12.5px] font-medium text-[var(--c-text-secondary)]">
-            {group.icon ? (
-              <HostIcon iconId={group.icon} customIcons={workspace.customIcons} size={15} />
-            ) : (
-              <IconFolder size={14} className="shrink-0 text-[var(--c-text-muted)]" />
-            )}
-            <span className="truncate">{group.name}</span>
-            <span className="text-[10.5px] font-normal text-[var(--c-text-faint)]">{hostsIn(group.id).length || ""}</span>
-          </button>
-          <span className="flex shrink-0 items-center opacity-0 focus-within:opacity-100 group-hover:opacity-100">
-            <button onClick={() => onNewHostInGroup(group.id)} title="Nouvel hôte dans ce dossier" className="btn btn-ghost btn-sm btn-icon"><IconPlus size={12} /></button>
-            <button onClick={() => onNewGroupUnder(group.id)} title="Nouveau sous-dossier" className="btn btn-ghost btn-sm btn-icon"><IconFolder size={12} /></button>
-            <button onClick={() => onEditGroup(group)} title="Modifier ce dossier" className="btn btn-ghost btn-sm btn-icon"><IconEdit size={12} /></button>
-          </span>
-        </div>
+        <GroupRow
+          depth={depth}
+          expanded={expanded}
+          onToggle={() => toggleGroup(group.id)}
+          icon={group.icon
+            ? <HostIcon iconId={group.icon} customIcons={workspace.customIcons} size={15} />
+            : <IconFolder size={14} />}
+          name={group.name}
+          count={hostsIn(group.id).length}
+          actions={
+            <>
+              <button onClick={() => onNewHostInGroup(group.id)} title="Nouvel hôte dans ce dossier" className="btn btn-ghost btn-sm btn-icon"><IconPlus size={12} /></button>
+              <button onClick={() => onNewGroupUnder(group.id)} title="Nouveau sous-dossier" className="btn btn-ghost btn-sm btn-icon"><IconFolder size={12} /></button>
+              <button onClick={() => onEditGroup(group)} title="Modifier ce dossier" className="btn btn-ghost btn-sm btn-icon"><IconEdit size={12} /></button>
+            </>
+          }
+        />
         {expanded && (
           <div>
             {hostsIn(group.id).map((h) => renderHost(h, depth + 1))}
@@ -516,8 +490,8 @@ export function HostsPanel({
       </div>
 
       {/* Action row */}
-      <div className="mt-2.5 flex shrink-0 items-center gap-2">
-        <div className="relative flex-1">
+      <div className="mt-2.5 flex shrink-0 flex-wrap items-center gap-2">
+        <div className="relative min-w-[9rem] flex-1">
           {showAddMenu && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setShowAddMenu(false)} />
@@ -575,7 +549,7 @@ export function HostsPanel({
         {quickSSH && (
           <button
             onClick={handleQuickConnect}
-            className="list-row mb-1 h-11 w-full border border-dashed border-[var(--c-accent)] text-[var(--c-accent-text)] hover:bg-[var(--c-accent-dim)]"
+            className="list-row mb-1 min-h-11 w-full border border-dashed border-[var(--c-accent)] text-[var(--c-accent-text)] hover:bg-[var(--c-accent-dim)]"
           >
             <IconFlash size={13} className="shrink-0" />
             <span className="min-w-0 truncate font-mono text-[12px]">

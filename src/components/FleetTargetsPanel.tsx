@@ -175,21 +175,23 @@ export function FleetTargetsPanel({ workspace, onOpenTab }: { workspace: Workspa
         // reste ici est ce que la flotte, et elle seule, a de plus à dire —
         // l'état collecté. Même typographie que les lignes d'état de
         // `HostsPanel`.
-        renderExtra={(t) => {
+        renderMeta={(t) => {
           const f = t.facts;
-          if (!f) return null;
+          if (f?.memUsedPct == null) return null;
           return (
-            <>
-              {(f.osName || f.osId) && (
-                <span className="truncate text-[10.5px] text-[var(--c-text-faint)]" title={t.lastFactsAtMs != null ? `état ${formatRelativeTime(t.lastFactsAtMs)}` : undefined}>{f.osName || f.osId}</span>
-              )}
-              {f.memUsedPct != null && (
-                <span className="shrink-0 font-mono text-[10.5px] font-medium tabular-nums" style={{ color: ramColor(f.memUsedPct) }}>
-                  {Math.round(f.memUsedPct)}%
-                </span>
-              )}
-            </>
+            <span
+              className="font-mono text-[10.5px] font-medium tabular-nums"
+              style={{ color: ramColor(f.memUsedPct) }}
+              title={t.lastFactsAtMs != null ? `RAM — état ${formatRelativeTime(t.lastFactsAtMs)}` : undefined}
+            >
+              {Math.round(f.memUsedPct)}%
+            </span>
           );
+        }}
+        renderSecondary={(t) => {
+          const f = t.facts;
+          if (!f || !(f.osName || f.osId)) return null;
+          return <span className="text-[var(--c-text-faint)]">{f.osName || f.osId}</span>;
         }}
       />
     </div>

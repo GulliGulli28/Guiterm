@@ -7,7 +7,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { api } from "../lib/api";
 import type { VaultStatus, Workspace } from "../lib/types";
 import type { AppPreferences } from "../lib/preferences";
-import { TERMINAL_THEMES, FONT_FAMILIES, ACCENT_COLORS, BG_THEMES, type UiAccent, type UiBg, type ColorMode } from "../lib/preferences";
+import { TERMINAL_THEMES, FONT_FAMILIES, ACCENT_COLORS, BG_THEMES, HOST_GROUP_SIZES, type UiAccent, type UiBg, type ColorMode, type HostGroupSize } from "../lib/preferences";
 import { SHORTCUT_ACTIONS, comboConflicts, defaultShortcuts, comboFromEvent, shellBindingWarning, shortcutLabel } from "../lib/shortcuts";
 import { SIDEBAR_BUTTONS, ALWAYS_VISIBLE_SIDEBAR_BUTTONS, isSidebarButtonVisible } from "../lib/sidebarButtons";
 import { IconUpload, IconDownload, IconPalette, IconTerminal, IconTransfer, IconKeyboard, IconBell, IconSettings, IconSun, IconMoon, IconRefresh, IconShield, IconCheck, IconWarning, IconFolderFilled, IconFileFilled } from "./ui-icons";
@@ -335,6 +335,24 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
                 })}
                 <span className="ml-1 text-[12px] text-[var(--c-text-secondary)]">{ACCENT_COLORS[preferences.uiAccent ?? "blue"]?.label}</span>
               </div>
+            </section>
+
+            <section className="space-y-2">
+              <p className="eyebrow">Dossiers de la liste d'hôtes</p>
+              <div className="segmented">
+                {(Object.entries(HOST_GROUP_SIZES) as [HostGroupSize, typeof HOST_GROUP_SIZES[HostGroupSize]][]).map(([key, size]) => (
+                  <button
+                    key={key}
+                    type="button"
+                    onClick={() => onPreferencesChange({ ...preferences, hostGroupSize: key })}
+                    data-active={(preferences.hostGroupSize ?? "medium") === key ? "true" : undefined}
+                    className="min-w-[5rem]"
+                  >
+                    {size.label}
+                  </button>
+                ))}
+              </div>
+              <p className="help-text">La taille des en-têtes de dossier dans les listes d'hôtes, de transfert et de cibles.</p>
             </section>
 
             <section className="space-y-2">

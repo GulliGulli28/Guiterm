@@ -2,6 +2,7 @@ import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import type { KnownHostEntry, SshConfigHost, Workspace } from "../lib/types";
 import { IconTrash, IconDownload, IconShield } from "./ui-icons";
+import { EntityRow, EntityMono } from "./EntityRow";
 
 interface KnownHostsPanelProps {
   onWorkspaceUpdate: (ws: Workspace) => void;
@@ -77,7 +78,7 @@ export function KnownHostsPanel({ onWorkspaceUpdate, onError }: KnownHostsPanelP
         </button>
       </div>
 
-      <div className="sidebar-scroll -mx-1 mt-2 min-h-0 min-w-0 flex-1 overflow-y-auto px-1 pb-2">
+      <div className="sidebar-scroll -mx-1 mt-3 min-h-0 min-w-0 flex-1 overflow-y-auto px-1 pb-2">
         {loading && <p className="px-2 py-8 text-center text-[12px] text-[var(--c-text-muted)]">Chargement…</p>}
         {!loading && entries.length === 0 && (
           <div className="px-2 py-8 text-center">
@@ -86,23 +87,23 @@ export function KnownHostsPanel({ onWorkspaceUpdate, onError }: KnownHostsPanelP
           </div>
         )}
         {entries.map((e) => (
-          <div key={e.identity} className="list-row group mb-0.5 h-11 pr-1.5">
-            <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--c-bg3)] text-[var(--c-text-secondary)]">
-              <IconShield size={13} />
-            </span>
-            <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 leading-tight">
-              <p className="truncate text-[12.5px] font-medium text-[var(--c-text)]">{e.label}</p>
-              <p className="truncate font-mono text-[10.5px] text-[var(--c-text-muted)]" title={e.publicKey}>{e.publicKey}</p>
-            </div>
-            <button
-              onClick={() => handleRevoke(e.identity)}
-              title="Révoquer la confiance"
-              aria-label={`Révoquer ${e.label}`}
-              className="btn btn-ghost btn-sm btn-icon shrink-0 opacity-0 hover:text-[var(--c-danger)] focus-visible:opacity-100 group-hover:opacity-100"
-            >
-              <IconTrash size={13} />
-            </button>
-          </div>
+          <EntityRow
+            key={e.identity}
+            variant="card"
+            icon={<IconShield size={13} />}
+            title={e.label}
+            secondary={<EntityMono title={e.publicKey}>{e.publicKey}</EntityMono>}
+            actions={
+              <button
+                onClick={() => handleRevoke(e.identity)}
+                title="Révoquer la confiance"
+                aria-label={`Révoquer ${e.label}`}
+                className="btn btn-ghost btn-sm btn-icon hover:text-[var(--c-danger)]"
+              >
+                <IconTrash size={13} />
+              </button>
+            }
+          />
         ))}
       </div>
 

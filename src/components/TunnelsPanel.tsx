@@ -1,7 +1,8 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import type { HostId, PortForward, PortForwardId, PortForwardKind, Workspace } from "../lib/types";
-import { IconPlus, IconTrash, IconEdit } from "./ui-icons";
+import { IconPlus, IconTrash, IconEdit, IconTunnels } from "./ui-icons";
+import { EntityRow, EntityMono } from "./EntityRow";
 import { HostTreePicker } from "./HostTreePicker";
 
 /** Ce qu'un tunnel vaut dans le formulaire — les ports y sont du texte, parce
@@ -69,7 +70,7 @@ function TunnelForm({
   const isDynamic = draft.kind === "dynamic";
 
   return (
-    <div className="card mt-1.5 space-y-1.5 p-2.5">
+    <div className={`space-y-1.5 ${onDelete ? "mt-2.5 border-t border-[var(--c-border)] pt-2.5" : "card mb-3 p-3"}`}>
       <HostTreePicker
         hosts={workspace.hosts}
         groups={workspace.groups}
@@ -192,11 +193,11 @@ export function TunnelsPanel({ workspace, onAddForward, onUpdateForward, onDelet
 
   return (
     <div className="flex h-full min-w-0 flex-col">
-      <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-1.5 overflow-y-auto pb-2">
+      <div className="sidebar-scroll -mx-1 min-h-0 min-w-0 flex-1 overflow-y-auto px-1 pb-2">
         <div>
           <button
             onClick={() => { setShowForm((v) => !v); setEditing(null); }}
-            className={`btn w-full ${showForm ? "btn-secondary" : "btn-primary"}`}
+            className={`btn mb-3 w-full ${showForm ? "btn-secondary" : "btn-primary"}`}
           >
             <IconPlus size={13} /> {showForm ? "Fermer le formulaire" : "Nouveau tunnel"}
           </button>
@@ -217,11 +218,20 @@ export function TunnelsPanel({ workspace, onAddForward, onUpdateForward, onDelet
           const isBusy = busy.has(forward.id);
           const isEditing = editing?.id === forward.id;
           return (
-            <div key={forward.id} className={`card group p-2.5 transition-colors hover:border-[var(--c-border-strong)] ${isEditing ? "border-[color-mix(in_srgb,var(--c-accent)_50%,transparent)]" : ""}`}>
-              <div className="flex items-center gap-2">
-                <span className={`dot ${isRunning ? "dot-ok" : ""}`} title={isRunning ? "Actif" : "Arrêté"} />
-                <span className="tag shrink-0">{forward.kind === "local" ? "Local" : forward.kind === "remote" ? "Distant" : "SOCKS"}</span>
-                <p className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-[var(--c-text)]">
+            <EntityRow
+              key={forward.id}
+              variant="card"
+              className={isEditing ? "border-[color-mix(in_srgb,var(--c-accent)_50%,transparent)]" : ""}
+              icon={
+                <>
+                  <IconTunnels size={13} />
+                  <span className={`dot absolute -bottom-0.5 -right-0.5 ring-2 ring-[var(--c-bg2)] ${isRunning ? "dot-ok" : ""}`} title={isRunning ? "Actif" : "Arrêté"} />
+                </>
+              }
+              title={hostLabel}
+              badges={<span className="tag">{forward.kind === "local" ? "Local" : forward.kind === "remote" ? "Distant" : "SOCKS"}</span>}
+              secondary={
+                <EntityMono>
                   {forward.bindAddress}:{forward.bindPort}
                   {forward.kind !== "dynamic" && (
                     <>
@@ -229,10 +239,9 @@ export function TunnelsPanel({ workspace, onAddForward, onUpdateForward, onDelet
                       {forward.destAddress}:{forward.destPort}
                     </>
                   )}
-                </p>
-              </div>
-              <div className="mt-1.5 flex items-center gap-1 pl-3.5">
-                <p className="min-w-0 flex-1 truncate text-[11.5px] text-[var(--c-text-muted)]">via {hostLabel}</p>
+                </EntityMono>
+              }
+              actions={
                 <button
                   onClick={() => {
                     setShowForm(false);
@@ -240,10 +249,12 @@ export function TunnelsPanel({ workspace, onAddForward, onUpdateForward, onDelet
                   }}
                   title="Modifier"
                   aria-label="Modifier le tunnel"
-                  className={`btn btn-ghost btn-sm btn-icon ${isEditing ? "btn-toggled" : "opacity-0 focus-visible:opacity-100 group-hover:opacity-100"}`}
+                  className={`btn btn-ghost btn-sm btn-icon ${isEditing ? "btn-toggled" : ""}`}
                 >
                   <IconEdit size={12} />
                 </button>
+              }
+              alwaysVisibleActions={
                 <button
                   disabled={isBusy}
                   onClick={() => toggle(forward.id)}
@@ -251,7 +262,8 @@ export function TunnelsPanel({ workspace, onAddForward, onUpdateForward, onDelet
                 >
                   {isRunning ? "Arrêter" : "Démarrer"}
                 </button>
-              </div>
+              }
+            >
               {isEditing && (
                 <>
                   {isRunning && (
@@ -272,7 +284,7 @@ export function TunnelsPanel({ workspace, onAddForward, onUpdateForward, onDelet
                   />
                 </>
               )}
-            </div>
+            </EntityRow>
           );
         })}
         {workspace.portForwards.length === 0 && (

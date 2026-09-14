@@ -46,6 +46,11 @@
   --c-warn: #f59e0b;
   --c-danger: #ef4444;
 
+  /* Lignes de dossier des arborescences — reposées par `App.tsx` selon la
+     préférence « taille des dossiers ». */
+  --group-row-font: 12.5px;
+  --group-row-h: 28px;
+
   /* Ombres : seulement pour ce qui flotte (menus, palette, modales). Une
      carte statique n'en a pas — elle se distingue par sa bordure. */
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);

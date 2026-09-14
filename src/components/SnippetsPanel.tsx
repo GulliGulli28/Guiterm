@@ -3,7 +3,8 @@ import type { Snippet, SnippetId, Workspace } from "../lib/types";
 import { extractVariables, fillVariables } from "../lib/snippets";
 import { AdaptiveComposer } from "./AdaptiveComposer";
 import { DSL_CONDITION_FIELDS, DSL_FUNCTIONS } from "../lib/operations";
-import { IconPlay, IconTrash, IconPlus, IconEdit, IconFlash } from "./ui-icons";
+import { IconPlay, IconTrash, IconPlus, IconEdit, IconFlash, IconSnippets } from "./ui-icons";
+import { EntityRow } from "./EntityRow";
 import { TerminalTargetPicker } from "./TerminalTargetPicker";
 
 interface SnippetsPanelProps {
@@ -236,7 +237,7 @@ function SnippetCard({
 
   if (editing) {
     return (
-      <div className="card border-[color-mix(in_srgb,var(--c-accent)_50%,transparent)] p-2.5">
+      <div className="card mb-2 border-[color-mix(in_srgb,var(--c-accent)_50%,transparent)] p-3">
         <SnippetForm
           initialName={snippet.name}
           initialCommand={snippet.command}
@@ -254,7 +255,7 @@ function SnippetCard({
   if (promptValues) {
     const submit = () => { run(fillVariables(snippet.command, promptValues), targetIds); setPromptValues(null); };
     return (
-      <div className="card border-[color-mix(in_srgb,var(--c-accent)_50%,transparent)] p-2.5">
+      <div className="card mb-2 border-[color-mix(in_srgb,var(--c-accent)_50%,transparent)] p-3">
         <p className="mb-1.5 truncate text-[12.5px] font-medium text-[var(--c-text)]">{snippet.name}</p>
         <div className="space-y-1.5">
           {variables.map((name) => (
@@ -283,47 +284,49 @@ function SnippetCard({
   // survol — sauf « Exécuter », qui est ce pour quoi on vient ici et reste
   // visible.
   return (
-    <div className="card group p-2.5 transition-colors hover:border-[var(--c-border-strong)]">
-      <div className="flex items-center gap-1.5">
-        <p className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-[var(--c-text)]">{snippet.name}</p>
-        {variables.length > 0 && (
-          <span title={`Variables : ${variables.join(", ")}`} className="tag font-mono">
-            {"{{}}"} {variables.length}
-          </span>
-        )}
-        {(snippet.adaptive || isScript) && (
-          <span className={`tag ${snippet.adaptive ? "tag-accent" : ""}`}>
-            {snippet.adaptive ? "adaptatif" : "script"}
-          </span>
-        )}
-      </div>
-      <pre className="mt-1 line-clamp-2 whitespace-pre-wrap font-mono text-[11.5px] leading-snug text-[var(--c-text-muted)]">
-        {snippet.command}
-      </pre>
+    <EntityRow
+      variant="card"
+      icon={<IconSnippets size={13} />}
+      title={snippet.name}
+      badges={
+        <>
+          {variables.length > 0 && (
+            <span title={`Variables : ${variables.join(", ")}`} className="tag font-mono">
+              {"{{}}"} {variables.length}
+            </span>
+          )}
+          {(snippet.adaptive || isScript) && (
+            <span className={`tag ${snippet.adaptive ? "tag-accent" : ""}`}>
+              {snippet.adaptive ? "adaptatif" : "script"}
+            </span>
+          )}
+        </>
+      }
+      secondary={
+        <pre className="line-clamp-2 basis-full whitespace-pre-wrap font-mono text-[11px] leading-snug text-[var(--c-text-muted)]">
+          {snippet.command}
+        </pre>
+      }
+      actions={confirmDelete ? undefined : (
+        <>
+          <button onClick={() => setEditing(true)} title="Modifier" aria-label="Modifier le snippet" className="btn btn-ghost btn-sm btn-icon">
+            <IconEdit size={12} />
+          </button>
+          {deleteButton}
+        </>
+      )}
+      alwaysVisibleActions={confirmDelete ? <>{cancelDeleteButton}{deleteButton}</> : undefined}
+    >
       {snippet.adaptive && (
         <p className="help-text mt-1.5 text-[11px]">Traduit selon la plateforme du terminal ciblé (hôte SSH, conteneur Docker exec ou terminal local — pas RDP). Les hôtes SSH sont aussi utilisables depuis Opérations de flotte.</p>
       )}
-      <div className="mt-2 flex items-center gap-1">
+      <div className="mt-2.5 flex items-center gap-1">
         <TerminalTargetPicker terminals={openTerminals} selected={targets} onChange={setTargets} emptyLabel="Onglet actif" />
-        <span className="ml-auto flex items-center gap-0.5">
-          {confirmDelete ? (
-            <>{cancelDeleteButton}{deleteButton}</>
-          ) : (
-            <>
-              <span className="flex items-center opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
-                <button onClick={() => setEditing(true)} title="Modifier" aria-label="Modifier le snippet" className="btn btn-ghost btn-sm btn-icon">
-                  <IconEdit size={12} />
-                </button>
-                {deleteButton}
-              </span>
-              <button onClick={handleRunClick} className="btn btn-primary btn-sm">
-                <IconPlay size={10} /> Exécuter{targetIds.length > 0 ? ` (${targetIds.length})` : ""}
-              </button>
-            </>
-          )}
-        </span>
+        <button onClick={handleRunClick} className="btn btn-primary btn-sm ml-auto">
+          <IconPlay size={10} /> Exécuter{targetIds.length > 0 ? ` (${targetIds.length})` : ""}
+        </button>
       </div>
-    </div>
+    </EntityRow>
   );
 }
 
@@ -333,14 +336,14 @@ export function SnippetsPanel({ workspace, onAddSnippet, onUpdateSnippet, onDele
   return (
     <div className="flex h-full min-w-0 flex-col">
       {/* Everything in a single scroll container — ensures add button and cards have identical width */}
-      <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-1.5 overflow-y-auto pb-2">
+      <div className="sidebar-scroll -mx-1 min-h-0 min-w-0 flex-1 overflow-y-auto px-1 pb-2">
         {/* Add button always at top */}
         <div>
-          <button onClick={() => setShowForm((v) => !v)} className={`btn w-full ${showForm ? "btn-secondary" : "btn-primary"}`}>
+          <button onClick={() => setShowForm((v) => !v)} className={`btn mb-3 w-full ${showForm ? "btn-secondary" : "btn-primary"}`}>
             <IconPlus size={13} /> {showForm ? "Fermer le formulaire" : "Nouveau snippet"}
           </button>
           {showForm && (
-            <div className="card mt-1.5 p-2.5">
+            <div className="card mb-3 p-3">
               <SnippetForm
                 submitLabel="Enregistrer"
                 onSubmit={(name, command) => { onAddSnippet(name, command); setShowForm(false); }}

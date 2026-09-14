@@ -2914,10 +2914,10 @@ async function runRunbookScenario(browser) {
     ), { timeout: 10_000, timeoutMsg: "le panneau de cibles ne s est pas affiché" });
 
     const ticked = await browser.execute(() => {
+      // La case d'une cible se nomme par son `aria-label` : la ligne n'est
+      // plus un `<label>`, son libellé est un bouton à part.
       const panel = document.querySelector('[data-sidebar-panel="fleet"]');
-      const label = Array.from(panel.querySelectorAll("label"))
-        .find((l) => (l.textContent || "").includes("Terminal local"));
-      const box = label?.querySelector('input[type="checkbox"]');
+      const box = panel?.querySelector('input[type="checkbox"][aria-label="Sélectionner Terminal local"]');
       if (!(box instanceof HTMLInputElement)) return "la cible « Terminal local » est introuvable";
       if (!box.checked) box.click();
       return "ok";
@@ -3100,9 +3100,7 @@ async function runRunbookApprovalScenario(browser) {
     });
     await browser.waitUntil(async () => await browser.execute(() => {
       const panel = document.querySelector('[data-sidebar-panel="fleet"]');
-      const label = panel && Array.from(panel.querySelectorAll("label"))
-        .find((l) => (l.textContent || "").includes("Terminal local"));
-      const box = label?.querySelector('input[type="checkbox"]');
+      const box = panel?.querySelector('input[type="checkbox"][aria-label="Sélectionner Terminal local"]');
       if (!(box instanceof HTMLInputElement)) return false;
       if (!box.checked) box.click();
       return true;
@@ -3874,7 +3872,7 @@ async function runTunnelEditScenario(browser) {
   await clickButtonByText(browser, "Ajouter");
 
   await browser.waitUntil(async () => await browser.execute((port) =>
-    Array.from(document.querySelectorAll("p")).some((p) => (p.textContent || "").includes(`127.0.0.1:${port}`)),
+    Array.from(document.querySelectorAll("aside span")).some((p) => (p.textContent || "").includes(`127.0.0.1:${port}`)),
   BIND_PORT), { timeout: 5_000, timeoutMsg: "le tunnel ajouté n apparaît pas dans la liste" });
 
   // Le bouton de la ligne est une icône : c'est son `aria-label` qui le nomme.
@@ -3921,7 +3919,7 @@ async function runTunnelEditScenario(browser) {
   await clickButtonByText(browser, "Enregistrer");
 
   await browser.waitUntil(async () => await browser.execute((port) =>
-    Array.from(document.querySelectorAll("p")).some((p) => (p.textContent || "").includes(`127.0.0.1:${port}`)),
+    Array.from(document.querySelectorAll("aside span")).some((p) => (p.textContent || "").includes(`127.0.0.1:${port}`)),
   NEW_PORT), { timeout: 10_000, timeoutMsg: "le nouveau port n apparaît pas dans la liste après enregistrement" });
 
   // Le nettoyage passe par le bouton du formulaire : c'est aussi la dernière
@@ -3933,7 +3931,7 @@ async function runTunnelEditScenario(browser) {
   await clickButtonByText(browser, "Supprimer ce tunnel");
 
   await browser.waitUntil(async () => await browser.execute((port) =>
-    !Array.from(document.querySelectorAll("p")).some((p) => (p.textContent || "").includes(`127.0.0.1:${port}`)),
+    !Array.from(document.querySelectorAll("aside span")).some((p) => (p.textContent || "").includes(`127.0.0.1:${port}`)),
   NEW_PORT), { timeout: 10_000, timeoutMsg: "le tunnel de test n a pas été supprimé — il reste dans le workspace" });
 
   console.log("Modification de tunnel : OK (ajout, « Modifier » à la place de « Supprimer », formulaire prérempli, enregistrement, suppression depuis le formulaire).");

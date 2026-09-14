@@ -11,7 +11,7 @@ import type { TerminalTabHandle } from "./components/TerminalTab";
 import { TitleBar } from "./components/TitleBar";
 import { TabLoadingFallback } from "./components/TabLoadingFallback";
 
-import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, loadPreferences, savePreferences } from "./lib/preferences";
+import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, HOST_GROUP_SIZES, loadPreferences, savePreferences } from "./lib/preferences";
 import { resolveVisiblePanel, type SidebarPanelKind } from "./lib/sidebarButtons";
 import { cdCommand } from "./lib/panePath";
 import { describeObject, parseEndpoint, type AppObject } from "./lib/appObject";
@@ -207,6 +207,15 @@ export default function App() {
     root.style.setProperty("--c-border", shade.border);
     root.dataset.mode = mode;
   }, [preferences.uiBg, preferences.colorMode]);
+
+  // Une variable CSS plutôt qu'une prop : `GroupRow` est rendu par quatre
+  // panneaux qui n'ont pas tous les préférences sous la main.
+  useEffect(() => {
+    const size = HOST_GROUP_SIZES[preferences.hostGroupSize ?? "medium"] ?? HOST_GROUP_SIZES.medium;
+    const root = document.documentElement;
+    root.style.setProperty("--group-row-font", size.font);
+    root.style.setProperty("--group-row-h", size.height);
+  }, [preferences.hostGroupSize]);
 
   useEffect(() => {
     api.getWorkspace().then(setWorkspace).catch((e) => reportError(String(e)));
