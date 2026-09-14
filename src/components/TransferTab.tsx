@@ -11,6 +11,7 @@ import type { ArchiveFormat, ConflictPolicy, CopyConflict, DiffHunk, DiffLine, D
 import {
   IconFolder, IconEdit, IconExternal, IconTrash, IconShield, IconClose, IconSearch,
   IconTerminal, IconRefresh, IconCompare, IconArchive, IconExtract, IconEye, IconEyeOff, IconFile,
+  IconFolderFilled, IconFileFilled, IconArrowUp,
 } from "./ui-icons";
 import { HostTreePicker } from "./HostTreePicker";
 import { QuickEditModal } from "./QuickEditModal";
@@ -910,9 +911,9 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
         </div>
         <div
           onMouseDown={divider.onMouseDown}
-          className="group relative flex w-1 shrink-0 cursor-col-resize items-center justify-center"
+          className="group relative z-10 -mx-0.5 flex w-1.5 shrink-0 cursor-col-resize items-center justify-center"
         >
-          <div className="h-full w-px bg-[var(--c-border)] transition-colors group-hover:bg-[var(--c-accent)]" />
+          <div className="h-full w-px bg-[var(--c-border)] transition-colors group-hover:w-0.5 group-hover:bg-[var(--c-accent)]" />
         </div>
         <div ref={rightPaneRef} className="flex min-h-0 flex-1 flex-col overflow-hidden">
           {isRdpTarget ? (
@@ -942,7 +943,7 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
       {/* Un fichier attend son vis-à-vis : dit lequel, et comment renoncer. */}
       {diffPick && !fileDiff && (
         <div className="flex shrink-0 items-center gap-2 border-t border-[var(--c-border)] bg-[var(--c-bg2)] px-3 py-1.5 text-xs">
-          <span className="text-[var(--c-accent-text)]">⇄ Comparer</span>
+          <span className="flex items-center gap-1 text-[var(--c-accent-text)]"><IconCompare size={12} /> Comparer</span>
           <span className="min-w-0 flex-1 truncate font-mono text-[var(--c-text-secondary)]" title={diffPick.path}>
             {diffPick.path}
           </span>
@@ -951,7 +952,7 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
           </span>
           <button
             onClick={() => setDiffPick(null)}
-            className="shrink-0 rounded-md bg-[var(--c-bg3)] px-2 py-0.5 text-[var(--c-text-secondary)] hover:bg-white/5"
+            className="btn btn-ghost btn-sm"
           >
             Annuler
           </button>
@@ -988,7 +989,7 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
 
       {remoteEdits.length > 0 && (
         <div className="max-h-32 shrink-0 space-y-1 overflow-y-auto border-t border-[var(--c-border)] bg-[var(--c-bg2)] p-2">
-          <p className="px-1 text-[10px] uppercase tracking-wide text-[var(--c-text-faint)]">
+          <p className="eyebrow px-1">
             Ouverts dans votre éditeur — renvoyés à chaque retour dans l'app
           </p>
           {remoteEdits.map((edit) => (
@@ -1000,14 +1001,14 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
               <button
                 onClick={() => endRemoteEdit(edit.id)}
                 title="Renvoyer les modifications puis fermer l'édition"
-                className="shrink-0 rounded px-2 py-0.5 text-[11px] text-[var(--c-accent-text)] hover:bg-white/10"
+                className="btn btn-ghost btn-sm text-[var(--c-accent-text)]"
               >
                 Terminer
               </button>
               <button
                 onClick={() => discardRemoteEdit(edit.id)}
                 title="Fermer sans renvoyer — les modifications locales sont perdues"
-                className="shrink-0 rounded px-2 py-0.5 text-[11px] text-[var(--c-text-muted)] hover:bg-white/10 hover:text-rose-400"
+                className="btn btn-ghost btn-sm hover:!text-[var(--c-danger)]"
               >
                 Abandonner
               </button>
@@ -1030,13 +1031,13 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
                 </span>
                 <div className="h-1.5 min-w-0 flex-1 overflow-hidden rounded-full bg-[var(--c-bg3)]">
                   <div
-                    className={`h-full rounded-full transition-all ${t.status === "error" ? "bg-rose-500" : t.status === "done" ? "bg-emerald-500" : "bg-[var(--c-accent)]"}`}
+                    className={`h-full rounded-full transition-all ${t.status === "error" ? "bg-[var(--c-danger)]" : t.status === "done" ? "bg-[var(--c-ok)]" : "bg-[var(--c-accent)]"}`}
                     style={{ width: `${pct}%` }}
                   />
                 </div>
                 <span className="w-9 shrink-0 text-right font-mono tabular-nums text-[var(--c-text-muted)]">{pct}%</span>
                 {t.status === "active" && (
-                  <button aria-label="Retirer de la liste" onClick={() => api.cancelTransfer(t.id)} className="shrink-0 text-[var(--c-text-muted)] hover:text-rose-300" title="Annuler">
+                  <button aria-label="Retirer de la liste" onClick={() => api.cancelTransfer(t.id)} className="shrink-0 text-[var(--c-text-muted)] hover:text-[var(--c-danger)]" title="Annuler">
                     <IconClose size={11} />
                   </button>
                 )}
@@ -1151,10 +1152,10 @@ function ColHeader({
   return (
     <button
       onClick={() => onSort(colKey)}
-      className={`flex items-center gap-0.5 overflow-hidden whitespace-nowrap text-left text-[11px] font-medium transition-colors hover:text-[var(--c-text)] ${active ? "text-[var(--c-accent-text)]" : "text-[var(--c-text-muted)]"} ${className ?? ""}`}
+      className={`flex items-center gap-1 overflow-hidden whitespace-nowrap text-left text-[10.5px] font-semibold uppercase tracking-[0.06em] transition-colors hover:text-[var(--c-text)] ${active ? "text-[var(--c-text)]" : "text-[var(--c-text-muted)]"} ${className ?? ""}`}
     >
       {label}
-      <span className="text-[9px] opacity-80">{active ? (sortDir === "asc" ? " ▲" : " ▼") : ""}</span>
+      {active && <span className="text-[8px] opacity-80">{sortDir === "asc" ? "▲" : "▼"}</span>}
     </button>
   );
 }
@@ -1624,7 +1625,7 @@ export function PaneView({
       }`}
     >
       {/* Source selector */}
-      <div className="flex items-center gap-2 border-b border-[var(--c-border)] p-2">
+      <div className="flex h-10 items-center gap-2 border-b border-[var(--c-border)] bg-[var(--c-bg)] px-2">
         <HostTreePicker
           hosts={transferableHosts}
           groups={workspace.groups}
@@ -1638,9 +1639,9 @@ export function PaneView({
             onSourceChange(side, { kind: "remote", hostId: v as HostId });
           }}
           specials={[{ value: "local", label: "Local", hint: "Cette machine", icon: <IconTerminal size={12} /> }]}
-          className="flex min-w-0 max-w-[280px] flex-1 items-center justify-between gap-2 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-left text-sm text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+          className="input flex min-w-0 max-w-[280px] flex-1 items-center justify-between gap-2 text-left"
         />
-        {pane.status === "connecting" && <span className="text-xs text-[var(--c-text-muted)]">connexion…</span>}
+        {pane.status === "connecting" && <span className="text-[11.5px] text-[var(--c-text-muted)]">connexion…</span>}
         {canElevate && pane.status === "open" && (
           <button
             data-pane-elevate={side}
@@ -1652,10 +1653,10 @@ export function PaneView({
                 ? "Repasser en utilisateur ordinaire. Le shell root est fermé ; le mot de passe reste retenu pour cet onglet."
                 : "Voir et modifier les fichiers avec les droits de root (sudo). Le mot de passe, si l'hôte en demande un, n'est retenu que pour cet onglet."
             }
-            className={`ml-auto flex shrink-0 items-center gap-1 rounded-md px-2 py-1 text-xs disabled:opacity-50 ${
+            className={`btn btn-sm ml-auto ${
               elevated
-                ? "bg-amber-500/20 text-amber-300 ring-1 ring-amber-500/50 hover:bg-amber-500/30"
-                : "bg-[var(--c-bg3)] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+                ? "border-[color-mix(in_srgb,var(--c-warn)_50%,transparent)] bg-[color-mix(in_srgb,var(--c-warn)_15%,transparent)] text-[var(--c-warn)]"
+                : "btn-secondary text-[var(--c-text-secondary)]"
             }`}
           >
             <IconShield size={12} />
@@ -1668,17 +1669,17 @@ export function PaneView({
           cogner. Elle ne remplace pas le message d'erreur : elle le montre,
           puis offre la seule action qui puisse le lever. */}
       {deniedError && (
-        <div className="flex items-start gap-2 border-b border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-xs text-amber-200">
+        <div className="flex items-start gap-2 border-b border-[color-mix(in_srgb,var(--c-warn)_35%,transparent)] bg-[color-mix(in_srgb,var(--c-warn)_10%,transparent)] px-2 py-1.5 text-[12px] text-[var(--c-text)]">
           <IconShield size={12} className="mt-0.5 shrink-0" />
           <div className="min-w-0 flex-1">
             <p className="font-medium">Permission refusée</p>
-            <p className="break-words text-amber-200/70">{deniedError}</p>
+            <p className="break-words text-[var(--c-text-secondary)]">{deniedError}</p>
           </div>
           <button
             onClick={() => { setElevating(true); onRetryElevated().finally(() => setElevating(false)); }}
             disabled={elevating}
             title="Rejoue cette action avec les droits de root. Le panneau redescend ensuite — sauf s'il ne pouvait plus lire le dossier où l'action vient de l'amener."
-            className="shrink-0 rounded-md bg-amber-500/20 px-2 py-1 font-medium text-amber-100 ring-1 ring-amber-500/50 hover:bg-amber-500/30 disabled:opacity-50"
+            className="btn btn-sm border-[color-mix(in_srgb,var(--c-warn)_50%,transparent)] bg-[color-mix(in_srgb,var(--c-warn)_15%,transparent)] text-[var(--c-warn)]"
           >
             {elevating ? "Exécution…" : "Réessayer en root"}
           </button>
@@ -1686,7 +1687,7 @@ export function PaneView({
             onClick={onDismissDenied}
             aria-label="Ignorer"
             title="Ignorer"
-            className="shrink-0 rounded p-1 text-amber-200/60 hover:bg-white/5 hover:text-amber-100"
+            className="btn btn-ghost btn-sm btn-icon"
           >
             <IconClose size={11} />
           </button>
@@ -1716,10 +1717,11 @@ export function PaneView({
           <div className="flex items-center gap-2 border-b border-[var(--c-border)] px-2 py-1.5">
             <button
               onClick={() => onNavigate(side, parentPath(pane.cwd))}
-              className="shrink-0 rounded px-2 py-0.5 text-sm text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+              className="btn btn-ghost btn-sm btn-icon"
               title="Dossier parent"
+              aria-label="Dossier parent"
             >
-              ↑
+              <IconArrowUp size={13} />
             </button>
             <div className="flex min-w-0 flex-1 items-center overflow-x-auto whitespace-nowrap font-mono text-xs text-[var(--c-text-secondary)]" title={pane.cwd}>
               {breadcrumbs(pane.cwd).map((crumb, index, all) => (
@@ -1728,7 +1730,7 @@ export function PaneView({
                   <button
                     onClick={() => onNavigate(side, crumb.path)}
                     disabled={index === all.length - 1}
-                    className={`rounded px-1 py-0.5 ${index === all.length - 1 ? "text-[var(--c-text)]" : "hover:bg-white/5 hover:text-[var(--c-text)]"}`}
+                    className={`rounded px-1 py-0.5 ${index === all.length - 1 ? "text-[var(--c-text)]" : "hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]"}`}
                   >
                     {crumb.label}
                   </button>
@@ -1749,7 +1751,7 @@ export function PaneView({
                 onClick={refresh}
                 aria-label="Rafraîchir"
                 title="Rafraîchir (F5)"
-                className="rounded px-1.5 py-1 text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+                className="btn btn-ghost btn-sm btn-icon"
               >
                 <IconRefresh size={12} />
               </button>
@@ -1762,16 +1764,16 @@ export function PaneView({
                     if (e.key === "Enter") runFind();
                     if (e.key === "Escape") { setQuery(""); setFind(null); }
                   }}
-                  placeholder="Rechercher…"
+                  placeholder="Filtrer…"
                   title="Filtre ce dossier au fil de la frappe. Entrée : recherche récursive sous le dossier courant."
-                  className="w-32 rounded-md bg-[var(--c-bg3)] py-0.5 pl-6 pr-2 text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                  className="input h-6 w-36 pl-6 text-[11.5px]"
                 />
               </div>
               {(query || find) && (
                 <button
                   onClick={() => { setQuery(""); setFind(null); }}
                   title="Effacer la recherche"
-                  className="rounded-md bg-[var(--c-bg3)] px-1.5 py-0.5 text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+                  className="btn btn-ghost btn-sm btn-icon"
                 >
                   <IconClose size={11} />
                 </button>
@@ -1793,10 +1795,10 @@ export function PaneView({
                   onChange={(e) => setNewFolderName(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") submitNewFolder(); if (e.key === "Escape") setCreatingFolder(false); }}
                   placeholder="Nom du dossier"
-                  className="min-w-0 flex-1 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                  className="input min-w-0 flex-1"
                 />
-                <button onClick={submitNewFolder} className="rounded-md bg-[var(--c-accent)] px-2 py-1 text-xs text-white hover:bg-[var(--c-accent-hover)]">Créer</button>
-                <button aria-label="Retirer de la liste" onClick={() => setCreatingFolder(false)} className="rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text-secondary)] hover:bg-white/5">
+                <button onClick={submitNewFolder} className="btn btn-primary btn-sm">Créer</button>
+                <button aria-label="Retirer de la liste" onClick={() => setCreatingFolder(false)} className="btn btn-ghost btn-sm">
                   <IconClose size={11} />
                 </button>
               </div>
@@ -1808,10 +1810,10 @@ export function PaneView({
                   onChange={(e) => setNewFileName(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") submitNewFile(); if (e.key === "Escape") setCreatingFile(false); }}
                   placeholder="Nom du fichier"
-                  className="min-w-0 flex-1 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                  className="input min-w-0 flex-1"
                 />
-                <button onClick={submitNewFile} className="rounded-md bg-[var(--c-accent)] px-2 py-1 text-xs text-white hover:bg-[var(--c-accent-hover)]">Créer</button>
-                <button aria-label="Retirer de la liste" onClick={() => setCreatingFile(false)} className="rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text-secondary)] hover:bg-white/5">
+                <button onClick={submitNewFile} className="btn btn-primary btn-sm">Créer</button>
+                <button aria-label="Retirer de la liste" onClick={() => setCreatingFile(false)} className="btn btn-ghost btn-sm">
                   <IconClose size={11} />
                 </button>
               </div>
@@ -1822,10 +1824,10 @@ export function PaneView({
                   value={renameValue}
                   onChange={(e) => setRenameValue(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") submitRename(); if (e.key === "Escape") setRenaming(null); }}
-                  className="min-w-0 flex-1 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                  className="input min-w-0 flex-1"
                 />
-                <button onClick={submitRename} className="rounded-md bg-[var(--c-accent)] px-2 py-1 text-xs text-white hover:bg-[var(--c-accent-hover)]">Renommer</button>
-                <button aria-label="Retirer de la liste" onClick={() => setRenaming(null)} className="rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text-secondary)] hover:bg-white/5">
+                <button onClick={submitRename} className="btn btn-primary btn-sm">Renommer</button>
+                <button aria-label="Retirer de la liste" onClick={() => setRenaming(null)} className="btn btn-ghost btn-sm">
                   <IconClose size={11} />
                 </button>
               </div>
@@ -1838,10 +1840,10 @@ export function PaneView({
                   onChange={(e) => setChmodValue(e.target.value.replace(/[^0-7]/g, "").slice(0, 4))}
                   onKeyDown={(e) => { if (e.key === "Enter") submitChmod(); if (e.key === "Escape") setChmodTarget(null); }}
                   placeholder="755"
-                  className="w-16 rounded-md bg-[var(--c-bg3)] px-2 py-1 font-mono text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                  className="input input-mono w-16"
                 />
-                <button onClick={submitChmod} className="rounded-md bg-[var(--c-accent)] px-2 py-1 text-xs text-white hover:bg-[var(--c-accent-hover)]">Appliquer</button>
-                <button aria-label="Retirer de la liste" onClick={() => setChmodTarget(null)} className="rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text-secondary)] hover:bg-white/5">
+                <button onClick={submitChmod} className="btn btn-primary btn-sm">Appliquer</button>
+                <button aria-label="Retirer de la liste" onClick={() => setChmodTarget(null)} className="btn btn-ghost btn-sm">
                   <IconClose size={11} />
                 </button>
               </div>
@@ -1854,19 +1856,19 @@ export function PaneView({
                   onChange={(e) => setArchiveName(e.target.value)}
                   onKeyDown={(e) => { if (e.key === "Enter") submitArchive(); if (e.key === "Escape") setArchiving(false); }}
                   placeholder="Nom de l'archive"
-                  className="min-w-0 flex-1 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                  className="input min-w-0 flex-1"
                 />
                 <select
                   value={archiveFormat}
                   onChange={(e) => setArchiveFormat(e.target.value as ArchiveFormat)}
                   title="zip demande la commande `zip` sur l'hôte, souvent absente d'un serveur minimal ou d'un conteneur"
-                  className="shrink-0 rounded-md bg-[var(--c-bg3)] px-1 py-1 text-xs text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                  className="input shrink-0"
                 >
                   <option value="tarGz">.tar.gz</option>
                   <option value="zip">.zip</option>
                 </select>
-                <button onClick={submitArchive} className="rounded-md bg-[var(--c-accent)] px-2 py-1 text-xs text-white hover:bg-[var(--c-accent-hover)]">Créer</button>
-                <button aria-label="Retirer de la liste" onClick={() => setArchiving(false)} className="rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text-secondary)] hover:bg-white/5">
+                <button onClick={submitArchive} className="btn btn-primary btn-sm">Créer</button>
+                <button aria-label="Retirer de la liste" onClick={() => setArchiving(false)} className="btn btn-ghost btn-sm">
                   <IconClose size={11} />
                 </button>
               </div>
@@ -1880,10 +1882,10 @@ export function PaneView({
                   onKeyDown={(e) => { if (e.key === "Enter") submitExtract(); if (e.key === "Escape") setExtracting(null); }}
                   placeholder="ce dossier-ci"
                   title="Vide : extraire directement dans le dossier courant"
-                  className="min-w-0 flex-1 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                  className="input min-w-0 flex-1"
                 />
-                <button onClick={submitExtract} className="rounded-md bg-[var(--c-accent)] px-2 py-1 text-xs text-white hover:bg-[var(--c-accent-hover)]">Extraire</button>
-                <button aria-label="Retirer de la liste" onClick={() => setExtracting(null)} className="rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text-secondary)] hover:bg-white/5">
+                <button onClick={submitExtract} className="btn btn-primary btn-sm">Extraire</button>
+                <button aria-label="Retirer de la liste" onClick={() => setExtracting(null)} className="btn btn-ghost btn-sm">
                   <IconClose size={11} />
                 </button>
               </div>
@@ -1892,14 +1894,14 @@ export function PaneView({
                 <button
                   onClick={() => setCreatingFolder(true)}
                   title="Nouveau dossier"
-                  className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+                  className="btn btn-ghost btn-sm"
                 >
                   <IconFolder size={12} /> Nouveau dossier
                 </button>
                 <button
                   onClick={() => setCreatingFile(true)}
                   title="Nouveau fichier"
-                  className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+                  className="btn btn-ghost btn-sm"
                 >
                   <IconFile size={12} /> Nouveau fichier
                 </button>
@@ -1907,7 +1909,7 @@ export function PaneView({
                   <button
                     onClick={computeAllDirSizes}
                     title="Calculer la taille de tous les dossiers affichés (un du par dossier — ça peut prendre du temps sur un gros arbre)"
-                    className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+                    className="btn btn-ghost btn-sm"
                   >
                     Σ Tailles
                   </button>
@@ -1916,7 +1918,7 @@ export function PaneView({
                   <button
                     onClick={startRename}
                     title="Renommer"
-                    className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+                    className="btn btn-ghost btn-sm"
                   >
                     <IconEdit size={12} /> Renommer
                   </button>
@@ -1925,7 +1927,7 @@ export function PaneView({
                   <button
                     onClick={() => { setChmodTarget(selectedEntries[0].name); setChmodValue(selectedEntries[0].permissions != null ? (selectedEntries[0].permissions & 0o777).toString(8) : "755"); }}
                     title="Permissions"
-                    className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+                    className="btn btn-ghost btn-sm"
                   >
                     <IconShield size={12} /> Permissions
                   </button>
@@ -1934,7 +1936,7 @@ export function PaneView({
                   <button
                     onClick={onCompare}
                     title="Comparer cette arborescence avec celle de l'autre panneau (fichiers manquants, plus récents, de taille différente)"
-                    className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+                    className="btn btn-ghost btn-sm"
                   >
                     <IconCompare size={12} /> Comparer les dossiers
                   </button>
@@ -1948,7 +1950,7 @@ export function PaneView({
                   <button
                     onClick={() => onDiffPair(selectedFiles[0].name, selectedFiles[1].name)}
                     title={`Comparer le contenu de « ${selectedFiles[0].name} » et « ${selectedFiles[1].name} »`}
-                    className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-accent-text)] hover:bg-white/5"
+                    className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-accent-text)] hover:bg-[var(--c-hover)]"
                   >
                     <IconCompare size={12} /> Comparer les 2 fichiers
                   </button>
@@ -1963,7 +1965,7 @@ export function PaneView({
                           ? `Comparer le contenu de « ${selectedFiles[0].name} » avec « ${diffArmedName} »`
                           : "Retenir ce fichier, puis en choisir un second — n'importe où, même nom non requis"
                     }
-                    className={`flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] hover:bg-white/5 hover:text-[var(--c-text)] ${
+                    className={`flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)] ${
                       diffPick === selectedFiles[0].name || diffArmedName ? "text-[var(--c-accent-text)]" : "text-[var(--c-text-secondary)]"
                     }`}
                   >
@@ -1991,7 +1993,7 @@ export function PaneView({
                   <button
                     onClick={terminalHere.run}
                     title="Ouvrir un terminal sur cette machine, dans ce dossier"
-                    className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+                    className="btn btn-ghost btn-sm"
                   >
                     <IconTerminal size={12} /> Terminal ici
                   </button>
@@ -2002,7 +2004,7 @@ export function PaneView({
                     title={showHidden
                       ? `Masquer les fichiers cachés${hiddenCount > 0 ? "" : " (aucun ici)"}`
                       : `Afficher les fichiers cachés${hiddenCount > 0 ? ` (${hiddenCount} masqué(s) ici)` : ""}`}
-                    className={`flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] hover:bg-white/5 hover:text-[var(--c-text)] ${showHidden ? "text-[var(--c-text-secondary)]" : "text-[var(--c-text-faint)]"}`}
+                    className={`flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)] ${showHidden ? "text-[var(--c-text-secondary)]" : "text-[var(--c-text-faint)]"}`}
                   >
                     {showHidden ? <IconEye size={12} /> : <IconEyeOff size={12} />} Cachés
                     {!showHidden && hiddenCount > 0 ? ` (${hiddenCount})` : ""}
@@ -2012,7 +2014,7 @@ export function PaneView({
                   <button
                     onClick={startExtract}
                     title="Extraire cette archive ici — l'extraction a lieu sur place, rien ne transite par le réseau"
-                    className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+                    className="btn btn-ghost btn-sm"
                   >
                     <IconExtract size={12} /> Extraire
                   </button>
@@ -2021,7 +2023,7 @@ export function PaneView({
                   <button
                     onClick={startArchive}
                     title="Archiver la sélection dans ce dossier — l'archive est créée sur place, rien ne transite par le réseau"
-                    className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+                    className="btn btn-ghost btn-sm"
                   >
                     <IconArchive size={12} /> Archiver ({selectedEntries.length})
                   </button>
@@ -2030,7 +2032,7 @@ export function PaneView({
                   <button
                     onClick={() => onCopy(side, selectedEntries)}
                     title={isRdpPush ? `Envoyer et coller ${selectedEntries.length} éléments dans la session RDP` : `Copier ${selectedEntries.length} éléments vers l'autre panneau`}
-                    className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+                    className="btn btn-ghost btn-sm"
                   >
                     {copyLabel} {isRdpPush ? `Envoyer (${selectedEntries.length})` : `Copier (${selectedEntries.length})`}
                   </button>
@@ -2038,14 +2040,14 @@ export function PaneView({
                 {selectedEntries.length > 0 && (
                   confirmDelete ? (
                     <div className="flex items-center gap-1">
-                      <span className="text-[11px] text-rose-300">Supprimer {selectedEntries.length} élément(s) ?</span>
+                      <span className="text-[11.5px] text-[var(--c-danger)]">Supprimer {selectedEntries.length} élément(s) ?</span>
                       <button
                         onClick={() => { onRemove(side, selectedEntries); setConfirmDelete(false); setSelected(new Set()); }}
-                        className="rounded-md bg-rose-700 px-2 py-1 text-[11px] text-white hover:bg-rose-600"
+                        className="btn btn-danger btn-sm"
                       >
                         Confirmer
                       </button>
-                      <button onClick={() => setConfirmDelete(false)} className="rounded-md bg-[var(--c-bg3)] px-2 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5">
+                      <button onClick={() => setConfirmDelete(false)} className="btn btn-ghost btn-sm">
                         Annuler
                       </button>
                     </div>
@@ -2053,7 +2055,7 @@ export function PaneView({
                     <button
                       onClick={() => setConfirmDelete(true)}
                       title="Supprimer"
-                      className="flex items-center gap-1 rounded-md px-1.5 py-1 text-[11px] text-rose-400 hover:bg-rose-900/40 hover:text-rose-300"
+                      className="btn btn-ghost btn-sm text-[var(--c-danger)] hover:!text-[var(--c-danger)]"
                     >
                       <IconTrash size={12} /> Supprimer ({selectedEntries.length})
                     </button>
@@ -2076,7 +2078,7 @@ export function PaneView({
               {/* Column headers */}
               <div
                 data-pane-header
-                className="border-b border-[var(--c-border)] bg-[var(--c-bg3)]/60 px-2 py-1"
+                className="border-b border-[var(--c-border)] bg-[var(--c-bg)] px-2 py-1"
                 style={{ ...gridStyle, fontSize: `${Math.max(10, fontSize - 2)}px` }}
               >
                 <div />
@@ -2114,7 +2116,7 @@ export function PaneView({
                         const dragged = selected.has(entry.name) && selectedEntries.length > 1 ? selectedEntries : [entry];
                         onDragStart(side, dragged, e);
                       }}
-                      className={`group cursor-default px-2 py-[3px] hover:bg-[var(--c-bg2)] ${selected.has(entry.name) ? "bg-[var(--c-accent-dim)]" : ""} ${focusName === entry.name ? "ring-1 ring-inset ring-[var(--c-accent)]/60" : ""} ${diffPick === entry.name ? "ring-1 ring-inset ring-amber-400/80" : ""} ${isDropTarget ? "outline outline-1 -outline-offset-1 outline-[var(--c-accent)]" : ""}`}
+                      className={`group cursor-default px-2 py-[3px] hover:bg-[var(--c-hover)] ${selected.has(entry.name) ? "!bg-[var(--c-accent-dim)]" : ""} ${focusName === entry.name ? "ring-1 ring-inset ring-[var(--c-accent)]/60" : ""} ${diffPick === entry.name ? "ring-1 ring-inset ring-amber-400/80" : ""} ${isDropTarget ? "outline outline-1 -outline-offset-1 outline-[var(--c-accent)]" : ""}`}
                       style={gridStyle}
                     >
                       <input
@@ -2123,7 +2125,7 @@ export function PaneView({
                         checked={selected.has(entry.name)}
                         onClick={(e) => toggleSelect(entry.name, e)}
                         onChange={() => {}}
-                        className="h-3.5 w-3.5 accent-[var(--c-accent)]"
+                        className="h-3.5 w-3.5"
                       />
                       {/* Nom — plus un bouton : le clic sélectionne (comme
                           dans tout gestionnaire de fichiers), le double-clic
@@ -2134,7 +2136,7 @@ export function PaneView({
                         }`}
                         title={entry.isDir ? `${entry.name} — cliquer pour ouvrir, Ctrl+clic pour sélectionner` : entry.name}
                       >
-                        <span className="shrink-0 text-[13px]">{entry.isDir ? "📁" : "📄"}</span>
+                        <span className="shrink-0">{entry.isDir ? <IconFolderFilled size={14} /> : <IconFileFilled size={14} className="text-[var(--c-text-muted)]" />}</span>
                         <span className="truncate">{entry.name}</span>
                       </span>
 
@@ -2177,7 +2179,7 @@ export function PaneView({
                             data-no-drag
                             onClick={(e) => { e.stopPropagation(); onEdit(side, entry.name); }}
                             title="Éditer le contenu ici"
-                            className="w-[22px] rounded px-0.5 text-center text-[var(--c-text-faint)] opacity-0 hover:bg-[var(--c-accent)] hover:text-white focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+                            className="flex h-5 w-[22px] items-center justify-center rounded text-[var(--c-text-muted)] opacity-0 hover:bg-[var(--c-active)] hover:text-[var(--c-text)] focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
                           >
                             <IconEdit size={12} className="mx-auto" />
                           </button>
@@ -2193,7 +2195,7 @@ export function PaneView({
                             data-no-drag
                             onClick={(e) => { e.stopPropagation(); onOpenInEditor(side, entry.name); }}
                             title="Ouvrir dans mon éditeur (renvoyé au retour dans l'app)"
-                            className="w-[22px] rounded px-0.5 text-center text-[var(--c-text-faint)] opacity-0 hover:bg-[var(--c-accent)] hover:text-white focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+                            className="flex h-5 w-[22px] items-center justify-center rounded text-[var(--c-text-muted)] opacity-0 hover:bg-[var(--c-active)] hover:text-[var(--c-text)] focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
                           >
                             <IconExternal size={12} className="mx-auto" />
                           </button>
@@ -2209,7 +2211,7 @@ export function PaneView({
                               ? (entry.isDir ? "Envoyer et coller le dossier dans la session RDP" : "Envoyer et coller dans la session RDP")
                               : (entry.isDir ? "Copier le dossier vers l'autre panneau" : "Copier vers l'autre panneau")
                           }
-                          className="w-[22px] rounded px-0.5 text-center text-[var(--c-text-faint)] opacity-0 hover:bg-[var(--c-accent)] hover:text-white focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
+                          className="flex h-5 w-[22px] items-center justify-center rounded text-[var(--c-text-muted)] opacity-0 hover:bg-[var(--c-active)] hover:text-[var(--c-text)] focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
                         >
                           {copyLabel}
                         </button>
@@ -2315,7 +2317,7 @@ function FindResults({
           {find.status === "done" &&
             `${find.outcome.paths.length} résultat(s) pour « ${find.pattern} »${find.outcome.truncated ? " — liste tronquée" : ""}`}
         </span>
-        <button onClick={onClose} className="shrink-0 rounded px-2 py-0.5 hover:bg-white/5 hover:text-[var(--c-text)]">
+        <button onClick={onClose} className="shrink-0 rounded px-2 py-0.5 hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]">
           Revenir au dossier
         </button>
       </div>
@@ -2375,7 +2377,7 @@ function ConflictModal({
         </p>
         <ul className="mt-2 max-h-32 overflow-y-auto rounded-md bg-[var(--c-bg3)] px-3 py-2 font-mono text-xs text-[var(--c-text-secondary)]">
           {shown.map((c) => (
-            <li key={c.name} className="truncate">{c.isDir ? "📁" : "📄"} {c.name}</li>
+            <li key={c.name} className="flex items-center gap-1.5 truncate">{c.isDir ? <IconFolderFilled size={12} className="shrink-0 text-[var(--c-accent-text)]" /> : <IconFileFilled size={12} className="shrink-0 text-[var(--c-text-muted)]" />} <span className="truncate">{c.name}</span></li>
           ))}
           {conflicts.length > shown.length && (
             <li className="text-[var(--c-text-faint)]">… et {conflicts.length - shown.length} autre(s)</li>
@@ -2390,21 +2392,21 @@ function ConflictModal({
         <div className="mt-4 flex flex-wrap justify-end gap-2">
           <button
             onClick={onCancel}
-            className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
+            className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]"
           >
             Annuler
           </button>
           <button
             onClick={() => onChoose("skip")}
             title="Ne pas copier ces entrées-là ; les autres passent"
-            className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
+            className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]"
           >
             Ignorer
           </button>
           <button
             onClick={() => onChoose("keepBoth")}
             title="Copier à côté sous un nom libre — « rapport (2).pdf »"
-            className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs text-[var(--c-text)] hover:bg-white/5"
+            className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs text-[var(--c-text)] hover:bg-[var(--c-hover)]"
           >
             Garder les deux
           </button>
@@ -2480,10 +2482,10 @@ export function ComparisonPanel({
         <span className="min-w-0 flex-1 truncate font-mono text-xs text-[var(--c-text-muted)]">
           {leftCwd} ⇄ {rightCwd}
         </span>
-        <button onClick={onRetry} title="Relancer la comparaison" className="rounded px-2 py-0.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5">
+        <button onClick={onRetry} title="Relancer la comparaison" className="rounded px-2 py-0.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]">
           ⟳
         </button>
-        <button aria-label="Fermer la comparaison" onClick={onClose} className="rounded px-2 py-0.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5">
+        <button aria-label="Fermer la comparaison" onClick={onClose} className="rounded px-2 py-0.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]">
           <IconClose size={12} />
         </button>
       </div>
@@ -2516,14 +2518,14 @@ export function ComparisonPanel({
             <button
               data-direction="right"
               onClick={() => setDirection("right")}
-              className={`rounded-md px-2 py-1 ${direction === "right" ? "bg-[var(--c-accent)] text-white" : "bg-[var(--c-bg3)] text-[var(--c-text-secondary)] hover:bg-white/5"}`}
+              className={`rounded-md px-2 py-1 ${direction === "right" ? "bg-[var(--c-accent)] text-white" : "bg-[var(--c-bg3)] text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]"}`}
             >
               Copier vers la droite →
             </button>
             <button
               data-direction="left"
               onClick={() => setDirection("left")}
-              className={`rounded-md px-2 py-1 ${direction === "left" ? "bg-[var(--c-accent)] text-white" : "bg-[var(--c-bg3)] text-[var(--c-text-secondary)] hover:bg-white/5"}`}
+              className={`rounded-md px-2 py-1 ${direction === "left" ? "bg-[var(--c-accent)] text-white" : "bg-[var(--c-bg3)] text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]"}`}
             >
               ← Copier vers la gauche
             </button>
@@ -2586,13 +2588,13 @@ export function ComparisonPanel({
           <div className="flex items-center gap-2 border-t border-[var(--c-border)] px-3 py-2 text-xs">
             <button
               onClick={() => setChecked(new Set(movable.map((d) => d.path)))}
-              className="rounded-md bg-[var(--c-bg3)] px-2 py-1 text-[var(--c-text-secondary)] hover:bg-white/5"
+              className="rounded-md bg-[var(--c-bg3)] px-2 py-1 text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]"
             >
               Tout cocher
             </button>
             <button
               onClick={() => setChecked(new Set())}
-              className="rounded-md bg-[var(--c-bg3)] px-2 py-1 text-[var(--c-text-secondary)] hover:bg-white/5"
+              className="rounded-md bg-[var(--c-bg3)] px-2 py-1 text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]"
             >
               Tout décocher
             </button>
@@ -2693,14 +2695,14 @@ export function FileDiffModal({
           <button
             onClick={onSwap}
             title="Échanger les deux côtés"
-            className="shrink-0 rounded px-2 py-0.5 text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+            className="shrink-0 rounded px-2 py-0.5 text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]"
           >
             ↔
           </button>
           <span className="min-w-0 flex-1 truncate text-right font-mono text-emerald-200" title={labelOf(state.right)}>
             + {labelOf(state.right)}
           </span>
-          <button aria-label="Fermer la comparaison" onClick={onClose} className="shrink-0 rounded px-2 py-0.5 text-[var(--c-text-secondary)] hover:bg-white/5">
+          <button aria-label="Fermer la comparaison" onClick={onClose} className="shrink-0 rounded px-2 py-0.5 text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]">
             <IconClose size={12} />
           </button>
         </div>
@@ -2726,11 +2728,11 @@ export function FileDiffModal({
               <span className="flex-1" />
               {hunks.length > 1 && (
                 <span className="flex items-center gap-1">
-                  <button data-hunk-prev onClick={() => goToHunk(hunkIndex - 1)} title="Modification précédente (p)" className="rounded bg-[var(--c-bg3)] px-2 py-0.5 text-[var(--c-text-secondary)] hover:bg-white/5">
+                  <button data-hunk-prev onClick={() => goToHunk(hunkIndex - 1)} title="Modification précédente (p)" className="rounded bg-[var(--c-bg3)] px-2 py-0.5 text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]">
                     ▲
                   </button>
                   <span className="tabular-nums text-[var(--c-text-muted)]">{hunkIndex + 1}/{hunks.length}</span>
-                  <button data-hunk-next onClick={() => goToHunk(hunkIndex + 1)} title="Modification suivante (n)" className="rounded bg-[var(--c-bg3)] px-2 py-0.5 text-[var(--c-text-secondary)] hover:bg-white/5">
+                  <button data-hunk-next onClick={() => goToHunk(hunkIndex + 1)} title="Modification suivante (n)" className="rounded bg-[var(--c-bg3)] px-2 py-0.5 text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]">
                     ▼
                   </button>
                 </span>
@@ -2739,14 +2741,14 @@ export function FileDiffModal({
                 <button
                   data-diff-view="unified"
                   onClick={() => onViewChange("unified")}
-                  className={`rounded px-2 py-0.5 ${view === "unified" ? "bg-[var(--c-accent)] text-white" : "bg-[var(--c-bg3)] text-[var(--c-text-secondary)] hover:bg-white/5"}`}
+                  className={`rounded px-2 py-0.5 ${view === "unified" ? "bg-[var(--c-accent)] text-white" : "bg-[var(--c-bg3)] text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]"}`}
                 >
                   Unifié
                 </button>
                 <button
                   data-diff-view="split"
                   onClick={() => onViewChange("split")}
-                  className={`rounded px-2 py-0.5 ${view === "split" ? "bg-[var(--c-accent)] text-white" : "bg-[var(--c-bg3)] text-[var(--c-text-secondary)] hover:bg-white/5"}`}
+                  className={`rounded px-2 py-0.5 ${view === "split" ? "bg-[var(--c-accent)] text-white" : "bg-[var(--c-bg3)] text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]"}`}
                 >
                   Côte à côte
                 </button>

@@ -3,7 +3,7 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { api } from "../lib/api";
 import type { HostId, KeyAlgorithm, KeyId, PrivateKey, Workspace } from "../lib/types";
-import { IconPlus, IconClose, IconTrash, IconEdit, IconKeychain, IconFolder, IconCopy, IconUpload } from "./ui-icons";
+import { IconPlus, IconTrash, IconEdit, IconKeychain, IconFolder, IconCopy, IconUpload, IconEye, IconEyeOff, IconCheck } from "./ui-icons";
 import { HostTreePicker } from "./HostTreePicker";
 import { ConfirmDialog } from "./ConfirmDialog";
 
@@ -116,29 +116,26 @@ export function KeychainPanel({ workspace, onAddKey, onGenerateKey, onDeleteKey,
 
   return (
     <div className="flex h-full min-w-0 flex-col">
-      <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-2 overflow-y-auto pb-2 pl-2 pt-2">
+      <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-1.5 overflow-y-auto pb-2">
         {/* Add form at top */}
         <div>
           <button
             onClick={() => (showForm ? resetForm() : setShowForm(true))}
-            className={`accent-surface flex w-full items-center justify-center gap-1.5 rounded-xl border py-2 text-xs font-semibold transition-all ${
-              showForm ? "ring-2 ring-white/25" : ""
-            }`}
+            className={`btn w-full ${showForm ? "btn-secondary" : "btn-primary"}`}
           >
-            <IconPlus size={13} /> Ajouter une clé
+            <IconPlus size={13} /> {showForm ? "Fermer le formulaire" : "Nouvelle clé"}
           </button>
           {showForm && (
-            <div className="mt-2 space-y-2 rounded-xl bg-[var(--c-bg3)] p-2.5">
-              {error && <p className="rounded-md bg-rose-950 px-2 py-1 text-xs text-rose-300">{error}</p>}
-              <div className="flex gap-1.5 rounded-md bg-[var(--c-bg2)] p-1">
+            <div className="card mt-1.5 space-y-2 p-2.5">
+              {error && <p className="callout callout-danger py-1">{error}</p>}
+              <div className="segmented flex w-full">
                 {([["import", "Importer"], ["generate", "Générer"]] as [typeof mode, string][]).map(([m, label]) => (
                   <button
                     key={m}
                     type="button"
                     onClick={() => setMode(m)}
-                    className={`flex-1 rounded border py-1 text-xs font-medium transition-all ${
-                      mode === m ? "accent-surface" : "border-transparent text-[var(--c-text-secondary)] hover:bg-white/5"
-                    }`}
+                    data-active={mode === m ? "true" : undefined}
+                    className="flex-1"
                   >
                     {label}
                   </button>
@@ -157,26 +154,21 @@ export function KeychainPanel({ workspace, onAddKey, onGenerateKey, onDeleteKey,
                     value={path}
                     onChange={(e) => setPath(e.target.value)}
                     placeholder="Chemin vers la clé privée"
-                    className={`${inputClass} min-w-0 flex-1 font-mono`}
+                    className={`${inputClass} input-mono min-w-0 flex-1`}
                   />
-                  <button
-                    onClick={browse}
-                    className="flex shrink-0 items-center justify-center rounded-md bg-[var(--c-bg2)] px-2.5 py-1.5 text-[var(--c-text-muted)] hover:bg-white/5 hover:text-[var(--c-text-secondary)]"
-                    title="Parcourir"
-                  >
+                  <button onClick={browse} className="btn btn-secondary btn-icon" title="Parcourir" aria-label="Parcourir">
                     <IconFolder size={14} />
                   </button>
                 </div>
               ) : (
-                <div className="flex gap-1.5">
+                <div className="segmented flex w-full">
                   {([["ed25519", "Ed25519"], ["rsa", "RSA (4096)"]] as [KeyAlgorithm, string][]).map(([a, label]) => (
                     <button
                       key={a}
                       type="button"
                       onClick={() => setAlgorithm(a)}
-                      className={`flex-1 rounded-md border py-1.5 text-xs font-medium transition-all ${
-                        algorithm === a ? "accent-surface" : "border-transparent bg-[var(--c-bg2)] text-[var(--c-text-secondary)] hover:bg-white/5"
-                      }`}
+                      data-active={algorithm === a ? "true" : undefined}
+                      className="flex-1"
                     >
                       {label}
                     </button>
@@ -193,37 +185,33 @@ export function KeychainPanel({ workspace, onAddKey, onGenerateKey, onDeleteKey,
                 />
                 <button
                   onClick={() => setShowPassphrase((v) => !v)}
-                  className="shrink-0 rounded-md bg-[var(--c-bg2)] px-2.5 py-1.5 text-xs text-[var(--c-text-muted)] hover:bg-white/5"
+                  title={showPassphrase ? "Cacher la passphrase" : "Afficher la passphrase"}
+                  aria-label={showPassphrase ? "Cacher la passphrase" : "Afficher la passphrase"}
+                  className="btn btn-secondary btn-icon text-[var(--c-text-muted)]"
                 >
-                  {showPassphrase ? "Cacher" : "Voir"}
+                  {showPassphrase ? <IconEyeOff size={13} /> : <IconEye size={13} />}
                 </button>
               </div>
-              <div className="flex gap-1.5">
-                <button
-                  onClick={submit}
-                  className="accent-surface flex-1 rounded-md border py-1.5 text-xs font-medium"
-                >
+              <div className="flex justify-end gap-1.5 pt-1">
+                <button aria-label="Annuler la saisie" onClick={resetForm} className="btn btn-ghost">Annuler</button>
+                <button onClick={submit} className="btn btn-primary">
                   {mode === "import" ? "Enregistrer" : "Générer"}
-                </button>
-                <button
-                  aria-label="Annuler la saisie"
-                  onClick={resetForm}
-                  className="flex items-center justify-center rounded-md bg-[var(--c-bg2)] px-2.5 py-1.5 text-[var(--c-text-secondary)] hover:bg-white/5"
-                >
-                  <IconClose size={12} />
                 </button>
               </div>
             </div>
           )}
         </div>
         {workspace.keychain.length === 0 && (
-          <p className="px-1 py-4 text-center text-[13px] text-[var(--c-text-muted)]">Aucune clé enregistrée</p>
+          <div className="px-2 py-8 text-center">
+            <p className="text-[12.5px] font-medium text-[var(--c-text-secondary)]">Aucune clé</p>
+            <p className="help-text mt-1">Importez une clé privée existante ou générez-en une, puis déployez sa clé publique sur vos hôtes d'ici.</p>
+          </div>
         )}
         {workspace.keychain.map((key: PrivateKey) => (
-          <div key={key.id} className="group rounded-xl border border-transparent bg-[var(--c-bg3)] p-2.5 transition-all hover:border-white/15">
+          <div key={key.id} className="card group p-2 transition-colors hover:border-[var(--c-border-strong)]">
             <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md bg-[var(--c-accent-dim)]">
-                <IconKeychain size={13} className="text-[var(--c-accent-text)]" />
+              <div className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--c-bg2)] text-[var(--c-text-secondary)]">
+                <IconKeychain size={13} />
               </div>
               <div className="min-w-0 flex-1">
                 {editingName?.id === key.id ? (
@@ -236,17 +224,17 @@ export function KeychainPanel({ workspace, onAddKey, onGenerateKey, onDeleteKey,
                       if (e.key === "Escape") setEditingName(null);
                     }}
                     autoFocus
-                    className="w-full rounded-md bg-[var(--c-bg2)] px-1.5 py-0.5 text-[14px] font-medium text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent)]"
+                    className="input h-6 w-full font-medium"
                   />
                 ) : (
                   <div className="flex items-baseline gap-1.5">
-                    <p className="truncate text-[14px] font-medium text-[var(--c-text)]">{key.name}</p>
+                    <p className="truncate text-[12.5px] font-medium text-[var(--c-text)]">{key.name}</p>
                     {/* Says what depends on this key *before* anyone reaches
                         for the bin, not only in the confirmation. */}
                     {(keyUsage[key.id]?.length ?? 0) > 0 && (
                       <span
                         title={`Utilisée par : ${keyUsage[key.id].join(", ")}`}
-                        className="shrink-0 rounded bg-[var(--c-bg)] px-1.5 py-0.5 text-[10px] text-[var(--c-text-muted)]"
+                        className="tag"
                       >
                         {keyUsage[key.id].length} hôte{keyUsage[key.id].length > 1 ? "s" : ""}
                       </span>
@@ -254,30 +242,30 @@ export function KeychainPanel({ workspace, onAddKey, onGenerateKey, onDeleteKey,
                   </div>
                 )}
                 {key.content ? (
-                  <p className="mt-0.5 text-[10px] text-emerald-500">Contenu intégré ✓</p>
+                  <p className="flex items-center gap-1 text-[10.5px] text-[var(--c-ok)]"><IconCheck size={10} /> Contenu intégré</p>
                 ) : (
-                  <p className="mt-0.5 truncate font-mono text-[10px] text-[var(--c-text-muted)]" title={key.path}>{key.path}</p>
+                  <p className="truncate font-mono text-[10.5px] text-[var(--c-text-muted)]" title={key.path}>{key.path}</p>
                 )}
               </div>
               <div className="flex shrink-0 items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100">
                 <button
                   onClick={() => copyPublicKey(key)}
                   title="Copier la clé publique"
-                  className="flex items-center rounded p-1 text-[var(--c-text-muted)] hover:bg-white/5 hover:text-[var(--c-text-secondary)]"
+                  className="btn btn-ghost btn-sm btn-icon"
                 >
-                  {copiedKeyId === key.id ? <span className="px-0.5 text-[11px] font-medium text-emerald-400">✓</span> : <IconCopy size={12} />}
+                  {copiedKeyId === key.id ? <IconCheck size={12} className="text-[var(--c-ok)]" /> : <IconCopy size={12} />}
                 </button>
                 <button
                   onClick={() => (deployingKeyId === key.id ? setDeployingKeyId(null) : startDeploy(key))}
                   title="Déployer sur un hôte"
-                  className="flex items-center rounded p-1 text-[var(--c-text-muted)] hover:bg-white/5 hover:text-[var(--c-text-secondary)]"
+                  className="btn btn-ghost btn-sm btn-icon"
                 >
                   <IconUpload size={12} />
                 </button>
                 <button
                   onClick={() => setEditingName({ id: key.id, draft: key.name })}
                   title="Renommer"
-                  className="flex items-center rounded p-1 text-[var(--c-text-muted)] hover:bg-white/5 hover:text-[var(--c-text-secondary)]"
+                  className="btn btn-ghost btn-sm btn-icon"
                 >
                   <IconEdit size={12} />
                 </button>
@@ -287,17 +275,17 @@ export function KeychainPanel({ workspace, onAddKey, onGenerateKey, onDeleteKey,
                   // with nothing to say which or why.
                   onClick={() => setConfirmDelete({ key, hosts: keyUsage[key.id] ?? [] })}
                   title="Supprimer"
-                  className="flex items-center rounded p-1 text-[var(--c-text-muted)] hover:bg-rose-900/60 hover:text-rose-300"
+                  className="btn btn-ghost btn-sm btn-icon hover:text-[var(--c-danger)]"
                 >
                   <IconTrash size={12} />
                 </button>
               </div>
             </div>
             {copyError?.id === key.id && (
-              <p className="mt-1.5 rounded-md bg-rose-950 px-2 py-1 text-[11px] text-rose-300">{copyError.text}</p>
+              <p className="callout callout-danger mt-1.5 py-1 text-[11px]">{copyError.text}</p>
             )}
             {deployingKeyId === key.id && (
-              <div className="mt-2 space-y-1.5 border-t border-white/10 pt-2">
+              <div className="mt-2 space-y-1.5 border-t border-[var(--c-border)] pt-2">
                 <HostTreePicker
                   hosts={workspace.hosts}
                   groups={workspace.groups}
@@ -308,24 +296,14 @@ export function KeychainPanel({ workspace, onAddKey, onGenerateKey, onDeleteKey,
                   className={`${selectClass} flex items-center justify-between gap-2 text-left`}
                 />
                 {deployResult && (
-                  <p className={`rounded-md px-2 py-1 text-[11px] ${deployResult.kind === "ok" ? "bg-emerald-950 text-emerald-300" : "bg-rose-950 text-rose-300"}`}>
+                  <p className={`callout py-1 text-[11.5px] ${deployResult.kind === "ok" ? "text-[var(--c-ok)]" : "callout-danger"}`}>
                     {deployResult.text}
                   </p>
                 )}
-                <div className="flex gap-1.5">
-                  <button
-                    disabled={deployBusy || !deployHostId}
-                    onClick={() => confirmDeploy(key)}
-                    className="accent-surface flex-1 rounded-md border py-1.5 text-xs font-medium disabled:opacity-50"
-                  >
+                <div className="flex justify-end gap-1.5">
+                  <button aria-label="Annuler le déploiement" onClick={() => setDeployingKeyId(null)} className="btn btn-ghost btn-sm">Annuler</button>
+                  <button disabled={deployBusy || !deployHostId} onClick={() => confirmDeploy(key)} className="btn btn-primary btn-sm">
                     {deployBusy ? "Déploiement…" : "Déployer"}
-                  </button>
-                  <button
-                    aria-label="Retirer la clé"
-                    onClick={() => setDeployingKeyId(null)}
-                    className="flex items-center justify-center rounded-md bg-[var(--c-bg2)] px-2.5 py-1.5 text-[var(--c-text-secondary)] hover:bg-white/5"
-                  >
-                    <IconClose size={12} />
                   </button>
                 </div>
               </div>
@@ -360,5 +338,5 @@ export function KeychainPanel({ workspace, onAddKey, onGenerateKey, onDeleteKey,
 // are "width" utilities of equal specificity — whichever Tailwind emits
 // last in the stylesheet wins, regardless of source order in the
 // className string). The lone standalone usage adds `w-full` itself.
-const inputClass = "rounded-md bg-[var(--c-bg2)] px-2 py-1.5 text-[13px] text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent)]";
-const selectClass = "w-full rounded-md bg-[var(--c-bg2)] px-2 py-1.5 text-[13px] text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent)]";
+const inputClass = "input";
+const selectClass = "input";

@@ -19,8 +19,7 @@ interface AwsSsoSetupPanelProps {
 
 type Stage = "form" | "loggingIn" | "listing" | "accounts" | "done";
 
-const inputClass =
-  "w-full rounded-md bg-[var(--c-bg3)] px-2 py-1.5 text-sm text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]";
+const inputClass = "input";
 
 /** A profile name in the shape `aws configure sso` itself produces, so the
  * result is indistinguishable from a wizard-created one. */
@@ -149,7 +148,7 @@ export function AwsSsoSetupPanel({ onClose, onProfilesCreated, initialSession, s
               Écrit dans `~/.aws/config` : ta CLI et tes autres outils verront la même configuration.
             </p>
           </div>
-          <button onClick={onClose} aria-label="Fermer" className="rounded p-1 text-[var(--c-text-muted)] hover:bg-white/5 hover:text-[var(--c-text)]">
+          <button onClick={onClose} aria-label="Fermer" className="rounded p-1 text-[var(--c-text-muted)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]">
             <IconClose size={13} />
           </button>
         </div>
@@ -248,7 +247,7 @@ export function AwsSsoSetupPanel({ onClose, onProfilesCreated, initialSession, s
                     {account.roles.map((role) => {
                       const key = `${account.accountId}/${role}`;
                       return (
-                        <label key={key} className="flex items-center gap-2 rounded px-1 py-0.5 hover:bg-white/5">
+                        <label key={key} className="flex items-center gap-2 rounded px-1 py-0.5 hover:bg-[var(--c-hover)]">
                           <input
                             type="checkbox"
                             checked={selected.has(key)}

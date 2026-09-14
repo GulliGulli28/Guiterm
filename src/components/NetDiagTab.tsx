@@ -32,8 +32,7 @@ interface NetDiagTabProps {
   objectActions?: (obj: AppObject) => ObjectAction[];
 }
 
-const inputClass =
-  "rounded-md bg-[var(--c-bg3)] px-2 py-1.5 text-sm text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]";
+const inputClass = "input";
 
 const TONE_CLASS: Record<string, string> = {
   ok: "bg-emerald-500/15 text-emerald-300",

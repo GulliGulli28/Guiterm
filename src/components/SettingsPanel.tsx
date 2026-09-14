@@ -10,7 +10,7 @@ import type { AppPreferences } from "../lib/preferences";
 import { TERMINAL_THEMES, FONT_FAMILIES, ACCENT_COLORS, BG_THEMES, type UiAccent, type UiBg, type ColorMode } from "../lib/preferences";
 import { SHORTCUT_ACTIONS, comboConflicts, defaultShortcuts, comboFromEvent, shellBindingWarning, shortcutLabel } from "../lib/shortcuts";
 import { SIDEBAR_BUTTONS, ALWAYS_VISIBLE_SIDEBAR_BUTTONS, isSidebarButtonVisible } from "../lib/sidebarButtons";
-import { IconUpload, IconDownload, IconPalette, IconTerminal, IconTransfer, IconKeyboard, IconBell, IconSettings, IconSun, IconMoon, IconRefresh, IconShield } from "./ui-icons";
+import { IconUpload, IconDownload, IconPalette, IconTerminal, IconTransfer, IconKeyboard, IconBell, IconSettings, IconSun, IconMoon, IconRefresh, IconShield, IconCheck, IconWarning, IconFolderFilled, IconFileFilled } from "./ui-icons";
 import { VaultSettings } from "./VaultSettings";
 import { AdaptiveEngineSettings } from "./AdaptiveEngineSettings";
 
@@ -30,7 +30,7 @@ type ImportPending = { path: string };
 
 type SettingsCategory = "apparence" | "terminal" | "sftp" | "securite" | "raccourcis" | "notifications" | "general";
 
-const CATEGORIES: { key: SettingsCategory; label: string; Icon: ComponentType<{ size?: number }> }[] = [
+const CATEGORIES: { key: SettingsCategory; label: string; Icon: ComponentType<{ size?: number; className?: string }> }[] = [
   { key: "apparence", label: "Apparence", Icon: IconPalette },
   { key: "terminal", label: "Terminal", Icon: IconTerminal },
   { key: "sftp", label: "SFTP", Icon: IconTransfer },
@@ -55,20 +55,20 @@ function ShortcutRow({ label, combo, shadowedBy, onChange }: {
   const [capturing, setCapturing] = useState(false);
   const warning = shellBindingWarning(combo);
   return (
-    <div className="flex items-center justify-between gap-2 rounded-md px-2 py-1.5 hover:bg-white/5">
-      <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--c-text-secondary)]">
-        {label}
+    <div className="flex items-center justify-between gap-2 rounded-md px-2 py-1 hover:bg-[var(--c-hover)]">
+      <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-[12.5px] text-[var(--c-text-secondary)]">
+        <span className="truncate">{label}</span>
         {warning && (
-          <span title={`Combinaison déjà utilisée par le shell : ${warning}. Cette action ne se déclenchera donc que lorsque le focus n'est pas dans un terminal.`} className="ml-1.5 cursor-help text-[11px] text-amber-400">
-            ⚠
+          <span title={`Combinaison déjà utilisée par le shell : ${warning}. Cette action ne se déclenchera donc que lorsque le focus n'est pas dans un terminal.`} className="cursor-help text-[var(--c-warn)]">
+            <IconWarning size={12} />
           </span>
         )}
         {shadowedBy && (
           <span
             title={`« ${shadowedBy} » porte déjà cette combinaison et passe avant : cette action-ci ne se déclenchera jamais tant que les deux la partagent.`}
-            className="ml-1.5 cursor-help text-[11px] text-rose-400"
+            className="cursor-help text-[var(--c-danger)]"
           >
-            ⛔
+            <IconWarning size={12} />
           </span>
         )}
       </span>
@@ -85,10 +85,10 @@ function ShortcutRow({ label, combo, shadowedBy, onChange }: {
           onChange(comboFromEvent(e));
           setCapturing(false);
         }}
-        className={`shrink-0 rounded-md px-2 py-1 font-mono text-[11px] ${
+        className={`kbd h-6 shrink-0 px-2 ${
           capturing
-            ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]"
-            : "bg-[var(--c-bg3)] text-[var(--c-text-secondary)] hover:text-[var(--c-text)]"
+            ? "border-[var(--c-accent)] text-[var(--c-accent-text)]"
+            : "text-[var(--c-text-secondary)] hover:border-[var(--c-border-strong)] hover:text-[var(--c-text)]"
         }`}
       >
         {capturing ? "Appuyez sur une touche…" : combo || "—"}
@@ -101,15 +101,15 @@ function ToggleRow({ label, checked, onChange, disabled, title }: { label: strin
   return (
     <label
       title={title}
-      className={`flex items-center justify-between gap-2 rounded-md px-2 py-1.5 ${disabled ? "opacity-60" : "hover:bg-white/5"}`}
+      className={`flex items-center justify-between gap-2 rounded-md px-2 py-1.5 ${disabled ? "opacity-60" : "cursor-pointer hover:bg-[var(--c-hover)]"}`}
     >
-      <span className="min-w-0 flex-1 truncate text-[13px] text-[var(--c-text-secondary)]">{label}</span>
+      <span className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--c-text-secondary)]">{label}</span>
       <input
         type="checkbox"
         checked={checked}
         disabled={disabled}
         onChange={(e) => onChange(e.target.checked)}
-        className="h-4 w-4 shrink-0 accent-[var(--c-accent)]"
+        className="h-3.5 w-3.5 shrink-0"
       />
     </label>
   );
@@ -228,43 +228,42 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
   };
 
   return (
-    <div className="flex h-full min-w-0">
-      {/* Category rail */}
-      <nav className="flex w-12 shrink-0 flex-col items-center gap-1 border-r border-[var(--c-border)] py-2">
+    <div className="-m-2 flex h-[calc(100%+1rem)] min-w-0">
+      {/* Les catégories, avec leur nom : une colonne d'icônes seules
+          demandait de survoler chacune pour savoir ce qu'elle cachait. */}
+      <nav className="flex w-36 shrink-0 flex-col gap-px border-r border-[var(--c-border)] p-1.5">
+        <p className="eyebrow px-2 pb-1.5 pt-1">Paramètres</p>
         {CATEGORIES.map((c) => {
           const active = category === c.key;
           return (
             <button
               key={c.key}
               onClick={() => setCategory(c.key)}
-              title={c.label}
-              className={`relative flex h-10 w-10 items-center justify-center rounded-lg border transition-all duration-150 ${
-                active
-                  ? "accent-surface"
-                  : "border-transparent text-[var(--c-text-muted)] hover:bg-white/5 hover:text-[var(--c-text-secondary)]"
-              }`}
+              data-active={active ? "true" : undefined}
+              className="list-row h-7 min-h-0 gap-2 px-2 text-[12.5px]"
             >
-              <c.Icon size={19} />
+              <c.Icon size={14} className={`shrink-0 ${active ? "text-[var(--c-accent-text)]" : "text-[var(--c-text-muted)]"}`} />
+              <span className={`truncate ${active ? "font-medium text-[var(--c-text)]" : "text-[var(--c-text-secondary)]"}`}>{c.label}</span>
             </button>
           );
         })}
       </nav>
 
       {/* Category content */}
-      <div className="sidebar-scroll min-w-0 flex-1 space-y-4 overflow-y-auto p-2">
-        <p className="text-[16px] font-semibold text-[var(--c-text)]">
+      <div className="sidebar-scroll min-w-0 flex-1 space-y-5 overflow-y-auto p-4">
+        <p className="text-[14px] font-semibold text-[var(--c-text)]">
           {CATEGORIES.find((c) => c.key === category)?.label}
         </p>
 
         {done && (
-          <div className="rounded-md bg-emerald-900/60 px-3 py-2 text-xs text-emerald-200">{done}</div>
+          <div className="callout flex items-center gap-2 text-[var(--c-ok)]"><IconCheck size={13} /> {done}</div>
         )}
 
         {category === "apparence" && (
           <>
             <section className="space-y-2">
-              <p className="text-[13px] font-medium text-[var(--c-text)]">Mode d'affichage</p>
-              <div className="flex flex-wrap gap-2 rounded-lg bg-[var(--c-bg3)] p-3">
+              <p className="eyebrow">Mode d'affichage</p>
+              <div className="segmented">
                 {([["dark", "Sombre", IconMoon], ["light", "Clair", IconSun]] as [ColorMode, string, typeof IconMoon][]).map(([mode, label, Icon]) => {
                   const active = (preferences.colorMode ?? "dark") === mode;
                   return (
@@ -272,11 +271,10 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
                       key={mode}
                       type="button"
                       onClick={() => onPreferencesChange({ ...preferences, colorMode: mode })}
-                      className={`flex min-w-[90px] flex-1 items-center justify-center gap-1.5 rounded-md border py-1.5 text-[13px] font-medium transition-all ${
-                        active ? "accent-surface" : "border-transparent text-[var(--c-text-secondary)] hover:bg-white/5"
-                      }`}
+                      data-active={active ? "true" : undefined}
+                      className="flex min-w-[6rem] items-center justify-center gap-1.5"
                     >
-                      <Icon size={14} /> {label}
+                      <Icon size={13} /> {label}
                     </button>
                   );
                 })}
@@ -284,59 +282,64 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
             </section>
 
             <section className="space-y-2">
-              <p className="text-[13px] font-medium text-[var(--c-text)]">Fond de l'interface</p>
-              <div className="space-y-2 rounded-lg bg-[var(--c-bg3)] p-3">
-                <div className="flex flex-wrap gap-2">
-                  {(Object.entries(BG_THEMES) as [UiBg, typeof BG_THEMES[UiBg]][]).map(([key, bg]) => {
-                    const active = (preferences.uiBg ?? "slate") === key;
-                    const shade = bg[preferences.colorMode ?? "dark"];
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        title={bg.label}
-                        onClick={() => onPreferencesChange({ ...preferences, uiBg: key })}
-                        className={`flex items-center gap-1.5 rounded-full border px-3 py-1 text-[13px] transition-all ${active ? "ring-2 ring-[var(--c-accent)] ring-offset-1 ring-offset-[var(--c-bg3)]" : "opacity-70 hover:opacity-100"}`}
-                        style={{ backgroundColor: shade.bg2, borderColor: shade.border, color: preferences.colorMode === "light" ? "#0f172a" : "#e2e8f0" }}
+              <p className="eyebrow">Fond de l'interface</p>
+              {/* Un échantillon par fond : les trois tons de surface tels
+                  qu'ils se superposent, pas une pilule colorée. */}
+              <div className="flex flex-wrap gap-2">
+                {(Object.entries(BG_THEMES) as [UiBg, typeof BG_THEMES[UiBg]][]).map(([key, bg]) => {
+                  const active = (preferences.uiBg ?? "zinc") === key;
+                  const shade = bg[preferences.colorMode ?? "dark"];
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      title={bg.label}
+                      aria-pressed={active}
+                      onClick={() => onPreferencesChange({ ...preferences, uiBg: key })}
+                      className={`flex w-[4.5rem] flex-col items-center gap-1.5 rounded-md p-1.5 transition-colors ${active ? "bg-[var(--c-accent-dim)]" : "hover:bg-[var(--c-hover)]"}`}
+                    >
+                      <span
+                        className={`flex h-9 w-full overflow-hidden rounded border ${active ? "border-[var(--c-accent)]" : "border-[var(--c-border-strong)]"}`}
+                        style={{ backgroundColor: shade.bg }}
                       >
-                        <span className="h-2.5 w-2.5 shrink-0 rounded-full" style={{ backgroundColor: shade.bg }} />
-                        {bg.label}
-                        {active && <span className="text-[var(--c-accent-text)]">✓</span>}
-                      </button>
-                    );
-                  })}
-                </div>
+                        <span className="h-full w-1/3" style={{ backgroundColor: shade.bg2, borderRight: `1px solid ${shade.border}` }} />
+                        <span className="m-1.5 h-2.5 flex-1 rounded-sm" style={{ backgroundColor: shade.bg3 }} />
+                      </span>
+                      <span className={`text-[11px] ${active ? "font-medium text-[var(--c-text)]" : "text-[var(--c-text-secondary)]"}`}>{bg.label}</span>
+                    </button>
+                  );
+                })}
               </div>
             </section>
 
             <section className="space-y-2">
-              <p className="text-[13px] font-medium text-[var(--c-text)]">Couleur d'accent de l'interface</p>
-              <div className="space-y-2 rounded-lg bg-[var(--c-bg3)] p-3">
-                <div className="flex flex-wrap gap-2">
-                  {(Object.entries(ACCENT_COLORS) as [UiAccent, typeof ACCENT_COLORS[UiAccent]][]).map(([key, color]) => {
-                    const active = (preferences.uiAccent ?? "indigo") === key;
-                    return (
-                      <button
-                        key={key}
-                        type="button"
-                        title={color.label}
-                        onClick={() => onPreferencesChange({ ...preferences, uiAccent: key })}
-                        className={`flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[13px] transition-all ${active ? "ring-2 ring-white ring-offset-1 ring-offset-[var(--c-bg3)]" : "opacity-70 hover:opacity-100"}`}
-                        style={{ backgroundColor: color.c600, color: "#fff" }}
-                      >
-                        {active && <span>✓</span>}
-                        {color.label}
-                      </button>
-                    );
-                  })}
-                </div>
+              <p className="eyebrow">Couleur d'accent</p>
+              <div className="flex flex-wrap items-center gap-2">
+                {(Object.entries(ACCENT_COLORS) as [UiAccent, typeof ACCENT_COLORS[UiAccent]][]).map(([key, color]) => {
+                  const active = (preferences.uiAccent ?? "blue") === key;
+                  return (
+                    <button
+                      key={key}
+                      type="button"
+                      title={color.label}
+                      aria-label={color.label}
+                      aria-pressed={active}
+                      onClick={() => onPreferencesChange({ ...preferences, uiAccent: key })}
+                      className={`flex h-7 w-7 items-center justify-center rounded-full text-white transition-transform hover:scale-110 ${active ? "ring-2 ring-[var(--c-text)] ring-offset-2 ring-offset-[var(--c-bg2)]" : ""}`}
+                      style={{ backgroundColor: color.c600 }}
+                    >
+                      {active && <IconCheck size={13} />}
+                    </button>
+                  );
+                })}
+                <span className="ml-1 text-[12px] text-[var(--c-text-secondary)]">{ACCENT_COLORS[preferences.uiAccent ?? "blue"]?.label}</span>
               </div>
             </section>
 
             <section className="space-y-2">
-              <p className="text-[13px] font-medium text-[var(--c-text)]">Boutons de la barre latérale</p>
-              <div className="space-y-1 rounded-lg bg-[var(--c-bg3)] p-3">
-                <p className="px-2 pb-1 text-[12px] text-[var(--c-text-secondary)]">
+              <p className="eyebrow">Boutons de la barre latérale</p>
+              <div className="card space-y-1 p-2">
+                <p className="help-text px-2 pb-1">
                   Décocher un bouton le retire de la barre de gauche, rien de plus :
                   aucune fonctionnalité n'est désactivée, les onglets déjà ouverts
                   restent, et la palette de commandes garde tout.
@@ -366,13 +369,13 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
         )}
 
         {category === "terminal" && (
-          <section className="space-y-3 rounded-lg bg-[var(--c-bg3)] p-3">
+          <section className="space-y-3 card p-3">
             <div className="space-y-1">
-              <label className="block text-[12px] text-[var(--c-text-secondary)]">Thème</label>
+              <label className="field-label">Thème</label>
               <select
                 value={preferences.terminalThemeName}
                 onChange={(e) => onPreferencesChange({ ...preferences, terminalThemeName: e.target.value })}
-                className="w-full rounded-md bg-[var(--c-bg2)] px-2 py-1.5 text-[13px] text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                className="input w-full"
               >
                 {Object.entries(TERMINAL_THEMES).map(([key, entry]) => (
                   <option key={key} value={key}>{entry.label}</option>
@@ -381,11 +384,11 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
             </div>
 
             <div className="space-y-1">
-              <label className="block text-[12px] text-[var(--c-text-secondary)]">Police</label>
+              <label className="field-label">Police</label>
               <select
                 value={preferences.terminalFontFamily}
                 onChange={(e) => onPreferencesChange({ ...preferences, terminalFontFamily: e.target.value })}
-                className="w-full rounded-md bg-[var(--c-bg2)] px-2 py-1.5 text-[13px] text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                className="input w-full"
               >
                 {FONT_FAMILIES.map((f) => (
                   <option key={f.value} value={f.value}>{f.label}</option>
@@ -394,7 +397,7 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
             </div>
 
             <div className="space-y-1">
-              <label className="block text-[12px] text-[var(--c-text-secondary)]">
+              <label className="field-label">
                 Taille de police : <span className="font-mono text-[var(--c-text)]">{preferences.terminalFontSize} px</span>
               </label>
               <input
@@ -404,7 +407,7 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
                 step={1}
                 value={preferences.terminalFontSize}
                 onChange={(e) => onPreferencesChange({ ...preferences, terminalFontSize: Number(e.target.value) })}
-                className="w-full accent-[var(--c-accent)]"
+                className="w-full"
               />
               <div className="flex justify-between text-[11px] text-[var(--c-text-faint)]">
                 <span>10</span><span>24</span>
@@ -425,24 +428,24 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
               {" "}Aperçu du thème
             </div>
 
-            <div className="space-y-1 rounded-lg bg-[var(--c-bg2)] p-1.5">
+            <div className="space-y-1 card p-2">
               <ToggleRow
                 label="Copier/coller au clic droit"
                 checked={preferences.terminalRightClickMenu}
                 onChange={(v) => onPreferencesChange({ ...preferences, terminalRightClickMenu: v })}
               />
-              <p className="px-2 pb-1 text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+              <p className="help-text px-2 pb-1">
                 Clic droit avec une sélection : copie le texte sélectionné. Clic droit sans sélection : colle le presse-papiers.
               </p>
             </div>
 
-            <div className="space-y-1 rounded-lg bg-[var(--c-bg2)] p-1.5">
+            <div className="space-y-1 card p-2">
               <ToggleRow
                 label="Accélération GPU du terminal"
                 checked={preferences.terminalWebglRenderer}
                 onChange={(v) => onPreferencesChange({ ...preferences, terminalWebglRenderer: v })}
               />
-              <p className="px-2 pb-1 text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+              <p className="help-text px-2 pb-1">
                 Dessine le terminal via la carte graphique plutôt que par le DOM. Généralement plus fluide
                 quand beaucoup de texte défile, mais plus lent sur une machine sans accélération matérielle —
                 d'où ce réglage. S'applique aux onglets ouverts ensuite ; en cas d'échec, le rendu classique
@@ -453,36 +456,36 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
                 checked={preferences.terminalRenderStats}
                 onChange={(v) => onPreferencesChange({ ...preferences, terminalRenderStats: v })}
               />
-              <p className="px-2 pb-1 text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+              <p className="help-text px-2 pb-1">
                 Affiche en haut à droite du terminal le mode utilisé (GPU ou DOM) et le temps moyen par image
                 pendant que la sortie défile. Au-delà de 16,7 ms, l'affichage ne suit plus les 60 images par
                 seconde et la valeur passe en orange. Utile pour comparer les deux modes sur votre machine.
               </p>
             </div>
 
-            <div className="space-y-1 rounded-lg bg-[var(--c-bg2)] p-1.5">
+            <div className="space-y-1 card p-2">
               <ToggleRow
                 label="Suggestions de commandes en local (texte fantôme)"
                 checked={preferences.localTerminalSuggestions}
                 onChange={(v) => onPreferencesChange({ ...preferences, localTerminalSuggestions: v })}
               />
-              <p className="px-2 pb-1 text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+              <p className="help-text px-2 pb-1">
                 Propose la fin d'une commande déjà tapée, à accepter avec → ou Fin. Terminaux locaux uniquement.
               </p>
             </div>
 
-            <div className="space-y-1 rounded-lg bg-[var(--c-bg2)] p-1.5">
+            <div className="space-y-1 card p-2">
               <ToggleRow
                 label="Suggestions de commandes en SSH (texte fantôme)"
                 checked={preferences.sshTerminalSuggestions}
                 onChange={(v) => onPreferencesChange({ ...preferences, sshTerminalSuggestions: v })}
               />
-              <p className="px-2 pb-1 text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+              <p className="help-text px-2 pb-1">
                 Même principe pour les sessions SSH, historique partagé entre tous les hôtes. Désactivé par défaut : la latence réseau et les prompts distants (thèmes de shell, complétion serveur) le rendent moins fiable qu'en local.
               </p>
             </div>
 
-            <div className="space-y-1 rounded-lg bg-[var(--c-bg2)] p-1.5">
+            <div className="space-y-1 card p-2">
               <ToggleRow
                 label="Reconnexion automatique en cas de perte de connexion"
                 checked={preferences.autoReconnect}
@@ -497,28 +500,28 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
                     max={20}
                     value={preferences.autoReconnectMaxAttempts}
                     onChange={(e) => onPreferencesChange({ ...preferences, autoReconnectMaxAttempts: Math.max(1, Math.min(20, Number(e.target.value) || 1)) })}
-                    className="w-16 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-right text-[12px] text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                    className="input w-16 text-right"
                   />
                 </div>
               )}
-              <p className="px-2 pb-1 text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+              <p className="help-text px-2 pb-1">
                 Un délai croissant est appliqué entre les tentatives (2s, 4s, 8s…, plafonné à 30s).
               </p>
             </div>
 
             <div className="space-y-1">
               <div className="flex items-center justify-between gap-2">
-                <label className="block text-[12px] text-[var(--c-text-secondary)]">Prévenir quand une commande longue se termine</label>
+                <label className="field-label">Prévenir quand une commande longue se termine</label>
                 <input
                   type="number"
                   min={0}
                   max={3600}
                   value={preferences.longCommandNotifySecs}
                   onChange={(e) => onPreferencesChange({ ...preferences, longCommandNotifySecs: Math.max(0, Math.min(3600, Number(e.target.value) || 0)) })}
-                  className="w-16 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-right text-[12px] text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                  className="input w-16 text-right"
                 />
               </div>
-              <p className="text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+              <p className="help-text">
                 Durée minimale en secondes, <code>0</code> pour désactiver. La notification n'apparaît
                 que si la fenêtre ou l'onglet n'a pas le focus. La fin d'une commande est déduite de
                 l'arrêt de sa sortie : un éditeur laissé ouvert ne déclenche donc rien, mais un shell
@@ -528,18 +531,18 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
             </div>
 
             <div className="space-y-1">
-              <label className="block text-[12px] text-[var(--c-text-secondary)]">Shell local par défaut</label>
+              <label className="field-label">Shell local par défaut</label>
               <select
                 value={preferences.defaultLocalShell ?? ""}
                 onChange={(e) => onPreferencesChange({ ...preferences, defaultLocalShell: e.target.value || null })}
-                className="w-full rounded-md bg-[var(--c-bg2)] px-2 py-1.5 text-[13px] text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                className="input w-full"
               >
                 <option value="">Automatique (système)</option>
                 {localShells.map((s) => (
                   <option key={s.id} value={s.id}>{s.label}</option>
                 ))}
               </select>
-              <p className="text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+              <p className="help-text">
                 Utilisé pour les nouveaux terminaux locaux — un shell différent peut aussi être choisi ponctuellement via le sélecteur à côté du bouton « terminal local ».
               </p>
             </div>
@@ -547,9 +550,9 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
         )}
 
         {category === "sftp" && (
-          <section className="space-y-3 rounded-lg bg-[var(--c-bg3)] p-3">
+          <section className="space-y-3 card p-3">
             <div className="space-y-1">
-              <label className="block text-[12px] text-[var(--c-text-secondary)]">
+              <label className="field-label">
                 Taille du texte : <span className="font-mono text-[var(--c-text)]">{preferences.sftpFontSize ?? 13} px</span>
               </label>
               <input
@@ -559,7 +562,7 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
                 step={1}
                 value={preferences.sftpFontSize ?? 13}
                 onChange={(e) => onPreferencesChange({ ...preferences, sftpFontSize: Number(e.target.value) })}
-                className="w-full accent-[var(--c-accent)]"
+                className="w-full"
               />
               <div className="flex justify-between text-[11px] text-[var(--c-text-faint)]">
                 <span>11</span><span>18</span>
@@ -570,11 +573,11 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
               style={{ fontSize: `${preferences.sftpFontSize ?? 13}px` }}
             >
               <div className="flex items-center gap-2 text-[var(--c-text-secondary)]">
-                <span>📁</span><span className="flex-1 font-medium text-[var(--c-accent-text)]">documents</span>
+                <IconFolderFilled size={14} className="text-[var(--c-accent-text)]" /><span className="flex-1 font-medium text-[var(--c-accent-text)]">documents</span>
                 <span className="font-mono text-[var(--c-text-muted)]">Dossier</span>
               </div>
               <div className="mt-1 flex items-center gap-2 text-[var(--c-text-secondary)]">
-                <span>📄</span><span className="flex-1 font-mono">rapport-2024.pdf</span>
+                <IconFileFilled size={14} className="text-[var(--c-text-muted)]" /><span className="flex-1 font-mono">rapport-2024.pdf</span>
                 <span className="text-[var(--c-text-muted)]">PDF</span>
                 <span className="font-mono text-[var(--c-text-muted)]">2.4 Mo</span>
               </div>
@@ -597,15 +600,15 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
         {category === "raccourcis" && (
           <section className="space-y-2">
             <div className="flex items-center justify-between">
-              <p className="text-[12px] text-[var(--c-text-muted)]">Cliquez sur une combinaison pour la réaffecter.</p>
+              <p className="help-text">Cliquez sur une combinaison pour la réaffecter.</p>
               <button
                 onClick={() => onPreferencesChange({ ...preferences, keyboardShortcuts: defaultShortcuts() })}
-                className="text-[12px] text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)]"
+                className="btn btn-ghost btn-sm"
               >
                 Réinitialiser
               </button>
             </div>
-            <div className="rounded-lg bg-[var(--c-bg3)] p-1.5">
+            <div className="card p-2">
               {(() => {
                 // Calculé une fois pour la liste entière : c'est une propriété
                 // de la carte, pas de la ligne, et une action ne peut pas
@@ -634,7 +637,7 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
         )}
 
         {category === "notifications" && (
-          <section className="space-y-2 rounded-lg bg-[var(--c-bg3)] p-1.5">
+          <section className="space-y-2 card p-2">
             <ToggleRow
               label="Notifier à la perte de connexion"
               checked={preferences.notifyOnDisconnect}
@@ -656,22 +659,22 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
         {category === "general" && (
           <>
             <section className="space-y-2">
-              <p className="text-[13px] font-medium text-[var(--c-text)]">Mises à jour</p>
-              <div className="space-y-2 rounded-lg bg-[var(--c-bg3)] p-3">
-                <p className="text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+              <p className="eyebrow">Mises à jour</p>
+              <div className="space-y-2 card p-3">
+                <p className="help-text">
                   Version installée : <span className="font-mono text-[var(--c-text-secondary)]">{appVersion ?? "…"}</span>
                 </p>
 
                 {updateStatus === "available" && pendingUpdate ? (
                   <div className="space-y-2">
-                    <p className="rounded-md border border-emerald-500/30 bg-emerald-500/10 px-2.5 py-2 text-[12px] text-emerald-200">
+                    <p className="callout text-[var(--c-ok)]">
                       Version {pendingUpdate.version} disponible.
                       {pendingUpdate.body && <><br />{pendingUpdate.body}</>}
                     </p>
                     <button
                       onClick={installUpdate}
                       disabled={updateStatus !== "available"}
-                      className="flex w-full items-center justify-center gap-2 rounded-md bg-emerald-700 px-3 py-2 text-[13px] font-medium text-white hover:bg-emerald-600 disabled:opacity-50"
+                      className="btn btn-primary w-full"
                     >
                       Installer et redémarrer
                     </button>
@@ -680,18 +683,18 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
                   <button
                     onClick={checkForUpdates}
                     disabled={updateStatus === "checking" || updateStatus === "installing"}
-                    className="flex w-full items-center justify-center gap-2 rounded-md bg-[var(--c-bg2)] px-3 py-2 text-[13px] font-medium text-[var(--c-text)] hover:bg-white/5 disabled:opacity-50"
+                    className="btn btn-secondary w-full"
                   >
                     <IconRefresh size={13} />
                     {updateStatus === "checking" && "Recherche…"}
                     {updateStatus === "installing" && "Installation…"}
                     {(updateStatus === "idle" || updateStatus === "error") && "Vérifier les mises à jour"}
-                    {updateStatus === "upToDate" && "À jour ✓"}
+                    {updateStatus === "upToDate" && "À jour"}
                   </button>
                 )}
 
                 {updateStatus === "upToDate" && (
-                  <p className="text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+                  <p className="help-text">
                     {advertisedVersion
                       ? <>GitHub annonce encore la version <span className="font-mono">{advertisedVersion}</span> comme la
                         dernière publiée. Une release plus récente vient peut-être d'être publiée sans être encore
@@ -701,20 +704,20 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
                 )}
 
                 {updateStatus === "error" && updateError && (
-                  <p className="rounded-md border border-rose-500/30 bg-rose-500/10 px-2.5 py-2 text-[12px] text-rose-200">{updateError}</p>
+                  <p className="callout callout-danger">{updateError}</p>
                 )}
               </div>
             </section>
 
             <section className="space-y-2">
-              <p className="text-[13px] font-medium text-[var(--c-text)]">Session</p>
-              <div className="space-y-1 rounded-lg bg-[var(--c-bg3)] p-1.5">
+              <p className="eyebrow">Session</p>
+              <div className="space-y-1 card p-2">
                 <ToggleRow
                   label="Restaurer les onglets au démarrage"
                   checked={preferences.restoreTabsOnLaunch}
                   onChange={(v) => onPreferencesChange({ ...preferences, restoreTabsOnLaunch: v })}
                 />
-                <p className="px-2 pb-1 text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+                <p className="help-text px-2 pb-1">
                   Les onglets réapparaissent sans se reconnecter automatiquement — cliquez sur un onglet restauré pour vous reconnecter.
                 </p>
                 {preferences.restoreTabsOnLaunch && (
@@ -724,7 +727,7 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
                       checked={preferences.resumePersistentTabsOnLaunch}
                       onChange={(v) => onPreferencesChange({ ...preferences, resumePersistentTabsOnLaunch: v })}
                     />
-                    <p className="px-2 pb-1 text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+                    <p className="help-text px-2 pb-1">
                       Seuls les onglets dont l'hôte est réglé sur « Session persistante » se rouvrent
                       d'eux-mêmes, puisque ce sont les seuls à rendre l'écran laissé plutôt qu'un shell
                       vierge. Les autres restent des onglets à cliquer. À laisser désactivé si vos hôtes
@@ -738,7 +741,7 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
                   checked={preferences.tmuxHideStatusBar}
                   onChange={(v) => onPreferencesChange({ ...preferences, tmuxHideStatusBar: v })}
                 />
-                <p className="px-2 pb-1 text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+                <p className="help-text px-2 pb-1">
                   Dans les sessions persistantes, la barre verte de tmux en bas du terminal. Masquée,
                   la session ressemble à un terminal ordinaire ; visible, elle montre les fenêtres tmux
                   si vous en ouvrez plusieurs (Ctrl+B puis c). S'applique à chaque reconnexion, donc
@@ -750,7 +753,7 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
                   checked={preferences.tmuxMouseMode}
                   onChange={(v) => onPreferencesChange({ ...preferences, tmuxMouseMode: v })}
                 />
-                <p className="px-2 pb-1 text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+                <p className="help-text px-2 pb-1">
                   Ce qui permet de remonter dans l'historique à la molette : tmux repeint l'écran
                   entier, donc le défilement du terminal lui-même ne montre rien — l'historique est
                   dans tmux. En contrepartie, sélectionner du texte à la souris demande alors de
@@ -760,9 +763,9 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
             </section>
 
             <section className="space-y-2">
-              <p className="text-[13px] font-medium text-[var(--c-text)]">Diagnostic</p>
-              <div className="space-y-2 rounded-lg bg-[var(--c-bg3)] p-3">
-                <p className="text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+              <p className="eyebrow">Diagnostic</p>
+              <div className="space-y-2 card p-3">
+                <p className="help-text">
                   Guiterm enregistre un journal technique (un fichier par jour, les 7 derniers conservés).
                   En cas de problème, joignez le fichier du jour à votre signalement.
                 </p>
@@ -777,19 +780,19 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
             </section>
 
             <section className="space-y-2">
-              <p className="text-[13px] font-medium text-[var(--c-text)]">Import / Export</p>
-              <div className="space-y-2 rounded-lg bg-[var(--c-bg3)] p-3">
-                <p className="text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+              <p className="eyebrow">Import / Export</p>
+              <div className="space-y-2 card p-3">
+                <p className="help-text">
                   Exporte toute la configuration (hôtes, dossiers, snippets, clés, icônes…) dans un fichier JSON.
                   Les mots de passe et passphrases restent dans le trousseau du système : ils ne sont jamais exportés.
                 </p>
                 {workspace.keychain.length > 0 && (
-                  <label className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-[12px] text-amber-200">
+                  <label className="flex items-start gap-2 callout callout-warn">
                     <input
                       type="checkbox"
                       checked={includeKeyMaterial}
                       onChange={(e) => setIncludeKeyMaterial(e.target.checked)}
-                      className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[var(--c-accent)]"
+                      className="mt-0.5 h-3.5 w-3.5 shrink-0"
                     />
                     <span>
                       Inclure le contenu des clés privées du trousseau — elles seraient écrites en clair, non chiffrées, dans le fichier exporté.
@@ -798,14 +801,14 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
                 )}
                 <button
                   onClick={handleExportWorkspace}
-                  className="flex w-full items-center justify-center gap-2 rounded-md bg-sky-700 px-3 py-2 text-[13px] font-medium text-white hover:bg-sky-600"
+                  className="btn btn-primary w-full"
                 >
                   <IconUpload size={13} /> Exporter la configuration
                 </button>
               </div>
 
-              <div className="space-y-2 rounded-lg bg-[var(--c-bg3)] p-3">
-                <p className="text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+              <div className="space-y-2 card p-3">
+                <p className="help-text">
                   Importe une configuration depuis un fichier JSON.<br />
                   <strong className="text-[var(--c-text-secondary)]">Fusionner</strong> ajoute et met à jour sans supprimer l'existant.{" "}
                   <strong className="text-[var(--c-text-secondary)]">Remplacer</strong> écrase toute la configuration actuelle.
@@ -814,19 +817,19 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
                 {!importPending ? (
                   <button
                     onClick={handleImportWorkspaceFile}
-                    className="flex w-full items-center justify-center gap-2 rounded-md bg-[var(--c-bg2)] px-3 py-2 text-[13px] font-medium text-[var(--c-text)] hover:bg-white/5"
+                    className="btn btn-secondary w-full"
                   >
                     <IconDownload size={13} /> Importer une configuration…
                   </button>
                 ) : (
                   <div className="space-y-1.5">
-                    <p className="text-[13px] text-sky-400">Choisissez le mode d'import :</p>
-                    <label className="flex items-start gap-2 rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-[12px] text-amber-200">
+                    <p className="text-[12.5px] font-medium text-[var(--c-text)]">Choisissez le mode d'import :</p>
+                    <label className="flex items-start gap-2 callout callout-warn">
                       <input
                         type="checkbox"
                         checked={importKeepAutomation}
                         onChange={(e) => setImportKeepAutomation(e.target.checked)}
-                        className="mt-0.5 h-3.5 w-3.5 shrink-0 accent-[var(--c-accent)]"
+                        className="mt-0.5 h-3.5 w-3.5 shrink-0"
                       />
                       <span>
                         Conserver les snippets/variables de démarrage automatiques du fichier — sinon ils sont
@@ -835,25 +838,14 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
                       </span>
                     </label>
                     <div className="flex flex-wrap gap-1.5">
-                      <button
-                        onClick={() => confirmImport(false)}
-                        className="flex-1 basis-[100px] rounded-md bg-sky-700 py-2 text-xs font-medium text-white hover:bg-sky-600"
-                        title="Ajoute et met à jour sans supprimer l'existant"
-                      >
+                      <button onClick={() => confirmImport(false)} className="btn btn-primary flex-1" title="Ajoute et met à jour sans supprimer l'existant">
                         Fusionner
                       </button>
-                      <button
-                        onClick={() => confirmImport(true)}
-                        className="flex-1 basis-[100px] rounded-md bg-rose-700 py-2 text-xs font-medium text-white hover:bg-rose-600"
-                        title="Remplace entièrement la configuration actuelle"
-                      >
+                      <button onClick={() => confirmImport(true)} className="btn btn-danger flex-1" title="Remplace entièrement la configuration actuelle">
                         Remplacer
                       </button>
-                      <button
-                        onClick={() => setImportPending(null)}
-                        className="shrink-0 rounded-md bg-[var(--c-bg2)] px-2.5 py-2 text-[13px] text-[var(--c-text-secondary)] hover:bg-white/5"
-                      >
-                        ✕
+                      <button onClick={() => setImportPending(null)} className="btn btn-ghost">
+                        Annuler
                       </button>
                     </div>
                   </div>

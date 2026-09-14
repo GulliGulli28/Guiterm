@@ -3,7 +3,7 @@ import type { CustomIcon, Host } from "../lib/types";
 import type { TargetLike, TargetRow } from "../lib/targetTree";
 import { hostKindMeta } from "../lib/hostKinds";
 import { HostIcon } from "./icons";
-import { IconChevronDown, IconChevronRight, IconFolder, IconHosts } from "./ui-icons";
+import { IconChevronDown, IconChevronRight, IconFolder, IconTerminal } from "./ui-icons";
 
 /**
  * Le rendu commun des listes de cibles à cocher (flotte, diagnostic réseau),
@@ -51,17 +51,14 @@ interface TargetTreeListProps<T extends TargetLike> {
   emptyMessage?: string;
 }
 
-/** Pastilles de tags, comme `SftpPanel` : sous la carte, pas dans son corps. */
+/** Étiquettes d'une ligne — au plus deux, le reste compté. */
 function TagChips({ tags }: { tags: string[] }) {
   if (tags.length === 0) return null;
   return (
-    <div className="flex flex-wrap gap-1 px-3 pb-2.5">
-      {tags.map((tag) => (
-        <span key={tag} className="rounded-full bg-[var(--c-bg2)] px-1.5 py-0.5 text-[10px] text-[var(--c-text-secondary)]">
-          {tag}
-        </span>
-      ))}
-    </div>
+    <span className="flex shrink-0 gap-1">
+      {tags.slice(0, 2).map((tag) => <span key={tag} className="tag">{tag}</span>)}
+      {tags.length > 2 && <span className="tag" title={tags.slice(2).join(", ")}>+{tags.length - 2}</span>}
+    </span>
   );
 }
 
@@ -79,31 +76,23 @@ function BulkCheckbox({
       checked={all}
       ref={(el) => { if (el) el.indeterminate = checkedCount > 0 && !all; }}
       onChange={(e) => onToggle(e.target.checked)}
-      className="shrink-0 accent-[var(--c-accent)]"
+      className="shrink-0"
     />
   );
 }
 
-/** La pastille d'icône d'une carte — reprise de `SftpPanel`, badge de genre
- * compris. `host` est absent pour le terminal local, qui n'est rattaché à
- * aucune machine enregistrée. */
-function CardIcon({ host, customIcons }: { host: Host | undefined; customIcons: CustomIcon[] }) {
+/** L'icône d'une ligne — même pastille que dans la liste des hôtes. `host`
+ * est absent pour le terminal local, qui n'est rattaché à aucune machine
+ * enregistrée. */
+function RowIcon({ host, customIcons, fallback }: { host: Host | undefined; customIcons: CustomIcon[]; fallback?: "terminal" }) {
   const kind = host?.kind ?? "ssh";
   const { label: kindLabel, Icon: KindIcon } = hostKindMeta(kind);
   return (
-    <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[var(--c-accent-dim)]">
+    <span title={host ? kindLabel : undefined} className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--c-bg3)] text-[var(--c-text-secondary)]">
       {host?.icon
-        ? <HostIcon iconId={host.icon} customIcons={customIcons} size={24} />
-        : <IconHosts size={18} className="text-[var(--c-accent-text)]" />}
-      {host && kind !== "ssh" && (
-        <span
-          title={kindLabel}
-          className="absolute -left-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border-2 border-[var(--c-bg3)] bg-[var(--c-bg2)] text-[var(--c-text-secondary)]"
-        >
-          <KindIcon size={9} />
-        </span>
-      )}
-    </div>
+        ? <HostIcon iconId={host.icon} customIcons={customIcons} size={16} />
+        : fallback === "terminal" && !host ? <IconTerminal size={13} /> : <KindIcon size={13} />}
+    </span>
   );
 }
 
@@ -144,7 +133,7 @@ export function TargetTreeList<T extends TargetLike>({
   }, [rows, collapsed]);
 
   if (rows.length === 0) {
-    return <p className="px-1 py-4 text-center text-[13px] text-[var(--c-text-muted)]">{emptyMessage}</p>;
+    return <p className="px-2 py-8 text-center text-[12px] text-[var(--c-text-muted)]">{emptyMessage}</p>;
   }
 
   return (
@@ -156,12 +145,13 @@ export function TargetTreeList<T extends TargetLike>({
           return (
             <div
               key={row.id}
-              style={{ marginLeft: row.depth * 14 }}
-              className="flex items-center gap-0.5 rounded-md px-1 py-1 hover:bg-white/5"
+              style={{ paddingLeft: 4 + row.depth * 14 }}
+              className="flex h-7 items-center gap-1 rounded-md pr-1 hover:bg-[var(--c-hover)]"
             >
               <button
                 onClick={() => toggleCollapsed(row.id)}
-                className="flex w-4 shrink-0 items-center justify-center text-[var(--c-text-muted)]"
+                aria-label={expanded ? `Replier ${row.group.name}` : `Déplier ${row.group.name}`}
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-[var(--c-text-muted)] hover:text-[var(--c-text)]"
               >
                 {expanded ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
               </button>
@@ -173,57 +163,50 @@ export function TargetTreeList<T extends TargetLike>({
                   title={`Tout sélectionner — ${row.group.name}`}
                 />
               )}
-              <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-[13px] font-medium text-[var(--c-text-secondary)]">
+              <button onClick={() => toggleCollapsed(row.id)} className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left text-[12.5px] font-medium text-[var(--c-text-secondary)]">
                 {row.group.icon
-                  ? <HostIcon iconId={row.group.icon} customIcons={customIcons} size={20} />
-                  : <IconFolder size={18} className="text-[var(--c-text-muted)]" />}
-                {row.group.name}
-              </span>
+                  ? <HostIcon iconId={row.group.icon} customIcons={customIcons} size={15} />
+                  : <IconFolder size={14} className="shrink-0 text-[var(--c-text-muted)]" />}
+                <span className="truncate">{row.group.name}</span>
+              </button>
             </div>
           );
         }
 
         // ── Hôte relais (Docker exec, K8s exec) : l'en-tête de ses cibles,
-        //    pas une cible en soi. Même carte, avec le chevron à la place de
+        //    pas une cible en soi. Même ligne, avec le chevron à la place de
         //    la case individuelle. ─────────────────────────────────────────
         if (row.kind === "host") {
           const expanded = !collapsed.has(row.id);
-          const { label: kindLabel } = hostKindMeta(row.host.kind ?? "ssh");
           return (
             <div
               key={row.id}
-              style={{ marginLeft: row.depth * 14 }}
-              className="rounded-xl border border-transparent bg-[var(--c-bg3)] transition-all hover:border-white/15"
+              style={{ paddingLeft: 4 + row.depth * 14 }}
+              className="list-row h-10 pr-1"
             >
-              <div className="flex items-stretch">
-                <button
-                  onClick={() => toggleCollapsed(row.id)}
-                  title={expanded ? "Replier" : "Déplier"}
-                  className="flex shrink-0 items-center pl-3 text-[var(--c-text-muted)]"
-                >
-                  {expanded ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
-                </button>
-                {onToggleKeys && countChecked && row.keys.length > 0 && (
-                  <label className="flex shrink-0 cursor-pointer items-center pl-2">
-                    <BulkCheckbox
-                      keys={row.keys}
-                      checkedCount={countChecked(row.keys)}
-                      onToggle={(checked) => onToggleKeys(row.keys, checked)}
-                      title={`Tout sélectionner — ${row.host.label}`}
-                    />
-                  </label>
-                )}
-                <div className="flex min-w-0 flex-1 items-center gap-2.5 p-3 text-left">
-                  <CardIcon host={row.host} customIcons={customIcons} />
-                  <div className="min-w-0 flex-1">
-                    <div className="truncate text-[14px] font-medium text-[var(--c-text)]">{row.host.label}</div>
-                    <div className="truncate font-mono text-[11px] text-[var(--c-text-muted)]" title={kindLabel}>
-                      {row.host.address}
-                    </div>
-                  </div>
-                </div>
-              </div>
-              <TagChips tags={row.host.tags} />
+              <button
+                onClick={() => toggleCollapsed(row.id)}
+                aria-label={expanded ? "Replier" : "Déplier"}
+                className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-[var(--c-text-muted)] hover:text-[var(--c-text)]"
+              >
+                {expanded ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
+              </button>
+              {onToggleKeys && countChecked && row.keys.length > 0 && (
+                <BulkCheckbox
+                  keys={row.keys}
+                  checkedCount={countChecked(row.keys)}
+                  onToggle={(checked) => onToggleKeys(row.keys, checked)}
+                  title={`Tout sélectionner — ${row.host.label}`}
+                />
+              )}
+              <RowIcon host={row.host} customIcons={customIcons} />
+              <span className="flex min-w-0 flex-1 flex-col justify-center gap-px leading-tight">
+                <span className="truncate text-[12.5px] font-medium text-[var(--c-text)]">{row.host.label}</span>
+                <span className="flex items-center gap-1.5">
+                  <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-[var(--c-text-muted)]">{row.host.address}</span>
+                  <TagChips tags={row.host.tags} />
+                </span>
+              </span>
             </div>
           );
         }
@@ -232,41 +215,33 @@ export function TargetTreeList<T extends TargetLike>({
         const disabled = isDisabled?.(row.target) ?? false;
         const checked = isChecked(row.target);
         const host = row.target.hostId ? hostById.get(row.target.hostId) : undefined;
+        const extra = renderExtra?.(row.target);
         return (
           <label
             key={row.id}
             title={disabled ? disabledTitle : undefined}
-            style={{ marginLeft: row.depth * 14 }}
-            className={`block rounded-xl border transition-all ${
-              checked
-                ? "glow-ring border-transparent"
-                : disabled
-                  ? "border-transparent opacity-60"
-                  : "cursor-pointer border-transparent hover:border-white/15"
-            } bg-[var(--c-bg3)]`}
+            data-active={checked ? "true" : undefined}
+            style={{ paddingLeft: 8 + row.depth * 14 }}
+            className={`list-row h-10 pr-2 ${disabled ? "opacity-50" : "cursor-pointer"}`}
           >
-            <div className="flex items-stretch">
-              <span className="flex shrink-0 items-center pl-3">
-                <input
-                  type="checkbox"
-                  checked={checked}
-                  disabled={disabled}
-                  onChange={() => onToggle(row.target)}
-                  className="accent-[var(--c-accent)] disabled:opacity-60"
-                />
+            <input
+              type="checkbox"
+              checked={checked}
+              disabled={disabled}
+              onChange={() => onToggle(row.target)}
+              className="shrink-0"
+            />
+            <RowIcon host={host} customIcons={customIcons} fallback="terminal" />
+            <span className="flex min-w-0 flex-1 flex-col justify-center gap-px leading-tight">
+              <span className="flex items-center gap-1.5">
+                <span className="truncate text-[12.5px] font-medium text-[var(--c-text)]">{row.target.label}</span>
+                {extra && <span className="ml-auto flex shrink-0 items-center gap-1.5">{extra}</span>}
               </span>
-              <div className="flex min-w-0 flex-1 items-center gap-2.5 p-3 text-left">
-                <CardIcon host={host} customIcons={customIcons} />
-                <div className="min-w-0 flex-1">
-                  <div className="truncate text-[14px] font-medium text-[var(--c-text)]">{row.target.label}</div>
-                  {row.target.sub && (
-                    <div className="truncate font-mono text-[11px] text-[var(--c-text-muted)]">{row.target.sub}</div>
-                  )}
-                  {renderExtra?.(row.target)}
-                </div>
-              </div>
-            </div>
-            <TagChips tags={row.tags} />
+              <span className="flex items-center gap-1.5">
+                <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-[var(--c-text-muted)]">{row.target.sub ?? ""}</span>
+                <TagChips tags={row.tags} />
+              </span>
+            </span>
           </label>
         );
       })}

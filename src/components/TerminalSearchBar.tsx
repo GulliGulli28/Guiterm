@@ -40,7 +40,7 @@ export function TerminalSearchBar({ onSearch, onClose }: TerminalSearchBarProps)
         onClick={() => { setCaseSensitive((v) => !v); search(value, "next"); }}
         title="Sensible à la casse"
         className={`flex shrink-0 items-center rounded px-1 py-1 text-[11px] font-semibold ${
-          caseSensitive ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+          caseSensitive ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]"
         }`}
       >
         Aa
@@ -49,18 +49,18 @@ export function TerminalSearchBar({ onSearch, onClose }: TerminalSearchBarProps)
         onClick={() => { setRegex((v) => !v); search(value, "next"); }}
         title="Expression régulière"
         className={`flex shrink-0 items-center rounded px-1 py-1 font-mono text-[11px] font-semibold ${
-          regex ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
+          regex ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]"
         }`}
       >
         .*
       </button>
-      <button onClick={() => search(value, "prev")} title="Occurrence précédente (Maj+Entrée)" className="flex shrink-0 items-center rounded p-1 text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]">
+      <button onClick={() => search(value, "prev")} title="Occurrence précédente (Maj+Entrée)" className="flex shrink-0 items-center rounded p-1 text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]">
         <IconChevronRight size={11} className="-rotate-90" />
       </button>
-      <button onClick={() => search(value, "next")} title="Occurrence suivante (Entrée)" className="flex shrink-0 items-center rounded p-1 text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]">
+      <button onClick={() => search(value, "next")} title="Occurrence suivante (Entrée)" className="flex shrink-0 items-center rounded p-1 text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]">
         <IconChevronDown size={11} />
       </button>
-      <button onClick={onClose} title="Fermer (Échap)" className="flex shrink-0 items-center rounded p-1 text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]">
+      <button onClick={onClose} title="Fermer (Échap)" className="flex shrink-0 items-center rounded p-1 text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]">
         <IconClose size={11} />
       </button>
     </div>

@@ -72,7 +72,7 @@ export function BroadcastBar({ targets, selectedIds, onChangeSelected, liveSyncM
           Envoyer
         </button>
       )}
-      <button onClick={onClose} title="Fermer (Échap)" className="flex shrink-0 items-center rounded p-1 text-amber-300 hover:bg-white/10">
+      <button onClick={onClose} title="Fermer (Échap)" className="flex shrink-0 items-center rounded p-1 text-amber-300 hover:bg-[var(--c-active)]">
         <IconClose size={12} />
       </button>
     </div>

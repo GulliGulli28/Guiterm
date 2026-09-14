@@ -16,7 +16,7 @@ import {
   IconHosts, IconSearch, IconPlus, IconKeyboard, IconFlash,
   IconFolder, IconChevronDown, IconChevronRight,
   IconDotsVertical, IconEdit,
-  IconUpload, IconDownload, IconTransfer, IconTunnels, IconTerminal,
+  IconUpload, IconDownload, IconTransfer, IconTunnels, IconTerminal, IconChecklist,
 } from "./ui-icons";
 
 interface HostsPanelProps {
@@ -85,28 +85,26 @@ function LocalTerminalButton({ onOpen }: { onOpen: (shell?: string) => void }) {
     <div ref={ref} className="relative flex shrink-0">
       <button
         onClick={() => onOpen()}
-        title="Ouvrir un terminal local (shell par défaut)"
-        className="flex items-center justify-center rounded-l-xl border border-r-0 border-white/5 bg-[var(--c-bg3)] px-3 py-2 text-[var(--c-text-muted)] hover:border-[var(--c-accent)] hover:text-[var(--c-accent-text)]"
+        title="Ouvrir un terminal local (Ctrl+T)"
+        aria-label="Ouvrir un terminal local"
+        className="btn btn-secondary btn-icon rounded-r-none text-[var(--c-text-secondary)]"
       >
         <IconKeyboard size={15} />
       </button>
       <button
         onClick={togglePicker}
         title="Choisir un shell"
-        className="flex items-center justify-center rounded-r-xl border border-white/5 bg-[var(--c-bg3)] px-1 text-[var(--c-text-muted)] hover:border-[var(--c-accent)] hover:text-[var(--c-accent-text)]"
+        aria-label="Choisir un shell"
+        className="btn btn-secondary -ml-px w-5 rounded-l-none px-0 text-[var(--c-text-muted)]"
       >
-        <IconChevronDown size={11} />
+        <IconChevronDown size={10} />
       </button>
       {open && (
-        <div className="absolute right-0 top-full z-20 mt-1 w-52 overflow-hidden rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] py-1 shadow-[var(--shadow-lg)]">
+        <div className="popover absolute right-0 top-full z-20 mt-1 w-52 py-1">
           {shells === null && <p className="px-3 py-2 text-[12px] text-[var(--c-text-muted)]">Recherche des shells…</p>}
           {shells?.length === 0 && <p className="px-3 py-2 text-[12px] text-[var(--c-text-muted)]">Aucun shell détecté</p>}
           {shells?.map((s) => (
-            <button
-              key={s.id}
-              onClick={() => { onOpen(s.id); setOpen(false); }}
-              className="flex w-full items-center px-3 py-1.5 text-left text-[13px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"
-            >
+            <button key={s.id} onClick={() => { onOpen(s.id); setOpen(false); }} className="menu-item">
               {s.label}
             </button>
           ))}
@@ -142,6 +140,8 @@ export function HostsPanel({
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<Set<GroupId>>(new Set());
   const [openMenuHostId, setOpenMenuHostId] = useState<HostId | null>(null);
+  /** Où accrocher le menu « … » : sous son bouton, aligné à droite. */
+  const [menuAnchor, setMenuAnchor] = useState<{ top: number; right: number } | null>(null);
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [exportPendingHost, setExportPendingHost] = useState<Host | null>(null);
   /** L'hôte dont on regarde les sessions persistantes, s'il y en a un. */
@@ -254,231 +254,198 @@ export function HostsPanel({
     } catch (e) { onError?.(String(e)); }
   };
 
-  // ── Host card ────────────────────────────────────────────────────────────
+  // ── Host row ─────────────────────────────────────────────────────────────
+  // Une ligne de 40 px : libellé et mémoire d'un côté, adresse en mono et
+  // tags de l'autre. Une carte par hôte montrait six machines par écran ; une
+  // liste dense en montre vingt, et c'est ce qu'on parcourt du regard pour en
+  // trouver une.
   const renderHost = (host: Host, depth: number) => {
     const menuOpen = openMenuHostId === host.id;
-    // Calculé seulement quand le menu est ouvert : c'est trois filtres sur le
-    // workspace, inutile de les repasser pour chaque ligne de la liste.
-    const attached = menuOpen ? hostAttachments(workspace, host.id) : null;
     const isActive = host.id === activeHostId;
     const kind = host.kind ?? "ssh";
     const { label: kindLabel, Icon: KindIcon } = hostKindMeta(kind);
     const subtitle =
       kind === "dockerExec" ? host.address :
-      kind === "k8sExec" ? `Contexte : ${host.address}` :
+      kind === "k8sExec" ? host.address :
       kind === "rdp" ? `${host.username}@${host.address}${host.port !== 3389 ? `:${host.port}` : ""}` :
       `${host.username}@${host.address}${host.port !== 22 ? `:${host.port}` : ""}`;
     const runningCount = kind === "dockerExec" ? containerCounts[host.id] : kind === "k8sExec" ? podCounts[host.id] : undefined;
+    const online = hostStatus[host.id];
+    const facts = kind === "ssh" ? host.lastFacts : null;
+    const tooltip = [
+      kind === "ssh" ? `Connecter — ${subtitle}` : kind === "rdp" ? `Aperçu intégré — ${subtitle}` : `${kindLabel} — ${subtitle}`,
+      facts?.osName || facts?.osId,
+      facts?.memUsedPct != null ? `RAM ${Math.round(facts.memUsedPct)} %` : null,
+      host.lastFactsAtMs != null ? `état ${formatRelativeTime(host.lastFactsAtMs)}` : null,
+    ].filter(Boolean).join("\n");
     return (
       <div
         key={host.id}
-        style={{ marginLeft: depth * 14 }}
-        className={`group rounded-xl border bg-[var(--c-bg3)] transition-all ${
-          isActive
-            ? "glow-ring border-transparent"
-            : menuOpen
-              ? "border-white/15"
-              : "border-transparent hover:border-white/15"
-        }`}
+        data-host-row={host.label}
+        data-active={isActive ? "true" : undefined}
+        className={`list-row group h-10 pr-1 ${menuOpen ? "bg-[var(--c-hover)]" : ""}`}
+        style={{ paddingLeft: 8 + depth * 14 }}
       >
-        {/* Header row */}
-        <div className="flex items-stretch">
-          {/* Selection, only in selection mode: a checkbox always on screen
-              would sit between the eye and the host name for the ordinary
-              case, which is connecting to one machine. */}
-          {selecting && (
-            <label className="flex shrink-0 cursor-pointer items-center pl-3">
-              <input
-                type="checkbox"
-                checked={selectedHosts.has(host.id)}
-                onChange={() => toggleSelected(host.id)}
-                className="accent-[var(--c-accent)]"
+        {selecting && (
+          <input
+            type="checkbox"
+            checked={selectedHosts.has(host.id)}
+            onChange={() => toggleSelected(host.id)}
+            aria-label={`Sélectionner ${host.label}`}
+            className="shrink-0"
+          />
+        )}
+        <button
+          onClick={() => (selecting ? toggleSelected(host.id) : handleConnect(host))}
+          className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+          title={tooltip}
+        >
+          <span className="relative flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--c-bg3)] text-[var(--c-text-secondary)]">
+            {host.icon
+              ? <HostIcon iconId={host.icon} customIcons={workspace.customIcons} size={16} />
+              : <KindIcon size={13} />}
+            {online !== undefined && (
+              <span
+                title={online ? "En ligne" : "Hors ligne"}
+                className={`dot absolute -bottom-0.5 -right-0.5 ring-2 ring-[var(--c-bg2)] ${online ? "dot-ok" : ""}`}
               />
-            </label>
-          )}
-          {/* Connect zone */}
-          <button
-            onClick={() => (selecting ? toggleSelected(host.id) : handleConnect(host))}
-            className="flex min-w-0 flex-1 items-center gap-2.5 p-3 text-left"
-            title={kind === "ssh" ? `Connecter — ${subtitle}` : kind === "rdp" ? `Aperçu intégré — ${subtitle}` : kindLabel}
-          >
-            <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[var(--c-accent-dim)]">
-              {host.icon
-                ? <HostIcon iconId={host.icon} customIcons={workspace.customIcons} size={24} />
-                : <IconHosts size={18} className="text-[var(--c-accent-text)]" />
-              }
-              {kind !== "ssh" && (
-                <span
-                  title={kindLabel}
-                  className="absolute -left-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border-2 border-[var(--c-bg3)] bg-[var(--c-bg2)] text-[var(--c-text-secondary)]"
-                >
-                  <KindIcon size={9} />
+            )}
+          </span>
+          <span className="flex min-w-0 flex-1 flex-col justify-center gap-px leading-tight">
+            <span className="flex items-center gap-1.5">
+              <span className="truncate text-[12.5px] font-medium text-[var(--c-text)]">{host.label}</span>
+              {runningCount != null && (
+                <span className="tag tag-accent">{runningCount} actif{runningCount === 1 ? "" : "s"}</span>
+              )}
+              {facts?.memUsedPct != null && (
+                <span className="ml-auto shrink-0 font-mono text-[10.5px] font-medium tabular-nums" style={{ color: ramColor(facts.memUsedPct) }}>
+                  {Math.round(facts.memUsedPct)}%
                 </span>
               )}
-              {hostStatus[host.id] !== undefined && (
-                <span
-                  title={hostStatus[host.id] ? "En ligne" : "Hors ligne"}
-                  className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[var(--c-bg2)] ${
-                    hostStatus[host.id] ? "bg-emerald-500" : "bg-[var(--c-text-faint)]"
-                  }`}
-                />
+            </span>
+            <span className="flex items-center gap-1.5">
+              <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-[var(--c-text-muted)]">{subtitle}</span>
+              {host.tags.length > 0 && (
+                <span className="flex shrink-0 gap-1">
+                  {host.tags.slice(0, 2).map((tag) => <span key={tag} className="tag">{tag}</span>)}
+                  {host.tags.length > 2 && <span className="tag" title={host.tags.slice(2).join(", ")}>+{host.tags.length - 2}</span>}
+                </span>
               )}
-            </div>
-            <div className="min-w-0 flex-1">
-              <div className="flex items-center gap-1.5">
-                <span className="truncate text-[14px] font-medium text-[var(--c-text)]">{host.label}</span>
-                {runningCount != null && (
-                  <span className="shrink-0 rounded-full bg-sky-500/15 px-1.5 py-0.5 text-[9.5px] font-semibold text-sky-300">
-                    {runningCount} actif{runningCount === 1 ? "" : "s"}
-                  </span>
-                )}
-              </div>
-              <div className="truncate font-mono text-[11px] text-[var(--c-text-muted)]">{subtitle}</div>
-              {kind === "ssh" && host.lastFacts && (
-                <div className="mt-0.5 space-y-0.5 text-[10.5px]">
-                  {(host.lastFacts.osName || host.lastFacts.osId) && (
-                    <div className="truncate text-[var(--c-text-faint)]">{host.lastFacts.osName || host.lastFacts.osId}</div>
-                  )}
-                  <div className="flex items-center gap-2 truncate">
-                    {host.lastFacts.memUsedPct != null && (
-                      <span className="shrink-0 font-medium" style={{ color: ramColor(host.lastFacts.memUsedPct) }}>
-                        RAM {Math.round(host.lastFacts.memUsedPct)}%
-                      </span>
-                    )}
-                    {host.lastFactsAtMs != null && (
-                      <span className="truncate text-[var(--c-text-faint)]">état {formatRelativeTime(host.lastFactsAtMs)}</span>
-                    )}
-                  </div>
-                </div>
-              )}
-            </div>
-          </button>
-          {/* Menu toggle */}
-          <button
-            onClick={(e) => { e.stopPropagation(); setOpenMenuHostId(menuOpen ? null : host.id); }}
-            className={`flex shrink-0 items-center px-2 transition-all focus-visible:opacity-100 ${
-              menuOpen
-                ? "text-[var(--c-text-secondary)]"
-                : "text-[var(--c-text-faint)] opacity-0 hover:text-[var(--c-text-secondary)] group-hover:opacity-100 group-focus-within:opacity-100"
-            }`}
-            title="Options"
-          >
-            <IconDotsVertical size={14} />
-          </button>
-        </div>
-
-        {/* Tags */}
-        {host.tags.length > 0 && (
-          <div className="flex flex-wrap gap-1 px-3 pb-2.5">
-            {host.tags.map((tag) => (
-              <span key={tag} className="rounded-full bg-[var(--c-bg2)] px-1.5 py-0.5 text-[10px] text-[var(--c-text-secondary)]">
-                {tag}
-              </span>
-            ))}
-          </div>
-        )}
-
-        {/* Expanded actions */}
-        {menuOpen && attached && hasAttachments(attached) && (
-          /* Ce qui passe par cet hôte. Les liens existaient déjà dans le
-             modèle — une base tunnelée porte l'id de son hôte, un hôte Docker
-             celui de son relais — mais rien ne les lisait dans ce sens : on ne
-             pouvait ni voir ce qui dépend d'une machine, ni sauter de l'une à
-             l'autre. Voir `lib/hostGraph.ts`. */
-          <div className="mx-2 mb-2 space-y-1 rounded-md bg-[var(--c-bg3)] p-2">
-            <p className="px-1 text-[10px] uppercase tracking-wide text-[var(--c-text-muted)]">
-              Passe par cet hôte ({attachmentCount(attached)})
-            </p>
-            {attached.relayedHosts.map((relayed) => (
-              <button
-                key={relayed.id}
-                onClick={() => { handleConnect(relayed); setOpenMenuHostId(null); }}
-                className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5"
-              >
-                <IconHosts size={11} className="shrink-0 text-[var(--c-text-muted)]" />
-                <span className="truncate">{relayed.label}</span>
-                <span className="ml-auto shrink-0 text-[10px] text-[var(--c-text-muted)]">{hostKindMeta(relayed.kind ?? "ssh").label}</span>
-              </button>
-            ))}
-            {attached.databases.map((db) => (
-              <button
-                key={db.id}
-                onClick={() => { onConnectSql(db); setOpenMenuHostId(null); }}
-                className="flex w-full items-center gap-1.5 rounded px-1.5 py-1 text-left text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5"
-              >
-                <IconFolder size={11} className="shrink-0 text-[var(--c-text-muted)]" />
-                <span className="truncate">{db.label}</span>
-                <span className="ml-auto shrink-0 text-[10px] text-[var(--c-text-muted)]">{db.engine}</span>
-              </button>
-            ))}
-            {attached.forwards.map((forward) => (
-              /* Listés sans lien : un tunnel se gère dans son propre panneau,
-                 et le montrer ici sert à savoir ce qui casse si on retire
-                 l'hôte — pas à l'ouvrir. */
-              <p key={forward.id} className="flex items-center gap-1.5 px-1.5 py-1 text-[11px] text-[var(--c-text-muted)]">
-                <IconTunnels size={11} className="shrink-0" />
-                <span className="truncate">{forward.bindAddress}:{forward.bindPort} → {forward.destAddress}:{forward.destPort}</span>
-              </p>
-            ))}
-          </div>
-        )}
-        {menuOpen && (
-          <div className="flex flex-wrap gap-1 p-2 pt-0">
-            <button
-              onClick={() => { onEditHost(host); setOpenMenuHostId(null); }}
-              className="flex flex-1 basis-[80px] items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
-            >
-              <IconEdit size={12} /> Éditer
-            </button>
-            <button
-              onClick={() => { handleExportHost(host); setOpenMenuHostId(null); }}
-              className="flex flex-1 basis-[80px] items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
-            >
-              <IconUpload size={12} /> Exporter
-            </button>
-            {kind === "ssh" && (
-              <button
-                onClick={() => { onSearchFiles(host); setOpenMenuHostId(null); }}
-                title="Chercher un fichier par son nom ou par son contenu ; un résultat s'ouvre directement dans ton éditeur"
-                className="flex flex-1 basis-[80px] items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
-              >
-                <IconSearch size={12} /> Rechercher
-              </button>
-            )}
-            {kind === "ssh" && (
-              <button
-                onClick={() => { onProbeReachability(host); setOpenMenuHostId(null); }}
-                title="Est-ce que cet hôte atteint telle adresse, sur tel port ? Distingue un refus (le port est fermé) d'un silence (pare-feu ou route manquante)"
-                className="flex flex-1 basis-[80px] items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
-              >
-                <IconTunnels size={12} /> Joignabilité
-              </button>
-            )}
-            {kind === "ssh" && (
-              /* Proposé sur **tout** hôte SSH, pas seulement ceux réglés sur
-                 tmux : repasser le réglage à « désactivée » ne fait pas
-                 disparaître les sessions déjà ouvertes, et cacher l'entrée les
-                 rendrait définitivement inatteignables. */
-              <button
-                onClick={() => { setSessionsHost(host); setOpenMenuHostId(null); }}
-                title="Ce qui tourne encore sur cet hôte dans une session persistante — le reprendre, ou le terminer"
-                className="flex flex-1 basis-[80px] items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
-              >
-                <IconTerminal size={12} /> Sessions
-              </button>
-            )}
-            {kind === "rdp" && (
-              <button
-                onClick={() => { onOpenTransfer(host); setOpenMenuHostId(null); }}
-                title="Ouvre l'aperçu intégré avec un panneau de fichiers à gauche — glisser un fichier/dossier dessus l'envoie et le colle automatiquement dans la session distante"
-                className="flex flex-1 basis-[80px] items-center justify-center gap-1.5 rounded-md px-2 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
-              >
-                <IconTransfer size={12} /> Transférer des fichiers
-              </button>
-            )}
-          </div>
-        )}
+            </span>
+          </span>
+        </button>
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (menuOpen) { setOpenMenuHostId(null); return; }
+            const rect = e.currentTarget.getBoundingClientRect();
+            setMenuAnchor({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+            setOpenMenuHostId(host.id);
+          }}
+          className={`btn btn-ghost btn-sm btn-icon shrink-0 focus-visible:opacity-100 ${
+            menuOpen ? "bg-[var(--c-active)] text-[var(--c-text)]" : "opacity-0 group-hover:opacity-100 group-focus-within:opacity-100"
+          }`}
+          title="Options"
+          aria-label={`Options de ${host.label}`}
+        >
+          <IconDotsVertical size={14} />
+        </button>
       </div>
+    );
+  };
+
+  // ── Host menu ────────────────────────────────────────────────────────────
+  // Un menu flottant, ancré sur le bouton « … » de la ligne, plutôt qu'un
+  // bloc déplié dans la liste : la liste ne bouge pas, et le menu ne se fait
+  // pas couper par le défilement.
+  const renderHostMenu = () => {
+    const host = workspace.hosts.find((h) => h.id === openMenuHostId);
+    if (!host || !menuAnchor) return null;
+    const kind = host.kind ?? "ssh";
+    const attached = hostAttachments(workspace, host.id);
+    const close = () => setOpenMenuHostId(null);
+    return (
+      <>
+        <div className="fixed inset-0 z-30" onMouseDown={close} />
+        <div className="popover fixed z-40 w-60 py-1" style={{ top: menuAnchor.top, right: menuAnchor.right }} role="menu">
+          <button onClick={() => { onEditHost(host); close(); }} className="menu-item"><IconEdit size={13} /> Modifier</button>
+          {kind === "ssh" && (
+            <button
+              onClick={() => { onSearchFiles(host); close(); }}
+              title="Chercher un fichier par son nom ou par son contenu ; un résultat s'ouvre directement dans ton éditeur"
+              className="menu-item"
+            >
+              <IconSearch size={13} /> Rechercher des fichiers
+            </button>
+          )}
+          {kind === "ssh" && (
+            <button
+              onClick={() => { onProbeReachability(host); close(); }}
+              title="Est-ce que cet hôte atteint telle adresse, sur tel port ? Distingue un refus (le port est fermé) d'un silence (pare-feu ou route manquante)"
+              className="menu-item"
+            >
+              <IconTunnels size={13} /> Joignabilité
+            </button>
+          )}
+          {kind === "ssh" && (
+            /* Proposé sur **tout** hôte SSH, pas seulement ceux réglés sur
+               tmux : repasser le réglage à « désactivée » ne fait pas
+               disparaître les sessions déjà ouvertes, et cacher l'entrée les
+               rendrait définitivement inatteignables. */
+            <button
+              onClick={() => { setSessionsHost(host); close(); }}
+              title="Ce qui tourne encore sur cet hôte dans une session persistante — le reprendre, ou le terminer"
+              className="menu-item"
+            >
+              <IconTerminal size={13} /> Sessions persistantes
+            </button>
+          )}
+          {kind === "rdp" && (
+            <button
+              onClick={() => { onOpenTransfer(host); close(); }}
+              title="Ouvre l'aperçu intégré avec un panneau de fichiers à gauche — glisser un fichier/dossier dessus l'envoie et le colle automatiquement dans la session distante"
+              className="menu-item"
+            >
+              <IconTransfer size={13} /> Transférer des fichiers
+            </button>
+          )}
+          <button onClick={() => { handleExportHost(host); close(); }} className="menu-item"><IconUpload size={13} /> Exporter…</button>
+          {hasAttachments(attached) && (
+            /* Ce qui passe par cet hôte. Les liens existaient déjà dans le
+               modèle — une base tunnelée porte l'id de son hôte, un hôte Docker
+               celui de son relais — mais rien ne les lisait dans ce sens : on ne
+               pouvait ni voir ce qui dépend d'une machine, ni sauter de l'une à
+               l'autre. Voir `lib/hostGraph.ts`. */
+            <>
+              <div className="menu-sep" />
+              <p className="eyebrow px-2.5 pb-1 pt-1.5">Passe par cet hôte ({attachmentCount(attached)})</p>
+              {attached.relayedHosts.map((relayed) => (
+                <button key={relayed.id} onClick={() => { handleConnect(relayed); close(); }} className="menu-item">
+                  <IconHosts size={13} className="shrink-0 text-[var(--c-text-muted)]" />
+                  <span className="truncate">{relayed.label}</span>
+                  <span className="ml-auto shrink-0 text-[10.5px] text-[var(--c-text-muted)]">{hostKindMeta(relayed.kind ?? "ssh").label}</span>
+                </button>
+              ))}
+              {attached.databases.map((db) => (
+                <button key={db.id} onClick={() => { onConnectSql(db); close(); }} className="menu-item">
+                  <IconFolder size={13} className="shrink-0 text-[var(--c-text-muted)]" />
+                  <span className="truncate">{db.label}</span>
+                  <span className="ml-auto shrink-0 text-[10.5px] text-[var(--c-text-muted)]">{db.engine}</span>
+                </button>
+              ))}
+              {attached.forwards.map((forward) => (
+                /* Listés sans lien : un tunnel se gère dans son propre panneau,
+                   et le montrer ici sert à savoir ce qui casse si on retire
+                   l'hôte — pas à l'ouvrir. */
+                <p key={forward.id} className="flex items-center gap-2 px-2.5 py-1.5 font-mono text-[11px] text-[var(--c-text-muted)]">
+                  <IconTunnels size={12} className="shrink-0" />
+                  <span className="truncate">{forward.bindAddress}:{forward.bindPort} → {forward.destAddress}:{forward.destPort}</span>
+                </p>
+              ))}
+            </>
+          )}
+        </div>
+      </>
     );
   };
 
@@ -487,46 +454,35 @@ export function HostsPanel({
     if (query && !matchingGroups.has(group.id)) return null;
     const expanded = isExpanded(group.id);
     return (
-      <div key={group.id} className="space-y-1">
+      <div key={group.id}>
         <div
-          style={{ marginLeft: depth * 14 }}
-          className="group flex items-center gap-0.5 rounded-md px-1 py-1 hover:bg-white/5"
+          style={{ paddingLeft: 4 + depth * 14 }}
+          className="group flex h-7 items-center gap-1 rounded-md pr-1 hover:bg-[var(--c-hover)]"
         >
-          <button onClick={() => toggleGroup(group.id)} className="flex w-4 shrink-0 items-center justify-center text-[var(--c-text-muted)]">
+          <button
+            onClick={() => toggleGroup(group.id)}
+            aria-label={expanded ? `Replier ${group.name}` : `Déplier ${group.name}`}
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-[var(--c-text-muted)] hover:text-[var(--c-text)]"
+          >
             {expanded ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
           </button>
-          <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-[13px] font-medium text-[var(--c-text-secondary)]">
+          <button onClick={() => toggleGroup(group.id)} className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left text-[12.5px] font-medium text-[var(--c-text-secondary)]">
             {group.icon ? (
-              <HostIcon iconId={group.icon} customIcons={workspace.customIcons} size={20} />
+              <HostIcon iconId={group.icon} customIcons={workspace.customIcons} size={15} />
             ) : (
-              <IconFolder size={18} className="text-[var(--c-text-muted)]" />
+              <IconFolder size={14} className="shrink-0 text-[var(--c-text-muted)]" />
             )}
-            {group.name}
+            <span className="truncate">{group.name}</span>
+            <span className="text-[10.5px] font-normal text-[var(--c-text-faint)]">{hostsIn(group.id).length || ""}</span>
+          </button>
+          <span className="flex shrink-0 items-center opacity-0 focus-within:opacity-100 group-hover:opacity-100">
+            <button onClick={() => onNewHostInGroup(group.id)} title="Nouvel hôte dans ce dossier" className="btn btn-ghost btn-sm btn-icon"><IconPlus size={12} /></button>
+            <button onClick={() => onNewGroupUnder(group.id)} title="Nouveau sous-dossier" className="btn btn-ghost btn-sm btn-icon"><IconFolder size={12} /></button>
+            <button onClick={() => onEditGroup(group)} title="Modifier ce dossier" className="btn btn-ghost btn-sm btn-icon"><IconEdit size={12} /></button>
           </span>
-          <button
-            onClick={() => onNewHostInGroup(group.id)}
-            title="Nouvel hôte dans ce dossier"
-            className="flex items-center p-1 text-[var(--c-text-muted)] opacity-0 hover:text-[var(--c-accent-text)] focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
-          >
-            <IconHosts size={12} />
-          </button>
-          <button
-            onClick={() => onNewGroupUnder(group.id)}
-            title="Nouveau sous-dossier"
-            className="flex items-center p-1 text-[var(--c-text-muted)] opacity-0 hover:text-[var(--c-accent-text)] focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
-          >
-            <IconFolder size={12} />
-          </button>
-          <button
-            onClick={() => onEditGroup(group)}
-            title="Modifier ce dossier"
-            className="flex items-center p-1 text-[var(--c-text-muted)] opacity-0 hover:text-[var(--c-text-secondary)] focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100"
-          >
-            <IconEdit size={12} />
-          </button>
         </div>
         {expanded && (
-          <div className="space-y-1">
+          <div>
             {hostsIn(group.id).map((h) => renderHost(h, depth + 1))}
             {childGroups(group.id).map((g) => renderGroup(g, depth + 1))}
           </div>
@@ -535,144 +491,109 @@ export function HostsPanel({
     );
   };
 
+  const addMenuItem = "menu-item";
+
   return (
-    <div className="flex h-full min-w-0 flex-col gap-2">
+    <div className="flex h-full min-w-0 flex-col">
       {/* Search — first for discoverability */}
-      <div className="relative">
-        <div className="pointer-events-none absolute inset-y-0 left-3 flex items-center">
+      <div className="relative shrink-0">
+        <div className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center">
           <IconSearch size={13} className="text-[var(--c-text-muted)]" />
         </div>
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && quickSSH) handleQuickConnect(); }}
-          placeholder="Rechercher ou ssh user@hôte…"
-          className="w-full rounded-xl border border-white/5 bg-[var(--c-bg3)] pl-8 pr-3 py-2 text-[13px] text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[var(--c-accent)]"
+          placeholder="Rechercher, ou ssh user@hôte"
+          className="input pl-8"
         />
       </div>
 
-      {/* Action buttons */}
-      <div className="flex gap-1.5">
+      {/* Action row */}
+      <div className="mt-2 flex shrink-0 items-center gap-1.5">
         <div className="relative flex-1">
           {showAddMenu && (
             <>
               <div className="fixed inset-0 z-10" onClick={() => setShowAddMenu(false)} />
-              <div className="absolute left-0 right-0 top-full z-20 mt-1 overflow-hidden rounded-xl border border-white/5 bg-[var(--c-bg2)] py-1 shadow-[var(--shadow-lg)]">
-                <button
-                  onClick={() => { onNewHost(); setShowAddMenu(false); }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)]"
-                >
-                  <IconPlus size={14} /> Nouvel hôte
-                </button>
-                <button
-                  onClick={() => { onNewGroup(); setShowAddMenu(false); }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)]"
-                >
-                  <IconFolder size={14} /> Nouveau dossier
-                </button>
-                <div className="my-1 border-t border-[var(--c-border)]" />
-                <button
-                  onClick={() => { handleImportHost(); setShowAddMenu(false); }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)]"
-                >
-                  <IconDownload size={14} /> Importer un hôte
-                </button>
-                <button
-                  onClick={() => { onImportCloud(); setShowAddMenu(false); }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)]"
-                >
-                  <IconDownload size={14} /> Importer depuis le cloud
-                </button>
-                <button
-                  onClick={() => { onImportAnsible(); setShowAddMenu(false); }}
-                  className="flex w-full items-center gap-2 px-3 py-2 text-[13px] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)]"
-                >
-                  <IconDownload size={14} /> Importer un inventaire Ansible
-                </button>
+              <div className="popover absolute left-0 top-full z-20 mt-1 w-full min-w-[15rem] py-1">
+                <button onClick={() => { onNewHost(); setShowAddMenu(false); }} className={addMenuItem}><IconHosts size={14} /> Nouvel hôte</button>
+                <button onClick={() => { onNewGroup(); setShowAddMenu(false); }} className={addMenuItem}><IconFolder size={14} /> Nouveau dossier</button>
+                <div className="menu-sep" />
+                <button onClick={() => { handleImportHost(); setShowAddMenu(false); }} className={addMenuItem}><IconDownload size={14} /> Importer un hôte (fichier)</button>
+                <button onClick={() => { onImportCloud(); setShowAddMenu(false); }} className={addMenuItem}><IconDownload size={14} /> Importer depuis le cloud</button>
+                <button onClick={() => { onImportAnsible(); setShowAddMenu(false); }} className={addMenuItem}><IconDownload size={14} /> Importer un inventaire Ansible</button>
               </div>
             </>
           )}
           <button
             onClick={() => setShowAddMenu((v) => !v)}
-            className={`accent-surface flex w-full items-center justify-center gap-1.5 rounded-xl border py-2 text-xs font-semibold transition-all ${
-              showAddMenu ? "ring-2 ring-white/25" : ""
-            }`}
+            className="btn btn-primary w-full"
+            aria-haspopup="menu"
+            aria-expanded={showAddMenu}
           >
             <IconPlus size={13} />
-            Ajouter…
+            Ajouter
+            <IconChevronDown size={10} className="opacity-70" />
           </button>
         </div>
         <LocalTerminalButton onOpen={onOpenLocalTerminal} />
+        {/* Selection mode: entering it, and acting on what's ticked. Offered
+            only once there is more than one host — below that it is a mode with
+            nothing to gain. */}
+        {workspace.hosts.length > 1 && (
+          <button
+            onClick={() => (selecting ? leaveSelection() : setSelecting(true))}
+            title={selecting ? "Quitter la sélection" : "Sélectionner plusieurs hôtes pour les modifier d'un coup"}
+            aria-pressed={selecting}
+            className={`btn btn-icon ${selecting ? "btn-toggled" : "btn-secondary text-[var(--c-text-muted)]"}`}
+          >
+            <IconChecklist size={14} />
+          </button>
+        )}
       </div>
 
-      {/* Selection mode: entering it, and acting on what's ticked. Offered
-          only once there is more than one host — below that it is a mode with
-          nothing to gain. */}
-      {workspace.hosts.length > 1 && (
-        <div className="shrink-0 px-2 pb-1">
-          {!selecting ? (
-            <button
-              onClick={() => setSelecting(true)}
-              className="text-[10px] text-[var(--c-text-muted)] hover:text-[var(--c-accent-text)] hover:underline"
-            >
-              Sélectionner plusieurs hôtes…
-            </button>
-          ) : (
-            <div className="flex flex-wrap items-center gap-1.5 rounded-lg bg-[var(--c-bg3)] px-2 py-1.5">
-              <span className="text-[11px] text-[var(--c-text-secondary)]">
-                {selectedHosts.size} sélectionné{selectedHosts.size > 1 ? "s" : ""}
-              </span>
-              <button
-                onClick={() => setSelectedHosts(new Set(workspace.hosts.map((h) => h.id)))}
-                className="text-[10px] text-[var(--c-accent-text)] hover:underline"
-              >
-                Tout
-              </button>
-              <button
-                onClick={() => setSelectedHosts(new Set())}
-                className="text-[10px] text-[var(--c-text-muted)] hover:underline"
-              >
-                Aucun
-              </button>
-              <button
-                onClick={() => setBulkEditOpen(true)}
-                disabled={selectedHosts.size === 0}
-                className="accent-surface ml-auto rounded-md border px-2 py-0.5 text-[10px] font-medium disabled:opacity-40"
-              >
-                Modifier…
-              </button>
-              <button
-                onClick={leaveSelection}
-                className="rounded-md px-2 py-0.5 text-[10px] text-[var(--c-text-muted)] hover:bg-white/5"
-              >
-                Quitter
-              </button>
-            </div>
-          )}
+      {selecting && (
+        <div className="mt-2 flex shrink-0 items-center gap-2 rounded-md border border-[var(--c-border)] bg-[var(--c-bg3)] px-2 py-1 text-[11.5px]">
+          <span className="text-[var(--c-text-secondary)]">
+            {selectedHosts.size} sélectionné{selectedHosts.size > 1 ? "s" : ""}
+          </span>
+          <button onClick={() => setSelectedHosts(new Set(workspace.hosts.map((h) => h.id)))} className="text-[var(--c-accent-text)] hover:underline">Tout</button>
+          <button onClick={() => setSelectedHosts(new Set())} className="text-[var(--c-text-muted)] hover:underline">Aucun</button>
+          <button onClick={() => setBulkEditOpen(true)} disabled={selectedHosts.size === 0} className="btn btn-primary btn-sm ml-auto">
+            Modifier…
+          </button>
         </div>
       )}
 
       {/* Host list */}
-      <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-1 overflow-y-auto pb-2 pl-2 pt-2">
+      <div className="sidebar-scroll -mx-1 mt-2 min-h-0 min-w-0 flex-1 overflow-y-auto px-1 pb-2">
         {quickSSH && (
           <button
             onClick={handleQuickConnect}
-            className="accent-surface-hover flex w-full items-center gap-2 rounded-xl border border-[var(--c-accent-dim)] bg-[var(--c-accent-dim)] px-3 py-2 text-left text-[13px] text-[var(--c-accent-text)] hover:text-white"
+            className="list-row mb-1 h-10 w-full border border-dashed border-[var(--c-accent)] text-[var(--c-accent-text)] hover:bg-[var(--c-accent-dim)]"
           >
             <IconFlash size={13} className="shrink-0" />
-            <span className="min-w-0 truncate font-mono">
+            <span className="min-w-0 truncate font-mono text-[12px]">
               <span className="font-medium">{quickSSH.username}@{quickSSH.address}</span>
               {quickSSH.port !== 22 && <span className="opacity-70">:{quickSSH.port}</span>}
             </span>
-            <span className="ml-auto shrink-0 text-[10px] opacity-60">Entrée pour se connecter</span>
+            <span className="kbd ml-auto shrink-0">Entrée</span>
           </button>
         )}
         {hostsIn(null).map((h) => renderHost(h, 0))}
         {childGroups(null).map((g) => renderGroup(g, 0))}
         {!quickSSH && workspace.hosts.length === 0 && workspace.groups.length === 0 && (
-          <p className="px-1 py-4 text-center text-[13px] text-[var(--c-text-muted)]">Aucun hôte enregistré</p>
+          <div className="px-2 py-8 text-center">
+            <p className="text-[12.5px] font-medium text-[var(--c-text-secondary)]">Aucun hôte enregistré</p>
+            <p className="mt-1 text-[11.5px] text-[var(--c-text-muted)]">Ajoutez-en un, ou tapez <span className="font-mono">ssh user@hôte</span> ci-dessus pour vous connecter tout de suite.</p>
+          </div>
+        )}
+        {!quickSSH && query && workspace.hosts.length > 0 && hostsIn(null).length === 0 && childGroups(null).every((g) => !matchingGroups.has(g.id)) && (
+          <p className="px-2 py-8 text-center text-[12px] text-[var(--c-text-muted)]">Aucun hôte ne correspond à « {search.trim()} ».</p>
         )}
       </div>
+
+      {renderHostMenu()}
 
       {sessionsHost && (
         <PersistentSessionsModal
@@ -687,30 +608,30 @@ export function HostsPanel({
       {exportPendingHost && (
         <>
           <div className="fixed inset-0 z-30 bg-black/50" onClick={() => setExportPendingHost(null)} />
-          <div className="fixed left-1/2 top-1/2 z-40 w-[420px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-lg bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]">
-            <div className="border-b border-[var(--c-border)] px-4 py-3">
-              <p className="text-[14px] font-medium text-[var(--c-text)]">Exporter « {exportPendingHost.label} »</p>
-              <p className="mt-0.5 text-[11px] text-[var(--c-text-muted)]">
+          <div className="modal fixed left-1/2 top-1/2 z-40 w-[420px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 overflow-hidden">
+            <div className="px-4 pt-4">
+              <p className="text-[14px] font-semibold text-[var(--c-text)]">Exporter « {exportPendingHost.label} »</p>
+              <p className="mt-1 text-[12px] text-[var(--c-text-secondary)]">
                 Cet hôte utilise une clé du trousseau. Faut-il l'inclure dans le fichier exporté ?
               </p>
             </div>
-            <div className="p-3">
-              <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-[12px] text-amber-200">
+            <div className="p-4">
+              <p className="callout callout-warn">
                 La clé privée serait écrite en clair, non chiffrée, dans le fichier JSON. Ne la partagez qu'avec des personnes de confiance, sur un canal sûr.
               </p>
             </div>
-            <div className="flex gap-1.5 border-t border-[var(--c-border)] p-2">
-              <button
-                onClick={() => { const h = exportPendingHost; setExportPendingHost(null); doExportHost(h, false); }}
-                className="accent-surface flex-1 rounded-md border py-1.5 text-xs font-medium"
-              >
-                Exporter sans la clé
-              </button>
+            <div className="flex justify-end gap-2 border-t border-[var(--c-border)] px-4 py-3">
               <button
                 onClick={() => { const h = exportPendingHost; setExportPendingHost(null); doExportHost(h, true); }}
-                className="flex-1 rounded-md bg-rose-900/40 py-1.5 text-xs font-medium text-rose-200 hover:bg-rose-900/60"
+                className="btn btn-danger"
               >
                 Inclure la clé privée
+              </button>
+              <button
+                onClick={() => { const h = exportPendingHost; setExportPendingHost(null); doExportHost(h, false); }}
+                className="btn btn-primary"
+              >
+                Exporter sans la clé
               </button>
             </div>
           </div>

@@ -1,3 +1,4 @@
+import { IconFolder, IconCheck, IconChevronDown, IconHosts } from "./ui-icons";
 import { useRef, useState } from "react";
 import type { CustomIcon, Group, GroupId } from "../lib/types";
 import { HostIcon } from "./icons";
@@ -70,15 +71,15 @@ export function GroupTreePicker({
           type="button"
           onClick={(e) => pick(e, group.id)}
           style={{ paddingLeft: `${8 + depth * 16}px` }}
-          className={`flex w-full items-center gap-1.5 py-1.5 pr-3 text-left text-sm transition-colors hover:bg-white/5 ${isSelected ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-secondary)]"}`}
+          className={`flex w-full items-center gap-1.5 py-1.5 pr-3 text-left text-[12.5px] transition-colors hover:bg-[var(--c-hover)] ${isSelected ? "bg-[var(--c-accent-dim)] text-[var(--c-text)]" : "text-[var(--c-text-secondary)]"}`}
         >
           {group.icon ? (
             <HostIcon iconId={group.icon} customIcons={customIcons} size={13} />
           ) : (
-            <span className="text-[11px]">📁</span>
+            <IconFolder size={13} className="shrink-0 text-[var(--c-text-muted)]" />
           )}
           <span className="truncate">{group.name}</span>
-          {isSelected && <span className="ml-auto shrink-0 text-[10px] text-[var(--c-accent-text)]">✓</span>}
+          {isSelected && <IconCheck size={12} className="ml-auto shrink-0 text-[var(--c-accent-text)]" />}
         </button>
         {childrenOf(group.id).map((child) => renderNode(child, depth + 1))}
       </div>
@@ -91,7 +92,7 @@ export function GroupTreePicker({
         ref={btnRef}
         type="button"
         onClick={(e) => { e.preventDefault(); e.stopPropagation(); if (open) setOpen(false); else openDropdown(); }}
-        className="flex w-full items-center justify-between gap-2 rounded-md bg-[var(--c-bg3)] px-3 py-2 text-left text-sm text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+        className="input flex w-full items-center justify-between gap-2 text-left"
       >
         <span className="flex min-w-0 items-center gap-1.5 truncate">
           {selected ? (
@@ -99,7 +100,7 @@ export function GroupTreePicker({
               {selected.icon ? (
                 <HostIcon iconId={selected.icon} customIcons={customIcons} size={13} />
               ) : (
-                <span className="text-[11px]">📁</span>
+                <IconFolder size={13} className="shrink-0 text-[var(--c-text-muted)]" />
               )}
               <span className="truncate">{selected.name}</span>
             </>
@@ -107,7 +108,7 @@ export function GroupTreePicker({
             <span className="text-[var(--c-text-muted)]">{placeholder}</span>
           )}
         </span>
-        <span className="shrink-0 text-[10px] text-[var(--c-text-muted)]">{open ? "▴" : "▾"}</span>
+        <IconChevronDown size={10} className={`shrink-0 text-[var(--c-text-muted)] transition-transform ${open ? "rotate-180" : ""}`} />
       </button>
 
       {open && (
@@ -118,11 +119,11 @@ export function GroupTreePicker({
               <button
                 type="button"
                 onClick={(e) => pick(e, null)}
-                className={`flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-sm transition-colors hover:bg-white/5 ${!value ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-secondary)]"}`}
+                className={`flex w-full items-center gap-1.5 px-3 py-1.5 text-left text-[12.5px] transition-colors hover:bg-[var(--c-hover)] ${!value ? "bg-[var(--c-accent-dim)] text-[var(--c-text)]" : "text-[var(--c-text-secondary)]"}`}
               >
-                <span className="text-[11px]">🏠</span>
+                <IconHosts size={13} className="shrink-0 text-[var(--c-text-muted)]" />
                 <span>{placeholder}</span>
-                {!value && <span className="ml-auto shrink-0 text-[10px] text-[var(--c-accent-text)]">✓</span>}
+                {!value && <IconCheck size={12} className="ml-auto shrink-0 text-[var(--c-accent-text)]" />}
               </button>
               {childrenOf(null).map((g) => renderNode(g, 0))}
               {groups.filter((g) => g.id !== excludeId).length === 0 && (

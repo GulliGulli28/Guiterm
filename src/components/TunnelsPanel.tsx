@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
 import type { HostId, PortForward, PortForwardId, PortForwardKind, Workspace } from "../lib/types";
-import { IconPlus, IconClose, IconTrash, IconEdit } from "./ui-icons";
+import { IconPlus, IconTrash, IconEdit } from "./ui-icons";
 import { HostTreePicker } from "./HostTreePicker";
 
 /** Ce qu'un tunnel vaut dans le formulaire — les ports y sont du texte, parce
@@ -69,7 +69,7 @@ function TunnelForm({
   const isDynamic = draft.kind === "dynamic";
 
   return (
-    <div className="mt-2 space-y-1.5 rounded-xl bg-[var(--c-bg3)] p-2.5">
+    <div className="card mt-1.5 space-y-1.5 p-2.5">
       <HostTreePicker
         hosts={workspace.hosts}
         groups={workspace.groups}
@@ -84,39 +84,30 @@ function TunnelForm({
         <option value="dynamic">SOCKS dynamique (-D)</option>
       </select>
       <div className="flex gap-1.5">
-        <input value={draft.bindAddress} onChange={(e) => set("bindAddress", e.target.value)} placeholder="Locale" className={`${inputClass} min-w-0 flex-1 font-mono`} />
-        <input value={draft.bindPort} onChange={(e) => set("bindPort", e.target.value)} placeholder="Port" inputMode="numeric" className={`${inputClass} w-16 shrink-0 font-mono`} />
+        <input value={draft.bindAddress} onChange={(e) => set("bindAddress", e.target.value)} placeholder="Locale" className={`${inputClass} min-w-0 flex-1 input-mono`} />
+        <input value={draft.bindPort} onChange={(e) => set("bindPort", e.target.value)} placeholder="Port" inputMode="numeric" className={`${inputClass} w-16 shrink-0 input-mono`} />
       </div>
       {isDynamic ? (
-        <p className="px-0.5 text-[11px] leading-relaxed text-[var(--c-text-muted)]">
+        <p className="help-text px-0.5">
           Proxy SOCKS5 : la destination est choisie par chaque application qui s'y connecte, pas de « distante » fixe.
         </p>
       ) : (
         <div className="flex gap-1.5">
-          <input value={draft.destAddress} onChange={(e) => set("destAddress", e.target.value)} placeholder="Distante" className={`${inputClass} min-w-0 flex-1 font-mono`} />
-          <input value={draft.destPort} onChange={(e) => set("destPort", e.target.value)} placeholder="Port" inputMode="numeric" className={`${inputClass} w-16 shrink-0 font-mono`} />
+          <input value={draft.destAddress} onChange={(e) => set("destAddress", e.target.value)} placeholder="Distante" className={`${inputClass} min-w-0 flex-1 input-mono`} />
+          <input value={draft.destPort} onChange={(e) => set("destPort", e.target.value)} placeholder="Port" inputMode="numeric" className={`${inputClass} w-16 shrink-0 input-mono`} />
         </div>
       )}
-      <div className="flex gap-1.5">
-        <button onClick={onSubmit} disabled={busy} className="accent-surface flex-1 rounded-md border py-1.5 text-xs font-medium disabled:opacity-50">
+      <div className="flex items-center gap-1.5 pt-1">
+        {onDelete && (
+          <button onClick={onDelete} className="btn btn-ghost btn-sm text-[var(--c-danger)]">
+            <IconTrash size={11} /> Supprimer
+          </button>
+        )}
+        <button aria-label="Annuler la saisie" onClick={onCancel} className="btn btn-ghost ml-auto">Annuler</button>
+        <button onClick={onSubmit} disabled={busy} className="btn btn-primary">
           {busy ? "…" : submitLabel}
         </button>
-        <button
-          aria-label="Annuler la saisie"
-          onClick={onCancel}
-          className="flex items-center justify-center rounded-md bg-[var(--c-bg2)] px-2.5 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
-        >
-          <IconClose size={12} />
-        </button>
       </div>
-      {onDelete && (
-        <button
-          onClick={onDelete}
-          className="flex w-full items-center justify-center gap-1.5 rounded-md bg-[var(--c-bg2)] py-1.5 text-xs text-rose-400 hover:bg-rose-900/60"
-        >
-          <IconTrash size={11} /> Supprimer ce tunnel
-        </button>
-      )}
     </div>
   );
 }
@@ -201,15 +192,13 @@ export function TunnelsPanel({ workspace, onAddForward, onUpdateForward, onDelet
 
   return (
     <div className="flex h-full min-w-0 flex-col">
-      <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-2 overflow-y-auto pb-2 pl-2 pt-2">
+      <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-1.5 overflow-y-auto pb-2">
         <div>
           <button
             onClick={() => { setShowForm((v) => !v); setEditing(null); }}
-            className={`accent-surface flex w-full items-center justify-center gap-1.5 rounded-xl border py-2 text-xs font-semibold transition-all ${
-              showForm ? "ring-2 ring-white/25" : ""
-            }`}
+            className={`btn w-full ${showForm ? "btn-secondary" : "btn-primary"}`}
           >
-            <IconPlus size={13} /> Ajouter un tunnel
+            <IconPlus size={13} /> {showForm ? "Fermer le formulaire" : "Nouveau tunnel"}
           </button>
           {showForm && (
             <TunnelForm
@@ -228,44 +217,45 @@ export function TunnelsPanel({ workspace, onAddForward, onUpdateForward, onDelet
           const isBusy = busy.has(forward.id);
           const isEditing = editing?.id === forward.id;
           return (
-            <div key={forward.id} className="rounded-xl border border-transparent bg-[var(--c-bg3)] p-2.5 transition-all hover:border-white/15">
-              <p className="text-xs font-medium text-[var(--c-text-secondary)]">
-                {forward.kind === "local" ? "Local" : forward.kind === "remote" ? "Distant" : "SOCKS"}{" "}
-                <span className="font-mono text-[var(--c-text)]">{forward.bindAddress}:{forward.bindPort}</span>
-                {forward.kind !== "dynamic" && (
-                  <>
-                    {" → "}
-                    <span className="font-mono text-[var(--c-text)]">{forward.destAddress}:{forward.destPort}</span>
-                  </>
-                )}
-              </p>
-              <p className="mt-0.5 text-[10px] text-[var(--c-text-muted)]">{hostLabel}</p>
-              <div className="mt-2 flex flex-wrap gap-1">
-                <button
-                  disabled={isBusy}
-                  onClick={() => toggle(forward.id)}
-                  className={`flex flex-1 basis-[80px] items-center justify-center rounded-md border px-1.5 py-1.5 text-xs font-medium text-white disabled:opacity-50 ${
-                    isRunning ? "border-transparent bg-rose-700 hover:bg-rose-600" : "accent-surface"
-                  }`}
-                >
-                  {isRunning ? "Arrêter" : "Démarrer"}
-                </button>
+            <div key={forward.id} className={`card group p-2.5 transition-colors hover:border-[var(--c-border-strong)] ${isEditing ? "border-[color-mix(in_srgb,var(--c-accent)_50%,transparent)]" : ""}`}>
+              <div className="flex items-center gap-2">
+                <span className={`dot ${isRunning ? "dot-ok" : ""}`} title={isRunning ? "Actif" : "Arrêté"} />
+                <span className="tag shrink-0">{forward.kind === "local" ? "Local" : forward.kind === "remote" ? "Distant" : "SOCKS"}</span>
+                <p className="min-w-0 flex-1 truncate font-mono text-[11.5px] text-[var(--c-text)]">
+                  {forward.bindAddress}:{forward.bindPort}
+                  {forward.kind !== "dynamic" && (
+                    <>
+                      <span className="text-[var(--c-text-faint)]">{" → "}</span>
+                      {forward.destAddress}:{forward.destPort}
+                    </>
+                  )}
+                </p>
+              </div>
+              <div className="mt-1.5 flex items-center gap-1 pl-3.5">
+                <p className="min-w-0 flex-1 truncate text-[11.5px] text-[var(--c-text-muted)]">via {hostLabel}</p>
                 <button
                   onClick={() => {
                     setShowForm(false);
                     setEditing(isEditing ? null : { id: forward.id, draft: draftOf(forward) });
                   }}
-                  className={`flex flex-1 basis-[80px] items-center justify-center gap-1.5 rounded-md px-1.5 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5 ${
-                    isEditing ? "bg-[var(--c-bg2)] ring-1 ring-white/20" : "bg-[var(--c-bg2)]"
-                  }`}
+                  title="Modifier"
+                  aria-label="Modifier le tunnel"
+                  className={`btn btn-ghost btn-sm btn-icon ${isEditing ? "btn-toggled" : "opacity-0 focus-visible:opacity-100 group-hover:opacity-100"}`}
                 >
-                  <IconEdit size={11} /> Modifier
+                  <IconEdit size={12} />
+                </button>
+                <button
+                  disabled={isBusy}
+                  onClick={() => toggle(forward.id)}
+                  className={`btn btn-sm w-20 ${isRunning ? "btn-danger" : "btn-primary"}`}
+                >
+                  {isRunning ? "Arrêter" : "Démarrer"}
                 </button>
               </div>
               {isEditing && (
                 <>
                   {isRunning && (
-                    <p className="mt-2 px-0.5 text-[10px] leading-relaxed text-[var(--c-text-muted)]">
+                    <p className="help-text mt-2 px-0.5">
                       Ce tunnel tourne : l'enregistrement l'arrête puis le relance avec la nouvelle
                       configuration. Les connexions en cours seront coupées.
                     </p>
@@ -286,7 +276,10 @@ export function TunnelsPanel({ workspace, onAddForward, onUpdateForward, onDelet
           );
         })}
         {workspace.portForwards.length === 0 && (
-          <p className="px-1 py-4 text-center text-[13px] text-[var(--c-text-muted)]">Aucun tunnel configuré</p>
+          <div className="px-2 py-8 text-center">
+            <p className="text-[12.5px] font-medium text-[var(--c-text-secondary)]">Aucun tunnel</p>
+            <p className="help-text mt-1">Un port local relié à un service distant à travers un hôte SSH — ou un proxy SOCKS pour tout faire passer par lui.</p>
+          </div>
         )}
       </div>
     </div>
@@ -297,5 +290,5 @@ export function TunnelsPanel({ workspace, onAddForward, onUpdateForward, onDelet
 // sizing in a flex row, and a baked-in `w-full` fights those utilities
 // (both are "width", so whichever Tailwind emits last in the stylesheet
 // wins — unrelated to source order in the className string).
-const inputClass = "rounded-md bg-[var(--c-bg2)] px-2 py-1.5 text-[13px] text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent)]";
-const selectClass = "w-full rounded-md bg-[var(--c-bg2)] px-2 py-1.5 text-[13px] text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent)]";
+const inputClass = "input";
+const selectClass = "input";

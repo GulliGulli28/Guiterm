@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "../lib/api";
 import type { AuthMethod, GroupId, Inventory, InventoryHost, KeyId, Workspace } from "../lib/types";
-import { IconClose } from "./ui-icons";
+import { IconClose, IconFolder } from "./ui-icons";
 import { GroupTreePicker } from "./GroupTreePicker";
 
 interface AnsibleImportPanelProps {
@@ -14,8 +14,7 @@ interface AnsibleImportPanelProps {
 
 type AuthKind = "agent" | "password" | "privateKey";
 
-const inputClass =
-  "w-full rounded-md bg-[var(--c-bg3)] px-2 py-1.5 text-sm text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]";
+const inputClass = "input";
 
 /**
  * Turning an Ansible inventory into hosts.
@@ -151,7 +150,7 @@ export function AnsibleImportPanel({ workspace, onWorkspaceUpdate, onClose, onEr
               Un fichier, aucune API. Les groupes deviennent des tags, donc <span className="font-mono">target tag: …</span> les cible aussitôt.
             </p>
           </div>
-          <button onClick={onClose} aria-label="Fermer" className="rounded p-1 text-[var(--c-text-muted)] hover:bg-white/5 hover:text-[var(--c-text)]">
+          <button onClick={onClose} aria-label="Fermer" className="rounded p-1 text-[var(--c-text-muted)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]">
             <IconClose size={13} />
           </button>
         </div>
@@ -165,10 +164,10 @@ export function AnsibleImportPanel({ workspace, onWorkspaceUpdate, onClose, onEr
                 onChange={(e) => setPath(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter" && path.trim()) void load(path.trim()); }}
                 placeholder="~/infra/inventory.yml, /etc/ansible/hosts…"
-                className={`${inputClass} flex-1 font-mono`}
+                className={`${inputClass} input-mono flex-1`}
               />
-              <button onClick={browse} title="Parcourir" className="shrink-0 rounded-md bg-[var(--c-bg3)] px-2.5 text-sm text-[var(--c-text-secondary)] hover:bg-white/5">
-                📂
+              <button onClick={browse} title="Parcourir" aria-label="Parcourir" className="btn btn-secondary btn-icon">
+                <IconFolder size={13} />
               </button>
               <button
                 onClick={() => path.trim() && load(path.trim())}
@@ -280,7 +279,7 @@ export function AnsibleImportPanel({ workspace, onWorkspaceUpdate, onClose, onEr
                       value={keyPath}
                       onChange={(e) => setKeyPath(e.target.value)}
                       placeholder="~/.ssh/id_ed25519"
-                      className={`${inputClass} flex-1 font-mono`}
+                      className={`${inputClass} input-mono flex-1`}
                     />
                   )}
                 </div>

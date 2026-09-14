@@ -485,3 +485,84 @@ export function IconFile({ size = 16, className }: P) {
     </svg>
   );
 }
+
+/** Une liste à cocher — le mode « sélectionner plusieurs hôtes ». */
+export function IconChecklist({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path d="M2.5 4.5l1.25 1.25L6 3.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M2.5 10.5l1.25 1.25L6 9.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+      <path d="M8.5 4.5h5M8.5 10.5h5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Une coche — l'état « fait », « sélectionné », « réussi ». Remplace le « ✓ »
+ * en texte, dont la forme dépend de la police système. */
+export function IconCheck({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path d="M3 8.5l3 3 7-7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** Un dossier plein — l'entrée « dossier » d'une liste de fichiers, par
+ * opposition au contour d'`IconFolder` réservé aux actions. */
+export function IconFolderFilled({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path d="M1.5 4.5C1.5 3.67 2.17 3 3 3h3l1.5 2H13c.83 0 1.5.67 1.5 1.5v5c0 .83-.67 1.5-1.5 1.5H3c-.83 0-1.5-.67-1.5-1.5v-7Z" fill="currentColor" fillOpacity="0.9" />
+    </svg>
+  );
+}
+
+/** Un fichier plein, coin plié — l'entrée « fichier » d'une liste. */
+export function IconFileFilled({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path d="M4 2h5l3 3v8.5a.5.5 0 0 1-.5.5h-7.5a.5.5 0 0 1-.5-.5v-11A.5.5 0 0 1 4 2Z" fill="currentColor" fillOpacity="0.35" />
+      <path d="M9 2v3h3" fill="currentColor" fillOpacity="0.6" />
+    </svg>
+  );
+}
+
+/** Un cadenas fermé. */
+export function IconLock({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <rect x="3" y="7" width="10" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.25" />
+      <path d="M5.5 7V5a2.5 2.5 0 0 1 5 0v2" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Un cadenas ouvert. */
+export function IconUnlock({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <rect x="3" y="7" width="10" height="7" rx="1.5" stroke="currentColor" strokeWidth="1.25" />
+      <path d="M5.5 7V5a2.5 2.5 0 0 1 4.8-1" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Un triangle d'avertissement. */
+export function IconWarning({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path d="M8 2.5 14 13H2L8 2.5Z" stroke="currentColor" strokeWidth="1.25" strokeLinejoin="round" />
+      <path d="M8 6.5v3" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+      <circle cx="8" cy="11.25" r="0.6" fill="currentColor" />
+    </svg>
+  );
+}
+
+/** Une flèche vers le haut — « dossier parent ». */
+export function IconArrowUp({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path d="M8 13V3M4 7l4-4 4 4" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}

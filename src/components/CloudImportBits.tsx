@@ -23,8 +23,7 @@ import { IconClose } from "./ui-icons";
  * the divergence into a prop list.
  */
 
-export const cloudInputClass =
-  "w-full rounded-md bg-[var(--c-bg3)] px-2 py-1.5 text-sm text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]";
+export const cloudInputClass = "input";
 
 export type AuthKind = "agent" | "password" | "privateKey";
 
@@ -339,7 +338,7 @@ export function CloudImportModal({
           <button
             onClick={onClose}
             aria-label="Fermer"
-            className="rounded p-1 text-[var(--c-text-muted)] hover:bg-white/5 hover:text-[var(--c-text)]"
+            className="rounded p-1 text-[var(--c-text-muted)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]"
           >
             <IconClose size={13} />
           </button>

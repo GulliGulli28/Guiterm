@@ -8,7 +8,7 @@ import { api, onTerminalClosed } from "../lib/api";
 import { ConnectionFailed } from "./ConnectionFailed";
 import { scrollbackText, type TerminalTabHandle } from "./TerminalTab";
 import type { AppPreferences } from "../lib/preferences";
-import { DEFAULT_PREFERENCES, TERMINAL_THEMES, auroraLayerBackground } from "../lib/preferences";
+import { DEFAULT_PREFERENCES, TERMINAL_THEMES } from "../lib/preferences";
 import { shouldBubbleToShortcut } from "../lib/shortcuts";
 import { TerminalSearchBar, type SearchOptions } from "./TerminalSearchBar";
 import { createGhostTextController, type GhostSuggestion, type GhostTextController } from "../lib/ghostText";
@@ -334,7 +334,7 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
   };
 
   return (
-    <div ref={outerRef} className="relative flex min-h-0 flex-1 flex-col p-2" style={{ background: auroraLayerBackground(bgColor) }} onContextMenu={handleContextMenu}>
+    <div ref={outerRef} className="relative flex min-h-0 flex-1 flex-col px-3 py-2" style={{ background: bgColor }} onContextMenu={handleContextMenu}>
       {status === "connecting" && <div className="absolute inset-0 flex items-center justify-center text-[var(--c-text-secondary)]">Démarrage du terminal local…</div>}
       {status === "failed" && (
         <ConnectionFailed

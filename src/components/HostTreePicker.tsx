@@ -3,7 +3,7 @@ import type { CustomIcon, Group, GroupId, Host, HostId } from "../lib/types";
 import { buildHostTree } from "../lib/hostTree";
 import { hostKindMeta } from "../lib/hostKinds";
 import { HostIcon } from "./icons";
-import { IconChevronDown, IconChevronRight, IconFolder, IconHosts, IconSearch } from "./ui-icons";
+import { IconChevronDown, IconChevronRight, IconFolder, IconHosts, IconSearch, IconCheck } from "./ui-icons";
 import { useModalSurface } from "../hooks/useModalSurface";
 
 /**
@@ -151,7 +151,7 @@ export function HostTreeList({
           data-host-tree-row="host"
           data-host-tree-depth={depth}
           data-host-tree-label={host.label}
-          className={`flex items-start gap-1.5 pr-1.5 ${selected ? "bg-[var(--c-accent-dim)]" : "hover:bg-white/5"}`}
+          className={`flex items-start gap-1.5 pr-1.5 ${selected ? "bg-[var(--c-accent-dim)]" : "hover:bg-[var(--c-hover)]"}`}
           style={{ paddingLeft: `${8 + depth * 14}px` }}
         >
           <button
@@ -181,7 +181,7 @@ export function HostTreeList({
               </span>
               <TagChips tags={host.tags} />
             </span>
-            {selected && <span className="mt-0.5 shrink-0 text-[10px] text-[var(--c-accent-text)]">✓</span>}
+            {selected && <IconCheck size={12} className="mt-0.5 shrink-0 text-[var(--c-accent-text)]" />}
           </button>
         </div>
       </div>
@@ -199,7 +199,7 @@ export function HostTreeList({
           data-host-tree-row="group"
           data-host-tree-depth={depth}
           data-host-tree-label={group.name}
-          className="flex items-center gap-1 pr-1.5 hover:bg-white/5"
+          className="flex items-center gap-1 pr-1.5 hover:bg-[var(--c-hover)]"
           style={{ paddingLeft: `${4 + depth * 14}px` }}
         >
           <button
@@ -258,7 +258,7 @@ export function HostTreeList({
               data-host-tree-row="special"
               data-host-tree-label={special.label}
               onClick={(e) => { e.preventDefault(); e.stopPropagation(); onPick(special.value); }}
-              className={`flex w-full items-center gap-2 px-2 py-1.5 text-left ${selected ? "bg-[var(--c-accent-dim)]" : "hover:bg-white/5"}`}
+              className={`flex w-full items-center gap-2 px-2 py-1.5 text-left ${selected ? "bg-[var(--c-accent-dim)]" : "hover:bg-[var(--c-hover)]"}`}
             >
               <span className="flex h-4 w-4 shrink-0 items-center justify-center text-[var(--c-text-muted)]">
                 {special.icon}
@@ -271,7 +271,7 @@ export function HostTreeList({
                   <span className="block truncate text-[10.5px] text-[var(--c-text-muted)]">{special.hint}</span>
                 )}
               </span>
-              {selected && <span className="shrink-0 text-[10px] text-[var(--c-accent-text)]">✓</span>}
+              {selected && <IconCheck size={12} className="shrink-0 text-[var(--c-accent-text)]" />}
             </button>
           );
         })}
@@ -303,8 +303,7 @@ interface HostTreePickerProps {
   title?: string;
 }
 
-const DEFAULT_BUTTON_CLASS =
-  "flex w-full items-center justify-between gap-2 rounded-md bg-[var(--c-bg3)] px-2.5 py-1.5 text-left text-sm text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)] disabled:opacity-60";
+const DEFAULT_BUTTON_CLASS = "input flex items-center justify-between gap-2 text-left disabled:opacity-60";
 
 export function HostTreePicker({
   hosts, groups, customIcons, value, onChange, specials = [],
@@ -437,7 +436,7 @@ export function HostTreeModal({ title, hosts, groups, customIcons, onPick, onClo
         <div className="border-t border-[var(--c-border)] p-2">
           <button
             onClick={onClose}
-            className="w-full rounded-md bg-[var(--c-bg3)] py-1.5 text-center text-[12px] text-[var(--c-text-secondary)] hover:bg-white/5"
+            className="w-full rounded-md bg-[var(--c-bg3)] py-1.5 text-center text-[12px] text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]"
           >
             Fermer
           </button>

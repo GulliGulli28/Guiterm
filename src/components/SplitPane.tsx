@@ -74,7 +74,7 @@ export function SplitPane({ workspace, preferences, source, onSourceChange, onRe
           value={source}
           onChange={(v) => onSourceChange((v ?? "local") as SplitSource)}
           specials={[{ value: "local", label: "Terminal local", hint: "Cette machine", icon: <IconTerminal size={12} /> }]}
-          className="flex min-w-0 flex-1 items-center justify-between gap-2 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-left text-sm text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+          className="input flex min-w-0 flex-1 items-center justify-between gap-2 text-left"
         />
       </div>
       <div className="relative min-h-0 flex-1">

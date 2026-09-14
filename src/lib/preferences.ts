@@ -6,8 +6,12 @@ export type UiAccent = "indigo" | "blue" | "violet" | "emerald" | "rose" | "teal
 
 export interface AccentColorEntry {
   label: string;
+  /** Remplissage (bouton primaire, marqueur actif). */
   c600: string;
+  /** Survol du remplissage — et la pastille de couleur d'un dossier. */
   c500: string;
+  /** Texte accentué sur fond sombre. En clair, c'est `c600` qui sert : `c300`
+   * n'a pas assez de contraste sur du blanc. */
   c300: string;
   dim: string;
 }
@@ -39,36 +43,42 @@ export interface BgThemeEntry {
   light: BgShade;
 }
 
+/* Quatre tons par famille, proches les uns des autres : la fenêtre (`bg`),
+ * les panneaux (`bg2`), les contrôles et cartes (`bg3`), et la bordure. Un
+ * écart trop grand entre `bg` et `bg2` faisait lire l'interface comme des
+ * couches empilées ; ici, c'est la bordure d'un pixel qui découpe. En clair,
+ * `bg2` est blanc — le panneau — et `bg` un gris à peine teinté pour la zone
+ * de travail. */
 export const BG_THEMES: Record<UiBg, BgThemeEntry> = {
   slate: {
     label: "Ardoise",
-    dark:  { bg: "#020617", bg2: "#0f172a", bg3: "#1e293b", border: "#1e293b" },
-    light: { bg: "#f8fafc", bg2: "#f1f5f9", bg3: "#e2e8f0", border: "#cbd5e1" },
+    dark:  { bg: "#0a0e17", bg2: "#10151f", bg3: "#171d2a", border: "#232b3b" },
+    light: { bg: "#f3f5f8", bg2: "#ffffff", bg3: "#eceff3", border: "#d5dae2" },
   },
   gray: {
     label: "Gris",
-    dark:  { bg: "#030712", bg2: "#111827", bg3: "#1f2937", border: "#1f2937" },
-    light: { bg: "#f9fafb", bg2: "#f3f4f6", bg3: "#e5e7eb", border: "#d1d5db" },
+    dark:  { bg: "#0b0d12", bg2: "#111318", bg3: "#181b22", border: "#242830" },
+    light: { bg: "#f4f4f5", bg2: "#ffffff", bg3: "#ededee", border: "#d6d6d8" },
   },
   zinc: {
     label: "Zinc",
-    dark:  { bg: "#09090b", bg2: "#18181b", bg3: "#27272a", border: "#27272a" },
-    light: { bg: "#fafafa", bg2: "#f4f4f5", bg3: "#e4e4e7", border: "#d4d4d8" },
+    dark:  { bg: "#0c0c0e", bg2: "#121215", bg3: "#19191d", border: "#26262b" },
+    light: { bg: "#f4f4f5", bg2: "#ffffff", bg3: "#ebebec", border: "#d9d9dc" },
   },
   black: {
     label: "Noir pur",
-    dark:  { bg: "#000000", bg2: "#0d0d0d", bg3: "#1a1a1a", border: "#262626" },
-    light: { bg: "#ffffff", bg2: "#f5f5f5", bg3: "#ebebeb", border: "#d9d9d9" },
+    dark:  { bg: "#000000", bg2: "#0a0a0a", bg3: "#141414", border: "#222222" },
+    light: { bg: "#ffffff", bg2: "#fafafa", bg3: "#f0f0f0", border: "#dcdcdc" },
   },
   navy: {
     label: "Marine",
-    dark:  { bg: "#020c1b", bg2: "#0d1b2e", bg3: "#1a3148", border: "#1e3a52" },
-    light: { bg: "#f0f4f8", bg2: "#e1e9f0", bg3: "#cdd9e5", border: "#b8c9da" },
+    dark:  { bg: "#060d1a", bg2: "#0b1526", bg3: "#122036", border: "#1c2d47" },
+    light: { bg: "#eef2f7", bg2: "#ffffff", bg3: "#e4eaf2", border: "#c9d3e0" },
   },
   aurora: {
-    label: "Aurora",
-    dark:  { bg: "#08070d", bg2: "#0d0b14", bg3: "#17131f", border: "#231e30" },
-    light: { bg: "#f8f6fc", bg2: "#f0ecf8", bg3: "#e3dcf1", border: "#cec2e3" },
+    label: "Prune",
+    dark:  { bg: "#0b0910", bg2: "#110e17", bg3: "#191420", border: "#26202f" },
+    light: { bg: "#f4f1f9", bg2: "#ffffff", bg3: "#ece7f4", border: "#d6cde3" },
   },
 };
 
@@ -173,11 +183,11 @@ export interface TerminalThemeEntry {
 
 export const TERMINAL_THEMES: Record<string, TerminalThemeEntry> = {
   dark: {
-    label: "Dark (par défaut)",
+    label: "Sombre (par défaut)",
     theme: {
-      background: "#020617", foreground: "#e2e8f0", cursor: "#a5b4fc",
-      selectionBackground: "#1e293b",
-      black: "#0f172a", brightBlack: "#334155",
+      background: "#0f0f12", foreground: "#e4e4e7", cursor: "#93c5fd",
+      selectionBackground: "#2a2a33",
+      black: "#18181b", brightBlack: "#52525b",
       red: "#ef4444", brightRed: "#f87171",
       green: "#22c55e", brightGreen: "#4ade80",
       yellow: "#eab308", brightYellow: "#facc15",
@@ -312,8 +322,8 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   sftpFontSize: 13,
   sftpShowHidden: true,
   transferDiffView: "unified",
-  uiAccent: "violet",
-  uiBg: "aurora",
+  uiAccent: "blue",
+  uiBg: "zinc",
   colorMode: "dark",
   notifyOnDisconnect: true,
   notifyOnTransferDone: true,
@@ -335,14 +345,6 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   terminalRenderStats: false,
   hiddenSidebarButtons: [],
 };
-
-// Same two-stop aurora wash as `.app-aurora-bg` in index.css, but layered over
-// a caller-supplied base color instead of `--c-bg` — lets the terminal panel
-// keep its own theme color (Dracula, Nord, …) while still showing the glow
-// around the edges instead of a flat opaque rectangle.
-export function auroraLayerBackground(baseColor: string): string {
-  return `radial-gradient(1100px 550px at 12% -12%, color-mix(in srgb, var(--c-accent) 14%, transparent), transparent 60%), radial-gradient(700px 380px at 92% -6%, color-mix(in srgb, var(--c-accent) 8%, transparent), transparent 55%), ${baseColor}`;
-}
 
 const STORAGE_KEY = "gui-termius-prefs";
 

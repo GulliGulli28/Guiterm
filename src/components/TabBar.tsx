@@ -68,11 +68,11 @@ export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, fullscre
   }, [tabs, onReorder]);
 
   return (
-    <div className="flex shrink-0 items-center gap-1 border-b border-[var(--c-border)] bg-[var(--c-bg2)] p-1.5">
+    <div className="flex h-9 shrink-0 items-stretch gap-1 border-b border-[var(--c-border)] bg-[var(--c-bg)] pr-1.5">
       {/* The network diagnostics button briefly lived here. It moved to the
           sidebar's nav strip, next to fleet operations: that strip is where
           people look for "what can this app do", and here it went unnoticed. */}
-      <div ref={containerRef} className="flex min-w-0 flex-1 gap-1 overflow-x-auto">
+      <div ref={containerRef} className="flex min-w-0 flex-1 items-stretch overflow-x-auto">
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId;
           const color = tabColor?.(tab);
@@ -99,12 +99,15 @@ export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, fullscre
                 setDraggedId(tab.id);
               }}
               onClick={() => { if (!dragState.current?.moved) onSelect(tab.id); }}
-              className={`flex shrink-0 cursor-pointer items-center gap-1.5 rounded-lg border px-2.5 py-1.5 text-sm transition-all ${
+              // Un onglet actif se pose sur la surface du contenu (même fond,
+              // bordures latérales, pas de trait en dessous) : il en fait
+              // partie. Les autres restent dans la barre, en retrait.
+              className={`group/tab relative -mb-px flex max-w-[16rem] shrink-0 cursor-pointer select-none items-center gap-1.5 border-r border-[var(--c-border)] px-3 text-[12.5px] transition-colors first:border-l ${
                 isActive
-                  ? "accent-surface"
+                  ? "bg-[var(--c-bg2)] text-[var(--c-text)] after:absolute after:inset-x-0 after:top-0 after:h-0.5 after:bg-[var(--c-accent)]"
                   : tab.status === "placeholder"
-                    ? "border-dashed border-[var(--c-border)] text-[var(--c-text-muted)] hover:bg-white/5"
-                    : "border-transparent bg-[var(--c-bg3)] text-[var(--c-text-secondary)] hover:bg-white/5"
+                    ? "text-[var(--c-text-faint)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text-muted)]"
+                    : "text-[var(--c-text-muted)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text-secondary)]"
               } ${draggedId === tab.id ? "opacity-60" : ""}`}
               title={
                 tab.status === "placeholder"
@@ -118,13 +121,15 @@ export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, fullscre
                       : undefined
               }
             >
-              {color && <span className="h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />}
-              <TabIcon kind={tab.kind} />
+              {color && <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: color }} />}
+              <span className={isActive ? "text-[var(--c-accent-text)]" : "opacity-70"}><TabIcon kind={tab.kind} /></span>
               {observing ? <IconEye size={11} className="shrink-0 opacity-70" /> : pinned && <IconPin size={10} className="shrink-0 opacity-70" />}
-              <span className="max-w-[12rem] truncate">{tab.label}</span>
+              <span className={`truncate ${tab.status === "placeholder" ? "italic" : ""}`}>{tab.label}</span>
               <button
                 onClick={(e) => { e.stopPropagation(); onClose(tab.id); }}
-                className="flex items-center rounded p-0.5 opacity-60 hover:opacity-100"
+                className={`-mr-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-sm transition-opacity hover:bg-[var(--c-active)] ${
+                  isActive ? "opacity-60 hover:opacity-100" : "opacity-0 group-hover/tab:opacity-60 hover:!opacity-100"
+                }`}
                 aria-label="Fermer l'onglet"
               >
                 <IconClose size={10} />
@@ -133,13 +138,14 @@ export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, fullscre
           );
         })}
       </div>
+      <div className="flex items-center gap-0.5 pl-1.5">
       <button
         onClick={onToggleBroadcast}
         title={broadcastActive ? "Quitter la diffusion" : "Diffuser une commande à tous les terminaux ouverts"}
-        className={`flex shrink-0 items-center justify-center rounded-lg border p-1.5 transition-all ${
+        className={`btn btn-sm btn-icon ${
           broadcastActive
-            ? "border-transparent bg-amber-800/60 text-amber-100"
-            : "border-transparent text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)] hover:text-[var(--c-text)]"
+            ? "bg-[color-mix(in_srgb,var(--c-warn)_18%,transparent)] text-[var(--c-warn)]"
+            : "btn-ghost text-[var(--c-text-muted)]"
         }`}
       >
         <IconBroadcast size={15} />
@@ -147,11 +153,7 @@ export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, fullscre
       <button
         onClick={onToggleSplit}
         title={splitOpen ? "Quitter le mode split" : "Mode split — deux terminaux côte à côte"}
-        className={`flex shrink-0 items-center justify-center rounded-lg border p-1.5 transition-all ${
-          splitOpen
-            ? "accent-surface"
-            : "border-transparent text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)] hover:text-[var(--c-text)]"
-        }`}
+        className={`btn btn-sm btn-icon ${splitOpen ? "btn-toggled" : "btn-ghost text-[var(--c-text-muted)]"}`}
       >
         <IconSplit size={15} />
       </button>
@@ -162,14 +164,11 @@ export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, fullscre
         onClick={onToggleFullscreen}
         title={fullscreen ? "Quitter le plein écran (F11)" : "Plein écran (F11)"}
         aria-label={fullscreen ? "Quitter le plein écran" : "Plein écran"}
-        className={`flex shrink-0 items-center justify-center rounded-lg border p-1.5 transition-all ${
-          fullscreen
-            ? "accent-surface"
-            : "border-transparent text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)] hover:text-[var(--c-text)]"
-        }`}
+        className={`btn btn-sm btn-icon ${fullscreen ? "btn-toggled" : "btn-ghost text-[var(--c-text-muted)]"}`}
       >
         {fullscreen ? <IconFullscreenExit size={15} /> : <IconFullscreen size={15} />}
       </button>
+      </div>
     </div>
   );
 }

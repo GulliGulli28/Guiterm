@@ -88,7 +88,7 @@ export function AzureSignInPanel({ onClose, onSignedIn, initialTenant }: AzureSi
               depuis un terminal, donc vos autres outils voient la même session.
             </p>
           </div>
-          <button onClick={onClose} aria-label="Fermer" className="rounded p-1 text-[var(--c-text-muted)] hover:bg-white/5 hover:text-[var(--c-text)]">
+          <button onClick={onClose} aria-label="Fermer" className="rounded p-1 text-[var(--c-text-muted)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]">
             <IconClose size={13} />
           </button>
         </div>

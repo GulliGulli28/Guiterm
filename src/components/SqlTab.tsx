@@ -415,7 +415,7 @@ export function SqlTab({ connection, workspace, onError }: SqlTabProps) {
         <div key={schema}>
           <div
             className={`flex w-full items-center gap-0.5 rounded-lg text-[14px] font-semibold transition-colors ${
-              schemaActive ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text)] hover:bg-white/[0.07]"
+              schemaActive ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text)] hover:bg-[var(--c-hover)]"
             }`}
           >
             <button
@@ -447,7 +447,7 @@ export function SqlTab({ connection, workspace, onError }: SqlTabProps) {
                       <button
                         onClick={() => selectTable(schema, t.name)}
                         className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] font-medium transition-colors ${
-                          tableActive ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-secondary)] hover:bg-white/[0.07] hover:text-[var(--c-text)]"
+                          tableActive ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]"
                         }`}
                       >
                         <IconFolder size={13} className={`shrink-0 ${tableActive ? "text-[var(--c-accent-text)]" : "text-[var(--c-text-faint)]"}`} />
@@ -459,7 +459,7 @@ export function SqlTab({ connection, workspace, onError }: SqlTabProps) {
                       <button
                         onClick={() => insertSelect(t.name)}
                         title="Insérer un SELECT dans l'éditeur"
-                        className="shrink-0 rounded px-1.5 py-1 text-[10px] text-[var(--c-text-faint)] hover:bg-white/[0.07] hover:text-[var(--c-text-secondary)]"
+                        className="shrink-0 rounded px-1.5 py-1 text-[10px] text-[var(--c-text-faint)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text-secondary)]"
                       >
                         SQL
                       </button>
@@ -492,7 +492,7 @@ export function SqlTab({ connection, workspace, onError }: SqlTabProps) {
             onClick={refreshTree}
             disabled={refreshingTree}
             title="Actualiser l'arborescence"
-            className="flex shrink-0 items-center justify-center rounded p-1 text-[var(--c-text-faint)] hover:bg-white/10 hover:text-[var(--c-text-secondary)] disabled:opacity-50"
+            className="flex shrink-0 items-center justify-center rounded p-1 text-[var(--c-text-faint)] hover:bg-[var(--c-active)] hover:text-[var(--c-text-secondary)] disabled:opacity-50"
           >
             <IconRefresh size={13} className={refreshingTree ? "animate-spin" : ""} />
           </button>
@@ -511,7 +511,7 @@ export function SqlTab({ connection, workspace, onError }: SqlTabProps) {
                     <button
                       onClick={() => selectDatabase(db)}
                       className={`flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[14px] font-semibold transition-colors ${
-                        active ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text)] hover:bg-white/[0.07]"
+                        active ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text)] hover:bg-[var(--c-hover)]"
                       }`}
                     >
                       {active ? <IconChevronDown size={13} className="shrink-0" /> : <IconChevronRight size={13} className="shrink-0" />}
@@ -672,7 +672,7 @@ export function SqlTab({ connection, workspace, onError }: SqlTabProps) {
                 onClick={() => setHistoryOpen((v) => !v)}
                 disabled={history.length === 0}
                 title="Requêtes déjà exécutées, la plus récente en premier"
-                className="flex items-center gap-1.5 rounded-md border border-[var(--c-border)] px-2.5 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5 disabled:cursor-not-allowed disabled:opacity-40"
+                className="flex items-center gap-1.5 rounded-md border border-[var(--c-border)] px-2.5 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)] disabled:cursor-not-allowed disabled:opacity-40"
               >
                 Historique{history.length > 0 ? ` (${history.length})` : ""}
               </button>
@@ -685,7 +685,7 @@ export function SqlTab({ connection, workspace, onError }: SqlTabProps) {
                     key={`${entry.atMs ?? "?"}-${i}`}
                     onClick={() => { setQuery(entry.command); setHistoryOpen(false); }}
                     title="Reprendre cette requête dans l'éditeur"
-                    className="flex w-full flex-col items-start gap-0.5 border-b border-[var(--c-border)] px-2.5 py-1.5 text-left last:border-b-0 hover:bg-white/5"
+                    className="flex w-full flex-col items-start gap-0.5 border-b border-[var(--c-border)] px-2.5 py-1.5 text-left last:border-b-0 hover:bg-[var(--c-hover)]"
                   >
                     <span className="w-full truncate font-mono text-[11px] text-[var(--c-text)]">{entry.command}</span>
                     <span className="text-[10px] text-[var(--c-text-muted)]">
@@ -749,7 +749,7 @@ function TableData({
         <button
           onClick={onRefresh}
           disabled={loading}
-          className="flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 disabled:opacity-50"
+          className="flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)] disabled:opacity-50"
         >
           <IconRefresh size={11} /> {loading ? "Chargement…" : "Rafraîchir"}
         </button>
@@ -790,7 +790,7 @@ function StructureTables({ schema, tables }: { schema: string; tables: TableInfo
       </thead>
       <tbody>
         {tables.map((t) => (
-          <tr key={t.name} className="hover:bg-white/5">
+          <tr key={t.name} className="hover:bg-[var(--c-hover)]">
             <td className="border-b border-[var(--c-border)] px-2 py-1 font-mono text-[var(--c-text)]">{t.name}</td>
             <td className="border-b border-[var(--c-border)] px-2 py-1 text-[var(--c-text-muted)]">{t.kind === "view" ? "Vue" : "Table"}</td>
           </tr>
@@ -814,7 +814,7 @@ function StructureColumns({ table, columns }: { table: string; columns: ColumnIn
       </thead>
       <tbody>
         {columns.map((c) => (
-          <tr key={c.name} className="hover:bg-white/5">
+          <tr key={c.name} className="hover:bg-[var(--c-hover)]">
             <td className="border-b border-[var(--c-border)] px-2 py-1 font-mono text-[var(--c-text)]">{c.name}</td>
             <td className="border-b border-[var(--c-border)] px-2 py-1 text-[var(--c-text-muted)]">{c.dataType}</td>
             <td className="border-b border-[var(--c-border)] px-2 py-1 text-[var(--c-text-muted)]">{c.nullable ? "oui" : "non"}</td>

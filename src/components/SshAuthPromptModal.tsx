@@ -86,7 +86,7 @@ export function SshAuthPromptModal({ prompt, onSubmit, onCancel }: SshAuthPrompt
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
+            className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]"
           >
             Annuler
           </button>

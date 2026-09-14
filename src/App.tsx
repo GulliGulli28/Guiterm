@@ -183,17 +183,20 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const colors = ACCENT_COLORS[preferences.uiAccent ?? "indigo"];
+    const colors = ACCENT_COLORS[preferences.uiAccent ?? "blue"];
     if (!colors) return;
+    const light = (preferences.colorMode ?? "dark") === "light";
     const root = document.documentElement;
     root.style.setProperty("--c-accent", colors.c600);
     root.style.setProperty("--c-accent-hover", colors.c500);
-    root.style.setProperty("--c-accent-text", colors.c300);
-    root.style.setProperty("--c-accent-dim", colors.dim);
-  }, [preferences.uiAccent]);
+    // Le texte accentué doit contraster avec la surface : pastel sur sombre,
+    // plein sur clair.
+    root.style.setProperty("--c-accent-text", light ? colors.c600 : colors.c300);
+    root.style.setProperty("--c-accent-dim", light ? colors.dim.replace("0.18", "0.12") : colors.dim);
+  }, [preferences.uiAccent, preferences.colorMode]);
 
   useEffect(() => {
-    const bg = BG_THEMES[preferences.uiBg ?? "slate"];
+    const bg = BG_THEMES[preferences.uiBg ?? "zinc"];
     if (!bg) return;
     const mode = preferences.colorMode ?? "dark";
     const shade = bg[mode];
@@ -591,7 +594,7 @@ export default function App() {
 
   if (!workspace) {
     return (
-      <div className="app-aurora-bg flex h-screen w-screen flex-col overflow-hidden text-[var(--c-text)]">
+      <div className="flex h-screen w-screen flex-col overflow-hidden bg-[var(--c-bg)] text-[var(--c-text)]">
         {vaultUnlockModal}
         {authPromptModal}
         {titleBarArea}
@@ -749,7 +752,7 @@ export default function App() {
   // Sorti du `return` pour que les fournisseurs ci-dessous l'enveloppent sans
   // réindenter tout l'arbre.
   const appShell = (
-    <div className="app-aurora-bg flex h-screen w-screen flex-col overflow-hidden text-[var(--c-text)]">
+    <div className="flex h-screen w-screen flex-col overflow-hidden bg-[var(--c-bg)] text-[var(--c-text)]">
       {/* Transparent overlay during any drag — prevents xterm canvas from stealing mouse events */}
       {isDragging && <div className="fixed inset-0 z-[9999] cursor-col-resize" />}
       {vaultUnlockModal}
@@ -850,9 +853,12 @@ export default function App() {
       {titleBarArea}
 
       {status && (
-        <div className="flex shrink-0 items-center justify-between bg-amber-900/60 px-4 py-2 text-sm text-amber-100">
-          <span>{status}</span>
-          <button className="flex items-center justify-center rounded p-1 hover:bg-amber-800" onClick={clearStatus} aria-label="Fermer">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[color-mix(in_srgb,var(--c-warn)_35%,transparent)] bg-[color-mix(in_srgb,var(--c-warn)_12%,var(--c-bg2))] px-3 py-1.5 text-[12.5px] text-[var(--c-text)]">
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="dot dot-warn" />
+            <span className="truncate">{status}</span>
+          </span>
+          <button className="btn btn-ghost btn-sm btn-icon" onClick={clearStatus} aria-label="Fermer">
             <IconClose size={12} />
           </button>
         </div>
@@ -891,7 +897,10 @@ export default function App() {
       <div className="flex min-h-0 flex-1 overflow-hidden">
         {/* Sidebar */}
         <div
-          style={{ width: sidebarVisible ? sidebar.value : 0 }}
+          // Les paramètres ont besoin de place (deux colonnes, des échantillons
+          // de thème) : le panneau s'élargit à leur ouverture et revient à la
+          // largeur choisie ensuite.
+          style={{ width: sidebarVisible ? (sidebarPanel === "settings" ? Math.max(sidebar.value, 600) : sidebar.value) : 0 }}
           className={`flex shrink-0 overflow-hidden ${isDragging ? "" : "transition-[width] duration-200 ease-in-out"}`}
         >
           <Sidebar
@@ -910,22 +919,27 @@ export default function App() {
         {sidebarVisible && (
           <div
             onMouseDown={sidebar.onMouseDown}
-            className="group relative flex w-1 shrink-0 cursor-col-resize items-center justify-center"
+            className="group relative z-10 -mx-0.5 flex w-1.5 shrink-0 cursor-col-resize items-center justify-center"
           >
-            <div className="h-full w-px bg-[var(--c-border)] transition-colors group-hover:bg-[var(--c-accent)]" />
+            <div className="h-full w-px bg-[var(--c-border)] transition-colors group-hover:w-0.5 group-hover:bg-[var(--c-accent)]" />
           </div>
         )}
 
         {/* Main content */}
-        <main className="flex min-w-0 flex-1 flex-col overflow-hidden">
+        <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--c-bg2)]">
           {tabs.length === 0 ? (
-            <div className="flex flex-1 select-none flex-col items-center justify-center gap-4">
-              <div className="flex h-14 w-14 items-center justify-center rounded-2xl bg-[var(--c-bg2)]">
-                <IconTerminal size={28} className="text-[var(--c-text-faint)]" />
+            <div className="flex flex-1 select-none flex-col items-center justify-center gap-5">
+              <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-[var(--c-border)] bg-[var(--c-bg2)] text-[var(--c-text-muted)]">
+                <IconTerminal size={20} />
               </div>
               <div className="text-center">
-                <p className="text-[13px] text-[var(--c-text-muted)]">Aucun terminal ouvert</p>
-                <p className="mt-0.5 text-xs text-[var(--c-text-faint)]">Choisissez un hôte dans la barre latérale</p>
+                <p className="text-[13px] font-medium text-[var(--c-text-secondary)]">Aucun onglet ouvert</p>
+                <p className="mt-1 text-[12px] text-[var(--c-text-muted)]">Choisissez un hôte à gauche, ou ouvrez un terminal local.</p>
+              </div>
+              <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-[11.5px] text-[var(--c-text-muted)]">
+                <span className="flex items-center gap-1.5"><span className="kbd">Ctrl</span><span className="kbd">K</span> palette de commandes</span>
+                <span className="flex items-center gap-1.5"><span className="kbd">Ctrl</span><span className="kbd">T</span> terminal local</span>
+                <span className="flex items-center gap-1.5"><span className="kbd">Ctrl</span><span className="kbd">B</span> barre latérale</span>
               </div>
             </div>
           ) : (
@@ -948,20 +962,17 @@ export default function App() {
                     const pinned = tab.kind === "terminal" && !!tab.sessionKey;
                     return (
                       <div key={tab.id} className={isActive ? "absolute inset-0 flex select-none flex-col items-center justify-center gap-3" : "hidden"}>
-                        <div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-[var(--c-bg2)] text-[var(--c-text-faint)]">
-                          {pinned ? <IconPin size={22} /> : <IconTerminal size={22} />}
+                        <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-[var(--c-border)] bg-[var(--c-bg2)] text-[var(--c-text-muted)]">
+                          {pinned ? <IconPin size={18} /> : <IconTerminal size={18} />}
                         </div>
-                        <p className="text-[13px] text-[var(--c-text-secondary)]">{tab.label}</p>
-                        <p className="max-w-sm text-center text-xs leading-relaxed text-[var(--c-text-faint)]">
+                        <p className="text-[13px] font-medium text-[var(--c-text)]">{tab.label}</p>
+                        <p className="max-w-sm text-center text-[12px] leading-relaxed text-[var(--c-text-muted)]">
                           {pinned
                             ? "Session persistante — la reprendre rend le terminal tel qu'il était, dossier courant et commandes en cours compris."
-                            : "Session restaurée — non reconnectée"}
+                            : "Onglet restauré, pas encore reconnecté."}
                         </p>
-                        <button
-                          onClick={() => reconnectTab(tab.id)}
-                          className="rounded-md bg-[var(--c-accent)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--c-accent-hover)]"
-                        >
-                          {pinned ? "Reprendre la session" : "Cliquer pour reconnecter"}
+                        <button onClick={() => reconnectTab(tab.id)} className="btn btn-primary mt-1">
+                          {pinned ? "Reprendre la session" : "Reconnecter"}
                         </button>
                       </div>
                     );
@@ -985,9 +996,9 @@ export default function App() {
                 <>
                   <div
                     onMouseDown={split.onMouseDown}
-                    className="group relative flex w-1 shrink-0 cursor-col-resize items-center justify-center"
+                    className="group relative z-10 -mx-0.5 flex w-1.5 shrink-0 cursor-col-resize items-center justify-center"
                   >
-                    <div className="h-full w-px bg-[var(--c-border)] transition-colors group-hover:bg-[var(--c-accent)]" />
+                    <div className="h-full w-px bg-[var(--c-border)] transition-colors group-hover:w-0.5 group-hover:bg-[var(--c-accent)]" />
                   </div>
                   <SplitPane
                     workspace={workspace}
@@ -1010,16 +1021,16 @@ export default function App() {
         {showRightPanel && (
           <div
             onMouseDown={rightPanel.onMouseDown}
-            className="group relative flex w-1 shrink-0 cursor-col-resize items-center justify-center"
+            className="group relative z-10 -mx-0.5 flex w-1.5 shrink-0 cursor-col-resize items-center justify-center"
           >
-            <div className="h-full w-px bg-[var(--c-border)] transition-colors group-hover:bg-[var(--c-accent)]" />
+            <div className="h-full w-px bg-[var(--c-border)] transition-colors group-hover:w-0.5 group-hover:bg-[var(--c-accent)]" />
           </div>
         )}
 
         {/* Right edit panel */}
         <div
           style={{ width: showRightPanel ? rightPanel.value : 0 }}
-          className={`flex shrink-0 flex-col overflow-hidden bg-[var(--c-bg)] ${isDragging ? "" : "transition-[width] duration-200 ease-in-out"}`}
+          className={`flex shrink-0 flex-col overflow-hidden bg-[var(--c-bg2)] ${isDragging ? "" : "transition-[width] duration-200 ease-in-out"}`}
         >
           {editingHost && (
             <HostForm

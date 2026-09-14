@@ -1,7 +1,7 @@
 import { useState } from "react";
 import type { GroupId, Workspace } from "../lib/types";
 import { ACCENT_COLORS, type UiAccent } from "../lib/preferences";
-import { IconTrash } from "./ui-icons";
+import { IconTrash, IconFolder, IconClose } from "./ui-icons";
 import { HostIcon } from "./icons";
 import { IconPicker } from "./IconPicker";
 import { GroupTreePicker } from "./GroupTreePicker";
@@ -52,34 +52,32 @@ export function GroupForm({ workspace, group, onCancel, onSave, onDeleteGroup, o
           {group.id ? "Modifier le dossier" : "Nouveau dossier"}
         </h2>
 
-        {error && <p className="rounded-md bg-rose-950 px-3 py-2 text-sm text-rose-300">{error}</p>}
+        {error && <p className="callout callout-danger">{error}</p>}
 
         {/* Icon */}
         <div className="space-y-1">
           <span className="text-xs font-medium text-[var(--c-text-secondary)]">Icône</span>
           <div className="relative">
             <div className="flex items-center gap-2">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[var(--c-bg3)]">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--c-border)] bg-[var(--c-bg3)] text-[var(--c-text-muted)]">
                 {icon ? (
-                  <HostIcon iconId={icon} customIcons={workspace.customIcons} size={24} />
+                  <HostIcon iconId={icon} customIcons={workspace.customIcons} size={18} />
                 ) : (
-                  <span className="text-lg">📁</span>
+                  <IconFolder size={14} />
                 )}
               </div>
-              <button
-                type="button"
-                onClick={() => setShowIconPicker((v) => !v)}
-                className="rounded-md bg-[var(--c-bg3)] px-3 py-2 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
-              >
+              <button type="button" onClick={() => setShowIconPicker((v) => !v)} className="btn btn-secondary">
                 {icon ? "Changer l'icône" : "Choisir une icône"}
               </button>
               {icon && (
                 <button
                   type="button"
                   onClick={() => setIcon(null)}
-                  className="rounded-md px-2 py-2 text-xs text-rose-400 hover:bg-rose-900/30"
+                  aria-label="Retirer l'icône"
+                  title="Retirer l'icône"
+                  className="btn btn-ghost btn-icon"
                 >
-                  ✕
+                  <IconClose size={12} />
                 </button>
               )}
             </div>
@@ -103,12 +101,12 @@ export function GroupForm({ workspace, group, onCancel, onSave, onDeleteGroup, o
               type="button"
               onClick={() => setColor(null)}
               title="Aucune couleur"
-              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 text-[10px] text-[var(--c-text-muted)] ${
-                color === null ? "border-[var(--c-text)]" : "border-transparent hover:border-white/30"
+              className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-full border-2 text-[var(--c-text-muted)] ${
+                color === null ? "border-[var(--c-text)]" : "border-transparent hover:border-[var(--c-border-strong)]"
               }`}
               style={{ background: "var(--c-bg3)" }}
             >
-              ✕
+              <IconClose size={10} />
             </button>
             {(Object.entries(ACCENT_COLORS) as [UiAccent, typeof ACCENT_COLORS[UiAccent]][]).map(([key, entry]) => (
               <button
@@ -116,7 +114,7 @@ export function GroupForm({ workspace, group, onCancel, onSave, onDeleteGroup, o
                 type="button"
                 onClick={() => setColor(key)}
                 title={entry.label}
-                className={`h-6 w-6 shrink-0 rounded-full border-2 ${color === key ? "border-[var(--c-text)]" : "border-transparent hover:border-white/30"}`}
+                className={`h-6 w-6 shrink-0 rounded-full border-2 ${color === key ? "border-[var(--c-text)]" : "border-transparent hover:border-[var(--c-border-strong)]"}`}
                 style={{ background: entry.c500 }}
               />
             ))}
@@ -131,7 +129,7 @@ export function GroupForm({ workspace, group, onCancel, onSave, onDeleteGroup, o
             onChange={(e) => setName(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
             placeholder="Mon dossier"
-            className="w-full rounded-md bg-[var(--c-bg3)] px-3 py-2 text-sm text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+            className="input w-full"
             autoFocus
           />
         </div>
@@ -157,7 +155,7 @@ export function GroupForm({ workspace, group, onCancel, onSave, onDeleteGroup, o
           </button>
           <button
             onClick={onCancel}
-            className="flex-1 rounded-md bg-[var(--c-bg3)] px-3 py-2 text-sm font-medium text-[var(--c-text)] hover:bg-white/5"
+            className="flex-1 rounded-md bg-[var(--c-bg3)] px-3 py-2 text-sm font-medium text-[var(--c-text)] hover:bg-[var(--c-hover)]"
           >
             Annuler
           </button>
@@ -177,7 +175,7 @@ export function GroupForm({ workspace, group, onCancel, onSave, onDeleteGroup, o
                   </button>
                   <button
                     onClick={() => setConfirmDelete(false)}
-                    className="flex-1 rounded-md bg-[var(--c-bg3)] px-3 py-2 text-sm font-medium text-[var(--c-text)] hover:bg-white/5"
+                    className="flex-1 rounded-md bg-[var(--c-bg3)] px-3 py-2 text-sm font-medium text-[var(--c-text)] hover:bg-[var(--c-hover)]"
                   >
                     Annuler
                   </button>

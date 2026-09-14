@@ -52,11 +52,11 @@ export function CommandPalette({ commands, title, placeholder, onClose }: Comman
       <div
         ref={ref}
         {...dialogProps}
-        className="w-full max-w-lg overflow-hidden rounded-lg bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]"
+        className="modal w-full max-w-lg overflow-hidden"
         onClick={(e) => e.stopPropagation()}
       >
         {title && (
-          <p className="truncate border-b border-[var(--c-border)] px-4 pb-1.5 pt-2.5 text-[11px] text-[var(--c-text-muted)]" title={title}>
+          <p className="eyebrow truncate border-b border-[var(--c-border)] px-4 pb-1.5 pt-2.5" title={title}>
             {title}
           </p>
         )}
@@ -72,11 +72,11 @@ export function CommandPalette({ commands, title, placeholder, onClose }: Comman
             if (e.key === "Enter") { e.preventDefault(); runAt(activeIndex); }
           }}
           placeholder={placeholder ?? "Tapez une commande… (se connecter, fermer l'onglet, paramètres…)"}
-          className="w-full border-b border-[var(--c-border)] bg-transparent px-4 py-3 text-[14px] text-[var(--c-text)] placeholder:text-[var(--c-text-muted)]"
+          className="w-full border-b border-[var(--c-border)] bg-transparent px-4 py-3 text-[13.5px] text-[var(--c-text)] outline-none placeholder:text-[var(--c-text-muted)]"
         />
         <div className="sidebar-scroll max-h-80 overflow-y-auto py-1">
           {filtered.length === 0 && (
-            <p className="px-4 py-6 text-center text-sm text-[var(--c-text-muted)]">
+            <p className="px-4 py-6 text-center text-[12.5px] text-[var(--c-text-muted)]">
               {commands.length === 0 && title ? "Aucun onglet ne sait quoi faire de ça." : "Aucun résultat"}
             </p>
           )}
@@ -86,12 +86,12 @@ export function CommandPalette({ commands, title, placeholder, onClose }: Comman
               ref={(el) => { itemRefs.current[i] = el; }}
               onClick={() => runAt(i)}
               onMouseEnter={() => setActiveIndex(i)}
-              className={`flex w-full items-center justify-between gap-2 px-4 py-2 text-left text-sm transition-colors ${
-                i === activeIndex ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-secondary)]"
+              className={`relative mx-1 flex w-[calc(100%-0.5rem)] items-center justify-between gap-2 rounded-md px-3 py-1.5 text-left text-[12.5px] transition-colors ${
+                i === activeIndex ? "bg-[var(--c-accent-dim)] text-[var(--c-text)]" : "text-[var(--c-text-secondary)]"
               }`}
             >
               <span className="truncate">{cmd.label}</span>
-              {cmd.hint && <span className="shrink-0 rounded bg-[var(--c-bg3)] px-1.5 py-0.5 font-mono text-[10px] text-[var(--c-text-muted)]">{cmd.hint}</span>}
+              {cmd.hint && <span className="kbd shrink-0">{cmd.hint}</span>}
             </button>
           ))}
         </div>

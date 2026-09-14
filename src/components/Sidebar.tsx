@@ -59,7 +59,7 @@ export function Sidebar({ panel, onPanelChange, ctx, actions }: SidebarProps) {
   return (
     <aside className="flex min-w-0 flex-1 overflow-hidden">
       {/* Vertical nav strip — fixed 44px, never overflows regardless of sidebar width */}
-      <nav className="relative flex w-11 shrink-0 flex-col items-center border-r border-[var(--c-border)] bg-[var(--c-bg)] py-2 gap-0.5">
+      <nav className="relative flex w-11 shrink-0 flex-col items-center gap-px border-r border-[var(--c-border)] bg-[var(--c-bg)] py-1.5">
         {SIDEBAR_BUTTONS.filter((b) => isSidebarButtonVisible(b.id, hidden)).map((b) => {
           const Icon = BUTTON_ICONS[b.id];
           const active = panel === b.id;
@@ -75,17 +75,20 @@ export function Sidebar({ panel, onPanelChange, ctx, actions }: SidebarProps) {
               // dot says "something", and the hosts are what makes it a
               // decision.
               title={alerting ? [b.label, ...actions.awsAlerts.map(describeAlert)].join("\n") : label}
-              className={`relative flex h-9 w-9 items-center justify-center rounded-lg border transition-all duration-150 ${
+              // L'état actif est un marqueur sur le bord gauche et l'icône en
+              // couleur d'accent — pas un carré rempli, qui ferait de chaque
+              // panneau ouvert une action primaire.
+              className={`relative flex h-9 w-9 items-center justify-center rounded-md transition-colors duration-100 ${
                 active
-                  ? "accent-surface"
-                  : "border-transparent text-[var(--c-text-faint)] hover:bg-white/5 hover:text-[var(--c-text-secondary)]"
+                  ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)] before:absolute before:-left-[5px] before:top-2 before:bottom-2 before:w-0.5 before:rounded-r before:bg-[var(--c-accent)]"
+                  : "text-[var(--c-text-muted)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]"
               }`}
             >
               <Icon size={16} />
               {alerting && (
                 <span
-                  className={`absolute right-1 top-1 h-2 w-2 rounded-full ring-2 ring-[var(--c-bg)] ${
-                    tone === "danger" ? "bg-rose-500" : "bg-amber-400"
+                  className={`absolute right-1.5 top-1.5 h-1.5 w-1.5 rounded-full ring-2 ring-[var(--c-bg)] ${
+                    tone === "danger" ? "bg-[var(--c-danger)]" : "bg-[var(--c-warn)]"
                   }`}
                 />
               )}
@@ -96,10 +99,10 @@ export function Sidebar({ panel, onPanelChange, ctx, actions }: SidebarProps) {
           <button
             onClick={() => onPanelChange(panel === "settings" ? "hosts" : "settings")}
             title="Paramètres"
-            className={`relative flex h-9 w-9 items-center justify-center rounded-lg border transition-all duration-150 ${
+            className={`relative flex h-9 w-9 items-center justify-center rounded-md transition-colors duration-100 ${
               panel === "settings"
-                ? "accent-surface"
-                : "border-transparent text-[var(--c-text-faint)] hover:bg-white/5 hover:text-[var(--c-text-secondary)]"
+                ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)] before:absolute before:-left-[5px] before:top-2 before:bottom-2 before:w-0.5 before:rounded-r before:bg-[var(--c-accent)]"
+                : "text-[var(--c-text-muted)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]"
             }`}
           >
             <IconSettings size={16} />

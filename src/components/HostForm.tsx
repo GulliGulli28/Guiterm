@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "../lib/api";
-import { IconTrash } from "./ui-icons";
+import { IconTrash, IconClose, IconFolder, IconHosts, IconKeychain, IconLock, IconUnlock, IconPlus } from "./ui-icons";
 import type { AuthMethod, EnvVar, GroupId, Host, HostId, HostKind, KeyId, PersistentShellMode, ProxyProbe, SnippetId, Workspace } from "../lib/types";
 import { HostIcon } from "./icons";
 import { IconPicker } from "./IconPicker";
@@ -397,11 +397,18 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
   };
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto p-4">
-      <div className="w-full space-y-4 rounded-xl bg-[var(--c-bg2)] p-5 shadow-[var(--shadow-md)]">
-        <h2 className="text-[16px] font-semibold text-[var(--c-text)]">{host ? "Modifier l'hôte" : "Nouvel hôte"}</h2>
-
-        {error && <p className="rounded-md bg-rose-950 px-3 py-2 text-sm text-rose-300">{error}</p>}
+    <div className="flex min-h-0 flex-1 flex-col border-l border-[var(--c-border)]">
+      {/* En-tête fixe : le titre et les deux actions restent sous les yeux
+          quel que soit le défilement d'un formulaire long. */}
+      <div className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--c-border)] px-4">
+        <h2 className="text-[13px] font-semibold text-[var(--c-text)]">{host ? "Modifier l'hôte" : "Nouvel hôte"}</h2>
+        <div className="flex items-center gap-1.5">
+          <button onClick={onCancel} className="btn btn-ghost">Annuler</button>
+          <button onClick={submit} className="btn btn-primary">Enregistrer</button>
+        </div>
+      </div>
+      <div className="sidebar-scroll min-h-0 flex-1 space-y-3.5 overflow-y-auto p-4">
+        {error && <p className="callout callout-danger">{error}</p>}
 
         <Field label="Nom">
           <input value={label} onChange={(e) => setLabel(e.target.value)} className={inputClass} />
@@ -420,8 +427,9 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
                     if (!host && port === "22") setPort("3389");
                   }
                 }}
-                className={`flex items-center justify-center gap-1.5 rounded-md border py-2 text-[13px] font-medium transition-all ${
-                  kind === key ? "accent-surface" : "border-transparent bg-[var(--c-bg3)] text-[var(--c-text-secondary)] hover:bg-white/5"
+                aria-pressed={kind === key}
+                className={`btn justify-start ${
+                  kind === key ? "btn-toggled border-[color-mix(in_srgb,var(--c-accent)_40%,transparent)]" : "btn-secondary text-[var(--c-text-secondary)]"
                 }`}
               >
                 <Icon size={14} /> {kindLabel}
@@ -433,27 +441,19 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
         <Field label="Icône">
           <div className="relative">
             <div className="flex items-center gap-2">
-              <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-[var(--c-bg3)]">
+              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--c-border)] bg-[var(--c-bg3)] text-[var(--c-text-muted)]">
                 {icon ? (
-                  <HostIcon iconId={icon} customIcons={workspace.customIcons} size={24} />
+                  <HostIcon iconId={icon} customIcons={workspace.customIcons} size={18} />
                 ) : (
-                  <span className="text-lg text-[var(--c-text-muted)]">🖥</span>
+                  <IconHosts size={14} />
                 )}
               </div>
-              <button
-                type="button"
-                onClick={() => setShowIconPicker((v) => !v)}
-                className="rounded-md bg-[var(--c-bg3)] px-3 py-2 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
-              >
+              <button type="button" onClick={() => setShowIconPicker((v) => !v)} className="btn btn-secondary">
                 {icon ? "Changer l'icône" : "Choisir une icône"}
               </button>
               {icon && (
-                <button
-                  type="button"
-                  onClick={() => setIcon(null)}
-                  className="rounded-md px-2 py-2 text-xs text-rose-400 hover:bg-rose-900/30"
-                >
-                  ✕
+                <button type="button" onClick={() => setIcon(null)} className="btn btn-ghost btn-icon" aria-label="Retirer l'icône" title="Retirer l'icône">
+                  <IconClose size={12} />
                 </button>
               )}
             </div>
@@ -469,17 +469,24 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
           </div>
         </Field>
 
-        <Field label={addressLabel}>
-          <input
-            value={address}
-            onChange={(e) => setAddress(e.target.value)}
-            placeholder={dockerViaHostId ? "ignoré : voir l'hôte SSH relais ci-dessous" : addressPlaceholder}
-            disabled={kind === "dockerExec" && !!dockerViaHostId}
-            className={`${inputClass} font-mono disabled:opacity-40`}
-          />
-        </Field>
+        <div className={showPort ? "grid grid-cols-[1fr_5.5rem] gap-2" : ""}>
+          <Field label={addressLabel}>
+            <input
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
+              placeholder={dockerViaHostId ? "ignoré : voir l'hôte SSH relais ci-dessous" : addressPlaceholder}
+              disabled={kind === "dockerExec" && !!dockerViaHostId}
+              className={`${inputClass} input-mono disabled:opacity-40`}
+            />
+          </Field>
+          {showPort && (
+            <Field label="Port">
+              <input value={port} onChange={(e) => setPort(e.target.value)} inputMode="numeric" className={`${inputClass} input-mono`} />
+            </Field>
+          )}
+        </div>
         {kind === "dockerExec" && (
-          <p className="-mt-2 text-[11px] leading-relaxed text-[var(--c-text-muted)]">
+          <p className="help-text -mt-1.5">
             Un démon Docker apparaît comme une seule entrée. Se connecter dessus liste les conteneurs en direct et laisse choisir la cible à exécuter.
           </p>
         )}
@@ -494,7 +501,7 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
               specials={[{ value: "", label: "Aucun", hint: "Connexion directe au socket/hôte ci-dessus" }]}
               className={`${inputClass} flex items-center justify-between gap-2 text-left`}
             />
-            <p className="mt-1 text-[11px] leading-relaxed text-[var(--c-text-muted)]">
+            <p className="help-text mt-1">
               {dockerViaHostId
                 ? "Le démon Docker par défaut de cet hôte SSH sera utilisé (docker system dial-stdio) — le champ socket/hôte ci-dessus est ignoré ; il faut juste que la commande docker soit installée côté distant."
                 : "Utile quand le démon Docker distant n'expose pas de port TCP : passe par une session SSH déjà configurée plutôt que par le socket/hôte ci-dessus."}
@@ -502,14 +509,9 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
           </Field>
         )}
         {kind === "k8sExec" && (
-          <p className="-mt-2 text-[11px] leading-relaxed text-[var(--c-text-muted)]">
+          <p className="help-text -mt-1.5">
             Authentifié via kubeconfig, pas par adresse/port. Un cluster apparaît comme une seule entrée — la sélection du pod (et, s'il a plusieurs conteneurs, du conteneur) se fait au moment de la connexion.
           </p>
-        )}
-        {showPort && (
-          <Field label="Port">
-            <input value={port} onChange={(e) => setPort(e.target.value)} inputMode="numeric" className={`${inputClass} font-mono`} />
-          </Field>
         )}
         {showUsername && (
           <Field label={usernameLabel}>
@@ -533,7 +535,7 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
               <option value="off">Désactivée — un shell neuf à chaque connexion</option>
               <option value="tmux">tmux — reprendre le terminal là où il en était</option>
             </select>
-            <p className="mt-1.5 text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+            <p className="help-text mt-1.5">
               {persistentShell === "tmux"
                 ? "Le terminal tourne dans une session tmux nommée, côté serveur : une coupure de "
                   + "réseau, la fermeture de l'app ou un redémarrage retrouvent l'écran laissé, dossier "
@@ -554,7 +556,7 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
               {kind !== "rdp" && <option value="keyboardInteractive">Interactive (MFA / code à usage unique)</option>}
             </select>
             {authKind === "keyboardInteractive" && (
-              <p className="mt-1.5 text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+              <p className="help-text mt-1.5">
                 Le serveur pose ses questions au moment de la connexion (code d'authentification,
                 notification à valider…). Le mot de passe saisi ci-dessous, s'il y en a un, répond
                 automatiquement à la première question masquée : vous n'aurez que le second facteur
@@ -564,20 +566,20 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
           </Field>
         )}
         {kind === "rdp" && (
-          <p className="-mt-2 text-[11px] leading-relaxed text-[var(--c-text-muted)]">
+          <p className="help-text -mt-1.5">
             Ouvre le client RDP du système avec ces identifiants — pas de rendu intégré dans l'appli pour cette première version.
           </p>
         )}
 
         {showAuthSection && authKind === "agent" && (
-          <label className="flex items-start gap-2 rounded-md bg-[var(--c-bg3)]/60 p-2.5">
+          <label className="card flex items-start gap-2 p-2.5">
             <input
               type="checkbox"
               checked={agentForward}
               onChange={(e) => setAgentForward(e.target.checked)}
-              className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--c-accent)]"
+              className="mt-0.5 h-3.5 w-3.5 shrink-0"
             />
-            <span className="text-xs text-[var(--c-text-muted)]">
+            <span className="help-text">
               <span className="font-medium text-[var(--c-text-secondary)]">Transférer l'agent SSH vers cet hôte</span>
               <br />
               L'hôte distant pourra utiliser vos clés locales pour rebondir ailleurs (ex. un autre bastion, un dépôt Git),
@@ -608,45 +610,32 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
                 <input
                   value={keyPath}
                   onChange={(e) => { setKeyPath(e.target.value); setKeyId(null); setKeyPrompt(null); }}
-                  className={`${inputClass} flex-1 font-mono`}
+                  className={`${inputClass} input-mono flex-1`}
                   placeholder="~/.ssh/id_ed25519"
                 />
-                <button
-                  type="button"
-                  onClick={browseKey}
-                  title="Parcourir le système de fichiers"
-                  className="shrink-0 rounded-md bg-[var(--c-bg3)] px-2.5 py-2 text-sm text-[var(--c-text-secondary)] hover:bg-white/5"
-                >
-                  📂
+                <button type="button" onClick={browseKey} title="Parcourir le système de fichiers" aria-label="Parcourir" className="btn btn-secondary btn-icon">
+                  <IconFolder size={13} />
                 </button>
               </div>
               {keyId && !keyPrompt && (
-                <p className="mt-1 text-[10px] text-[var(--c-accent-text)]">
-                  🔑 Lié au trousseau : {workspace.keychain.find((k) => k.id === keyId)?.name ?? keyId}
+                <p className="mt-1 flex items-center gap-1 text-[11px] text-[var(--c-accent-text)]">
+                  <IconKeychain size={11} /> Lié au trousseau : {workspace.keychain.find((k) => k.id === keyId)?.name ?? keyId}
                 </p>
               )}
               {keyPrompt && (
-                <div className="mt-2 space-y-2 rounded-md bg-[var(--c-accent-dim)] p-2.5">
-                  <p className="text-xs text-[var(--c-accent-text)]">Enregistrer cette clé dans le trousseau ?</p>
+                <div className="card mt-2 space-y-2 p-2.5">
+                  <p className="text-[12px] font-medium text-[var(--c-text)]">Enregistrer cette clé dans le trousseau ?</p>
                   <input
                     value={keyPromptName}
                     onChange={(e) => setKeyPromptName(e.target.value)}
                     placeholder="Nom de la clé"
-                    className="w-full rounded-md bg-[var(--c-bg3)] px-2 py-1.5 text-sm text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                    className="input w-full"
                   />
                   <div className="flex gap-1.5">
-                    <button
-                      type="button"
-                      onClick={confirmSaveKeyToKeychain}
-                      className="flex-1 rounded-md bg-[var(--c-accent)] px-2 py-1.5 text-xs font-medium text-white hover:bg-[var(--c-accent-hover)]"
-                    >
+                    <button type="button" onClick={confirmSaveKeyToKeychain} className="btn btn-primary flex-1">
                       Enregistrer dans le trousseau
                     </button>
-                    <button
-                      type="button"
-                      onClick={() => setKeyPrompt(null)}
-                      className="rounded-md bg-[var(--c-bg3)] px-2 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
-                    >
+                    <button type="button" onClick={() => setKeyPrompt(null)} className="btn btn-ghost">
                       Sans enregistrer
                     </button>
                   </div>
@@ -661,21 +650,16 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
                 <input
                   value={certPath}
                   onChange={(e) => { setCertPath(e.target.value); setCertSuggested(false); }}
-                  className={`${inputClass} flex-1 font-mono`}
+                  className={`${inputClass} input-mono flex-1`}
                   placeholder="~/.ssh/id_ed25519-cert.pub"
                 />
-                <button
-                  type="button"
-                  onClick={browseCertificate}
-                  title="Parcourir le système de fichiers"
-                  className="shrink-0 rounded-md bg-[var(--c-bg3)] px-2.5 py-2 text-sm text-[var(--c-text-secondary)] hover:bg-white/5"
-                >
-                  📂
+                <button type="button" onClick={browseCertificate} title="Parcourir le système de fichiers" aria-label="Parcourir" className="btn btn-secondary btn-icon">
+                  <IconFolder size={13} />
                 </button>
               </div>
-              <p className="mt-1 text-[10px] leading-relaxed text-[var(--c-text-muted)]">
+              <p className="help-text mt-1">
                 {certSuggested
-                  ? "🔎 Trouvé à côté de la clé. Relu à chaque connexion, donc un certificat renouvelé est pris en compte sans rien retoucher ici."
+                  ? "Trouvé à côté de la clé. Relu à chaque connexion, donc un certificat renouvelé est pris en compte sans rien retoucher ici."
                   : "Pour les serveurs qui font confiance à une autorité (CA) au lieu de lister les clés. À laisser vide sinon."}
               </p>
             </Field>
@@ -689,17 +673,17 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
 
         {sshOnlyExtras && (
         <Field label="Chaîne de bastions">
-          <div className="space-y-1 rounded-md bg-[var(--c-bg3)] p-2">
-            {jumpVia.length === 0 && <p className="py-0.5 text-xs text-[var(--c-text-muted)]">Connexion directe (aucun bastion)</p>}
+          <div className="card space-y-1 p-2">
+            {jumpVia.length === 0 && <p className="px-1 py-0.5 text-[12px] text-[var(--c-text-muted)]">Connexion directe (aucun bastion)</p>}
             {jumpVia.map((id, i) => {
               const h = workspace.hosts.find((host) => host.id === id);
               return (
-                <div key={id} className="flex items-center gap-1.5 rounded bg-[var(--c-bg2)] px-2 py-1">
-                  <span className="w-4 shrink-0 text-center text-[10px] text-[var(--c-text-muted)]">{i + 1}</span>
-                  <span className="min-w-0 flex-1 truncate text-sm text-[var(--c-text)]">{h?.label ?? id}</span>
-                  <button type="button" onClick={() => moveUp(i)} disabled={i === 0} className="px-0.5 text-[var(--c-text-secondary)] disabled:opacity-20 hover:text-[var(--c-text)]">↑</button>
-                  <button type="button" onClick={() => moveDown(i)} disabled={i === jumpVia.length - 1} className="px-0.5 text-[var(--c-text-secondary)] disabled:opacity-20 hover:text-[var(--c-text)]">↓</button>
-                  <button type="button" onClick={() => removeJump(i)} className="px-0.5 text-rose-400 hover:text-rose-200">✕</button>
+                <div key={id} className="flex h-7 items-center gap-1.5 rounded-md bg-[var(--c-bg2)] px-2">
+                  <span className="w-4 shrink-0 text-center font-mono text-[10.5px] text-[var(--c-text-muted)]">{i + 1}</span>
+                  <span className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--c-text)]">{h?.label ?? id}</span>
+                  <button type="button" onClick={() => moveUp(i)} disabled={i === 0} aria-label="Monter" className="btn btn-ghost btn-sm btn-icon disabled:opacity-20">↑</button>
+                  <button type="button" onClick={() => moveDown(i)} disabled={i === jumpVia.length - 1} aria-label="Descendre" className="btn btn-ghost btn-sm btn-icon disabled:opacity-20">↓</button>
+                  <button type="button" onClick={() => removeJump(i)} aria-label="Retirer" className="btn btn-ghost btn-sm btn-icon hover:text-[var(--c-danger)]"><IconClose size={11} /></button>
                 </div>
               );
             })}
@@ -711,7 +695,7 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
                 value={null}
                 onChange={(v) => { if (v) addJump(v); }}
                 placeholder="+ Ajouter un bastion…"
-                className="mt-1 flex w-full items-center justify-between gap-2 rounded-md bg-[var(--c-bg2)] px-2 py-1.5 text-left text-sm text-[var(--c-text-secondary)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                className="input mt-1 flex w-full items-center justify-between gap-2 text-left"
               />
             )}
           </div>
@@ -727,9 +711,9 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
               rows={2}
               spellCheck={false}
               placeholder="Connexion directe (aucune commande de proxy)"
-              className="w-full resize-y rounded-md bg-[var(--c-bg3)] px-2 py-1.5 font-mono text-xs text-[var(--c-text)] placeholder:font-sans placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+              className="input input-mono w-full resize-y"
             />
-            <p className="text-xs leading-relaxed text-[var(--c-text-muted)]">
+            <p className="help-text">
               Lance ce programme et parle SSH sur son entrée/sortie standard au lieu de se connecter
               directement à l'adresse — c'est ainsi qu'on atteint une machine sans IP publique ni SSH
               entrant. <code className="text-[var(--c-text-secondary)]">%h</code> adresse,{" "}
@@ -737,7 +721,7 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
               <code className="text-[var(--c-text-secondary)]">%r</code> utilisateur.
             </p>
             {proxyCommand.trim() && jumpVia.length > 0 && (
-              <p className="text-xs text-amber-400">
+              <p className="callout callout-warn">
                 Incompatible avec la chaîne de bastions ci-dessus : les deux remplacent le transport.
               </p>
             )}
@@ -746,14 +730,14 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
                 type="button"
                 onClick={runProxyProbe}
                 disabled={proxyProbing || !address.trim()}
-                className="rounded-md border border-[var(--c-border)] px-2.5 py-1 text-xs text-[var(--c-text-secondary)] hover:border-[var(--c-accent)] hover:text-[var(--c-text)] disabled:opacity-50"
+                className="btn btn-secondary btn-sm"
               >
                 {proxyProbing ? "Test en cours…" : "Tester la commande"}
               </button>
             )}
             {proxyProbe && <ProxyProbeResult probe={proxyProbe} />}
-            <details className="rounded-md bg-[var(--c-bg3)] px-2 py-1.5">
-              <summary className="cursor-pointer select-none text-xs text-[var(--c-text-secondary)] hover:text-[var(--c-text)]">
+            <details className="card px-2 py-1.5">
+              <summary className="cursor-pointer select-none text-[12px] text-[var(--c-text-secondary)] hover:text-[var(--c-text)]">
                 Exemples — cliquer pour insérer
               </summary>
               <div className="mt-1.5 space-y-1">
@@ -763,11 +747,11 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
                     type="button"
                     onClick={() => setProxyCommandChecked(example.command)}
                     title={example.command}
-                    className="block w-full rounded bg-[var(--c-bg2)] px-2 py-1.5 text-left hover:bg-[var(--c-bg)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                    className="block w-full rounded-md px-2 py-1.5 text-left hover:bg-[var(--c-hover)]"
                   >
-                    <span className="text-xs font-medium text-[var(--c-text)]">{example.label}</span>
-                    <span className="ml-1.5 text-[10px] text-[var(--c-text-muted)]">{example.hint}</span>
-                    <code className="mt-0.5 block truncate font-mono text-[10px] text-[var(--c-text-secondary)]">
+                    <span className="text-[12px] font-medium text-[var(--c-text)]">{example.label}</span>
+                    <span className="ml-1.5 text-[11px] text-[var(--c-text-muted)]">{example.hint}</span>
+                    <code className="mt-0.5 block truncate font-mono text-[11px] text-[var(--c-text-secondary)]">
                       {example.command}
                     </code>
                   </button>
@@ -789,22 +773,22 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
 
         {shellExtras && (
         <Field label="Snippets au démarrage">
-          <div className="space-y-1 rounded-md bg-[var(--c-bg3)] p-2">
-            {startupSnippets.length === 0 && <p className="py-0.5 text-xs text-[var(--c-text-muted)]">Aucun snippet au démarrage</p>}
+          <div className="card space-y-1 p-2">
+            {startupSnippets.length === 0 && <p className="px-1 py-0.5 text-[12px] text-[var(--c-text-muted)]">Aucun snippet au démarrage</p>}
             {startupSnippets.map((id, i) => {
               const s = workspace.snippets.find((sn) => sn.id === id);
               return (
-                <div key={id} className="flex items-center gap-1.5 rounded bg-[var(--c-bg2)] px-2 py-1">
-                  <span className="w-4 shrink-0 text-center text-[10px] text-[var(--c-text-muted)]">{i + 1}</span>
-                  <span className="min-w-0 flex-1 truncate text-sm text-[var(--c-text)]">{s?.name ?? id}</span>
-                  <button type="button" onClick={() => moveSnippetUp(i)} disabled={i === 0} className="px-0.5 text-[var(--c-text-secondary)] disabled:opacity-20 hover:text-[var(--c-text)]">↑</button>
-                  <button type="button" onClick={() => moveSnippetDown(i)} disabled={i === startupSnippets.length - 1} className="px-0.5 text-[var(--c-text-secondary)] disabled:opacity-20 hover:text-[var(--c-text)]">↓</button>
-                  <button type="button" onClick={() => removeStartupSnippet(i)} className="px-0.5 text-rose-400 hover:text-rose-200">✕</button>
+                <div key={id} className="flex h-7 items-center gap-1.5 rounded-md bg-[var(--c-bg2)] px-2">
+                  <span className="w-4 shrink-0 text-center font-mono text-[10.5px] text-[var(--c-text-muted)]">{i + 1}</span>
+                  <span className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--c-text)]">{s?.name ?? id}</span>
+                  <button type="button" onClick={() => moveSnippetUp(i)} disabled={i === 0} aria-label="Monter" className="btn btn-ghost btn-sm btn-icon disabled:opacity-20">↑</button>
+                  <button type="button" onClick={() => moveSnippetDown(i)} disabled={i === startupSnippets.length - 1} aria-label="Descendre" className="btn btn-ghost btn-sm btn-icon disabled:opacity-20">↓</button>
+                  <button type="button" onClick={() => removeStartupSnippet(i)} aria-label="Retirer" className="btn btn-ghost btn-sm btn-icon hover:text-[var(--c-danger)]"><IconClose size={11} /></button>
                 </div>
               );
             })}
             {snippetChoices.length > 0 && (
-              <select value="" onChange={(e) => addStartupSnippet(e.target.value)} className="mt-1 w-full rounded-md bg-[var(--c-bg2)] px-2 py-1.5 text-sm text-[var(--c-text-secondary)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]">
+              <select value="" onChange={(e) => addStartupSnippet(e.target.value)} className="input mt-1 w-full">
                 <option value="" disabled>+ Ajouter un snippet…</option>
                 {snippetChoices.map((s) => (
                   <option key={s.id} value={s.id}>{s.name}</option>
@@ -817,8 +801,8 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
 
         {shellExtras && (
         <Field label="Variables d'environnement">
-          <div className="space-y-1.5 rounded-md bg-[var(--c-bg3)] p-2">
-            {envVars.length === 0 && <p className="py-0.5 text-xs text-[var(--c-text-muted)]">Aucune variable définie</p>}
+          <div className="card space-y-1.5 p-2">
+            {envVars.length === 0 && <p className="px-1 py-0.5 text-[12px] text-[var(--c-text-muted)]">Aucune variable définie</p>}
             {envVars.map((v, i) => {
               // A stored secret is never sent back to the form, so an empty
               // value on an already-saved secret means "unchanged" — the
@@ -830,14 +814,14 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
                     value={v.key}
                     onChange={(e) => setEnvKey(i, e.target.value)}
                     placeholder="NOM"
-                    className="w-28 shrink-0 rounded-md bg-[var(--c-bg2)] px-2 py-1.5 font-mono text-xs text-[var(--c-text)] placeholder:font-sans placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                    className="input input-mono w-28 shrink-0"
                   />
                   <input
                     value={v.value}
                     onChange={(e) => setEnvValue(i, e.target.value)}
                     type={v.secret ? "password" : "text"}
                     placeholder={storedSecret ? "enregistrée — laisser vide pour conserver" : "valeur"}
-                    className="min-w-0 flex-1 rounded-md bg-[var(--c-bg2)] px-2 py-1.5 font-mono text-xs text-[var(--c-text)] placeholder:font-sans placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                    className="input input-mono min-w-0 flex-1"
                   />
                   <button
                     type="button"
@@ -845,34 +829,33 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
                     title={v.secret
                       ? "Valeur gardée dans le coffre (trousseau OS ou coffre chiffré) — cliquer pour la remettre en clair dans workspace.json"
                       : "Garder cette valeur dans le coffre plutôt qu'en clair dans workspace.json"}
-                    className={`shrink-0 rounded-md px-1.5 text-xs transition-colors ${
-                      v.secret ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)]"
-                    }`}
+                    aria-pressed={v.secret}
+                    className={`btn btn-icon ${v.secret ? "btn-toggled" : "btn-ghost text-[var(--c-text-muted)]"}`}
                   >
-                    {v.secret ? "🔒" : "🔓"}
+                    {v.secret ? <IconLock size={13} /> : <IconUnlock size={13} />}
                   </button>
-                  <button type="button" onClick={() => removeEnvVar(i)} className="shrink-0 px-1.5 text-rose-400 hover:text-rose-200">✕</button>
+                  <button type="button" onClick={() => removeEnvVar(i)} aria-label="Retirer" className="btn btn-ghost btn-icon hover:text-[var(--c-danger)]"><IconClose size={11} /></button>
                 </div>
               );
             })}
-            <p className="pt-0.5 text-[10px] leading-relaxed text-[var(--c-text-faint)]">
-              🔒 met la valeur au coffre au lieu de <span className="font-mono">workspace.json</span> — pour un jeton d'API,
+            <p className="help-text px-1 pt-0.5">
+              Le cadenas met la valeur au coffre au lieu de <span className="font-mono">workspace.json</span> — pour un jeton d'API,
               pas pour <span className="font-mono">LANG</span>.
             </p>
-            <button type="button" onClick={addEnvVar} className="mt-0.5 w-full rounded-md bg-[var(--c-bg2)]/60 py-1 text-xs text-[var(--c-text-muted)] hover:bg-[var(--c-bg2)] hover:text-[var(--c-text-secondary)]">
-              + Ajouter une variable
+            <button type="button" onClick={addEnvVar} className="btn btn-ghost btn-sm w-full text-[var(--c-text-muted)]">
+              <IconPlus size={11} /> Ajouter une variable
             </button>
           </div>
         </Field>
         )}
 
         <Field label="Étiquettes">
-          <div className="flex flex-wrap gap-1.5 rounded-md bg-[var(--c-bg3)] p-2">
+          <div className="input flex h-auto min-h-7 flex-wrap items-center gap-1.5 py-1">
             {tags.map((tag) => (
-              <span key={tag} className="flex items-center gap-1 rounded-full bg-[var(--c-accent-dim)] px-2 py-0.5 text-xs text-[var(--c-accent-text)]">
+              <span key={tag} className="tag tag-accent gap-1 pr-1">
                 {tag}
-                <button onClick={() => setTags(tags.filter((t) => t !== tag))} className="text-[var(--c-accent-text)] hover:text-white">
-                  ✕
+                <button onClick={() => setTags(tags.filter((t) => t !== tag))} aria-label={`Retirer ${tag}`} className="rounded-sm opacity-70 hover:opacity-100">
+                  <IconClose size={9} />
                 </button>
               </span>
             ))}
@@ -887,45 +870,27 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
               }}
               onBlur={addTag}
               placeholder="Ajouter une étiquette…"
-              className="min-w-[8rem] flex-1 bg-transparent text-sm text-[var(--c-text)] placeholder:text-[var(--c-text-muted)]"
+              className="min-w-[8rem] flex-1 bg-transparent text-[12.5px] text-[var(--c-text)] outline-none placeholder:text-[var(--c-text-muted)]"
             />
           </div>
         </Field>
 
-        <div className="flex gap-2 pt-2">
-          <button onClick={submit} className="flex-1 rounded-md bg-[var(--c-accent)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--c-accent-hover)]">
-            Enregistrer
-          </button>
-          <button onClick={onCancel} className="flex-1 rounded-md bg-[var(--c-bg3)] px-3 py-2 text-sm font-medium text-[var(--c-text-secondary)] hover:bg-white/5">
-            Annuler
-          </button>
-        </div>
-
         {host && onDeleteHost && (
-          <div className="pt-3">
+          <div className="border-t border-[var(--c-border)] pt-3">
             {confirmDelete ? (
-              <div className="space-y-2 rounded-lg bg-rose-950/30 p-3">
-                <p className="text-sm text-rose-300">Supprimer cet hôte définitivement ?</p>
+              <div className="callout callout-danger space-y-2">
+                <p className="font-medium">Supprimer cet hôte définitivement ?</p>
                 <div className="flex gap-2">
-                  <button
-                    onClick={() => onDeleteHost(host.id)}
-                    className="flex-1 rounded-md bg-rose-700 px-3 py-2 text-sm font-medium text-white hover:bg-rose-600"
-                  >
+                  <button onClick={() => onDeleteHost(host.id)} className="btn btn-danger">
                     Oui, supprimer
                   </button>
-                  <button
-                    onClick={() => setConfirmDelete(false)}
-                    className="flex-1 rounded-md bg-[var(--c-bg3)] px-3 py-2 text-sm font-medium text-[var(--c-text-secondary)] hover:bg-white/5"
-                  >
+                  <button onClick={() => setConfirmDelete(false)} className="btn btn-ghost">
                     Annuler
                   </button>
                 </div>
               </div>
             ) : (
-              <button
-                onClick={() => setConfirmDelete(true)}
-                className="flex w-full items-center justify-center gap-2 rounded-md py-2 text-sm text-rose-400 hover:bg-rose-950/40 hover:text-rose-300"
-              >
+              <button onClick={() => setConfirmDelete(true)} className="btn btn-ghost text-[var(--c-danger)] hover:bg-[color-mix(in_srgb,var(--c-danger)_10%,transparent)]">
                 <IconTrash size={13} /> Supprimer cet hôte
               </button>
             )}
@@ -936,12 +901,12 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
   );
 }
 
-const inputClass = "w-full rounded-md bg-[var(--c-bg3)] px-3 py-2 text-sm text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]";
+const inputClass = "input";
 
 function Field({ label, children }: { label: string; children: React.ReactNode }) {
   return (
-    <label className="block space-y-1">
-      <span className="text-xs font-medium text-[var(--c-text-muted)]">{label}</span>
+    <label className="block">
+      <span className="field-label">{label}</span>
       {children}
     </label>
   );

@@ -131,7 +131,7 @@ export function RemoteSavePathPicker({ hosts, groups, customIcons, initialHostId
           {entries && !error && (
             <>
               {cwd !== "/" && (
-                <button onClick={() => navigate(parentPath(cwd))} className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left hover:bg-white/5">
+                <button onClick={() => navigate(parentPath(cwd))} className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left hover:bg-[var(--c-hover)]">
                   <IconFolder size={14} className="shrink-0 text-[var(--c-text-faint)]" />
                   <span className="text-[12.5px] text-[var(--c-text-secondary)]">…</span>
                 </button>
@@ -144,7 +144,7 @@ export function RemoteSavePathPicker({ hosts, groups, customIcons, initialHostId
                   <button
                     key={entry.name}
                     onClick={() => navigate(joinPath(cwd, entry.name))}
-                    className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left hover:bg-white/5"
+                    className="flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left hover:bg-[var(--c-hover)]"
                   >
                     <IconFolder size={14} className="shrink-0 text-[var(--c-text-faint)]" />
                     <span className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--c-text)]">{entry.name}</span>
@@ -155,7 +155,7 @@ export function RemoteSavePathPicker({ hosts, groups, customIcons, initialHostId
                     key={entry.name}
                     onClick={() => setFileName(entry.name)}
                     title="Cliquer pour reprendre ce nom de fichier (l'écraser à l'enregistrement)"
-                    className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left hover:bg-white/5 ${entry.name === fileName ? "bg-[var(--c-accent-dim)]" : ""}`}
+                    className={`flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left hover:bg-[var(--c-hover)] ${entry.name === fileName ? "bg-[var(--c-accent-dim)]" : ""}`}
                   >
                     <IconDatabase size={14} className="shrink-0 text-[var(--c-text-faint)]" />
                     <span className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--c-text)]">{entry.name}</span>
@@ -171,7 +171,7 @@ export function RemoteSavePathPicker({ hosts, groups, customIcons, initialHostId
               value={fileName}
               onChange={(e) => setFileName(e.target.value)}
               placeholder="nom_du_fichier.sql"
-              className="min-w-0 flex-1 rounded-md bg-[var(--c-bg3)] px-2.5 py-1.5 font-mono text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+              className="input input-mono min-w-0 flex-1"
             />
             <button
               onClick={confirm}
@@ -182,10 +182,10 @@ export function RemoteSavePathPicker({ hosts, groups, customIcons, initialHostId
             </button>
           </div>
           <div className="flex gap-2">
-            <button onClick={changeHost} className="flex-1 rounded-md bg-[var(--c-bg3)] py-1.5 text-center text-[12px] text-[var(--c-text-secondary)] hover:bg-white/5">
+            <button onClick={changeHost} className="flex-1 rounded-md bg-[var(--c-bg3)] py-1.5 text-center text-[12px] text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]">
               Changer d'hôte
             </button>
-            <button onClick={cancel} className="flex-1 rounded-md bg-[var(--c-bg3)] py-1.5 text-center text-[12px] text-[var(--c-text-secondary)] hover:bg-white/5">
+            <button onClick={cancel} className="flex-1 rounded-md bg-[var(--c-bg3)] py-1.5 text-center text-[12px] text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]">
               Annuler
             </button>
           </div>

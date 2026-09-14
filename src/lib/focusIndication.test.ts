@@ -59,9 +59,12 @@ describe("indication de focus clavier", () => {
     // quelque part. Si `focus:outline-none` disparaissait totalement du dépôt,
     // ce test cesserait de protéger quoi que ce soit sans le dire.
     expect(sourceFiles().length).toBeGreaterThan(50);
+    // Depuis que les champs passent par la primitive `.input` d'`index.css`
+    // (qui gère son focus en CSS pur), il ne reste que quelques cas inline —
+    // mais il doit en rester : à zéro, ce contrôle ne lirait plus rien.
     const withRing = sourceFiles().filter((f) =>
       readFileSync(path.join(srcDir, f), "utf8").includes("focus:outline-none"),
     );
-    expect(withRing.length).toBeGreaterThan(5);
+    expect(withRing.length).toBeGreaterThan(0);
   });
 });

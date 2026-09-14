@@ -31,37 +31,34 @@ export function NetDiagTargetsPanel({ workspace, onOpenTab }: { workspace: Works
 
   return (
     <div className="flex h-full min-w-0 flex-col gap-2">
-      <div className="flex items-center justify-between px-1">
-        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">
-          {direction === "from" ? "Sonder depuis" : "Hôtes à sonder"} · {selected.size}
+      <div className="flex items-center justify-between pl-1">
+        <span className="eyebrow">
+          {direction === "from" ? "Sonder depuis" : "Hôtes à sonder"} <span className="font-mono normal-case tracking-normal text-[var(--c-text-secondary)]">{selected.size}</span>
         </span>
         {/* Le panneau reste utilisable quand l'onglet a été fermé : cocher des
             machines sans pouvoir rien lancer serait un cul-de-sac. */}
-        <button
-          onClick={onOpenTab}
-          className="rounded px-1.5 py-0.5 text-[11px] text-[var(--c-accent-text)] hover:bg-[var(--c-bg3)]"
-        >
+        <button onClick={onOpenTab} className="btn btn-ghost btn-sm text-[var(--c-accent-text)]">
           Ouvrir l'onglet
         </button>
       </div>
 
       <div className="relative">
-        <div className="pointer-events-none absolute inset-y-0 left-3 flex items-center">
+        <div className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center">
           <IconSearch size={13} className="text-[var(--c-text-muted)]" />
         </div>
         <input
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
           placeholder="Rechercher un hôte…"
-          className="w-full rounded-xl border border-white/5 bg-[var(--c-bg3)] py-2 pl-8 pr-3 text-[13px] text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[var(--c-accent)]"
+          className="input pl-8"
         />
       </div>
 
-      <div className="flex gap-2 px-1">
-        <button onClick={selectAll} className="text-[11px] text-[var(--c-accent-text)] hover:underline">
+      <div className="flex gap-2 px-1 text-[11.5px]">
+        <button onClick={selectAll} className="text-[var(--c-accent-text)] hover:underline">
           Tout ({visibleKeys.length})
         </button>
-        <button onClick={selectNone} className="text-[11px] text-[var(--c-text-muted)] hover:underline">
+        <button onClick={selectNone} className="text-[var(--c-text-muted)] hover:underline">
           Aucun
         </button>
       </div>
@@ -78,7 +75,7 @@ export function NetDiagTargetsPanel({ workspace, onOpenTab }: { workspace: Works
           <button
             onClick={() => collectFacts()}
             disabled={collectingFacts}
-            className="flex w-full items-center justify-center gap-1.5 rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)] disabled:opacity-50"
+            className="btn btn-secondary w-full text-[var(--c-text-secondary)]"
           >
             <IconRefresh size={12} className={collectingFacts ? "animate-spin" : ""} />
             {collectingFacts ? "Collecte de l'état…" : "Collecter l'état (OS, RAM)"}
@@ -89,7 +86,7 @@ export function NetDiagTargetsPanel({ workspace, onOpenTab }: { workspace: Works
         </div>
       )}
 
-      <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-1 overflow-y-auto pb-2 pl-2 pt-2">
+      <div className="sidebar-scroll -mx-1 min-h-0 min-w-0 flex-1 overflow-y-auto px-1 pb-2">
         <TargetTreeList
           rows={rows}
           hosts={workspace.hosts}

@@ -147,7 +147,7 @@ export function ResultTable({ columns, rows }: { columns: string[]; rows: SqlCel
             </tr>
           )}
           {rows.slice(start, end).map((row, i) => (
-            <tr key={start + i} data-row className="hover:bg-white/5">
+            <tr key={start + i} data-row className="hover:bg-[var(--c-hover)]">
               {row.map((cell, j) => {
                 const text = cellText(cell);
                 const clipped = widths ? text.length > widths[j] : false;

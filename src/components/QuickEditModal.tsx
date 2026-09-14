@@ -26,7 +26,7 @@ export function QuickEditModal({ fileName, content, loading, saving, error, onSa
       <div ref={ref} {...dialogProps} className="fixed inset-8 z-40 flex flex-col overflow-hidden rounded-lg bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]">
         <div className="flex items-center justify-between border-b border-[var(--c-border)] px-4 py-2.5">
           <p className="truncate font-mono text-[13px] font-medium text-[var(--c-text)]">{fileName}</p>
-          <button aria-label="Fermer l'éditeur" onClick={onClose} className="flex shrink-0 items-center rounded p-1 text-[var(--c-text-muted)] hover:bg-white/5 hover:text-[var(--c-text)]">
+          <button aria-label="Fermer l'éditeur" onClick={onClose} className="flex shrink-0 items-center rounded p-1 text-[var(--c-text-muted)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]">
             <IconClose size={14} />
           </button>
         </div>
@@ -40,7 +40,7 @@ export function QuickEditModal({ fileName, content, loading, saving, error, onSa
               value={value}
               onChange={(e) => setValue(e.target.value)}
               spellCheck={false}
-              className="h-full w-full resize-none rounded-md bg-[var(--c-bg3)] p-3 font-mono text-[13px] text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+              className="input input-mono h-full w-full resize-none"
             />
           )}
         </div>
@@ -48,7 +48,7 @@ export function QuickEditModal({ fileName, content, loading, saving, error, onSa
         <div className="flex items-center justify-between gap-2 border-t border-[var(--c-border)] px-4 py-2.5">
           <span className="truncate text-[12px] text-rose-300">{error ?? ""}</span>
           <div className="flex shrink-0 gap-1.5">
-            <button onClick={onClose} className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5">
+            <button onClick={onClose} className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]">
               Annuler
             </button>
             <button

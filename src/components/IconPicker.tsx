@@ -73,7 +73,7 @@ export function IconPicker({ value, customIcons, onSelect, onWorkspaceUpdate, on
   const filteredBuiltin = BUILTIN_ICONS.filter((i) => i.category === category);
 
   const btnClass = (active: boolean) =>
-    `rounded px-2 py-1 text-xs font-medium transition-colors ${active ? "bg-[var(--c-accent)] text-white" : "text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)]"}`;
+    `rounded px-2 py-1 text-xs font-medium transition-colors ${active ? "bg-[var(--c-accent)] text-white" : "text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]"}`;
 
   return (
     <div
@@ -91,9 +91,9 @@ export function IconPicker({ value, customIcons, onSelect, onWorkspaceUpdate, on
         {value && (
           <button
             onClick={() => { onSelect(null); onClose(); }}
-            className="ml-auto rounded px-2 py-1 text-[11px] text-rose-400 hover:bg-rose-900/30"
+            className="btn btn-ghost btn-sm ml-auto text-[var(--c-danger)]"
           >
-            ✕ Retirer
+            Retirer l'icône
           </button>
         )}
       </div>
@@ -117,7 +117,7 @@ export function IconPicker({ value, customIcons, onSelect, onWorkspaceUpdate, on
                 className={`flex flex-col items-center gap-0.5 rounded p-1.5 transition-colors ${
                   value === icon.id
                     ? "ring-2 ring-[var(--c-accent-text)] bg-[var(--c-accent-dim)]"
-                    : "hover:bg-white/5"
+                    : "hover:bg-[var(--c-hover)]"
                 }`}
               >
                 {icon.render(28)}
@@ -145,7 +145,7 @@ export function IconPicker({ value, customIcons, onSelect, onWorkspaceUpdate, on
                   value={importName}
                   onChange={(e) => setImportName(e.target.value)}
                   placeholder="Nom de l'icône"
-                  className="flex-1 rounded-md bg-[var(--c-bg3)] px-2 py-1.5 text-sm text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                  className="input flex-1"
                 />
               </div>
               <div className="flex gap-1.5">
@@ -157,7 +157,7 @@ export function IconPicker({ value, customIcons, onSelect, onWorkspaceUpdate, on
                 </button>
                 <button
                   onClick={() => { setImporting(false); setImportDataUrl(null); }}
-                  className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
+                  className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]"
                 >
                   Annuler
                 </button>
@@ -177,7 +177,7 @@ export function IconPicker({ value, customIcons, onSelect, onWorkspaceUpdate, on
                     className={`flex flex-col items-center gap-0.5 rounded p-1.5 transition-colors ${
                       value === icon.id
                         ? "ring-2 ring-[var(--c-accent-text)] bg-[var(--c-accent-dim)]"
-                        : "hover:bg-white/5"
+                        : "hover:bg-[var(--c-hover)]"
                     }`}
                   >
                     <img src={icon.dataUrl} width={28} height={28} className="rounded object-contain" alt={icon.name} />

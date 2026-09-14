@@ -22,8 +22,7 @@ interface AwsImportPanelProps {
 
 type AuthKind = "agent" | "password" | "privateKey";
 
-const inputClass =
-  "w-full rounded-md bg-[var(--c-bg3)] px-2 py-1.5 text-sm text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]";
+const inputClass = "input";
 
 /**
  * Turning an AWS account into hosts, without typing an instance id.
@@ -236,7 +235,7 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError,
               Via ta CLI `aws` déjà connectée — aucun identifiant AWS n'est demandé ni conservé par Guiterm.
             </p>
           </div>
-          <button onClick={onClose} aria-label="Fermer" className="rounded p-1 text-[var(--c-text-muted)] hover:bg-white/5 hover:text-[var(--c-text)]">
+          <button onClick={onClose} aria-label="Fermer" className="rounded p-1 text-[var(--c-text-muted)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]">
             <IconClose size={13} />
           </button>
         </div>
@@ -309,7 +308,7 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError,
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Rechercher — nom, id, IP, plateforme, tag…"
-              className="flex-1 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+              className="input flex-1"
             />
             <label className="flex shrink-0 items-center gap-1.5 text-[11px] text-[var(--c-text-secondary)]">
               <input
@@ -343,7 +342,7 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError,
           {visible.map((instance) => (
             <label
               key={instance.instanceId}
-              className={`flex items-center gap-2 rounded-md px-2 py-1.5 ${instance.ssmOnline ? "hover:bg-white/5" : "opacity-55"}`}
+              className={`flex items-center gap-2 rounded-md px-2 py-1.5 ${instance.ssmOnline ? "hover:bg-[var(--c-hover)]" : "opacity-55"}`}
               title={instance.ssmOnline ? undefined : "SSM ne voit pas cette instance : agent arrêté, rôle sans AmazonSSMManagedInstanceCore, ou pas de route vers le service SSM"}
             >
               <input
@@ -391,7 +390,7 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError,
                 value={usernameOverride}
                 onChange={(e) => setUsernameOverride(e.target.value)}
                 placeholder={usernamePlaceholder}
-                className="w-44 rounded-md bg-[var(--c-bg3)] px-2 py-1 text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                className="input w-44"
               />
               <span className="text-[11px] text-[var(--c-text-faint)]">
                 {usernameOverride.trim()

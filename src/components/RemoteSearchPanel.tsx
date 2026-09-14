@@ -2,7 +2,7 @@ import { useState } from "react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { api } from "../lib/api";
 import type { Host, RemoteSearchMode, RemoteSearchOutcome, Workspace } from "../lib/types";
-import { IconClose, IconDotsVertical, IconEdit, IconCopy, IconSearch } from "./ui-icons";
+import { IconClose, IconDotsVertical, IconEdit, IconCopy, IconSearch, IconCheck } from "./ui-icons";
 import { ContextMenu } from "./ContextMenu";
 import { describeObject, type AppObject } from "../lib/appObject";
 import type { ObjectAction } from "../modules/types";
@@ -24,8 +24,7 @@ interface RemoteSearchPanelProps {
   onError: (message: string) => void;
 }
 
-const inputClass =
-  "w-full rounded-md bg-[var(--c-bg3)] px-2 py-1.5 text-sm text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]";
+const inputClass = "input";
 
 /** Directory part of a remote path — mirrors `remote_search::parent_of`, and
  * for the same reason: a hit is opened by its directory plus its name. */
@@ -117,7 +116,7 @@ export function RemoteSearchPanel({ host, workspace, objectActions, onClose, onE
               Par nom ou par contenu. Chaque recherche est bornée en profondeur, en résultats et en durée.
             </p>
           </div>
-          <button onClick={onClose} aria-label="Fermer" className="rounded p-1 text-[var(--c-text-muted)] hover:bg-white/5 hover:text-[var(--c-text)]">
+          <button onClick={onClose} aria-label="Fermer" className="rounded p-1 text-[var(--c-text-muted)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]">
             <IconClose size={13} />
           </button>
         </div>
@@ -129,7 +128,7 @@ export function RemoteSearchPanel({ host, workspace, objectActions, onClose, onE
                 key={m}
                 onClick={() => setMode(m)}
                 className={`flex-1 rounded border py-1 text-xs font-medium transition-all ${
-                  mode === m ? "accent-surface" : "border-transparent text-[var(--c-text-secondary)] hover:bg-white/5"
+                  mode === m ? "accent-surface" : "border-transparent text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]"
                 }`}
               >
                 {label}
@@ -186,7 +185,7 @@ export function RemoteSearchPanel({ host, workspace, objectActions, onClose, onE
             </p>
           )}
           {outcome?.hits.map((hit) => (
-            <div key={`${hit.path}:${hit.line ?? 0}`} className="group flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-white/5">
+            <div key={`${hit.path}:${hit.line ?? 0}`} className="group flex items-start gap-2 rounded-md px-2 py-1.5 hover:bg-[var(--c-hover)]">
               <div className="min-w-0 flex-1">
                 <p className="truncate font-mono text-[12px] text-[var(--c-text)]" title={hit.path}>
                   {hit.path}
@@ -202,9 +201,9 @@ export function RemoteSearchPanel({ host, workspace, objectActions, onClose, onE
                 <button
                   onClick={() => copyPath(hit.path)}
                   title="Copier le chemin"
-                  className="rounded p-1 text-[var(--c-text-muted)] hover:bg-white/5 hover:text-[var(--c-text-secondary)]"
+                  className="rounded p-1 text-[var(--c-text-muted)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text-secondary)]"
                 >
-                  {copied === hit.path ? <span className="px-0.5 text-[11px] text-emerald-400">✓</span> : <IconCopy size={12} />}
+                  {copied === hit.path ? <IconCheck size={12} className="text-[var(--c-ok)]" /> : <IconCopy size={12} />}
                 </button>
                 <button
                   onClick={(e) => {
@@ -212,7 +211,7 @@ export function RemoteSearchPanel({ host, workspace, objectActions, onClose, onE
                     setMenu({ x: r.left, y: r.bottom + 2, path: hit.path });
                   }}
                   title="Envoyer vers un autre onglet"
-                  className="rounded p-1 text-[var(--c-text-muted)] hover:bg-white/5 hover:text-[var(--c-text-secondary)]"
+                  className="rounded p-1 text-[var(--c-text-muted)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text-secondary)]"
                 >
                   <IconDotsVertical size={12} />
                 </button>
@@ -220,7 +219,7 @@ export function RemoteSearchPanel({ host, workspace, objectActions, onClose, onE
                   onClick={() => openInEditor(hit.path)}
                   disabled={opening === hit.path}
                   title="Ouvrir dans l'éditeur — le fichier est rapatrié, et renvoyé quand tu l'enregistres"
-                  className="rounded p-1 text-[var(--c-text-muted)] hover:bg-white/5 hover:text-[var(--c-text-secondary)] disabled:opacity-50"
+                  className="rounded p-1 text-[var(--c-text-muted)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text-secondary)] disabled:opacity-50"
                 >
                   <IconEdit size={12} />
                 </button>

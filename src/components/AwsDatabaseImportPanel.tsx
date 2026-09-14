@@ -20,8 +20,7 @@ interface AwsDatabaseImportPanelProps {
 }
 
 
-const inputClass =
-  "w-full rounded-md bg-[var(--c-bg3)] px-2 py-1.5 text-sm text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]";
+const inputClass = "input";
 
 const ENGINE_LABEL: Record<string, string> = {
   mysql: "MySQL",
@@ -143,7 +142,7 @@ export function AwsDatabaseImportPanel({ workspace, onWorkspaceUpdate, onClose, 
               RDS, Aurora et ElastiCache, via ta CLI `aws` déjà connectée.
             </p>
           </div>
-          <button onClick={onClose} aria-label="Fermer" className="rounded p-1 text-[var(--c-text-muted)] hover:bg-white/5 hover:text-[var(--c-text)]">
+          <button onClick={onClose} aria-label="Fermer" className="rounded p-1 text-[var(--c-text-muted)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]">
             <IconClose size={13} />
           </button>
         </div>
@@ -225,7 +224,7 @@ export function AwsDatabaseImportPanel({ workspace, onWorkspaceUpdate, onClose, 
             return (
               <label
                 key={key(database)}
-                className={`flex items-start gap-2 rounded-md px-2 py-1.5 ${usable ? "hover:bg-white/5" : "opacity-70"}`}
+                className={`flex items-start gap-2 rounded-md px-2 py-1.5 ${usable ? "hover:bg-[var(--c-hover)]" : "opacity-70"}`}
               >
                 <input
                   type="checkbox"

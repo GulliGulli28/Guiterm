@@ -166,7 +166,7 @@ export function useContainerPicker(
               )}
             </div>
             <div className="shrink-0 border-t border-[var(--c-border)] p-2">
-              <button onClick={() => setLogs(null)} className="w-full rounded-md bg-[var(--c-bg3)] py-1.5 text-center text-[12px] text-[var(--c-text-secondary)] hover:bg-white/5">
+              <button onClick={() => setLogs(null)} className="w-full rounded-md bg-[var(--c-bg3)] py-1.5 text-center text-[12px] text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]">
                 Fermer
               </button>
             </div>

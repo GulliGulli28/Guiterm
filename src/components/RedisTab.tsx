@@ -190,7 +190,7 @@ export function RedisTab({ connection, onError }: RedisTabProps) {
             onClick={refreshKeys}
             disabled={loadingKeys}
             title="Actualiser la liste des clés"
-            className="flex shrink-0 items-center justify-center rounded p-1 text-[var(--c-text-faint)] hover:bg-white/10 hover:text-[var(--c-text-secondary)] disabled:opacity-50"
+            className="flex shrink-0 items-center justify-center rounded p-1 text-[var(--c-text-faint)] hover:bg-[var(--c-active)] hover:text-[var(--c-text-secondary)] disabled:opacity-50"
           >
             <IconRefresh size={13} className={loadingKeys && !hasLoadedOnce ? "animate-spin" : ""} />
           </button>
@@ -219,7 +219,7 @@ export function RedisTab({ connection, onError }: RedisTabProps) {
                   key={entry.key}
                   onClick={() => selectKey(entry.key)}
                   className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] transition-colors ${
-                    active ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-secondary)] hover:bg-white/[0.07] hover:text-[var(--c-text)]"
+                    active ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]"
                   }`}
                 >
                   <span className="min-w-0 flex-1 truncate font-mono">{entry.key}</span>
@@ -233,7 +233,7 @@ export function RedisTab({ connection, onError }: RedisTabProps) {
             <button
               onClick={loadMoreKeys}
               disabled={loadingKeys}
-              className="w-full rounded-md px-2 py-1.5 text-center text-[11px] text-[var(--c-accent-text)] hover:bg-white/5 disabled:opacity-50"
+              className="w-full rounded-md px-2 py-1.5 text-center text-[11px] text-[var(--c-accent-text)] hover:bg-[var(--c-hover)] disabled:opacity-50"
             >
               {loadingKeys ? "Chargement…" : "Charger plus"}
             </button>
@@ -289,7 +289,7 @@ export function RedisTab({ connection, onError }: RedisTabProps) {
               onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); runConsoleCommand(); } }}
               placeholder="HGETALL user:1"
               spellCheck={false}
-              className="w-full rounded-md bg-[var(--c-bg2)] px-2.5 py-1.5 font-mono text-[13px] text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent)]"
+              className="input input-mono w-full"
             />
             <button
               onClick={runConsoleCommand}
@@ -379,7 +379,7 @@ function RedisValueBody({ value }: { value: RedisValue }) {
               <thead><tr><th className={thClass()}>Champ</th><th className={thClass()}>Valeur</th></tr></thead>
               <tbody>
                 {value.entries.map(([field, v]) => (
-                  <tr key={field} className="hover:bg-white/5">
+                  <tr key={field} className="hover:bg-[var(--c-hover)]">
                     <td className={tdClass()}>{field}</td>
                     <td className={tdClass()}>{v}</td>
                   </tr>
@@ -400,7 +400,7 @@ function RedisValueBody({ value }: { value: RedisValue }) {
             <table className={tableClass()}>
               <tbody>
                 {(value.kind === "list" ? value.items : value.members).map((item, i) => (
-                  <tr key={i} className="hover:bg-white/5">
+                  <tr key={i} className="hover:bg-[var(--c-hover)]">
                     <td className={`${tdClass()} w-10 text-[var(--c-text-faint)]`}>{i}</td>
                     <td className={tdClass()}>{item}</td>
                   </tr>
@@ -421,7 +421,7 @@ function RedisValueBody({ value }: { value: RedisValue }) {
               <thead><tr><th className={thClass()}>Membre</th><th className={thClass()}>Score</th></tr></thead>
               <tbody>
                 {value.members.map(([member, score]) => (
-                  <tr key={member} className="hover:bg-white/5">
+                  <tr key={member} className="hover:bg-[var(--c-hover)]">
                     <td className={tdClass()}>{member}</td>
                     <td className={tdClass()}>{score}</td>
                   </tr>

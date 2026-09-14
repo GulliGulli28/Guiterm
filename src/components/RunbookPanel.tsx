@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import type { Runbook, RunbookId, Workspace } from "../lib/types";
-import { IconPlus, IconPlay, IconTrash, IconDownload } from "./ui-icons";
+import { IconPlus, IconTrash, IconDownload, IconFleet, IconRunbook } from "./ui-icons";
 
 interface RunbookPanelProps {
   workspace: Workspace;
@@ -42,47 +42,29 @@ export function RunbookPanel({
   };
 
   return (
-    <div className="flex h-full min-w-0 flex-col gap-2">
-      <div className="flex items-center justify-between px-1">
-        <span className="text-xs font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">
-          Runbooks · {workspace.runbooks.length}
-        </span>
-        <div className="flex items-center gap-0.5">
-          <button
-            onClick={async () => {
-              const path = await open({
-                multiple: false,
-                filters: [{ name: "Runbook", extensions: ["json"] }],
-              }).catch(() => null);
-              if (typeof path === "string") onImport(path);
-            }}
-            title="Importer un runbook depuis un fichier"
-            className="rounded px-1.5 py-0.5 text-[var(--c-text-muted)] hover:bg-[var(--c-bg3)]"
-          >
-            <IconDownload size={14} />
-          </button>
-          <button
-            onClick={() => setCreating((v) => !v)}
-            title="Nouvelle procédure"
-            className="rounded px-1.5 py-0.5 text-[var(--c-accent-text)] hover:bg-[var(--c-bg3)]"
-          >
-            <IconPlus size={14} />
-          </button>
-        </div>
+    <div className="flex h-full min-w-0 flex-col">
+      <div className="flex shrink-0 items-center gap-1.5">
+        <button onClick={() => setCreating((v) => !v)} className={`btn flex-1 ${creating ? "btn-secondary" : "btn-primary"}`}>
+          <IconPlus size={13} /> {creating ? "Annuler" : "Nouvelle procédure"}
+        </button>
+        <button
+          onClick={async () => {
+            const path = await open({
+              multiple: false,
+              filters: [{ name: "Runbook", extensions: ["json"] }],
+            }).catch(() => null);
+            if (typeof path === "string") onImport(path);
+          }}
+          title="Importer un runbook depuis un fichier"
+          aria-label="Importer un runbook"
+          className="btn btn-secondary btn-icon text-[var(--c-text-secondary)]"
+        >
+          <IconDownload size={14} />
+        </button>
       </div>
 
-      {/* Les cibles ne sont pas dans ce panneau, et le dire vaut mieux que de
-          laisser quelqu'un lancer une procédure sur zéro machine. */}
-      <button
-        onClick={onShowTargets}
-        className="mx-1 rounded-md border border-[var(--c-border)] bg-[var(--c-bg3)] px-2 py-1.5 text-left text-[11px] text-[var(--c-text-muted)] hover:border-[var(--c-accent)]"
-      >
-        Cibles : <span className="font-semibold text-[var(--c-text)]">{selectedTargets}</span> sélectionnée
-        {selectedTargets > 1 ? "s" : ""} — les mêmes que les opérations de flotte. Cliquer pour les changer.
-      </button>
-
       {creating && (
-        <div className="mx-1 flex gap-1">
+        <div className="mt-2 flex gap-1.5">
           <input
             autoFocus
             value={name}
@@ -92,61 +74,58 @@ export function RunbookPanel({
               if (e.key === "Escape") setCreating(false);
             }}
             placeholder="Nom de la procédure"
-            className="min-w-0 flex-1 rounded border border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1 text-xs"
+            className="input min-w-0 flex-1"
           />
-          <button onClick={create} className="rounded bg-[var(--c-accent)] px-2 py-1 text-xs text-white">
-            Créer
-          </button>
+          <button onClick={create} className="btn btn-primary">Créer</button>
         </div>
       )}
 
-      <div className="sidebar-scroll min-h-0 flex-1 space-y-1 px-1">
+      {/* Les cibles ne sont pas dans ce panneau, et le dire vaut mieux que de
+          laisser quelqu'un lancer une procédure sur zéro machine. */}
+      <button onClick={onShowTargets} className="card mt-2 flex items-center gap-2 px-2.5 py-2 text-left transition-colors hover:border-[var(--c-border-strong)]">
+        <IconFleet size={14} className="shrink-0 text-[var(--c-text-muted)]" />
+        <span className="min-w-0 flex-1 text-[11.5px] leading-snug text-[var(--c-text-muted)]">
+          <span className="font-medium text-[var(--c-text)]">{selectedTargets} cible{selectedTargets > 1 ? "s" : ""}</span>
+          {" "}— les mêmes que les opérations de flotte. Cliquer pour les changer.
+        </span>
+      </button>
+
+      <div className="sidebar-scroll -mx-1 mt-2 min-h-0 flex-1 overflow-y-auto px-1 pb-2">
         {workspace.runbooks.length === 0 && !creating && (
-          <p className="px-1 py-3 text-[11px] leading-relaxed text-[var(--c-text-faint)]">
-            Une procédure est une suite d'étapes lancées dans l'ordre sur les cibles cochées, avec, à chaque
-            étape, ce qui se passe si une machine échoue.
-          </p>
+          <div className="px-2 py-8 text-center">
+            <p className="text-[12.5px] font-medium text-[var(--c-text-secondary)]">Aucune procédure</p>
+            <p className="help-text mt-1">
+              Une suite d'étapes lancées dans l'ordre sur les cibles cochées, avec, à chaque étape, ce qui se passe si une machine échoue.
+            </p>
+          </div>
         )}
         {workspace.runbooks.map((book: Runbook) => (
-          <div
-            key={book.id}
-            className="group rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1.5 hover:border-[var(--c-accent)]"
-          >
-            <div className="flex items-center gap-1.5">
-              <button onClick={() => onOpen(book.id)} className="min-w-0 flex-1 text-left">
-                <div className="truncate text-xs font-medium text-[var(--c-text)]">{book.name}</div>
-                <div className="text-[10px] text-[var(--c-text-faint)]">
-                  {book.steps.length} étape{book.steps.length > 1 ? "s" : ""}
-                </div>
-              </button>
+          <div key={book.id} className="list-row group h-10 pr-1">
+            <button onClick={() => onOpen(book.id)} className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
+              <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--c-bg3)] text-[var(--c-text-secondary)]">
+                <IconRunbook size={13} />
+              </span>
+              <span className="flex min-w-0 flex-1 flex-col justify-center gap-px leading-tight">
+                <span className="truncate text-[12.5px] font-medium text-[var(--c-text)]">{book.name}</span>
+                <span className="truncate text-[10.5px] text-[var(--c-text-muted)]">
+                  {book.steps.length} étape{book.steps.length > 1 ? "s" : ""}{book.description ? ` · ${book.description}` : ""}
+                </span>
+              </span>
+            </button>
+            {confirming === book.id ? (
+              <span className="flex shrink-0 items-center gap-1">
+                <button onClick={() => setConfirming(null)} className="btn btn-ghost btn-sm">Annuler</button>
+                <button onClick={() => { onDelete(book.id); setConfirming(null); }} className="btn btn-danger btn-sm">Supprimer</button>
+              </span>
+            ) : (
               <button
-                onClick={() => onOpen(book.id)}
-                title="Ouvrir"
-                className="rounded p-1 text-[var(--c-text-muted)] opacity-0 hover:bg-[var(--c-bg3)] group-hover:opacity-100"
-              >
-                <IconPlay size={13} />
-              </button>
-              <button
-                onClick={() => setConfirming(confirming === book.id ? null : book.id)}
+                onClick={() => setConfirming(book.id)}
                 title="Supprimer"
-                className="rounded p-1 text-[var(--c-text-muted)] opacity-0 hover:bg-[var(--c-bg3)] group-hover:opacity-100"
+                aria-label={`Supprimer ${book.name}`}
+                className="btn btn-ghost btn-sm btn-icon shrink-0 opacity-0 hover:text-[var(--c-danger)] focus-visible:opacity-100 group-hover:opacity-100"
               >
                 <IconTrash size={13} />
               </button>
-            </div>
-            {confirming === book.id && (
-              <div className="mt-1.5 flex items-center gap-1.5 text-[11px]">
-                <span className="text-[var(--c-text-muted)]">Supprimer « {book.name} » ?</span>
-                <button
-                  onClick={() => { onDelete(book.id); setConfirming(null); }}
-                  className="rounded bg-[#ef4444] px-1.5 py-0.5 text-white"
-                >
-                  Supprimer
-                </button>
-                <button onClick={() => setConfirming(null)} className="rounded px-1.5 py-0.5 hover:bg-[var(--c-bg3)]">
-                  Annuler
-                </button>
-              </div>
             )}
           </div>
         ))}

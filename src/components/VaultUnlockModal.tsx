@@ -42,7 +42,7 @@ export function VaultUnlockModal({ error, submitting, onDismiss, onSubmit }: Vau
           onChange={(e) => setPassword(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
           placeholder="Mot de passe maître"
-          className="mt-4 w-full rounded-md bg-[var(--c-bg3)] px-3 py-2 text-[13px] text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+          className="input mt-4 w-full"
         />
 
         {error && (
@@ -51,7 +51,7 @@ export function VaultUnlockModal({ error, submitting, onDismiss, onSubmit }: Vau
 
         <div className="mt-4 flex justify-end gap-2">
           {onDismiss && (
-            <button onClick={onDismiss} className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] hover:bg-white/5">
+            <button onClick={onDismiss} className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]">
               Plus tard
             </button>
           )}

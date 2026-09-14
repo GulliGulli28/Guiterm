@@ -66,12 +66,12 @@ export function ContextMenu({
       data-context-menu
       style={{ left: position.x, top: position.y }}
       onMouseDown={(e) => e.stopPropagation()}
-      className="fixed z-50 min-w-44 rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] py-1 text-xs shadow-xl"
+      className="popover fixed z-50 min-w-44 py-1 text-[12.5px]"
     >
       {header && (
         <p
           title={header}
-          className="max-w-[22rem] truncate border-b border-[var(--c-border)] px-3 pb-1 pt-0.5 font-mono text-[10px] text-[var(--c-text-faint)]"
+          className="max-w-[22rem] truncate border-b border-[var(--c-border)] px-2.5 pb-1 pt-0.5 font-mono text-[10.5px] text-[var(--c-text-faint)]"
         >
           {header}
         </p>
@@ -81,10 +81,8 @@ export function ContextMenu({
           key={item.id ?? item.label}
           disabled={item.disabled}
           onClick={() => { item.run(); onClose(); }}
-          className={`block w-full px-3 py-1 text-left disabled:opacity-40 disabled:hover:bg-transparent ${
-            item.danger
-              ? "text-rose-400 hover:bg-rose-900/40 hover:text-rose-300"
-              : "text-[var(--c-text-secondary)] hover:bg-[var(--c-accent)] hover:text-white"
+          className={`menu-item disabled:opacity-40 disabled:hover:bg-transparent ${
+            item.danger ? "text-[var(--c-danger)] hover:!text-[var(--c-danger)]" : ""
           }`}
         >
           {item.label}

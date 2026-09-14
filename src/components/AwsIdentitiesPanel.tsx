@@ -150,7 +150,7 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
           <button
             onClick={load}
             title="Rafraîchir"
-            className="flex shrink-0 items-center justify-center rounded-xl bg-[var(--c-bg3)] px-2.5 text-[var(--c-text-muted)] transition-all hover:bg-white/5 hover:text-[var(--c-text-secondary)]"
+            className="flex shrink-0 items-center justify-center rounded-xl bg-[var(--c-bg3)] px-2.5 text-[var(--c-text-muted)] transition-all hover:bg-[var(--c-hover)] hover:text-[var(--c-text-secondary)]"
           >
             <IconRefresh size={13} />
           </button>
@@ -242,7 +242,7 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
                         <button onClick={() => removeSession(status.name)} className="flex-1 rounded-md bg-rose-900/70 py-1 text-[11px] font-medium text-rose-100 hover:bg-rose-900">
                           Supprimer
                         </button>
-                        <button onClick={() => setConfirming(null)} className="flex-1 rounded-md bg-[var(--c-bg2)] py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5">
+                        <button onClick={() => setConfirming(null)} className="flex-1 rounded-md bg-[var(--c-bg2)] py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]">
                           Annuler
                         </button>
                       </div>
@@ -262,7 +262,7 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
                         <button
                           onClick={() => onReconnectSso(session)}
                           title="Rejouer la connexion navigateur pour repartir sur un jeton neuf"
-                          className="rounded-md bg-[var(--c-bg2)] px-2 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5"
+                          className="rounded-md bg-[var(--c-bg2)] px-2 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]"
                         >
                           Reconnecter
                         </button>
@@ -319,7 +319,7 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
                             <button
                               onClick={() => setReassigning(reassigning?.from === profile.name ? null : { from: profile.name, to: "" })}
                               title="Faire pointer ces hôtes vers un autre profil"
-                              className="rounded px-1.5 py-0.5 text-[10px] text-[var(--c-text-muted)] hover:bg-white/5 hover:text-[var(--c-text-secondary)]"
+                              className="rounded px-1.5 py-0.5 text-[10px] text-[var(--c-text-muted)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text-secondary)]"
                             >
                               Basculer
                             </button>
@@ -328,7 +328,7 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
                             onClick={() => check(profile.name)}
                             disabled={checking === profile.name}
                             title="Vérifier — qui ce profil est réellement en ce moment"
-                            className="rounded px-1.5 py-0.5 text-[10px] text-[var(--c-text-muted)] hover:bg-white/5 hover:text-[var(--c-text-secondary)] disabled:opacity-50"
+                            className="rounded px-1.5 py-0.5 text-[10px] text-[var(--c-text-muted)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text-secondary)] disabled:opacity-50"
                           >
                             {checking === profile.name ? "…" : "Vérifier"}
                           </button>
@@ -377,7 +377,7 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
                             >
                               Basculer
                             </button>
-                            <button onClick={() => setReassigning(null)} className="flex-1 rounded bg-[var(--c-bg2)] py-0.5 text-[10px] text-[var(--c-text-secondary)] hover:bg-white/5">
+                            <button onClick={() => setReassigning(null)} className="flex-1 rounded bg-[var(--c-bg2)] py-0.5 text-[10px] text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]">
                               Annuler
                             </button>
                           </div>
@@ -412,7 +412,7 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
                             <button onClick={() => removeProfile(profile.name)} className="flex-1 rounded bg-rose-900/70 py-0.5 text-[10px] font-medium text-rose-100 hover:bg-rose-900">
                               Supprimer
                             </button>
-                            <button onClick={() => setConfirming(null)} className="flex-1 rounded bg-[var(--c-bg3)] py-0.5 text-[10px] text-[var(--c-text-secondary)] hover:bg-white/5">
+                            <button onClick={() => setConfirming(null)} className="flex-1 rounded bg-[var(--c-bg3)] py-0.5 text-[10px] text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]">
                               Annuler
                             </button>
                           </div>

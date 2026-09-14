@@ -6,9 +6,8 @@ import { RemoteSavePathPicker } from "./RemoteSavePathPicker";
 import { HostTreePicker } from "./HostTreePicker";
 import { IconChevronDown, IconChevronRight, IconDownload } from "./ui-icons";
 
-const selectClass =
-  "w-full rounded-md bg-[var(--c-bg2)] px-3 py-2 text-sm text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]";
-const inputClass = `${selectClass} font-mono placeholder:text-[var(--c-text-muted)]`;
+const selectClass = "input";
+const inputClass = "input input-mono";
 const EMPTY_TABLE_SET: Set<string> = new Set();
 
 interface SqlExportPanelProps {
@@ -262,7 +261,7 @@ export function SqlExportPanel({
               const partiallySelected = selectedSet.size > 0 && !allSelected;
               return (
                 <div key={schema}>
-                  <div className="flex items-center gap-1 rounded px-1 py-1 hover:bg-white/5">
+                  <div className="flex items-center gap-1 rounded px-1 py-1 hover:bg-[var(--c-hover)]">
                     <button onClick={() => toggleSchemaExpand(schema)} className="shrink-0 p-0.5 text-[var(--c-text-faint)]">
                       {expanded ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
                     </button>
@@ -289,7 +288,7 @@ export function SqlExportPanel({
                         <p className="px-1 py-1 text-[11px] text-[var(--c-text-muted)]">Aucune table.</p>
                       ) : (
                         tables.map((t) => (
-                          <label key={t.name} className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-[12.5px] text-[var(--c-text)] hover:bg-white/5">
+                          <label key={t.name} className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-[12.5px] text-[var(--c-text)] hover:bg-[var(--c-hover)]">
                             <input type="checkbox" checked={selectedSet.has(t.name)} onChange={() => toggleTable(schema, t.name)} />
                             <span className="min-w-0 flex-1 truncate font-mono">{t.name}</span>
                             {t.kind === "view" && (
@@ -340,7 +339,7 @@ export function SqlExportPanel({
                 />
                 <button
                   onClick={() => setShowRemotePicker(true)}
-                  className="shrink-0 rounded-md bg-[var(--c-bg3)] px-3 py-2 text-xs font-medium text-[var(--c-text-secondary)] hover:bg-white/5"
+                  className="shrink-0 rounded-md bg-[var(--c-bg3)] px-3 py-2 text-xs font-medium text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]"
                 >
                   Parcourir…
                 </button>

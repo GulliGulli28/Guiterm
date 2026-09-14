@@ -1,3 +1,4 @@
+import { IconWarning } from "./ui-icons";
 import { useModalSurface } from "../hooks/useModalSurface";
 
 /** A per-row action that is *not* "pick this one" — showing a container's
@@ -45,10 +46,10 @@ export function ConnectionPickerModal({ title, warning, loading, error, items, w
   return (
     <>
       <div className="fixed inset-0 z-30 bg-black/50" onClick={onClose} />
-      <div ref={ref} {...dialogProps} className={`fixed left-1/2 top-1/2 z-40 ${wide ? "w-[560px]" : "w-[360px]"} max-w-[90vw] -translate-x-1/2 -translate-y-1/2 overflow-hidden rounded-lg bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]`}>
+      <div ref={ref} {...dialogProps} className={`modal fixed left-1/2 top-1/2 z-40 ${wide ? "w-[560px]" : "w-[360px]"} max-w-[90vw] -translate-x-1/2 -translate-y-1/2 overflow-hidden`}>
         <div className="border-b border-[var(--c-border)] px-4 py-3">
-          <p className="text-[14px] font-medium text-[var(--c-text)]">{title}</p>
-          {warning && <p className="mt-1 text-[11px] leading-relaxed text-amber-300">⚠ {warning}</p>}
+          <p className="text-[14px] font-semibold text-[var(--c-text)]">{title}</p>
+          {warning && <p className="mt-1 flex items-start gap-1.5 text-[11.5px] leading-relaxed text-[var(--c-warn)]"><IconWarning size={13} className="mt-0.5 shrink-0" /> {warning}</p>}
         </div>
         <div className="max-h-[320px] overflow-y-auto p-1.5">
           {loading && (
@@ -57,15 +58,15 @@ export function ConnectionPickerModal({ title, warning, loading, error, items, w
               Interrogation en cours…
             </div>
           )}
-          {!loading && error && <p className="px-3 py-4 text-[12.5px] text-rose-300">{error}</p>}
+          {!loading && error && <p className="callout callout-danger m-1.5">{error}</p>}
           {!loading && !error && items.length === 0 && (
             <p className="px-3 py-4 text-[12.5px] text-[var(--c-text-muted)]">Aucun élément trouvé.</p>
           )}
           {!loading && !error && items.map((item) => (
             // A row, not a button, now that it can hold several verbs — the
             // name stays the "pick" affordance, the actions sit beside it.
-            <div key={item.id} className="group flex items-center gap-2.5 rounded-md px-2.5 py-2 hover:bg-white/5">
-              <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${item.up ? "bg-emerald-400" : "bg-[var(--c-text-faint)]"}`} />
+            <div key={item.id} className="group flex items-center gap-2.5 rounded-md px-2.5 py-2 hover:bg-[var(--c-hover)]">
+              <span className={`dot ${item.up ? "dot-ok" : ""}`} />
               <button onClick={() => onPick(item.id)} className="min-w-0 flex-1 text-left">
                 <span className="block truncate text-[12.5px] text-[var(--c-text)]">{item.name}</span>
                 <span className="block truncate text-[10.5px] text-[var(--c-text-muted)]">{item.meta}</span>
@@ -75,7 +76,7 @@ export function ConnectionPickerModal({ title, warning, loading, error, items, w
                   key={action.label}
                   onClick={action.run}
                   title={action.title}
-                  className="shrink-0 rounded px-1.5 py-0.5 text-[10.5px] text-[var(--c-text-muted)] opacity-0 hover:bg-white/10 hover:text-[var(--c-text)] focus-visible:opacity-100 group-hover:opacity-100"
+                  className="btn btn-ghost btn-sm shrink-0 text-[11px] opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
                 >
                   {action.label}
                 </button>
@@ -83,8 +84,8 @@ export function ConnectionPickerModal({ title, warning, loading, error, items, w
             </div>
           ))}
         </div>
-        <div className="border-t border-[var(--c-border)] p-2">
-          <button onClick={onClose} className="w-full rounded-md bg-[var(--c-bg3)] py-1.5 text-center text-[12px] text-[var(--c-text-secondary)] hover:bg-white/5">
+        <div className="flex justify-end border-t border-[var(--c-border)] px-3 py-2">
+          <button onClick={onClose} className="btn btn-ghost">
             Fermer
           </button>
         </div>

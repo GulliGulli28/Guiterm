@@ -79,8 +79,8 @@ export function SnippetPicker({ snippets, onRun, onSnippetResolved, onClose }: S
     };
     return (
       <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 pt-[15vh]" onClick={onClose}>
-        <div className="w-full max-w-md overflow-hidden rounded-lg bg-[var(--c-bg2)] p-4 shadow-[var(--shadow-lg)]" onClick={(e) => e.stopPropagation()}>
-          <p className="mb-2 truncate text-[14px] font-medium text-[var(--c-text)]">{pending.snippet.name}</p>
+        <div className="modal w-full max-w-md overflow-hidden p-4" onClick={(e) => e.stopPropagation()}>
+          <p className="mb-2 truncate text-[13px] font-semibold text-[var(--c-text)]">{pending.snippet.name}</p>
           <div className="space-y-1.5">
             {variables.map((name) => (
               <input
@@ -94,16 +94,14 @@ export function SnippetPicker({ snippets, onRun, onSnippetResolved, onClose }: S
                 }}
                 placeholder={name}
                 autoFocus={name === firstEmpty}
-                className="w-full rounded-md bg-[var(--c-bg3)] px-2.5 py-1.5 font-mono text-[13px] text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+                className="input input-mono w-full"
               />
             ))}
           </div>
-          <div className="mt-3 flex gap-1.5">
-            <button onClick={submit} className="accent-surface flex flex-1 items-center justify-center gap-1 rounded-md border py-1.5 text-xs font-medium">
+          <div className="mt-3 flex justify-end gap-1.5">
+            <button onClick={onClose} className="btn btn-ghost">Annuler</button>
+            <button onClick={submit} className="btn btn-primary">
               Exécuter
-            </button>
-            <button onClick={onClose} className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5">
-              Annuler
             </button>
           </div>
         </div>
@@ -113,7 +111,7 @@ export function SnippetPicker({ snippets, onRun, onSnippetResolved, onClose }: S
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 pt-[15vh]" onClick={onClose}>
-      <div className="w-full max-w-lg overflow-hidden rounded-lg bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]" onClick={(e) => e.stopPropagation()}>
+      <div className="modal w-full max-w-lg overflow-hidden" onClick={(e) => e.stopPropagation()}>
         <input
           ref={inputRef}
           value={query}
@@ -126,10 +124,10 @@ export function SnippetPicker({ snippets, onRun, onSnippetResolved, onClose }: S
             if (e.key === "Enter") { e.preventDefault(); selectAt(activeIndex, args); }
           }}
           placeholder="Snippet puis arguments… (ex : sys start apache2)"
-          className="w-full border-b border-[var(--c-border)] bg-transparent px-4 py-3 text-[14px] text-[var(--c-text)] placeholder:text-[var(--c-text-muted)]"
+          className="w-full border-b border-[var(--c-border)] bg-transparent px-4 py-3 text-[13.5px] text-[var(--c-text)] outline-none placeholder:text-[var(--c-text-muted)]"
         />
         <div className="sidebar-scroll max-h-80 overflow-y-auto py-1">
-          {filtered.length === 0 && <p className="px-4 py-6 text-center text-sm text-[var(--c-text-muted)]">Aucun snippet</p>}
+          {filtered.length === 0 && <p className="px-4 py-6 text-center text-[12.5px] text-[var(--c-text-muted)]">Aucun snippet</p>}
           {filtered.map((s, i) => {
             const variables = extractVariables(s.command);
             return (
@@ -138,14 +136,14 @@ export function SnippetPicker({ snippets, onRun, onSnippetResolved, onClose }: S
                 ref={(el) => { itemRefs.current[i] = el; }}
                 onClick={() => selectAt(i, args)}
                 onMouseEnter={() => setActiveIndex(i)}
-                className={`flex w-full items-center justify-between gap-2 px-4 py-2 text-left text-sm transition-colors ${
-                  i === activeIndex ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-secondary)]"
+                className={`mx-1 flex w-[calc(100%-0.5rem)] items-center justify-between gap-2 rounded-md px-3 py-1.5 text-left text-[12.5px] transition-colors ${
+                  i === activeIndex ? "bg-[var(--c-accent-dim)] text-[var(--c-text)]" : "text-[var(--c-text-secondary)]"
                 }`}
               >
                 <span className="flex min-w-0 items-center gap-1.5">
                   <span className="truncate">{s.name}</span>
                   {s.adaptive && (
-                    <span className="shrink-0 rounded-full bg-sky-900/40 px-1.5 py-0.5 text-[9.5px] font-medium text-sky-300">adaptatif</span>
+                    <span className="tag tag-accent">adaptatif</span>
                   )}
                 </span>
                 {variables.length > 0 ? (
@@ -153,16 +151,14 @@ export function SnippetPicker({ snippets, onRun, onSnippetResolved, onClose }: S
                     {variables.map((v, vi) => (
                       <span
                         key={v}
-                        className={`truncate rounded px-1 py-0.5 font-mono text-[10px] ${
-                          args[vi] ? "bg-emerald-900/50 text-emerald-300" : "bg-[var(--c-bg3)] text-[var(--c-text-muted)]"
-                        }`}
+                        className={`tag truncate font-mono ${args[vi] ? "text-[var(--c-ok)]" : ""}`}
                       >
                         {args[vi] || v}
                       </span>
                     ))}
                   </span>
                 ) : (
-                  <span className="ml-2 max-w-[45%] shrink-0 truncate font-mono text-[10px] text-[var(--c-text-muted)]">{s.command.split("\n")[0]}</span>
+                  <span className="ml-2 max-w-[45%] shrink-0 truncate font-mono text-[10.5px] text-[var(--c-text-muted)]">{s.command.split("\n")[0]}</span>
                 )}
               </button>
             );

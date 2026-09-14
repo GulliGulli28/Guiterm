@@ -1,5 +1,5 @@
 import { sqlConnectionTarget, sqlConnectionVia, sqlConnectionViaHostId, sqlEngineLabel, type Host, type SqlConnection, type Workspace } from "../lib/types";
-import { IconDatabase, IconPlus, IconEdit, IconFlash, IconDownload } from "./ui-icons";
+import { IconDatabase, IconPlus, IconEdit, IconDownload, IconTunnels } from "./ui-icons";
 
 interface SqlConnectionsPanelProps {
   workspace: Workspace;
@@ -19,19 +19,15 @@ interface SqlConnectionsPanelProps {
 export function SqlConnectionsPanel({ workspace, onConnect, onNewConnection, onEditConnection, onImportAws, onConnectHost }: SqlConnectionsPanelProps) {
   return (
     <div className="flex h-full min-w-0 flex-col">
-      <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-2 overflow-y-auto pb-2 pl-2 pt-2">
-        <button
-          onClick={onNewConnection}
-          className="accent-surface flex w-full items-center justify-center gap-1.5 rounded-xl border py-2 text-xs font-semibold transition-all"
-        >
-          <IconPlus size={13} /> Ajouter une connexion
+      <div className="flex shrink-0 items-center gap-1.5">
+        <button onClick={onNewConnection} className="btn btn-primary flex-1">
+          <IconPlus size={13} /> Nouvelle connexion
         </button>
-        <button
-          onClick={onImportAws}
-          className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-[var(--c-border)] py-1.5 text-[11px] text-[var(--c-text-muted)] hover:border-[var(--c-accent)] hover:text-[var(--c-accent-text)]"
-        >
-          <IconDownload size={12} /> Importer depuis AWS
+        <button onClick={onImportAws} title="Importer depuis AWS (RDS, Aurora…)" className="btn btn-secondary text-[var(--c-text-secondary)]">
+          <IconDownload size={12} /> AWS
         </button>
+      </div>
+      <div className="sidebar-scroll -mx-1 mt-2 min-h-0 min-w-0 flex-1 overflow-y-auto px-1 pb-2">
         {workspace.sqlConnections.map((conn) => {
           // Carries its own preposition ("sur" for a SQLite file that lives
           // there, "via" for anything tunnelled) and covers SSM, which has no
@@ -42,47 +38,52 @@ export function SqlConnectionsPanel({ workspace, onConnect, onNewConnection, onE
           const viaHostId = sqlConnectionViaHostId(conn);
           const viaHost = viaHostId ? workspace.hosts.find((h) => h.id === viaHostId) ?? null : null;
           return (
-            <div key={conn.id} className="rounded-xl border border-transparent bg-[var(--c-bg3)] p-2.5 transition-all hover:border-white/15">
-              <div className="flex items-center gap-2">
-                <IconDatabase size={14} className="shrink-0 text-[var(--c-text-faint)]" />
-                <span className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--c-text)]">{conn.label}</span>
-              </div>
-              <p className="mt-0.5 truncate pl-[22px] text-[10px] text-[var(--c-text-muted)]">
-                {sqlEngineLabel(conn.engine)} ·{" "}
-                <span className="font-mono">{sqlConnectionTarget(conn)}</span>
-                {via && !viaHost && <> · {via}</>}
-              </p>
+            <div key={conn.id} className="list-row group h-10 pr-1">
+              <button
+                onClick={() => onConnect(conn)}
+                title={`Se connecter — ${sqlConnectionTarget(conn)}`}
+                className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+              >
+                <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--c-bg3)] text-[var(--c-text-secondary)]">
+                  <IconDatabase size={13} />
+                </span>
+                <span className="flex min-w-0 flex-1 flex-col justify-center gap-px leading-tight">
+                  <span className="flex items-center gap-1.5">
+                    <span className="truncate text-[12.5px] font-medium text-[var(--c-text)]">{conn.label}</span>
+                    <span className="tag">{sqlEngineLabel(conn.engine)}</span>
+                  </span>
+                  <span className="truncate font-mono text-[10.5px] text-[var(--c-text-muted)]">
+                    {sqlConnectionTarget(conn)}
+                    {via && !viaHost && <span className="font-sans"> · {via}</span>}
+                  </span>
+                </span>
+              </button>
               {via && viaHost && (
-                <p className="truncate pl-[22px] text-[10px] text-[var(--c-text-muted)]">
-                  ·{" "}
-                  <button
-                    onClick={() => onConnectHost(viaHost)}
-                    title={`Ouvrir un terminal sur ${viaHost.label}`}
-                    className="underline decoration-dotted underline-offset-2 hover:text-[var(--c-accent-text)]"
-                  >
-                    {via}
-                  </button>
-                </p>
+                <button
+                  onClick={() => onConnectHost(viaHost)}
+                  title={`${via} — ouvrir un terminal sur ${viaHost.label}`}
+                  aria-label={`Ouvrir un terminal sur ${viaHost.label}`}
+                  className="btn btn-ghost btn-sm btn-icon shrink-0 text-[var(--c-text-muted)] opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
+                >
+                  <IconTunnels size={12} />
+                </button>
               )}
-              <div className="mt-2 flex gap-1">
-                <button
-                  onClick={() => onConnect(conn)}
-                  className="accent-surface flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md border py-1.5 text-xs font-medium"
-                >
-                  <IconFlash size={11} className="shrink-0" /> <span className="truncate">Connexion</span>
-                </button>
-                <button
-                  onClick={() => onEditConnection(conn)}
-                  className="flex min-w-0 flex-1 items-center justify-center gap-1.5 rounded-md bg-[var(--c-bg2)] px-2 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
-                >
-                  <IconEdit size={11} className="shrink-0" /> <span className="truncate">Modifier</span>
-                </button>
-              </div>
+              <button
+                onClick={() => onEditConnection(conn)}
+                title="Modifier"
+                aria-label={`Modifier ${conn.label}`}
+                className="btn btn-ghost btn-sm btn-icon shrink-0 opacity-0 focus-visible:opacity-100 group-hover:opacity-100"
+              >
+                <IconEdit size={12} />
+              </button>
             </div>
           );
         })}
         {workspace.sqlConnections.length === 0 && (
-          <p className="px-1 py-4 text-center text-[13px] text-[var(--c-text-muted)]">Aucune connexion SQL configurée</p>
+          <div className="px-2 py-8 text-center">
+            <p className="text-[12.5px] font-medium text-[var(--c-text-secondary)]">Aucune connexion</p>
+            <p className="help-text mt-1">MySQL, PostgreSQL, SQLite, Redis ou MongoDB — en direct, ou à travers un de vos hôtes SSH.</p>
+          </div>
         )}
       </div>
     </div>

@@ -191,7 +191,7 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
           {connection ? "Modifier la connexion SQL" : "Nouvelle connexion SQL"}
         </h2>
 
-        {error && <p className="rounded-md bg-rose-950 px-3 py-2 text-sm text-rose-300">{error}</p>}
+        {error && <p className="callout callout-danger">{error}</p>}
 
         <div className="space-y-1">
           <span className="text-xs font-medium text-[var(--c-text-secondary)]">Nom</span>
@@ -219,7 +219,7 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
                 placeholder="Chemin du fichier .sqlite / .db"
                 className={`${inputClass} w-full font-mono`}
               />
-              <button type="button" onClick={browseLocalFile} className="shrink-0 rounded-md bg-[var(--c-bg3)] px-3 py-2 text-xs font-medium text-[var(--c-text-secondary)] hover:bg-white/5">
+              <button type="button" onClick={browseLocalFile} className="shrink-0 rounded-md bg-[var(--c-bg3)] px-3 py-2 text-xs font-medium text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]">
                 Parcourir…
               </button>
             </div>
@@ -406,7 +406,7 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
           <button onClick={submit} className="flex-1 rounded-md bg-[var(--c-accent)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--c-accent-hover)]">
             {connection ? "Enregistrer" : "Ajouter"}
           </button>
-          <button onClick={onCancel} className="flex-1 rounded-md bg-[var(--c-bg3)] px-3 py-2 text-sm font-medium text-[var(--c-text)] hover:bg-white/5">
+          <button onClick={onCancel} className="flex-1 rounded-md bg-[var(--c-bg3)] px-3 py-2 text-sm font-medium text-[var(--c-text)] hover:bg-[var(--c-hover)]">
             Annuler
           </button>
         </div>
@@ -423,7 +423,7 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
                   >
                     Oui, supprimer
                   </button>
-                  <button onClick={() => setConfirmDelete(false)} className="flex-1 rounded-md bg-[var(--c-bg3)] px-3 py-2 text-sm font-medium text-[var(--c-text)] hover:bg-white/5">
+                  <button onClick={() => setConfirmDelete(false)} className="flex-1 rounded-md bg-[var(--c-bg3)] px-3 py-2 text-sm font-medium text-[var(--c-text)] hover:bg-[var(--c-hover)]">
                     Annuler
                   </button>
                 </div>
@@ -447,6 +447,6 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
   );
 }
 
-const inputClass = "rounded-md bg-[var(--c-bg3)] px-3 py-2 text-sm text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]";
-const inputFullClass = `${inputClass} w-full`;
-const selectClass = "w-full rounded-md bg-[var(--c-bg3)] px-3 py-2 text-sm text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]";
+const inputClass = "input";
+const inputFullClass = inputClass;
+const selectClass = "input";

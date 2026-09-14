@@ -13,8 +13,7 @@ interface VaultSettingsProps {
 
 type Notice = { kind: "ok" | "err"; text: string } | null;
 
-const inputClass =
-  "w-full rounded-md bg-[var(--c-bg2)] px-2.5 py-1.5 text-[13px] text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]";
+const inputClass = "input";
 
 export function VaultSettings({ status, onChange, preferences, onPreferencesChange }: VaultSettingsProps) {
   const [busy, setBusy] = useState(false);
@@ -141,7 +140,7 @@ export function VaultSettings({ status, onChange, preferences, onPreferencesChan
         <button
           disabled={busy}
           onClick={() => run(() => api.lockVault(), "Coffre verrouillé.")}
-          className="w-full rounded-md bg-[var(--c-bg2)] px-3 py-1.5 text-[12px] font-medium text-[var(--c-text-secondary)] hover:bg-white/5 disabled:opacity-50"
+          className="w-full rounded-md bg-[var(--c-bg2)] px-3 py-1.5 text-[12px] font-medium text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)] disabled:opacity-50"
         >
           Verrouiller maintenant
         </button>
@@ -168,7 +167,7 @@ export function VaultSettings({ status, onChange, preferences, onPreferencesChan
                 if (autoLockDraft === "") onPreferencesChange({ ...preferences, masterVaultAutoLockMinutes: 0 });
                 setAutoLockDraft(null);
               }}
-              className="w-16 shrink-0 rounded-md bg-[var(--c-bg2)] px-2 py-1 text-right text-[12px] text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)] [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
+              className="input w-16 shrink-0 text-right [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
             />
             <span className="shrink-0 text-[12px] text-[var(--c-text-muted)]">min</span>
           </div>
@@ -187,7 +186,7 @@ export function VaultSettings({ status, onChange, preferences, onPreferencesChan
             if (changeNewPw !== changeConfirm) { setNotice({ kind: "err", text: "Les nouveaux mots de passe ne correspondent pas." }); return; }
             run(() => api.changeMasterPassword(curPw, changeNewPw), "Mot de passe maître changé ✓").then(() => { setCurPw(""); setChangeNewPw(""); setChangeConfirm(""); });
           }}
-          className="w-full rounded-md bg-[var(--c-bg2)] px-3 py-2 text-[13px] font-medium text-[var(--c-text)] hover:bg-white/5 disabled:opacity-50"
+          className="w-full rounded-md bg-[var(--c-bg2)] px-3 py-2 text-[13px] font-medium text-[var(--c-text)] hover:bg-[var(--c-hover)] disabled:opacity-50"
         >
           {busy ? "…" : "Changer le mot de passe"}
         </button>

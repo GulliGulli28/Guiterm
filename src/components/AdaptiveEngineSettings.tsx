@@ -3,8 +3,7 @@ import { api } from "../lib/api";
 
 type Notice = { kind: "ok" | "err"; text: string } | null;
 
-const inputClass =
-  "w-full rounded-md bg-[var(--c-bg2)] px-2.5 py-1.5 text-[13px] text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]";
+const inputClass = "input";
 
 /** Settings for the adaptive-snippet engine's Anthropic API key — stored in
  * the same vault as host secrets (`core::vault::store_anthropic_api_key`),

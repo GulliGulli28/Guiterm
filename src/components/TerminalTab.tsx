@@ -11,7 +11,7 @@ import { assertNever } from "../lib/exhaustive";
 import { nextClosureAction } from "../lib/terminalClosure";
 import { observedFontSize } from "../lib/observedFont";
 import type { AppPreferences } from "../lib/preferences";
-import { DEFAULT_PREFERENCES, TERMINAL_THEMES, auroraLayerBackground } from "../lib/preferences";
+import { DEFAULT_PREFERENCES, TERMINAL_THEMES } from "../lib/preferences";
 import { shouldBubbleToShortcut } from "../lib/shortcuts";
 import { TerminalSearchBar, type SearchOptions } from "./TerminalSearchBar";
 import { createGhostTextController, type GhostSuggestion, type GhostTextController } from "../lib/ghostText";
@@ -578,7 +578,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
   };
 
   return (
-    <div ref={outerRef} className="relative flex min-h-0 flex-1 flex-col p-2" style={{ background: auroraLayerBackground(bgColor) }} onContextMenu={handleContextMenu}>
+    <div ref={outerRef} className="relative flex min-h-0 flex-1 flex-col px-3 py-2" style={{ background: bgColor }} onContextMenu={handleContextMenu}>
       {status === "connecting" && <div className="absolute inset-0 flex items-center justify-center text-[var(--c-text-secondary)]">Connexion à {host.label}…</div>}
       {status === "failed" && (
         <ConnectionFailed

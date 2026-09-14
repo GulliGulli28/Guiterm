@@ -165,7 +165,7 @@ export function MongoTab({ connection, onError }: MongoTabProps) {
             onClick={() => { if (!loadingDatabases) loadDatabases(); }}
             disabled={loadingDatabases}
             title="Actualiser la liste des bases"
-            className="flex shrink-0 items-center justify-center rounded p-1 text-[var(--c-text-faint)] hover:bg-white/10 hover:text-[var(--c-text-secondary)] disabled:opacity-50"
+            className="flex shrink-0 items-center justify-center rounded p-1 text-[var(--c-text-faint)] hover:bg-[var(--c-active)] hover:text-[var(--c-text-secondary)] disabled:opacity-50"
           >
             <IconRefresh size={13} className={loadingDatabases ? "animate-spin" : ""} />
           </button>
@@ -182,7 +182,7 @@ export function MongoTab({ connection, onError }: MongoTabProps) {
                 <div key={database}>
                   <button
                     onClick={() => toggleDatabase(database)}
-                    className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] text-[var(--c-text-secondary)] transition-colors hover:bg-white/[0.07] hover:text-[var(--c-text)]"
+                    className="flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] text-[var(--c-text-secondary)] transition-colors hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]"
                   >
                     {open ? <IconChevronDown size={12} className="shrink-0" /> : <IconChevronRight size={12} className="shrink-0" />}
                     <IconDatabase size={13} className="shrink-0 text-[var(--c-text-faint)]" />
@@ -202,7 +202,7 @@ export function MongoTab({ connection, onError }: MongoTabProps) {
                               key={collection.name}
                               onClick={() => selectCollection(database, collection.name)}
                               className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] transition-colors ${
-                                active ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-secondary)] hover:bg-white/[0.07] hover:text-[var(--c-text)]"
+                                active ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]"
                               }`}
                             >
                               <IconFolder size={13} className="shrink-0 text-[var(--c-text-faint)]" />
@@ -252,7 +252,7 @@ export function MongoTab({ connection, onError }: MongoTabProps) {
               onClick={() => runFind(selection, activeSubTab === "query")}
               disabled={activePane.loading}
               title="Relancer"
-              className="ml-auto flex shrink-0 items-center justify-center rounded p-1 text-[var(--c-text-faint)] hover:bg-white/10 hover:text-[var(--c-text-secondary)] disabled:opacity-50"
+              className="ml-auto flex shrink-0 items-center justify-center rounded p-1 text-[var(--c-text-faint)] hover:bg-[var(--c-active)] hover:text-[var(--c-text-secondary)] disabled:opacity-50"
             >
               <IconRefresh size={13} className={activePane.loading ? "animate-spin" : ""} />
             </button>
@@ -273,7 +273,7 @@ export function MongoTab({ connection, onError }: MongoTabProps) {
               rows={3}
               spellCheck={false}
               placeholder={'{ "status": "active" }'}
-              className="w-full resize-y rounded-md bg-[var(--c-bg2)] px-2.5 py-1.5 font-mono text-[13px] text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent)]"
+              className="input input-mono w-full resize-y"
             />
             <button
               onClick={() => { if (selection) runFind(selection, true); }}

@@ -201,7 +201,7 @@ function SsmProbeResult({ probe }: { probe: SsmProbe }) {
       );
     case "failed":
       return (
-        <p className="rounded-md bg-rose-950 px-3 py-2 text-[11px] leading-relaxed text-rose-300">
+        <p className="callout callout-danger text-[11.5px]">
           <span className="whitespace-pre-wrap font-mono text-[10px]">{probe.message}</span>
           {probe.hint && <span className="mt-1.5 block font-sans">{probe.hint}</span>}
         </p>
@@ -211,7 +211,5 @@ function SsmProbeResult({ probe }: { probe: SsmProbe }) {
   }
 }
 
-const inputClass =
-  "rounded-md bg-[var(--c-bg3)] px-3 py-2 text-sm text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]";
-const selectClass =
-  "w-full rounded-md bg-[var(--c-bg3)] px-3 py-2 text-sm text-[var(--c-text)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]";
+const inputClass = "input";
+const selectClass = "input";

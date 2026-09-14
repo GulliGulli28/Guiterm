@@ -14,8 +14,7 @@ interface ActivityTabProps {
   onExported: (message: string) => void;
 }
 
-const inputClass =
-  "rounded-md bg-[var(--c-bg3)] px-2 py-1.5 text-sm text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]";
+const inputClass = "input";
 
 /** Windows the period filter offers. Relative rather than a date picker: the
  * question people actually ask a journal is "what happened today / this week",
@@ -107,14 +106,14 @@ export function ActivityTab({ workspace, onError, onExported }: ActivityTabProps
           <button
             onClick={() => runExport("csv")}
             disabled={!events?.length}
-            className="rounded-md bg-[var(--c-bg3)] px-2.5 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5 disabled:opacity-40"
+            className="rounded-md bg-[var(--c-bg3)] px-2.5 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)] disabled:opacity-40"
           >
             Exporter en CSV
           </button>
           <button
             onClick={() => runExport("json")}
             disabled={!events?.length}
-            className="rounded-md bg-[var(--c-bg3)] px-2.5 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5 disabled:opacity-40"
+            className="rounded-md bg-[var(--c-bg3)] px-2.5 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)] disabled:opacity-40"
           >
             Exporter en JSON
           </button>

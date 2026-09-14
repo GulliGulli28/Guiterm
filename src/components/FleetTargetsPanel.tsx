@@ -36,21 +36,18 @@ export function FleetTargetsPanel({ workspace, onOpenTab }: { workspace: Workspa
 
   return (
   <div className="flex h-full min-w-0 flex-col gap-2">
-    <div className="flex items-center justify-between px-1">
-      <span className="text-xs font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">
-        Cibles · {selected.size}/{allTargets.length}
+    <div className="flex items-center justify-between pl-1">
+      <span className="eyebrow">
+        Cibles <span className="font-mono normal-case tracking-normal text-[var(--c-text-secondary)]">{selected.size}/{allTargets.length}</span>
       </span>
       {/* Le panneau reste utilisable quand l'onglet a été fermé : cocher
           des cibles sans pouvoir rien lancer serait un cul-de-sac. */}
-      <button
-        onClick={onOpenTab}
-        className="rounded px-1.5 py-0.5 text-[11px] text-[var(--c-accent-text)] hover:bg-[var(--c-bg3)]"
-      >
+      <button onClick={onOpenTab} className="btn btn-ghost btn-sm text-[var(--c-accent-text)]">
         Ouvrir l'onglet
       </button>
     </div>
     <div className="relative">
-      <div className="pointer-events-none absolute inset-y-0 left-3 flex items-center">
+      <div className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center">
         <IconSearch size={13} className="text-[var(--c-text-muted)]" />
       </div>
       <input
@@ -61,24 +58,24 @@ export function FleetTargetsPanel({ workspace, onOpenTab }: { workspace: Workspa
         // tronquée avant d'être lue. Ce qui est couvert (dossier, tag, profil
         // AWS) l'est aussi côté SFTP sans être annoncé.
         placeholder="Rechercher un hôte…"
-        className="w-full rounded-xl border border-white/5 bg-[var(--c-bg3)] py-2 pl-8 pr-3 text-[13px] text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:border-transparent focus:outline-none focus:ring-2 focus:ring-[var(--c-accent)]"
+        className="input pl-8"
       />
     </div>
 
-    <div className="flex items-center gap-2 px-1">
+    <div className="flex items-center gap-2 px-1 text-[11.5px]">
       {mode === "command" ? (
         <>
-          <button onClick={selectAll} className="text-[11px] text-[var(--c-accent-text)] hover:underline">
+          <button onClick={selectAll} className="text-[var(--c-accent-text)] hover:underline">
             Tout ({visibleKeys.length})
           </button>
-          <button onClick={selectNone} className="text-[11px] text-[var(--c-text-muted)] hover:underline">
+          <button onClick={selectNone} className="text-[var(--c-text-muted)] hover:underline">
             Aucun
           </button>
         </>
       ) : (
         <span
           title="Calculée automatiquement d'après les « target … » du programme (hôtes SSH uniquement) — repasse en mode Commande pour sélectionner à la main"
-          className="rounded bg-[var(--c-accent-dim)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--c-accent-text)]"
+          className="tag tag-accent"
         >
           sélection automatique
         </span>
@@ -89,14 +86,14 @@ export function FleetTargetsPanel({ workspace, onOpenTab }: { workspace: Workspa
         has. In "Langage" mode the selection is computed from the program's
         own `target …` lines, so a manual pick here would be overwritten. */}
     {mode === "command" && profiles.length > 0 && (
-      <div className="flex flex-wrap items-center gap-1 px-1 pb-2">
-        <span className="text-[10px] uppercase tracking-wide text-[var(--c-text-faint)]">Compte</span>
+      <div className="flex flex-wrap items-center gap-1 px-1 pb-1">
+        <span className="eyebrow mr-1">Compte</span>
         {profiles.map((profile) => (
           <button
             key={profile}
             onClick={() => selectByProfile(profile)}
             title={`Sélectionner tout ce qui est joint via le profil ${profile}`}
-            className="rounded-full border border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-0.5 text-[10px] text-[var(--c-text-secondary)] hover:border-[var(--c-accent)] hover:text-[var(--c-text)]"
+            className="btn btn-secondary btn-sm h-5 px-1.5 text-[10.5px] text-[var(--c-text-secondary)]"
           >
             {profile}
           </button>
@@ -104,12 +101,12 @@ export function FleetTargetsPanel({ workspace, onOpenTab }: { workspace: Workspa
       </div>
     )}
     {(sshHosts.length > 0 || dockerHosts.length > 0 || k8sHosts.length > 0) && (
-      <div className="mb-1 space-y-1.5 px-1 pb-1">
+      <div className="space-y-1.5 px-1">
         {sshHosts.length > 0 && (
           <button
             onClick={() => collectFacts()}
             disabled={collectingFacts}
-            className="flex w-full items-center justify-center gap-1.5 rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)] disabled:opacity-50"
+            className="btn btn-secondary w-full text-[var(--c-text-secondary)]"
           >
             <IconRefresh size={12} className={collectingFacts ? "animate-spin" : ""} />
             {collectingFacts ? "Collecte de l'état…" : "Collecter l'état (OS, RAM)"}
@@ -119,7 +116,7 @@ export function FleetTargetsPanel({ workspace, onOpenTab }: { workspace: Workspa
           <button
             onClick={refreshContainers}
             disabled={loadingContainers}
-            className="flex w-full items-center justify-center gap-1.5 rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)] disabled:opacity-50"
+            className="btn btn-secondary w-full text-[var(--c-text-secondary)]"
           >
             <IconRefresh size={12} className={loadingContainers ? "animate-spin" : ""} />
             {loadingContainers ? "Actualisation…" : "Actualiser les conteneurs"}
@@ -129,14 +126,14 @@ export function FleetTargetsPanel({ workspace, onOpenTab }: { workspace: Workspa
           <button
             onClick={refreshPods}
             disabled={loadingPods}
-            className="flex w-full items-center justify-center gap-1.5 rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)] disabled:opacity-50"
+            className="btn btn-secondary w-full text-[var(--c-text-secondary)]"
           >
             <IconRefresh size={12} className={loadingPods ? "animate-spin" : ""} />
             {loadingPods ? "Actualisation…" : "Actualiser les pods"}
           </button>
         )}
         {mode === "intent" && (
-          <p className="rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1.5 text-[11px] text-[var(--c-text-faint)]">
+          <p className="callout text-[11.5px]">
             {hasTargetLine ? (
               <>Ciblage automatique (hôtes SSH uniquement) : les cases ci-dessous reflètent les hôtes dont l'état collecté correspond aux <code className="font-mono">target …</code> du programme.</>
             ) : (
@@ -149,7 +146,7 @@ export function FleetTargetsPanel({ workspace, onOpenTab }: { workspace: Workspa
         )}
       </div>
     )}
-    <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-1 overflow-y-auto pb-2 pl-2 pt-2">
+    <div className="sidebar-scroll -mx-1 min-h-0 min-w-0 flex-1 overflow-y-auto px-1 pb-2">
       <TargetTreeList
         rows={rows}
         hosts={workspace.hosts}
@@ -175,21 +172,16 @@ export function FleetTargetsPanel({ workspace, onOpenTab }: { workspace: Workspa
           const f = t.facts;
           if (!f) return null;
           return (
-            <div className="mt-0.5 space-y-0.5 text-[10.5px]">
+            <>
               {(f.osName || f.osId) && (
-                <div className="truncate text-[var(--c-text-faint)]">{f.osName || f.osId}</div>
+                <span className="truncate text-[10.5px] text-[var(--c-text-faint)]" title={t.lastFactsAtMs != null ? `état ${formatRelativeTime(t.lastFactsAtMs)}` : undefined}>{f.osName || f.osId}</span>
               )}
-              <div className="flex items-center gap-2 truncate">
-                {f.memUsedPct != null && (
-                  <span className="shrink-0 font-medium" style={{ color: ramColor(f.memUsedPct) }}>
-                    RAM {Math.round(f.memUsedPct)}%
-                  </span>
-                )}
-                {t.lastFactsAtMs != null && (
-                  <span className="truncate text-[var(--c-text-faint)]">{formatRelativeTime(t.lastFactsAtMs)}</span>
-                )}
-              </div>
-            </div>
+              {f.memUsedPct != null && (
+                <span className="shrink-0 font-mono text-[10.5px] font-medium tabular-nums" style={{ color: ramColor(f.memUsedPct) }}>
+                  {Math.round(f.memUsedPct)}%
+                </span>
+              )}
+            </>
           );
         }}
       />

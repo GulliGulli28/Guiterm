@@ -651,7 +651,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
                       )}
                       <button
                         onClick={() => setDrift(null)}
-                        className="rounded px-1.5 py-0.5 text-[10px] text-[var(--c-text-muted)] hover:bg-white/5"
+                        className="rounded px-1.5 py-0.5 text-[10px] text-[var(--c-text-muted)] hover:bg-[var(--c-hover)]"
                       >
                         Fermer
                       </button>
@@ -854,7 +854,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
                             e.stopPropagation();
                             void reviewRollback(hrun);
                           }}
-                          className="shrink-0 rounded bg-[var(--c-bg3)] px-2 py-0.5 text-[11px] text-[var(--c-text-secondary)] hover:bg-white/5 hover:text-[var(--c-text)] disabled:cursor-not-allowed disabled:opacity-40"
+                          className="shrink-0 rounded bg-[var(--c-bg3)] px-2 py-0.5 text-[11px] text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)] disabled:cursor-not-allowed disabled:opacity-40"
                         >
                           {rollbackLoading === hrun.id ? "…" : "Annuler"}
                         </button>
@@ -994,7 +994,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
               }}
               placeholder="Nom du snippet"
               autoFocus
-              className="w-full rounded-md bg-[var(--c-bg3)] px-2.5 py-1.5 text-sm text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]"
+              className="input w-full"
             />
             <div className="mt-3 flex gap-1.5">
               <button
@@ -1004,7 +1004,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
               >
                 Sauvegarder
               </button>
-              <button onClick={() => setShowSaveDialog(false)} className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5">
+              <button onClick={() => setShowSaveDialog(false)} className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]">
                 Annuler
               </button>
             </div>
@@ -1088,7 +1088,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
               >
                 Exécuter l'annulation
               </button>
-              <button onClick={() => setRollback(null)} className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5">
+              <button onClick={() => setRollback(null)} className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]">
                 Fermer
               </button>
             </div>

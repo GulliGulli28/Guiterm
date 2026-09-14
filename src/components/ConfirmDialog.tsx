@@ -27,17 +27,17 @@ export function ConfirmDialog({ title, message, confirmLabel = "Confirmer", canc
   return (
     <>
       <div className="fixed inset-0 z-40 bg-black/60" onClick={onCancel} />
-      <div ref={ref} {...dialogProps} className="fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-lg bg-[var(--c-bg2)] p-4 shadow-[var(--shadow-lg)]">
-        <h2 className="text-[15px] font-semibold text-[var(--c-text)]">{title}</h2>
-        <p className="mt-1.5 text-[13px] leading-relaxed text-[var(--c-text-secondary)]">{message}</p>
+      <div ref={ref} {...dialogProps} className="modal fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 p-4">
+        <h2 className="text-[14px] font-semibold text-[var(--c-text)]">{title}</h2>
+        <p className="mt-1.5 text-[12.5px] leading-relaxed text-[var(--c-text-secondary)]">{message}</p>
         <div className="mt-4 flex justify-end gap-2">
-          <button onClick={onCancel} className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] hover:bg-white/5">
+          <button onClick={onCancel} className="btn btn-ghost">
             {cancelLabel}
           </button>
           <button
             onClick={onConfirm}
             autoFocus
-            className={`rounded-md px-3 py-1.5 text-xs font-medium text-white ${danger ? "bg-rose-700 hover:bg-rose-600" : "bg-[var(--c-accent)] hover:bg-[var(--c-accent-hover)]"}`}
+            className={`btn ${danger ? "btn-danger" : "btn-primary"}`}
           >
             {confirmLabel}
           </button>

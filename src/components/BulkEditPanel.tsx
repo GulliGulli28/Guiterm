@@ -13,8 +13,7 @@ interface BulkEditPanelProps {
   onDone: (message: string) => void;
 }
 
-const inputClass =
-  "w-full rounded-md bg-[var(--c-bg3)] px-2 py-1.5 text-sm text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent-hover)]";
+const inputClass = "input";
 
 type AuthKind = "agent" | "password" | "privateKey";
 
@@ -132,7 +131,7 @@ export function BulkEditPanel({ workspace, hosts, onWorkspaceUpdate, onClose, on
               {hosts.map((h) => h.label).join(", ")}
             </p>
           </div>
-          <button onClick={onClose} aria-label="Fermer" className="rounded p-1 text-[var(--c-text-muted)] hover:bg-white/5 hover:text-[var(--c-text)]">
+          <button onClick={onClose} aria-label="Fermer" className="rounded p-1 text-[var(--c-text-muted)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]">
             <IconClose size={13} />
           </button>
         </div>

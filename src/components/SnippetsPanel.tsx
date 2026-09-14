@@ -3,7 +3,7 @@ import type { Snippet, SnippetId, Workspace } from "../lib/types";
 import { extractVariables, fillVariables } from "../lib/snippets";
 import { AdaptiveComposer } from "./AdaptiveComposer";
 import { DSL_CONDITION_FIELDS, DSL_FUNCTIONS } from "../lib/operations";
-import { IconPlay, IconTrash, IconPlus, IconClose, IconEdit, IconFlash } from "./ui-icons";
+import { IconPlay, IconTrash, IconPlus, IconEdit, IconFlash } from "./ui-icons";
 import { TerminalTargetPicker } from "./TerminalTargetPicker";
 
 interface SnippetsPanelProps {
@@ -101,14 +101,13 @@ function SnippetForm({
   return (
     <div className="space-y-1.5">
       {/* Mode toggle */}
-      <div className="flex rounded-md bg-[var(--c-bg2)] p-0.5">
+      <div className="segmented flex w-full">
         {(["snippet", "script", "adaptive"] as Mode[]).map((m) => (
           <button
             key={m}
             onClick={() => switchMode(m)}
-            className={`flex-1 rounded py-1 text-xs font-medium transition-colors ${
-              mode === m ? "bg-[var(--c-accent)] text-white" : "text-[var(--c-text-secondary)] hover:text-[var(--c-text)]"
-            }`}
+            data-active={mode === m ? "true" : undefined}
+            className="flex-1"
           >
             {m === "snippet" ? "Snippet" : m === "script" ? "Script" : "Adaptatif"}
           </button>
@@ -132,10 +131,10 @@ function SnippetForm({
           className={`${inputClass} font-mono`}
         />
       ) : mode === "script" ? (
-        <div className="overflow-hidden rounded-md bg-[var(--c-bg2)] focus-within:ring-1 focus-within:ring-[var(--c-accent)]">
+        <div className="overflow-hidden rounded-md border border-[var(--c-border)] bg-[var(--c-input-bg)] focus-within:border-[var(--c-accent)]">
           <div className="flex items-center gap-2 border-b border-[var(--c-border)] px-2.5 py-1">
-            <span className="font-mono text-[10px] text-[var(--c-text-muted)]">bash</span>
-            <span className="ml-auto text-[10px] text-[var(--c-text-faint)]">Ctrl+Entrée pour valider</span>
+            <span className="font-mono text-[10.5px] text-[var(--c-text-muted)]">bash</span>
+            <span className="ml-auto text-[10.5px] text-[var(--c-text-faint)]">Ctrl+Entrée pour valider</span>
           </div>
           <textarea
             ref={textareaRef}
@@ -144,16 +143,16 @@ function SnippetForm({
             onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) submit(); }}
             placeholder={"#!/bin/bash\n\n# Votre script ici…"}
             rows={6}
-            className="w-full resize-none overflow-hidden bg-transparent px-2.5 py-2 font-mono text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-faint)]"
+            className="w-full resize-none overflow-hidden bg-transparent px-2.5 py-2 font-mono text-[12px] text-[var(--c-text)] outline-none placeholder:text-[var(--c-text-faint)]"
           />
         </div>
       ) : (
         <div className="space-y-1.5">
-          <div className="overflow-hidden rounded-md bg-[var(--c-bg2)] focus-within:ring-1 focus-within:ring-[var(--c-accent)]">
+          <div className="overflow-hidden rounded-md border border-[var(--c-border)] bg-[var(--c-input-bg)] focus-within:border-[var(--c-accent)]">
             <div className="flex items-center gap-2 border-b border-[var(--c-border)] px-2.5 py-1">
-              <IconFlash size={11} className="text-sky-400" />
-              <span className="font-mono text-[10px] text-[var(--c-text-muted)]">langage adaptatif</span>
-              <span className="ml-auto text-[10px] text-[var(--c-text-faint)]">Ctrl+Entrée pour valider</span>
+              <IconFlash size={11} className="text-[var(--c-accent-text)]" />
+              <span className="font-mono text-[10.5px] text-[var(--c-text-muted)]">langage adaptatif</span>
+              <span className="ml-auto text-[10.5px] text-[var(--c-text-faint)]">Ctrl+Entrée pour valider</span>
             </div>
             <textarea
               ref={textareaRef}
@@ -162,7 +161,7 @@ function SnippetForm({
               onKeyDown={(e) => { if (e.key === "Enter" && (e.ctrlKey || e.metaKey)) submit(); }}
               placeholder={"install-package nginx\n\ntarget ram: > 80\nrestart-service nginx"}
               rows={6}
-              className="w-full resize-none overflow-hidden bg-transparent px-2.5 py-2 font-mono text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-faint)]"
+              className="w-full resize-none overflow-hidden bg-transparent px-2.5 py-2 font-mono text-[12px] text-[var(--c-text)] outline-none placeholder:text-[var(--c-text-faint)]"
             />
           </div>
           {/* La génération depuis le français vivait uniquement dans l'onglet
@@ -174,20 +173,9 @@ function SnippetForm({
         </div>
       )}
 
-      <div className="flex gap-1.5">
-        <button
-          onClick={submit}
-          className="accent-surface flex-1 rounded-md border py-1.5 text-xs font-medium"
-        >
-          {submitLabel}
-        </button>
-        <button
-          aria-label="Annuler la saisie"
-          onClick={onCancel}
-          className="flex items-center justify-center rounded-md bg-[var(--c-bg2)] px-2.5 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
-        >
-          <IconClose size={12} />
-        </button>
+      <div className="flex justify-end gap-1.5 pt-1">
+        <button aria-label="Annuler la saisie" onClick={onCancel} className="btn btn-ghost">Annuler</button>
+        <button onClick={submit} className="btn btn-primary">{submitLabel}</button>
       </div>
     </div>
   );
@@ -227,33 +215,28 @@ function SnippetCard({
   };
 
   const deleteButton = confirmDelete ? (
-    <button
-      onClick={() => { setConfirmDelete(false); onDelete(); }}
-      className="flex flex-1 basis-[68px] items-center justify-center gap-1 rounded-md bg-rose-700 px-1 py-1.5 text-xs text-white hover:bg-rose-600"
-    >
+    <button onClick={() => { setConfirmDelete(false); onDelete(); }} className="btn btn-danger btn-sm">
       Confirmer
     </button>
   ) : (
     <button
       aria-label="Supprimer le snippet"
+      title="Supprimer"
       onClick={() => setConfirmDelete(true)}
-      className="flex flex-1 basis-[68px] items-center justify-center gap-1 rounded-md bg-[var(--c-bg2)] px-1 py-1.5 text-xs text-rose-400 hover:bg-rose-900/60"
+      className="btn btn-ghost btn-sm btn-icon hover:text-[var(--c-danger)]"
     >
-      <IconTrash size={11} />
+      <IconTrash size={12} />
     </button>
   );
   const cancelDeleteButton = confirmDelete && (
-    <button
-      onClick={() => setConfirmDelete(false)}
-      className="mt-1 w-full rounded-md py-1 text-xs text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)]"
-    >
-      Annuler la suppression
+    <button onClick={() => setConfirmDelete(false)} className="btn btn-ghost btn-sm">
+      Annuler
     </button>
   );
 
   if (editing) {
     return (
-      <div className="rounded-xl bg-[var(--c-bg3)] p-2.5 ring-1 ring-[var(--c-accent)]/40">
+      <div className="card border-[color-mix(in_srgb,var(--c-accent)_50%,transparent)] p-2.5">
         <SnippetForm
           initialName={snippet.name}
           initialCommand={snippet.command}
@@ -271,8 +254,8 @@ function SnippetCard({
   if (promptValues) {
     const submit = () => { run(fillVariables(snippet.command, promptValues), targetIds); setPromptValues(null); };
     return (
-      <div className="rounded-xl bg-[var(--c-bg3)] p-2.5 ring-1 ring-[var(--c-accent)]/40">
-        <p className="mb-1.5 truncate text-[14px] font-medium text-[var(--c-text)]">{snippet.name}</p>
+      <div className="card border-[color-mix(in_srgb,var(--c-accent)_50%,transparent)] p-2.5">
+        <p className="mb-1.5 truncate text-[12.5px] font-medium text-[var(--c-text)]">{snippet.name}</p>
         <div className="space-y-1.5">
           {variables.map((name) => (
             <input
@@ -282,15 +265,13 @@ function SnippetCard({
               onKeyDown={(e) => { if (e.key === "Enter") submit(); if (e.key === "Escape") setPromptValues(null); }}
               placeholder={name}
               autoFocus={name === variables[0]}
-              className={`${inputClass} font-mono`}
+              className={`${inputClass} input-mono`}
             />
           ))}
-          <div className="flex gap-1.5">
-            <button onClick={submit} className="accent-surface flex flex-1 items-center justify-center gap-1 rounded-md border py-1.5 text-xs font-medium">
+          <div className="flex justify-end gap-1.5">
+            <button aria-label="Annuler l'exécution" onClick={() => setPromptValues(null)} className="btn btn-ghost">Annuler</button>
+            <button onClick={submit} className="btn btn-primary">
               <IconPlay size={11} /> Exécuter
-            </button>
-            <button aria-label="Annuler l'exécution" onClick={() => setPromptValues(null)} className="flex items-center justify-center rounded-md bg-[var(--c-bg2)] px-2.5 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5">
-              <IconClose size={12} />
             </button>
           </div>
         </div>
@@ -298,54 +279,50 @@ function SnippetCard({
     );
   }
 
+  // Le nom et la commande d'abord ; les actions dans le coin, révélées au
+  // survol — sauf « Exécuter », qui est ce pour quoi on vient ici et reste
+  // visible.
   return (
-    <div className="rounded-xl border border-transparent bg-[var(--c-bg3)] p-2.5 transition-all hover:border-white/15">
-      <div className="flex items-start justify-between gap-2">
-        <p className="truncate text-[14px] font-medium text-[var(--c-text)]">{snippet.name}</p>
-        <div className="flex shrink-0 gap-1">
-          {variables.length > 0 && (
-            <span title={`Variables : ${variables.join(", ")}`} className="rounded bg-sky-900/50 px-1.5 py-0.5 text-[10px] font-medium text-sky-300">
-              {"{{}}"} {variables.length}
-            </span>
-          )}
-          <span className={`rounded px-1.5 py-0.5 text-[10px] font-medium ${
-            snippet.adaptive
-              ? "bg-emerald-900/50 text-emerald-300"
-              : isScript
-                ? "bg-violet-900/50 text-violet-300"
-                : "bg-[var(--c-bg2)] text-[var(--c-text-secondary)]"
-          }`}>
-            {snippet.adaptive ? "adaptatif" : isScript ? "script" : "snippet"}
+    <div className="card group p-2.5 transition-colors hover:border-[var(--c-border-strong)]">
+      <div className="flex items-center gap-1.5">
+        <p className="min-w-0 flex-1 truncate text-[12.5px] font-medium text-[var(--c-text)]">{snippet.name}</p>
+        {variables.length > 0 && (
+          <span title={`Variables : ${variables.join(", ")}`} className="tag font-mono">
+            {"{{}}"} {variables.length}
           </span>
-        </div>
+        )}
+        {(snippet.adaptive || isScript) && (
+          <span className={`tag ${snippet.adaptive ? "tag-accent" : ""}`}>
+            {snippet.adaptive ? "adaptatif" : "script"}
+          </span>
+        )}
       </div>
-      <pre className="mt-1 line-clamp-3 whitespace-pre-wrap font-mono text-xs text-[var(--c-text-muted)]">
+      <pre className="mt-1 line-clamp-2 whitespace-pre-wrap font-mono text-[11.5px] leading-snug text-[var(--c-text-muted)]">
         {snippet.command}
       </pre>
-
       {snippet.adaptive && (
-        <p className="mt-2 text-[10px] text-[var(--c-text-faint)]">Traduit selon la plateforme détectée du terminal ciblé (hôte SSH, conteneur Docker exec ou terminal local — pas RDP) — les hôtes SSH sont aussi utilisables depuis Opérations de flotte.</p>
+        <p className="help-text mt-1.5 text-[11px]">Traduit selon la plateforme du terminal ciblé (hôte SSH, conteneur Docker exec ou terminal local — pas RDP). Les hôtes SSH sont aussi utilisables depuis Opérations de flotte.</p>
       )}
-      <div className="mt-2">
+      <div className="mt-2 flex items-center gap-1">
         <TerminalTargetPicker terminals={openTerminals} selected={targets} onChange={setTargets} emptyLabel="Onglet actif" />
+        <span className="ml-auto flex items-center gap-0.5">
+          {confirmDelete ? (
+            <>{cancelDeleteButton}{deleteButton}</>
+          ) : (
+            <>
+              <span className="flex items-center opacity-0 transition-opacity focus-within:opacity-100 group-hover:opacity-100">
+                <button onClick={() => setEditing(true)} title="Modifier" aria-label="Modifier le snippet" className="btn btn-ghost btn-sm btn-icon">
+                  <IconEdit size={12} />
+                </button>
+                {deleteButton}
+              </span>
+              <button onClick={handleRunClick} className="btn btn-primary btn-sm">
+                <IconPlay size={10} /> Exécuter{targetIds.length > 0 ? ` (${targetIds.length})` : ""}
+              </button>
+            </>
+          )}
+        </span>
       </div>
-
-      <div className="mt-1.5 flex flex-wrap gap-1">
-        <button
-          onClick={handleRunClick}
-          className="accent-surface flex flex-1 basis-[68px] items-center justify-center gap-1 rounded-md border px-1 py-1.5 text-xs"
-        >
-          <IconPlay size={11} /> Exécuter{targetIds.length > 0 ? ` (${targetIds.length})` : ""}
-        </button>
-        <button
-          onClick={() => setEditing(true)}
-          className="flex flex-1 basis-[68px] items-center justify-center gap-1 rounded-md bg-[var(--c-bg2)] px-1 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-white/5"
-        >
-          <IconEdit size={11} /> Éditer
-        </button>
-        {deleteButton}
-      </div>
-      {cancelDeleteButton}
     </div>
   );
 }
@@ -356,19 +333,14 @@ export function SnippetsPanel({ workspace, onAddSnippet, onUpdateSnippet, onDele
   return (
     <div className="flex h-full min-w-0 flex-col">
       {/* Everything in a single scroll container — ensures add button and cards have identical width */}
-      <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-2 overflow-y-auto pb-2 pl-2 pt-2">
+      <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-1.5 overflow-y-auto pb-2">
         {/* Add button always at top */}
         <div>
-          <button
-            onClick={() => setShowForm((v) => !v)}
-            className={`accent-surface flex w-full items-center justify-center gap-1.5 rounded-xl border py-2 text-xs font-semibold transition-all ${
-              showForm ? "ring-2 ring-white/25" : ""
-            }`}
-          >
-            <IconPlus size={13} /> Ajouter
+          <button onClick={() => setShowForm((v) => !v)} className={`btn w-full ${showForm ? "btn-secondary" : "btn-primary"}`}>
+            <IconPlus size={13} /> {showForm ? "Fermer le formulaire" : "Nouveau snippet"}
           </button>
           {showForm && (
-            <div className="mt-2 rounded-xl bg-[var(--c-bg3)] p-2.5">
+            <div className="card mt-1.5 p-2.5">
               <SnippetForm
                 submitLabel="Enregistrer"
                 onSubmit={(name, command) => { onAddSnippet(name, command); setShowForm(false); }}
@@ -394,11 +366,14 @@ export function SnippetsPanel({ workspace, onAddSnippet, onUpdateSnippet, onDele
           />
         ))}
         {workspace.snippets.length === 0 && !showForm && (
-          <p className="px-1 py-4 text-center text-[13px] text-[var(--c-text-muted)]">Aucun snippet</p>
+          <div className="px-2 py-8 text-center">
+            <p className="text-[12.5px] font-medium text-[var(--c-text-secondary)]">Aucun snippet</p>
+            <p className="help-text mt-1">Une commande enregistrée, à lancer d'un clic dans n'importe quel terminal — avec des <span className="font-mono">{"{{variables}}"}</span> demandées au moment de l'exécuter.</p>
+          </div>
         )}
       </div>
     </div>
   );
 }
 
-const inputClass = "w-full rounded-md bg-[var(--c-bg2)] px-2 py-1.5 text-[13px] text-[var(--c-text)] placeholder:text-[var(--c-text-muted)] focus:outline-none focus:ring-1 focus:ring-[var(--c-accent)]";
+const inputClass = "input";

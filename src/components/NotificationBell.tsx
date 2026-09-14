@@ -25,11 +25,11 @@ export function NotificationBell({ notifications, onDismiss, onClearAll, onMarkA
       <button
         onClick={() => { setOpen((v) => !v); if (!open) onMarkAllRead(); }}
         title="Notifications"
-        className={`relative flex h-6 w-7 items-center justify-center rounded text-[var(--c-text-muted)] hover:bg-white/5 hover:text-[var(--c-text-secondary)] ${open ? "bg-white/5 text-[var(--c-text-secondary)]" : ""}`}
+        className={`btn btn-ghost btn-sm btn-icon relative text-[var(--c-text-muted)] ${open ? "bg-[var(--c-hover)] text-[var(--c-text)]" : ""}`}
       >
         <IconBell size={14} />
         {unreadCount > 0 && (
-          <span className="absolute right-0.5 top-0.5 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-rose-500 px-0.5 text-[9px] font-semibold leading-none text-white">
+          <span className="absolute right-0 top-0 flex h-3.5 min-w-3.5 items-center justify-center rounded-full bg-[var(--c-danger)] px-0.5 text-[9px] font-semibold leading-none text-white">
             {unreadCount > 9 ? "9+" : unreadCount}
           </span>
         )}
@@ -37,23 +37,23 @@ export function NotificationBell({ notifications, onDismiss, onClearAll, onMarkA
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="absolute left-0 top-full z-20 mt-1 w-80 overflow-hidden rounded-lg bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]">
+          <div className="popover absolute left-0 top-full z-20 mt-1 w-80 overflow-hidden">
             <div className="flex items-center justify-between border-b border-[var(--c-border)] px-3 py-2">
-              <span className="text-xs font-semibold uppercase tracking-wider text-[var(--c-text-secondary)]">Notifications</span>
+              <span className="eyebrow">Notifications</span>
               {notifications.length > 0 && (
-                <button onClick={onClearAll} className="text-[11px] text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)]">Tout effacer</button>
+                <button onClick={onClearAll} className="btn btn-ghost btn-sm">Tout effacer</button>
               )}
             </div>
             <div className="sidebar-scroll max-h-80 overflow-y-auto">
               {notifications.length === 0 ? (
-                <p className="px-3 py-6 text-center text-sm text-[var(--c-text-muted)]">Aucune notification</p>
+                <p className="px-3 py-6 text-center text-[12.5px] text-[var(--c-text-muted)]">Aucune notification</p>
               ) : (
                 notifications.slice().reverse().map((n) => (
-                  <div key={n.id} className="group flex items-start gap-2 border-b border-[var(--c-border)] px-3 py-2 last:border-b-0 hover:bg-[var(--c-bg3)]">
+                  <div key={n.id} className="group flex items-start gap-2 border-b border-[var(--c-border)] px-3 py-2 last:border-b-0 hover:bg-[var(--c-hover)]">
                     <span className={`mt-1 h-1.5 w-1.5 shrink-0 rounded-full ${KIND_DOT[n.kind]}`} />
                     <div className="min-w-0 flex-1">
-                      <p className="text-xs text-[var(--c-text)]">{n.message}</p>
-                      <p className="mt-0.5 text-[10px] text-[var(--c-text-muted)]">{formatRelativeTime(n.timestamp)}</p>
+                      <p className="text-[12px] leading-snug text-[var(--c-text)]">{n.message}</p>
+                      <p className="mt-0.5 text-[10.5px] text-[var(--c-text-muted)]">{formatRelativeTime(n.timestamp)}</p>
                     </div>
                     <button
                       onClick={() => onDismiss(n.id)}
