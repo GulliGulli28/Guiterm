@@ -267,20 +267,27 @@ mod tests {
         assert!(sub.is_dir);
     }
 
-    /// Le dialecte GNU/busybox, celui de tous les conteneurs.
+    /// Le dialecte de la machine de test — GNU/busybox sur Linux (celui de
+    /// tous les conteneurs), BSD sur un Mac. Dans les deux cas le script doit
+    /// rendre de vraies tailles.
     #[cfg(unix)]
     #[test]
-    fn lists_with_gnu_stat() {
+    fn lists_with_the_local_stat() {
         let dir = sample_tree();
         let path = std::env::var("PATH").unwrap_or_default();
         assert_sample_listing(&list_with_path(dir.path(), &path));
     }
 
     /// Le dialecte BSD, celui de macOS — joué ici par un `stat` d'emprunt qui
-    /// refuse `-c` et ne comprend que `-f`, réécrit par-dessus le vrai. C'est
+    /// refuse `-c` et ne comprend que `-f`, glissé devant le vrai. C'est
     /// exactement ce qui a fait échouer le CI macOS : toutes les tailles à 0,
-    /// parce que le script ne connaissait que `-c`. Sans Mac sous la main, ce
-    /// leurre est la seule façon de garder la branche BSD sous test.
+    /// parce que le script ne connaissait que `-c`. Sur Linux, ce leurre est
+    /// la seule façon de garder la branche BSD sous test.
+    ///
+    /// Le leurre ne suppose rien du `stat` qu'il recouvre : si celui-ci parle
+    /// `-f` (un vrai Mac), il lui relaie la demande telle quelle ; sinon il la
+    /// traduit en `-c`. La première version supposait un GNU derrière et
+    /// échouait… sur le Mac du CI, précisément.
     #[cfg(unix)]
     #[test]
     fn lists_with_bsd_stat() {
@@ -294,13 +301,27 @@ mod tests {
 
         let shims = tempfile::tempdir().unwrap();
         let shim = shims.path().join("stat");
-        // `%Mp%Lp` rend « 0640 » côté BSD (bits spéciaux puis droits) : le leurre
-        // préfixe le `%a` GNU du même zéro pour que le parseur voie la vraie
-        // forme.
+        // `%Mp%Lp` rend « 0640 » côté BSD (bits spéciaux puis droits) : la
+        // traduction préfixe le `%a` GNU du même zéro pour que le parseur voie
+        // la vraie forme.
         std::fs::write(
             &shim,
             format!(
-                "#!/bin/sh\ncase \"$1\" in\n  -c) echo 'stat: illegal option -- c' >&2; exit 1 ;;\n  -f) fmt=$2; shift 2; [ \"$1\" = -- ] && shift\n      case \"$fmt\" in\n        %z) exec {real} -c %s -- \"$1\" ;;\n        %m) exec {real} -c %Y -- \"$1\" ;;\n        %Mp%Lp) printf '0%s\\n' \"$({real} -c %a -- \"$1\")\" ;;\n        *) exit 1 ;;\n      esac ;;\n  *) exit 1 ;;\nesac\n",
+                concat!(
+                    "#!/bin/sh\n",
+                    "case \"$1\" in\n",
+                    "  -c) echo 'stat: illegal option -- c' >&2; exit 1 ;;\n",
+                    "  -f) fmt=$2; shift 2; [ \"$1\" = -- ] && shift\n",
+                    "      if ! {real} -c %s . >/dev/null 2>&1; then exec {real} -f \"$fmt\" -- \"$1\"; fi\n",
+                    "      case \"$fmt\" in\n",
+                    "        %z) exec {real} -c %s -- \"$1\" ;;\n",
+                    "        %m) exec {real} -c %Y -- \"$1\" ;;\n",
+                    "        %Mp%Lp) printf '0%s\\n' \"$({real} -c %a -- \"$1\")\" ;;\n",
+                    "        *) exit 1 ;;\n",
+                    "      esac ;;\n",
+                    "  *) exit 1 ;;\n",
+                    "esac\n",
+                ),
                 real = real_stat
             ),
         )
