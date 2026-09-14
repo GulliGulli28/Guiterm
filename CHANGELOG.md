@@ -9,6 +9,63 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+### Added
+
+- **Élever un panneau de transfert en root.** Un panneau SSH se heurtait à
+  « Permission denied » sans rien pour s'en sortir : entrer dans un dossier
+  fermé, lire un fichier protégé, écrire hors de son dossier personnel. Deux
+  gestes, sur le même mécanisme.
+
+  **Sur un refus**, une bannière apparaît là où l'action a échoué et propose
+  « Réessayer en root » : l'action est rejouée avec les droits de root — la
+  copie, le chmod, la suppression, le renommage, la création, l'archivage — puis
+  les droits sont rendus. Le panneau n'est élevé que le temps de l'action. Une
+  exception, visible : entrer dans un dossier que seul root peut lire laisse
+  le panneau élevé, puisqu'en redescendre en ferait ressortir aussitôt.
+
+  **Pour rester en root**, le bouton bouclier dans l'en-tête du panneau bascule
+  tout le panneau : listing, navigation, opérations et transferts dans les deux
+  sens. Un liseré ambre entoure le panneau tant qu'il l'est — supprimer dans le
+  mauvais des deux ne se rattrape pas. Redescendre est refusé depuis un dossier
+  que l'utilisateur ne peut pas lire, en nommant le dossier et en demandant de
+  remonter d'abord, plutôt que de téléporter ailleurs sans prévenir.
+
+  Le mot de passe, quand `sudo` en réclame un, est demandé par la même invite
+  que l'authentification interactive d'un serveur, puis **retenu en mémoire
+  pour cet onglet seulement** : jamais écrit sur le disque, ni dans le coffre,
+  ni dans le trousseau, et oublié s'il s'avère faux. Un `sudo` sans mot de
+  passe n'en demande aucun.
+
+  Sous le capot, un seul `sudo` est lancé et tenu ouvert par panneau élevé :
+  le ticket de `sudo` est attaché au terminal, et chaque commande SSH ouvre un
+  canal neuf — un `sudo` par commande aurait redemandé le mot de passe à
+  chaque dossier listé. Le contenu des fichiers, lui, continue de passer par
+  SFTP à travers un fichier de transit dans le dossier personnel, donc avec la
+  progression et l'annulation habituelles ; le transit est effacé dans tous
+  les cas, échec compris. Réservé aux panneaux SSH : le panneau local est déjà
+  votre session, et un conteneur Docker ou un pod Kubernetes s'ouvre déjà avec
+  les droits de son `exec`.
+
+### Fixed
+
+- **Un fichier copié vers un hôte arrivait vide.** Toute copie SFTP vers un
+  hôte distant — depuis cette machine comme depuis un autre hôte — laissait un
+  fichier de 0 octet à l'arrivée, sans un mot. Le report de la date de
+  modification, fait juste après chaque copie, envoyait par erreur une taille
+  de zéro en même temps que la date : le serveur tronquait le fichier, puis
+  refusait le reste de la demande, et cette erreur-là était volontairement
+  ignorée. Le même défaut vidait un fichier dont on changeait seulement les
+  permissions. Régression du 2026-08-23 (comparaison d'arborescences), plus
+  visible sur une copie d'hôte à hôte parce qu'elle relit aussitôt ce qu'elle
+  vient d'écrire. Au passage, une montée qui échoue en cours de route (disque
+  plein, quota) est maintenant rapportée au lieu de passer pour réussie.
+- **Un onglet de transfert restauré rouvre là où il était.** Reprendre la
+  session remettait bien l'hôte à droite, mais toujours « local » à gauche,
+  dans le dossier personnel — quel que soit l'hôte qu'on avait mis à gauche
+  et l'endroit où l'on travaillait. Les deux panneaux sont maintenant retenus
+  avec l'onglet, source et dossier compris ; un panneau posé sur un hôte
+  supprimé depuis retombe sur son défaut plutôt que d'ouvrir en erreur.
+
 ## [3.4.0] - 2026-09-10
 
 ### Added
