@@ -46,6 +46,20 @@ This changelog starts 2026-07-21 — for earlier versions, see
   votre session, et un conteneur Docker ou un pod Kubernetes s'ouvre déjà avec
   les droits de son `exec`.
 
+- **Apparence, réglages fins.** Taille du texte et de l'icône des hôtes
+  (11–18 px, 12–32 px) et des dossiers (11–20 px, 12–32 px), chacune au
+  curseur avec un aperçu réel juste dessous ; couleur d'accent libre via le
+  sélecteur de couleur du système, en plus des huit couleurs nommées ;
+  police de l'interface (Système, Inter, Segoe UI, Helvetica/Arial, Verdana,
+  JetBrains Mono) séparée de celle du terminal ; police propre aux panneaux
+  de transfert ; trois thèmes de terminal clairs (Clair, Solarized Light,
+  GitHub Light).
+
+- **L'arborescence d'hôtes se souvient.** Les dossiers repliés et la
+  position de défilement sont retenus d'un lancement à l'autre — les
+  dossiers repliés en commun entre les panneaux Hôtes et SFTP, le
+  défilement propre à chacun.
+
 ### Changed
 
 - **Refonte visuelle de l'interface.** Surfaces plates séparées par une
@@ -75,22 +89,6 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 - **Paramètres plus larges.** Le panneau s'élargit à leur ouverture, les
   catégories ont leur nom, les fonds sont des échantillons à trois tons.
-
-### Added
-
-- **Apparence, réglages fins.** Taille du texte et de l'icône des hôtes
-  (11–18 px, 12–32 px) et des dossiers (11–20 px, 12–32 px), chacune au
-  curseur avec un aperçu réel juste dessous ; couleur d'accent libre via le
-  sélecteur de couleur du système, en plus des huit couleurs nommées ;
-  police de l'interface (Système, Inter, Segoe UI, Helvetica/Arial, Verdana,
-  JetBrains Mono) séparée de celle du terminal ; police propre aux panneaux
-  de transfert ; trois thèmes de terminal clairs (Clair, Solarized Light,
-  GitHub Light).
-
-- **L'arborescence d'hôtes se souvient.** Les dossiers repliés et la
-  position de défilement sont retenus d'un lancement à l'autre — les
-  dossiers repliés en commun entre les panneaux Hôtes et SFTP, le
-  défilement propre à chacun.
 
 ### Fixed
 
