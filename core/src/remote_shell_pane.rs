@@ -13,16 +13,33 @@
 /// container/pod's shell via a non-interactive `exec`, parsed by
 /// [`parse_listing`]. Passed `path` as a real positional parameter (`$1`,
 /// via a `sh -c '<script>' sh "$1"` invocation), never string-interpolated.
+///
+/// Deux dialectes de `stat` : `-c` (GNU, busybox) et `-f` (BSD, donc macOS).
+/// Le choix se fait **une fois** par listing, sur le dossier lui-même, plutôt
+/// qu'en repli par fichier — trois `stat` en échec par entrée rendraient un
+/// gros dossier lent sur un Mac pour rien. Sans ce second dialecte, un hôte
+/// macOS listait toutes ses tailles à 0 et toutes ses dates à 1970 : le cas
+/// ne s'est jamais présenté tant que ce script ne servait qu'aux conteneurs,
+/// toujours Linux, mais le panneau élevé (`crate::sudo_pane`) tourne sur
+/// n'importe quel hôte SSH. `%Mp%Lp` : les bits spéciaux puis les droits, ce
+/// que `%a` rend d'un bloc côté GNU (`1777` pour `/tmp`).
 pub const LIST_SCRIPT: &str = r#"
 cd -- "$1" || exit 1
+if stat -c %s . >/dev/null 2>&1; then gnu=1; else gnu=0; fi
 ls -1a . | while IFS= read -r f; do
   [ "$f" = "." ] && continue
   [ "$f" = ".." ] && continue
   if [ -L "$f" ]; then sym=1; else sym=0; fi
   if [ -d "$f" ]; then isdir=1; else isdir=0; fi
-  size=$(stat -c %s -- "$f" 2>/dev/null || echo 0)
-  mtime=$(stat -c %Y -- "$f" 2>/dev/null || echo 0)
-  perm=$(stat -c %a -- "$f" 2>/dev/null || echo "")
+  if [ "$gnu" = 1 ]; then
+    size=$(stat -c %s -- "$f" 2>/dev/null || echo 0)
+    mtime=$(stat -c %Y -- "$f" 2>/dev/null || echo 0)
+    perm=$(stat -c %a -- "$f" 2>/dev/null || echo "")
+  else
+    size=$(stat -f %z -- "$f" 2>/dev/null || echo 0)
+    mtime=$(stat -f %m -- "$f" 2>/dev/null || echo 0)
+    perm=$(stat -f %Mp%Lp -- "$f" 2>/dev/null || echo "")
+  fi
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$sym" "$isdir" "$size" "$mtime" "$perm" "$f"
 done
 "#;
@@ -209,6 +226,90 @@ mod tests {
         let tar_bytes = build_single_file_tar("hello.txt", b"bonjour").unwrap();
         let extracted = extract_single_file(&tar_bytes).unwrap();
         assert_eq!(extracted, b"bonjour");
+    }
+
+    /// Lance `LIST_SCRIPT` sur la machine de test, comme le ferait un hôte,
+    /// avec un `PATH` de son choix — c'est ce qui permet de glisser un `stat`
+    /// d'emprunt devant le vrai.
+    #[cfg(unix)]
+    fn list_with_path(dir: &std::path::Path, path_env: &str) -> Vec<crate::sftp::Entry> {
+        let output = std::process::Command::new("sh")
+            .arg("-c")
+            .arg(LIST_SCRIPT)
+            .arg("sh")
+            .arg(dir)
+            .env("PATH", path_env)
+            .output()
+            .expect("sh doit exister sur une machine Unix");
+        assert!(output.status.success(), "stderr : {}", String::from_utf8_lossy(&output.stderr));
+        parse_listing(&output.stdout)
+    }
+
+    #[cfg(unix)]
+    fn sample_tree() -> tempfile::TempDir {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("note.txt");
+        std::fs::write(&file, b"bonjour").unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o640)).unwrap();
+        std::fs::create_dir(dir.path().join("sub")).unwrap();
+        dir
+    }
+
+    #[cfg(unix)]
+    fn assert_sample_listing(entries: &[crate::sftp::Entry]) {
+        let note = entries.iter().find(|e| e.name == "note.txt").expect("note.txt listé");
+        assert_eq!(note.size, 7, "la taille doit venir de stat, pas du repli à 0");
+        assert_eq!(note.permissions, Some(0o640));
+        assert!(note.modified.is_some_and(|m| m > 1_600_000_000), "date réelle attendue, vu {:?}", note.modified);
+        assert!(!note.is_dir);
+        let sub = entries.iter().find(|e| e.name == "sub").expect("sub listé");
+        assert!(sub.is_dir);
+    }
+
+    /// Le dialecte GNU/busybox, celui de tous les conteneurs.
+    #[cfg(unix)]
+    #[test]
+    fn lists_with_gnu_stat() {
+        let dir = sample_tree();
+        let path = std::env::var("PATH").unwrap_or_default();
+        assert_sample_listing(&list_with_path(dir.path(), &path));
+    }
+
+    /// Le dialecte BSD, celui de macOS — joué ici par un `stat` d'emprunt qui
+    /// refuse `-c` et ne comprend que `-f`, réécrit par-dessus le vrai. C'est
+    /// exactement ce qui a fait échouer le CI macOS : toutes les tailles à 0,
+    /// parce que le script ne connaissait que `-c`. Sans Mac sous la main, ce
+    /// leurre est la seule façon de garder la branche BSD sous test.
+    #[cfg(unix)]
+    #[test]
+    fn lists_with_bsd_stat() {
+        use std::os::unix::fs::PermissionsExt;
+        let real_stat = String::from_utf8(
+            std::process::Command::new("sh").arg("-c").arg("command -v stat").output().unwrap().stdout,
+        )
+        .unwrap();
+        let real_stat = real_stat.trim();
+        assert!(!real_stat.is_empty(), "stat introuvable sur la machine de test");
+
+        let shims = tempfile::tempdir().unwrap();
+        let shim = shims.path().join("stat");
+        // `%Mp%Lp` rend « 0640 » côté BSD (bits spéciaux puis droits) : le leurre
+        // préfixe le `%a` GNU du même zéro pour que le parseur voie la vraie
+        // forme.
+        std::fs::write(
+            &shim,
+            format!(
+                "#!/bin/sh\ncase \"$1\" in\n  -c) echo 'stat: illegal option -- c' >&2; exit 1 ;;\n  -f) fmt=$2; shift 2; [ \"$1\" = -- ] && shift\n      case \"$fmt\" in\n        %z) exec {real} -c %s -- \"$1\" ;;\n        %m) exec {real} -c %Y -- \"$1\" ;;\n        %Mp%Lp) printf '0%s\\n' \"$({real} -c %a -- \"$1\")\" ;;\n        *) exit 1 ;;\n      esac ;;\n  *) exit 1 ;;\nesac\n",
+                real = real_stat
+            ),
+        )
+        .unwrap();
+        std::fs::set_permissions(&shim, std::fs::Permissions::from_mode(0o755)).unwrap();
+
+        let dir = sample_tree();
+        let path = format!("{}:{}", shims.path().display(), std::env::var("PATH").unwrap_or_default());
+        assert_sample_listing(&list_with_path(dir.path(), &path));
     }
 
     #[test]
