@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it } from "vitest";
-import { loadTabs, restoredTabStatus, saveTabs, STORAGE_KEY } from "./tabPersistence";
+import { loadTabs, restorablePanes, restoredTabStatus, saveTabs, STORAGE_KEY } from "./tabPersistence";
 import type { PersistedTab } from "./tabPersistence";
 import type { TabMeta } from "./types";
 
@@ -103,6 +103,41 @@ describe("tabPersistence", () => {
     ];
     saveTabs(tabs);
     expect(loadTabs()[0].sessionKey).toBeUndefined();
+  });
+});
+
+describe("restorablePanes", () => {
+  const hosts = [{ id: "h1" }, { id: "h2" }];
+  const local = { source: { kind: "local" as const }, cwd: "C:\\Users\\g" };
+  const onH2 = { source: { kind: "remote" as const, hostId: "h2" }, cwd: "/var/log" };
+
+  // Le bug d'origine : un onglet de transfert rouvert repartait toujours de
+  // « local à gauche », quel que soit l'hôte qu'on y avait mis. Les deux
+  // panneaux doivent survivre au redémarrage, source et dossier compris.
+  it("garde les deux panneaux quand leurs hôtes existent encore", () => {
+    const tabs: TabMeta[] = [
+      { id: "t1", kind: "transfer", label: "web1", hostId: "h1", panes: { left: onH2, right: local } },
+    ];
+    saveTabs(tabs);
+    const [loaded] = loadTabs();
+    expect(restorablePanes(loaded.panes, hosts)).toEqual({ left: onH2, right: local });
+  });
+
+  it("retombe sur le défaut pour un panneau posé sur un hôte supprimé", () => {
+    const gone = { source: { kind: "remote" as const, hostId: "h-parti" }, cwd: "/tmp" };
+    expect(restorablePanes({ left: gone, right: local }, hosts)).toEqual({ left: undefined, right: local });
+    // Rien de restaurable du tout : autant ne rien porter, l'onglet prend
+    // ses défauts sans même regarder.
+    expect(restorablePanes({ left: gone }, hosts)).toBeUndefined();
+    expect(restorablePanes(undefined, hosts)).toBeUndefined();
+  });
+
+  it("ne porte jamais de panneaux sur un onglet terminal", () => {
+    const tabs: TabMeta[] = [
+      { id: "t1", kind: "terminal", label: "web1", hostId: "h1", panes: { left: local } },
+    ];
+    saveTabs(tabs);
+    expect(loadTabs()[0].panes).toBeUndefined();
   });
 });
 

@@ -4,7 +4,7 @@ import type { NotificationKind } from "../lib/notifications";
 import type { AppPreferences } from "../lib/preferences";
 import type {
   AwsSessionAlert, AwsSsoSession, Group, GroupId, Host, HostId, KeyAlgorithm, KeyId,
-  PaneSource, PortForwardId, PortForwardKind, RunbookId, SnippetId, SqlConnection, TabMeta, VaultStatus, Workspace,
+  PaneSource, PortForwardId, PortForwardKind, RunbookId, SnippetId, SqlConnection, TabMeta, TransferPanes, VaultStatus, Workspace,
 } from "../lib/types";
 import type { SidebarPanelKind } from "../lib/sidebarButtons";
 import type { AppObject } from "../lib/appObject";
@@ -81,6 +81,12 @@ export interface AppContext {
    * ça, la session continuerait de tourner côté serveur sans que rien ici
    * sache la retrouver. */
   rememberSessionKey: (tabId: string, sessionKey: string) => void;
+  /** Retient où en sont les deux panneaux d'un transfert, pour que l'onglet
+   * rouvre au même endroit au lancement suivant — même hôte à gauche, mêmes
+   * dossiers. Même raison d'exister que `rememberSessionKey` : c'est l'onglet
+   * qui est persisté, donc c'est lui qui doit porter ce que le composant
+   * apprend en vivant. */
+  rememberPanes: (tabId: string, panes: TransferPanes) => void;
   /** Amène la barre latérale sur ce panneau. Deux modules en ont besoin — la
    * flotte et le diagnostic réseau, dont le choix des cibles vit dans la barre
    * pendant que leur onglet compose et exécute : leur récapitulatif de

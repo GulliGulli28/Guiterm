@@ -1,4 +1,4 @@
-import type { TabMeta } from "./types";
+import type { Host, PanePlacement, TabMeta, TransferPanes } from "./types";
 
 export const STORAGE_KEY = "gui-termius-tabs";
 
@@ -19,6 +19,8 @@ export interface PersistedTab {
    * une fenêtre d'observation ne doit pas rendre la main sur la session de
    * quelqu'un d'autre. */
   readOnly?: boolean;
+  /** Les deux panneaux d'un onglet de transfert — voir `TabMeta.panes`. */
+  panes?: TransferPanes;
 }
 
 /** Persists only enough to redraw placeholder tabs — never a live session id.
@@ -40,6 +42,7 @@ export function saveTabs(tabs: TabMeta[]): void {
       shell: t.kind === "local-terminal" ? t.shell : undefined,
       sessionKey: t.kind === "terminal" ? t.sessionKey : undefined,
       readOnly: t.kind === "terminal" ? t.readOnly : undefined,
+      panes: t.kind === "transfer" ? t.panes : undefined,
     };
   });
   try {
@@ -82,4 +85,29 @@ export function restoredTabStatus(
 ): "connected" | "placeholder" {
   const resumable = tab.kind === "terminal" && !!tab.sessionKey;
   return resumable && resumePersistentTabs ? "connected" : "placeholder";
+}
+
+/**
+ * Les panneaux d'un transfert restauré, débarrassés de ce qui ne peut plus
+ * s'ouvrir.
+ *
+ * Un panneau posé sur un hôte supprimé depuis (ou dont l'identifiant vient
+ * d'un autre profil) ne doit pas être restauré tel quel : le panneau
+ * s'ouvrirait en erreur sur « hôte inconnu », sans rien pour comprendre
+ * pourquoi, là où retomber sur le défaut — local à gauche, l'hôte de
+ * l'onglet à droite — rend un onglet utilisable. Un côté local est toujours
+ * restaurable : c'est cette machine.
+ */
+export function restorablePanes(panes: TransferPanes | undefined, hosts: Pick<Host, "id">[]): TransferPanes | undefined {
+  if (!panes) return undefined;
+  const keep = (placement: PanePlacement | undefined): PanePlacement | undefined => {
+    if (!placement) return undefined;
+    const { source } = placement;
+    if (source.kind === "local") return placement;
+    return hosts.some((h) => h.id === source.hostId) ? placement : undefined;
+  };
+  const left = keep(panes.left);
+  const right = keep(panes.right);
+  if (!left && !right) return undefined;
+  return { left, right };
 }

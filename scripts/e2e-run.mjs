@@ -263,6 +263,7 @@ async function runScenarios(browser) {
   await runHostAttachmentsScenario(browser);
   await runObjectBusScenario(browser);
   await runPaneElevationScenario(browser);
+  await runTransferPanesPersistScenario(browser);
   await runObjectBusSelectionScenario(browser);
   await runAdaptiveComposerScenario(browser);
   await runSqlHistoryScenario(browser);
@@ -2009,6 +2010,178 @@ async function runPaneElevationScenario(browser) {
   }
 
   console.log("Élévation d un panneau : OK (refusée sur un panneau local, commande bien enregistrée).");
+}
+
+
+/**
+ * Un onglet de transfert retient où en sont ses panneaux.
+ *
+ * Le bug d'origine : rouvrir l'app et reprendre la session remettait bien
+ * l'hôte à droite, mais **toujours « local » à gauche**, dans le dossier
+ * personnel — quel que soit l'hôte qu'on y avait mis et l'endroit où on était.
+ * Rien n'était retenu des panneaux, seulement l'hôte de l'onglet.
+ *
+ * Ce que ça prouve et que les tests unitaires ne peuvent pas : la chaîne
+ * complète `TransferTab` → `rememberPanes` → `saveTabs` → `localStorage` est
+ * branchée dans le vrai binaire. `tabPersistence.test.ts` prouve le
+ * round-trip une fois les panneaux *dans* l'onglet ; c'est le « dans » qui
+ * manquait, et qu'aucun type ne garantit. On navigue dans le panneau
+ * **local** (aucun réseau) et on relit ce qui a été écrit.
+ */
+async function runTransferPanesPersistScenario(browser) {
+  const HOST_LABEL = `e2e-panes-${Date.now()}`;
+
+  // Rien n'est écrit quand la restauration des onglets est désactivée — et
+  // elle peut l'être sur la machine qui exécute la suite (un scénario
+  // précédent la bascule, et le profil E2E garde ses préférences d'un
+  // passage à l'autre). Un scénario qui se saute pour ça ne prouverait rien :
+  // on l'active le temps du test, par l'interface comme le ferait
+  // l'utilisateur, et on la remet ensuite comme elle était.
+  const PARENT = "Restaurer les onglets au démarrage";
+  const readPrefs = () => browser.execute(() => {
+    try {
+      return JSON.parse(localStorage.getItem("gui-termius-prefs") || "{}");
+    } catch {
+      return {};
+    }
+  });
+  const setRestorePref = async (value) => {
+    await browser.execute(() => {
+      const btn = Array.from(document.querySelectorAll("aside nav button"))
+        .find((b) => (b.getAttribute("title") || "").split(" — ")[0].split("\n")[0] === "Paramètres");
+      if (btn instanceof HTMLElement) btn.click();
+    });
+    // Le panneau est chargé en `lazy(...)` : ce scénario est le premier à
+    // l'ouvrir, et cliquer « Général » avant qu'il ait monté ne cliquait rien.
+    // On attend le bouton lui-même — le conteneur n'est pas vide pendant le
+    // « Chargement… », ce qui rendrait une attente sur son texte trop courte.
+    await browser.waitUntil(async () => await browser.execute(() => {
+      const tab = Array.from(document.querySelectorAll("nav button"))
+        .find((b) => (b.getAttribute("title") || "") === "Général");
+      if (!(tab instanceof HTMLElement)) return false;
+      tab.click();
+      return true;
+    }), { timeout: 15_000, timeoutMsg: "la catégorie « Général » des paramètres n est jamais apparue" });
+    await browser.waitUntil(async () => await browser.execute((text) =>
+      Array.from(document.querySelectorAll("label")).some((l) => l.querySelector("span")?.textContent?.trim() === text),
+    PARENT), { timeout: 10_000, timeoutMsg: "la section « Session » des paramètres ne s est pas affichée" });
+    const outcome = await browser.execute((text, next) => {
+      const row = Array.from(document.querySelectorAll("label"))
+        .find((l) => l.querySelector("span")?.textContent?.trim() === text);
+      const box = row?.querySelector('input[type="checkbox"]');
+      if (!(box instanceof HTMLInputElement)) return { found: false };
+      if (box.checked !== next) box.click();
+      return { found: true };
+    }, PARENT, value);
+    if (!outcome.found) throw new Error(`la case « ${PARENT} » est introuvable`);
+    await browser.waitUntil(async () => (await readPrefs()).restoreTabsOnLaunch !== false === value, {
+      timeout: 5_000, timeoutMsg: "la préférence de restauration n a pas été persistée",
+    });
+  };
+  const restoreWasOn = (await readPrefs()).restoreTabsOnLaunch !== false;
+  if (!restoreWasOn) await setRestorePref(true);
+
+  await browser.execute(() => {
+    const btn = Array.from(document.querySelectorAll("aside nav button"))
+      .find((b) => (b.getAttribute("title") || "") === "Hôtes");
+    if (btn instanceof HTMLElement) btn.click();
+  });
+  await clickButtonByText(browser, "Ajouter…");
+  await clickButtonByText(browser, "Nouvel hôte");
+  await setFieldByLabel(browser, "Nom", HOST_LABEL);
+  await setFieldByLabel(browser, "Adresse", "127.0.0.1");
+  await setFieldByLabel(browser, "Utilisateur", "e2e");
+  await clickButtonByText(browser, "Enregistrer");
+
+  const hostId = await browser.execute(async (label) => {
+    try {
+      const ws = await window.__TAURI_INTERNALS__.invoke("get_workspace");
+      return ws.hosts.find((h) => h.label === label)?.id ?? null;
+    } catch {
+      return null;
+    }
+  }, HOST_LABEL);
+  if (!hostId) throw new Error("l hôte de test n a pas été enregistré");
+
+  try {
+    const hasSftpPanel = await browser.execute(() => {
+      const btn = Array.from(document.querySelectorAll("aside nav button"))
+        .find((b) => (b.getAttribute("title") || "").split(" — ")[0] === "SFTP");
+      if (!(btn instanceof HTMLElement)) return false;
+      btn.click();
+      return true;
+    });
+    if (!hasSftpPanel) {
+      console.log("Panneaux persistés : ignoré (panneau SFTP masqué dans les préférences de cette machine).");
+      return;
+    }
+    const hostButton = 'button[title^="Transférer — e2e@127.0.0.1"]';
+    await browser.waitUntil(async () => await browser.execute((sel) =>
+      document.querySelector(`aside ${sel}`) !== null, hostButton,
+    ), { timeout: 15_000, timeoutMsg: "l hôte de test n apparaît pas dans le panneau SFTP" });
+    await browser.execute((sel) => {
+      const btn = document.querySelector(`aside ${sel}`);
+      if (btn instanceof HTMLElement) btn.click();
+    }, hostButton);
+
+    // Le panneau local ouvert : c'est son fil d'Ariane qu'on va faire bouger.
+    await browser.waitUntil(async () => await browser.execute(() =>
+      document.querySelector('button[title="Dossier parent"]') !== null
+    ), { timeout: 15_000, timeoutMsg: "le panneau local ne s est jamais ouvert (pas de bouton « Dossier parent »)" });
+
+    const readPersistedPanes = () => browser.execute((label) => {
+      try {
+        const tabs = JSON.parse(localStorage.getItem("gui-termius-tabs") || "[]");
+        const tab = tabs.find((t) => t.kind === "transfer" && t.label?.includes(label));
+        return tab ? { found: true, panes: tab.panes ?? null } : { found: false };
+      } catch {
+        return { found: false };
+      }
+    }, HOST_LABEL);
+
+    // D'abord l'état d'ouverture : le panneau gauche est rapporté dès qu'il
+    // liste, avec la source locale et un dossier non vide.
+    const opened = await browser.waitUntil(async () => {
+      const seen = await readPersistedPanes();
+      return seen.found && seen.panes?.left?.source?.kind === "local" && seen.panes.left.cwd ? seen : false;
+    }, { timeout: 10_000, timeoutMsg: "l onglet persisté ne porte pas son panneau gauche après l ouverture" });
+    const before = opened.panes.left.cwd;
+
+    // Puis une navigation : remonter d'un niveau doit changer le dossier
+    // retenu — c'est ce qui permet de rouvrir *là* et pas dans le dossier
+    // personnel.
+    await browser.execute(() => {
+      const btn = document.querySelector('button[title="Dossier parent"]');
+      if (btn instanceof HTMLElement) btn.click();
+    });
+    await browser.waitUntil(async () => {
+      const seen = await readPersistedPanes();
+      return seen.found && seen.panes?.left?.cwd && seen.panes.left.cwd !== before;
+    }, { timeout: 10_000, timeoutMsg: `le dossier retenu du panneau gauche n a pas suivi la navigation (toujours ${before})` });
+
+    // Le côté droit ne doit pas être inventé : sans `sshd` en face il n a
+    // jamais listé, donc il n a rien à retenir. L y écrire quand même
+    // effacerait, au lancement suivant, un dossier valable par un vide.
+    const after = await readPersistedPanes();
+    if (after.panes?.right !== undefined && after.panes?.right !== null) {
+      throw new Error(`un panneau distant jamais ouvert a été retenu : ${JSON.stringify(after.panes.right)}`);
+    }
+
+    console.log("Panneaux persistés : OK (panneau local rapporté à l ouverture, dossier suivi à la navigation, distant non inventé).");
+  } finally {
+    if (!restoreWasOn) await setRestorePref(false).catch(() => {});
+    const cleanup = await browser.execute(async (id) => {
+      try {
+        await window.__TAURI_INTERNALS__.invoke("delete_host", { hostId: id });
+        return { ok: true };
+      } catch (e) {
+        return { __error: String(e) };
+      }
+    }, hostId);
+    if (!cleanup || cleanup.__error !== undefined) {
+      throw new Error(`nettoyage impossible, workspace pollué : ${JSON.stringify(cleanup)}`);
+    }
+  }
 }
 
 /**

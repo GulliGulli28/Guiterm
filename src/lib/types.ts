@@ -963,6 +963,20 @@ export interface RemoteEditSync {
   error: string | null;
 }
 
+/** Ce qu'un panneau de transfert vaut la peine de retenir d'un lancement à
+ * l'autre : d'où il liste, et où il en était. Rien de vivant — pas
+ * d'identifiant de panneau, pas d'état d'élévation, qui ne désignent plus rien
+ * après la fermeture du processus. */
+export interface PanePlacement {
+  source: PaneSource;
+  cwd: string;
+}
+
+export interface TransferPanes {
+  left?: PanePlacement;
+  right?: PanePlacement;
+}
+
 export interface PaneState {
   source: PaneSource;
   status: "connecting" | "open" | "failed";
@@ -1061,6 +1075,14 @@ export type TabMeta =
        * bon endroit — voir le bus d'objets. Le panneau retombe sur le dossier
        * par défaut si celui-ci n'existe plus. */
       initialPath?: string;
+      /** Où en sont les deux panneaux d'un transfert (`kind: "transfer"`
+       * seulement) : la source et le dossier de chacun, tels que l'onglet les
+       * a rapportés en dernier. Persisté avec l'onglet, et relu à la
+       * restauration — sans ça un onglet rouvert repartait toujours de
+       * « local à gauche, dossier personnel à droite », quel que soit l'hôte
+       * qu'on avait mis à gauche et l'endroit où on était. Un côté absent
+       * retombe sur son défaut. */
+      panes?: TransferPanes;
       dockerContainerId?: string;
       k8sPodName?: string;
       k8sContainerName?: string | null;

@@ -2,11 +2,11 @@ import { useCallback, useEffect, useRef, useState, type RefObject } from "react"
 import { save } from "@tauri-apps/plugin-dialog";
 import { api } from "../lib/api";
 import { runOnTerminalHandle } from "../lib/runOnTerminalHandle";
-import type { Host, HostId, RunbookId, SqlConnection, TabMeta, Workspace } from "../lib/types";
+import type { Host, HostId, RunbookId, SqlConnection, TabMeta, TransferPanes, Workspace } from "../lib/types";
 import { isHostBoundTab } from "../lib/types";
 import type { AppPreferences } from "../lib/preferences";
 import type { NotificationKind } from "../lib/notifications";
-import { loadTabs, restoredTabStatus, saveTabs } from "../lib/tabPersistence";
+import { loadTabs, restorablePanes, restoredTabStatus, saveTabs } from "../lib/tabPersistence";
 import type { TerminalTabHandle } from "../components/TerminalTab";
 
 let nextTabId = 0;
@@ -214,6 +214,18 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
     )));
   }, []);
 
+  /** Retient où en sont les deux panneaux d'un transfert — même idée que
+   * `rememberSessionKey`, pour la même raison. Comparé par valeur avant
+   * d'écrire : l'onglet le rapporte à chaque navigation, et un `setTabs` sans
+   * changement re-rendrait toute la barre d'onglets pour rien. */
+  const rememberPanes = useCallback((tabId: string, panes: TransferPanes) => {
+    setTabs((prev) => prev.map((t) => (
+      t.id === tabId && t.kind === "transfer" && JSON.stringify(t.panes) !== JSON.stringify(panes)
+        ? { ...t, panes }
+        : t
+    )));
+  }, []);
+
   // Restore the last session's tab list (as disconnected placeholders) once, right after
   // the workspace loads. Never auto-reconnects — the user clicks a placeholder to do that.
   const restoredTabsRef = useRef(false);
@@ -246,6 +258,11 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
         // deuxième, laissant la première tourner pour rien sur le serveur.
         sessionKey: p.sessionKey,
         readOnly: p.readOnly,
+        // Un panneau posé sur un hôte qui n'existe plus retombe sur son
+        // défaut, plutôt que d'ouvrir en erreur sur un identifiant que rien
+        // dans le workspace ne connaît. Le côté droit garde de toute façon
+        // l'hôte de l'onglet, déjà vérifié juste au-dessus.
+        panes: p.kind === "transfer" ? restorablePanes(p.panes, workspace.hosts) : undefined,
       }];
     });
     if (restored.length > 0) {
@@ -484,6 +501,7 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
     pendingCloseTabId, setPendingCloseTabId,
     openTab, openPersistentSession, openLocalTerminal, openFleet, openActivity, openNetdiag, openSql, openRunbook, reconnectTab,
     rememberSessionKey,
+    rememberPanes,
     closeTab, detachTab, requestCloseTab,
     activeTabRecording, startActiveRecording, stopActiveRecording,
     runSnippet, runAdaptiveSnippet, exportActiveScrollback,

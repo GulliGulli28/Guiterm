@@ -291,6 +291,7 @@ export default function App() {
     pendingCloseTabId, setPendingCloseTabId,
     openTab, openPersistentSession, openLocalTerminal, openFleet, openActivity, openNetdiag, openSql, openRunbook, reconnectTab,
     rememberSessionKey,
+    rememberPanes,
     closeTab, detachTab, requestCloseTab,
     runSnippet, runAdaptiveSnippet, exportActiveScrollback,
     activeTabRecording, startActiveRecording, stopActiveRecording,
@@ -652,6 +653,7 @@ export default function App() {
       else terminalRefs.current.delete(tabId);
     },
     rememberSessionKey,
+    rememberPanes,
     // La barre est aussi visible : la ramener sans l'ouvrir laisserait le
     // récapitulatif de cibles cliquer dans le vide quand elle est repliée.
     showSidebarPanel: showTargetsPanel,

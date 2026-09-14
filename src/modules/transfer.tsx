@@ -48,6 +48,8 @@ export const transferModule = defineModule({
           dockerContainerId={tab.dockerContainerId}
           k8sPodName={tab.k8sPodName}
           k8sContainerName={tab.k8sContainerName}
+          initialPanes={tab.panes}
+          onPanesChange={(panes) => ctx.rememberPanes(tab.id, panes)}
         />
       );
     },

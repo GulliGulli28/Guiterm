@@ -7,7 +7,7 @@ import { ContextMenu } from "./ContextMenu";
 import type { AppObject } from "../lib/appObject";
 import type { ObjectAction } from "../modules/types";
 import type { AppPreferences } from "../lib/preferences";
-import type { ArchiveFormat, ConflictPolicy, CopyConflict, DiffHunk, DiffLine, DiffPick, Entry, FileDiff, Host, HostId, PaneComparison, PaneDiskSpace, PaneFindOutcome, SyncItem, PaneListed, PaneOpened, PaneSource, PaneState, RemoteEditListed, Workspace } from "../lib/types";
+import type { ArchiveFormat, ConflictPolicy, CopyConflict, DiffHunk, DiffLine, DiffPick, Entry, FileDiff, Host, HostId, PaneComparison, PaneDiskSpace, PaneFindOutcome, SyncItem, PaneListed, PaneOpened, PaneSource, PaneState, RemoteEditListed, TransferPanes, Workspace } from "../lib/types";
 import {
   IconFolder, IconEdit, IconExternal, IconTrash, IconShield, IconClose, IconSearch,
   IconTerminal, IconRefresh, IconCompare, IconArchive, IconExtract, IconEye, IconEyeOff, IconFile,
@@ -167,9 +167,16 @@ interface TransferTabProps {
    * exclusive with `dockerContainerId`. */
   k8sPodName?: string;
   k8sContainerName?: string | null;
+  /** Où les deux panneaux en étaient au dernier lancement, pour rouvrir au
+   * même endroit — voir `TabMeta.panes`. Un côté absent prend son défaut :
+   * local à gauche, l'hôte de l'onglet à droite. */
+  initialPanes?: TransferPanes;
+  /** Rapporte où en sont les panneaux, à chaque fois que ça change. Le
+   * destinataire est l'onglet, qui est ce qui est persisté. */
+  onPanesChange?: (panes: TransferPanes) => void;
 }
 
-export function TransferTab({ host, workspace, preferences, onPreferencesChange, objectActions, initialPath, onError, onPushed, dockerContainerId, k8sPodName, k8sContainerName }: TransferTabProps) {
+export function TransferTab({ host, workspace, preferences, onPreferencesChange, objectActions, initialPath, onError, onPushed, dockerContainerId, k8sPodName, k8sContainerName, initialPanes, onPanesChange }: TransferTabProps) {
   // RDP hosts have no file-listing backend at all — the right panel is the
   // live embedded view itself (`RdpTab`) instead of a browsable pane, and
   // dropping entries from the left panel onto it pushes them onto the
@@ -186,14 +193,24 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
 
   const divider = useResizablePane({ initial: 50, min: 20, max: 80, axis: "horizontal", mode: "percent", containerRef });
 
-  const initialRightSource: PaneSource = dockerContainerId
+  const defaultRightSource: PaneSource = dockerContainerId
     ? { kind: "docker", hostId: host.id, containerId: dockerContainerId }
     : k8sPodName
       ? { kind: "k8s", hostId: host.id, podName: k8sPodName, containerName: k8sContainerName ?? null }
       : { kind: "remote", hostId: host.id };
+  // Ce que l'onglet avait retenu l'emporte sur les défauts : c'est ce qui fait
+  // qu'un onglet rouvert retrouve l'hôte qu'on avait mis à gauche et les
+  // dossiers où on était, au lieu de repartir de « local / dossier personnel ».
+  // `initialPath` (onglet ouvert *sur* un dossier par le bus d'objets) n'a de
+  // sens qu'à la création, et un onglet créé ainsi n'a pas encore de panneaux
+  // retenus — les deux ne se disputent donc jamais.
+  const initialLeftSource: PaneSource = initialPanes?.left?.source ?? { kind: "local" };
+  const initialRightSource: PaneSource = initialPanes?.right?.source ?? defaultRightSource;
+  const initialLeftPath = initialPanes?.left?.cwd;
+  const initialRightPath = initialPanes?.right?.cwd ?? initialPath;
 
   const [state, dispatch] = useReducer(reducer, undefined, (): PanesState => ({
-    left: { source: { kind: "local" }, status: "connecting", paneId: null, cwd: "", entries: [] },
+    left: { source: initialLeftSource, status: "connecting", paneId: null, cwd: "", entries: [] },
     right: { source: initialRightSource, status: "connecting", paneId: null, cwd: "", entries: [] },
   }));
   const paneIds = useRef<Record<Side, string | null>>({ left: null, right: null });
@@ -249,10 +266,10 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
   };
 
   useEffect(() => {
-    openPaneFor("left", { kind: "local" });
+    openPaneFor("left", initialLeftSource, initialLeftPath);
     // The right side is a live `RdpTab`, not a pane, for an RDP host —
     // nothing to open there (see `isRdpTarget`'s doc comment above).
-    if (!isRdpTarget) openPaneFor("right", initialRightSource, initialPath);
+    if (!isRdpTarget) openPaneFor("right", initialRightSource, initialRightPath);
     return () => {
       if (paneIds.current.left) api.closePane(paneIds.current.left).catch(() => {});
       if (paneIds.current.right) api.closePane(paneIds.current.right).catch(() => {});
@@ -364,6 +381,26 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
       // de l'action. Rien à signaler — le badge du panneau porte l'information.
     }
   };
+
+  /** Rapporte où en sont les panneaux dès que l'un d'eux change de source ou
+   * de dossier. Un panneau pas encore ouvert n'est pas rapporté : son
+   * `cwd` est vide tant que le backend n'a pas répondu, et l'écrire
+   * effacerait ce qu'on avait retenu de valable. Un panneau en échec non
+   * plus — sa source est peut-être précisément ce qui ne s'ouvre plus. */
+  useEffect(() => {
+    if (!onPanesChange) return;
+    const placement = (side: Side) => {
+      const pane = state[side];
+      return pane.status === "open" && pane.cwd ? { source: pane.source, cwd: pane.cwd } : undefined;
+    };
+    const left = placement("left");
+    const right = placement("right");
+    if (!left && !right) return;
+    onPanesChange({ left, right });
+    // Seuls la source et le dossier comptent — pas le listing, qui change à
+    // chaque rafraîchissement sans rien changer à l'endroit où on est.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [state.left.status, state.left.source, state.left.cwd, state.right.status, state.right.source, state.right.cwd]);
 
   const navigate = (side: Side, path: string) =>
     runPaneAction(side, async () => {
