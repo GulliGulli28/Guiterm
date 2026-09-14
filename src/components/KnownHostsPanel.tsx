@@ -86,11 +86,11 @@ export function KnownHostsPanel({ onWorkspaceUpdate, onError }: KnownHostsPanelP
           </div>
         )}
         {entries.map((e) => (
-          <div key={e.identity} className="list-row group h-10 pr-1">
+          <div key={e.identity} className="list-row group mb-0.5 h-11 pr-1.5">
             <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--c-bg3)] text-[var(--c-text-secondary)]">
               <IconShield size={13} />
             </span>
-            <div className="flex min-w-0 flex-1 flex-col justify-center gap-px leading-tight">
+            <div className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 leading-tight">
               <p className="truncate text-[12.5px] font-medium text-[var(--c-text)]">{e.label}</p>
               <p className="truncate font-mono text-[10.5px] text-[var(--c-text-muted)]" title={e.publicKey}>{e.publicKey}</p>
             </div>

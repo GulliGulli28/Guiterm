@@ -100,12 +100,12 @@ export function RunbookPanel({
           </div>
         )}
         {workspace.runbooks.map((book: Runbook) => (
-          <div key={book.id} className="list-row group h-10 pr-1">
+          <div key={book.id} className="list-row group mb-0.5 h-11 pr-1.5">
             <button onClick={() => onOpen(book.id)} className="flex min-w-0 flex-1 items-center gap-2.5 text-left">
               <span className="flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--c-bg3)] text-[var(--c-text-secondary)]">
                 <IconRunbook size={13} />
               </span>
-              <span className="flex min-w-0 flex-1 flex-col justify-center gap-px leading-tight">
+              <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 leading-tight">
                 <span className="truncate text-[12.5px] font-medium text-[var(--c-text)]">{book.name}</span>
                 <span className="truncate text-[10.5px] text-[var(--c-text-muted)]">
                   {book.steps.length} étape{book.steps.length > 1 ? "s" : ""}{book.description ? ` · ${book.description}` : ""}

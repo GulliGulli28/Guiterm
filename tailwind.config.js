@@ -3,16 +3,16 @@ export default {
   content: ["./index.html", "./src/**/*.{ts,tsx}"],
   theme: {
     extend: {
-      // Échelle de rayons resserrée : un outil d'administration se lit comme
-      // un panneau d'instruments, pas comme une galerie de cartes. `rounded-xl`
-      // reste utilisable dans le code mais vaut 8 px, pas 12.
+      // Une seule échelle de rayons pour toute l'app : 6 px pour ce qu'on
+      // manipule (boutons, champs, lignes), 8 px pour les cartes et menus,
+      // 12 px pour ce qui flotte au-dessus de tout (modales, palette).
       borderRadius: {
-        sm: "3px",
-        DEFAULT: "4px",
-        md: "5px",
-        lg: "6px",
-        xl: "8px",
-        "2xl": "10px",
+        sm: "4px",
+        DEFAULT: "5px",
+        md: "6px",
+        lg: "8px",
+        xl: "12px",
+        "2xl": "16px",
       },
       fontFamily: {
         sans: ["var(--font-ui)"],

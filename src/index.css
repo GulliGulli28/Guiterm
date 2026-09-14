@@ -92,13 +92,73 @@ body {
   color: var(--c-text);
 }
 
-/* Les contrôles natifs (cases, boutons radio, curseurs) prennent la couleur
-   d'accent du thème au lieu du bleu système. */
-input[type="checkbox"],
+/* Les curseurs et barres de progression natifs prennent la couleur d'accent
+   du thème au lieu du bleu système. */
 input[type="radio"],
 input[type="range"],
 progress {
   accent-color: var(--c-accent);
+}
+
+/* Cases à cocher : dessinées par l'app, pas par le système. La case native de
+   WebView2 est grise, épaisse et ne suit ni le thème ni le rayon des autres
+   contrôles ; celle-ci est un carré de 14 px bordé comme un champ, rempli
+   d'accent avec une coche blanche une fois cochée, et un tiret pour l'état
+   indéterminé (case d'en-tête d'un dossier partiellement coché). */
+input[type="checkbox"] {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 14px;
+  height: 14px;
+  margin: 0;
+  flex-shrink: 0;
+  border-radius: 4px;
+  border: 1px solid var(--c-border-strong);
+  background: var(--c-input-bg);
+  display: inline-grid;
+  place-content: center;
+  cursor: pointer;
+  transition: background-color 0.1s, border-color 0.1s;
+  vertical-align: middle;
+}
+input[type="checkbox"]:hover {
+  border-color: var(--c-accent);
+}
+input[type="checkbox"]::before {
+  content: "";
+  width: 14px;
+  height: 14px;
+  transform: scale(0);
+  transition: transform 0.1s;
+  background-color: #fff;
+  mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'><path d='M3 7.5l2.5 2.5L11 4.5' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/></svg>") center / contain no-repeat;
+  -webkit-mask: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'><path d='M3 7.5l2.5 2.5L11 4.5' fill='none' stroke='black' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'/></svg>") center / contain no-repeat;
+}
+input[type="checkbox"]:checked,
+input[type="checkbox"]:indeterminate {
+  background: var(--c-accent);
+  border-color: var(--c-accent);
+}
+input[type="checkbox"]:checked::before {
+  transform: scale(1);
+}
+input[type="checkbox"]:indeterminate::before {
+  transform: scale(1);
+  mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'><path d='M3.5 7h7' stroke='black' stroke-width='1.8' stroke-linecap='round'/></svg>");
+  -webkit-mask-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 14 14'><path d='M3.5 7h7' stroke='black' stroke-width='1.8' stroke-linecap='round'/></svg>");
+}
+input[type="checkbox"]:disabled {
+  opacity: 0.45;
+  cursor: default;
+}
+
+/* La barre d'onglets défile à la molette mais ne montre pas de barre : des
+   flèches de défilement au milieu du bandeau, c'est ce qu'on ne veut pas. */
+.scrollbar-none {
+  scrollbar-width: none;
+}
+.scrollbar-none::-webkit-scrollbar {
+  display: none;
 }
 
 /* Barres de défilement fines — modèle natif, pour que `scrollbar-gutter`
@@ -277,7 +337,7 @@ progress {
      remplir la ligne. */
   .list-row {
     @apply relative flex min-w-0 items-center gap-2 rounded-md px-2 text-left transition-colors;
-    min-height: 30px;
+    min-height: 32px;
   }
   .list-row:hover {
     background: var(--c-hover);
@@ -289,8 +349,8 @@ progress {
     content: "";
     position: absolute;
     left: 0;
-    top: 6px;
-    bottom: 6px;
+    top: 8px;
+    bottom: 8px;
     width: 2px;
     border-radius: 1px;
     background: var(--c-accent);

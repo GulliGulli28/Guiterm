@@ -283,7 +283,7 @@ export function HostsPanel({
         key={host.id}
         data-host-row={host.label}
         data-active={isActive ? "true" : undefined}
-        className={`list-row group h-10 pr-1 ${menuOpen ? "bg-[var(--c-hover)]" : ""}`}
+        className={`list-row group mb-0.5 h-11 pr-1.5 ${menuOpen ? "bg-[var(--c-hover)]" : ""}`}
         style={{ paddingLeft: 8 + depth * 14 }}
       >
         {selecting && (
@@ -311,7 +311,7 @@ export function HostsPanel({
               />
             )}
           </span>
-          <span className="flex min-w-0 flex-1 flex-col justify-center gap-px leading-tight">
+          <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 leading-tight">
             <span className="flex items-center gap-1.5">
               <span className="truncate text-[12.5px] font-medium text-[var(--c-text)]">{host.label}</span>
               {runningCount != null && (
@@ -457,7 +457,7 @@ export function HostsPanel({
       <div key={group.id}>
         <div
           style={{ paddingLeft: 4 + depth * 14 }}
-          className="group flex h-7 items-center gap-1 rounded-md pr-1 hover:bg-[var(--c-hover)]"
+          className="group mt-1 flex h-7 items-center gap-1 rounded-md pr-1 hover:bg-[var(--c-hover)]"
         >
           <button
             onClick={() => toggleGroup(group.id)}
@@ -569,7 +569,7 @@ export function HostsPanel({
         {quickSSH && (
           <button
             onClick={handleQuickConnect}
-            className="list-row mb-1 h-10 w-full border border-dashed border-[var(--c-accent)] text-[var(--c-accent-text)] hover:bg-[var(--c-accent-dim)]"
+            className="list-row mb-1 h-11 w-full border border-dashed border-[var(--c-accent)] text-[var(--c-accent-text)] hover:bg-[var(--c-accent-dim)]"
           >
             <IconFlash size={13} className="shrink-0" />
             <span className="min-w-0 truncate font-mono text-[12px]">

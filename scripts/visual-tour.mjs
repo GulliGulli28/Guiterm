@@ -116,6 +116,28 @@ const scenes = [
     await page.locator("[data-tab-id]").first().locator("button[aria-label=\"Fermer l'onglet\"]").click({ force: true });
     await settle(page, 400);
   }],
+  ["22-selection", async (page) => {
+    await page.getByRole("button", { name: /^Annuler$/ }).first().click().catch(() => {});
+    await settle(page, 200);
+    await page.locator('button[title^="Sélectionner plusieurs hôtes"]').click();
+    await settle(page, 200);
+    for (const label of ["web-01", "pg-primary"]) {
+      await page.locator(`[data-host-row='${label}'] input[type=checkbox]`).check();
+    }
+    await settle(page, 300);
+  }],
+  // Beaucoup d'onglets dans une fenêtre étroite : ils doivent rétrécir, pas
+  // faire apparaître une barre de défilement à flèches.
+  ["23-onglets-etroits", async (page) => {
+    await page.locator('button[title="Quitter la sélection"]').click();
+    await settle(page, 200);
+    for (const label of ["web-02", "pg-primary", "docker-host", "bastion"]) {
+      await page.locator(`[data-host-row='${label}'] > button`).first().click();
+      await settle(page, 300);
+    }
+    await page.setViewportSize({ width: 1000, height: 700 });
+    await settle(page, 500);
+  }],
 ];
 
 try {

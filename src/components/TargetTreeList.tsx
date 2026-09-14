@@ -146,7 +146,7 @@ export function TargetTreeList<T extends TargetLike>({
             <div
               key={row.id}
               style={{ paddingLeft: 4 + row.depth * 14 }}
-              className="flex h-7 items-center gap-1 rounded-md pr-1 hover:bg-[var(--c-hover)]"
+              className="mt-1 flex h-7 items-center gap-1 rounded-md pr-1 hover:bg-[var(--c-hover)]"
             >
               <button
                 onClick={() => toggleCollapsed(row.id)}
@@ -182,7 +182,7 @@ export function TargetTreeList<T extends TargetLike>({
             <div
               key={row.id}
               style={{ paddingLeft: 4 + row.depth * 14 }}
-              className="list-row h-10 pr-1"
+              className="list-row mb-0.5 h-11 pr-1.5"
             >
               <button
                 onClick={() => toggleCollapsed(row.id)}
@@ -200,7 +200,7 @@ export function TargetTreeList<T extends TargetLike>({
                 />
               )}
               <RowIcon host={row.host} customIcons={customIcons} />
-              <span className="flex min-w-0 flex-1 flex-col justify-center gap-px leading-tight">
+              <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 leading-tight">
                 <span className="truncate text-[12.5px] font-medium text-[var(--c-text)]">{row.host.label}</span>
                 <span className="flex items-center gap-1.5">
                   <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-[var(--c-text-muted)]">{row.host.address}</span>
@@ -222,7 +222,7 @@ export function TargetTreeList<T extends TargetLike>({
             title={disabled ? disabledTitle : undefined}
             data-active={checked ? "true" : undefined}
             style={{ paddingLeft: 8 + row.depth * 14 }}
-            className={`list-row h-10 pr-2 ${disabled ? "opacity-50" : "cursor-pointer"}`}
+            className={`list-row mb-0.5 h-11 pr-2 ${disabled ? "opacity-50" : "cursor-pointer"}`}
           >
             <input
               type="checkbox"
@@ -232,7 +232,7 @@ export function TargetTreeList<T extends TargetLike>({
               className="shrink-0"
             />
             <RowIcon host={host} customIcons={customIcons} fallback="terminal" />
-            <span className="flex min-w-0 flex-1 flex-col justify-center gap-px leading-tight">
+            <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 leading-tight">
               <span className="flex items-center gap-1.5">
                 <span className="truncate text-[12.5px] font-medium text-[var(--c-text)]">{row.target.label}</span>
                 {extra && <span className="ml-auto flex shrink-0 items-center gap-1.5">{extra}</span>}

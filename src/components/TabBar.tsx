@@ -72,7 +72,11 @@ export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, fullscre
       {/* The network diagnostics button briefly lived here. It moved to the
           sidebar's nav strip, next to fleet operations: that strip is where
           people look for "what can this app do", and here it went unnoticed. */}
-      <div ref={containerRef} className="flex min-w-0 flex-1 items-stretch overflow-x-auto">
+      {/* Les onglets se partagent la largeur comme dans un navigateur : ils
+          rétrécissent (jusqu'à 6 rem, le libellé tronqué) avant de déborder,
+          et s'ils débordent quand même, la molette fait défiler sans qu'une
+          barre à flèches vienne s'incruster dans le bandeau. */}
+      <div ref={containerRef} className="scrollbar-none flex min-w-0 flex-1 items-stretch overflow-x-auto">
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId;
           const color = tabColor?.(tab);
@@ -102,7 +106,7 @@ export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, fullscre
               // Un onglet actif se pose sur la surface du contenu (même fond,
               // bordures latérales, pas de trait en dessous) : il en fait
               // partie. Les autres restent dans la barre, en retrait.
-              className={`group/tab relative -mb-px flex max-w-[16rem] shrink-0 cursor-pointer select-none items-center gap-1.5 border-r border-[var(--c-border)] px-3 text-[12.5px] transition-colors first:border-l ${
+              className={`group/tab relative -mb-px flex min-w-[6rem] max-w-[16rem] shrink cursor-pointer select-none items-center gap-1.5 border-r border-[var(--c-border)] px-3 text-[12.5px] transition-colors first:border-l ${
                 isActive
                   ? "bg-[var(--c-bg2)] text-[var(--c-text)] after:absolute after:inset-x-0 after:top-0 after:h-0.5 after:bg-[var(--c-accent)]"
                   : tab.status === "placeholder"
@@ -124,7 +128,7 @@ export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, fullscre
               {color && <span className="h-1.5 w-1.5 shrink-0 rounded-full" style={{ background: color }} />}
               <span className={isActive ? "text-[var(--c-accent-text)]" : "opacity-70"}><TabIcon kind={tab.kind} /></span>
               {observing ? <IconEye size={11} className="shrink-0 opacity-70" /> : pinned && <IconPin size={10} className="shrink-0 opacity-70" />}
-              <span className={`truncate ${tab.status === "placeholder" ? "italic" : ""}`}>{tab.label}</span>
+              <span className={`min-w-0 flex-1 truncate ${tab.status === "placeholder" ? "italic" : ""}`}>{tab.label}</span>
               <button
                 onClick={(e) => { e.stopPropagation(); onClose(tab.id); }}
                 className={`-mr-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-sm transition-opacity hover:bg-[var(--c-active)] ${

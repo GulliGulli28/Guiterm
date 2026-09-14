@@ -68,7 +68,7 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
     const subtitle = isDocker || isK8s ? host.address : `${host.username}@${host.address}${host.port !== 22 ? `:${host.port}` : ""}`;
     const online = hostStatus[host.id];
     return (
-      <div key={host.id} className="list-row group h-10 pr-1" style={{ paddingLeft: 8 + depth * 14 }}>
+      <div key={host.id} className="list-row group mb-0.5 h-11 pr-1.5" style={{ paddingLeft: 8 + depth * 14 }}>
         <button
           onClick={() => (isDocker ? openDockerPicker(host) : isK8s ? openK8sPicker(host) : onOpenTransfer(host))}
           className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
@@ -85,7 +85,7 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
               />
             )}
           </span>
-          <span className="flex min-w-0 flex-1 flex-col justify-center gap-px leading-tight">
+          <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 leading-tight">
             <span className="truncate text-[12.5px] font-medium text-[var(--c-text)]">{host.label}</span>
             <span className="flex items-center gap-1.5">
               <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-[var(--c-text-muted)]">{subtitle}</span>
@@ -112,7 +112,7 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
       <div key={group.id}>
         <div
           style={{ paddingLeft: 4 + depth * 14 }}
-          className="flex h-7 items-center gap-1 rounded-md pr-1 hover:bg-[var(--c-hover)]"
+          className="mt-1 flex h-7 items-center gap-1 rounded-md pr-1 hover:bg-[var(--c-hover)]"
         >
           <button
             onClick={() => toggleGroup(group.id)}
