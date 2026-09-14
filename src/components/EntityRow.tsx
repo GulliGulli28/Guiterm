@@ -25,6 +25,8 @@ export interface EntityRowProps {
   variant?: "row" | "card";
   /** Ce qui précède l'icône : une case à cocher, un chevron. */
   leading?: ReactNode;
+  /** Un SVG de `ui-icons` (dessiné à 55 % de la boîte), ou une icône d'hôte
+   * dans un `<span className="host-icon">` (72 %, elle est pleine). */
   icon?: ReactNode;
   title: ReactNode;
   /** À côté du titre : compte de conteneurs, genre de connexion… */
@@ -61,7 +63,10 @@ export function EntityRow({
   const body = (
     <>
       {icon && (
-        <span className="relative mt-px flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--c-bg3)] text-[var(--c-text-secondary)]">
+        <span
+          className="relative mt-px flex shrink-0 items-center justify-center rounded-md bg-[var(--c-bg3)] text-[var(--c-text-secondary)] [&>svg]:h-[55%] [&>svg]:w-[55%] [&>.host-icon]:h-[72%] [&>.host-icon]:w-[72%] [&>.host-icon>*]:h-full [&>.host-icon>*]:w-full"
+          style={{ width: "var(--entity-icon)", height: "var(--entity-icon)" }}
+        >
           {icon}
         </span>
       )}
@@ -69,12 +74,12 @@ export function EntityRow({
         {/* Le titre garde la priorité : les badges et la méta passent à la
             ligne avant qu'il ne se tronque. */}
         <span className="flex min-w-0 flex-wrap items-center gap-x-1.5 gap-y-1">
-          <span className="max-w-full truncate text-[12.5px] font-medium text-[var(--c-text)]">{title}</span>
+          <span className="max-w-full truncate font-medium text-[var(--c-text)]" style={{ fontSize: "var(--entity-font)" }}>{title}</span>
           {badges}
           {meta && <span className="ml-auto flex shrink-0 items-center gap-1.5 pl-2">{meta}</span>}
         </span>
         {secondary && (
-          <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[10.5px] text-[var(--c-text-muted)]">
+          <span className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[var(--c-text-muted)]" style={{ fontSize: "var(--entity-sub-font)" }}>
             {secondary}
           </span>
         )}

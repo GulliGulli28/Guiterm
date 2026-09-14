@@ -51,6 +51,10 @@
   --group-row-font: 13px;
   --group-row-icon: 16px;
   --group-row-h: 29px;
+  /* Lignes d'entité (hôtes, clés, bases…) — idem, préférence « Hôtes ». */
+  --entity-font: 12.5px;
+  --entity-sub-font: 10.5px;
+  --entity-icon: 24px;
 
   /* Ombres : seulement pour ce qui flotte (menus, palette, modales). Une
      carte statique n'en a pas — elle se distingue par sa bordure. */

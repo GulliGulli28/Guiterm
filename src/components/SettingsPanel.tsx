@@ -7,8 +7,8 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { api } from "../lib/api";
 import type { VaultStatus, Workspace } from "../lib/types";
 import type { AppPreferences } from "../lib/preferences";
-import { TERMINAL_THEMES, FONT_FAMILIES, UI_FONT_FAMILIES, ACCENT_COLORS, BG_THEMES, HOST_GROUP_SIZE_MIN, HOST_GROUP_SIZE_MAX, HOST_GROUP_ICON_MIN, HOST_GROUP_ICON_MAX, bgThemeLabel, hostGroupMetrics, sftpFontStack, type UiAccent, type UiBg, type ColorMode } from "../lib/preferences";
-import { GroupRow } from "./EntityRow";
+import { TERMINAL_THEMES, FONT_FAMILIES, UI_FONT_FAMILIES, ACCENT_COLORS, BG_THEMES, HOST_GROUP_SIZE_MIN, HOST_GROUP_SIZE_MAX, HOST_GROUP_ICON_MIN, HOST_GROUP_ICON_MAX, HOST_ROW_SIZE_MIN, HOST_ROW_SIZE_MAX, HOST_ROW_ICON_MIN, HOST_ROW_ICON_MAX, bgThemeLabel, hostGroupMetrics, hostRowMetrics, sftpFontStack, type UiAccent, type UiBg, type ColorMode } from "../lib/preferences";
+import { EntityRow, EntityMono, EntityTags, GroupRow } from "./EntityRow";
 import { SHORTCUT_ACTIONS, comboConflicts, defaultShortcuts, comboFromEvent, shellBindingWarning, shortcutLabel } from "../lib/shortcuts";
 import { SIDEBAR_BUTTONS, ALWAYS_VISIBLE_SIDEBAR_BUTTONS, isSidebarButtonVisible } from "../lib/sidebarButtons";
 import { IconUpload, IconDownload, IconPalette, IconTerminal, IconTransfer, IconKeyboard, IconBell, IconSettings, IconSun, IconMoon, IconRefresh, IconShield, IconCheck, IconWarning, IconFolderFilled, IconFileFilled, IconFolder } from "./ui-icons";
@@ -373,6 +373,58 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
                 ))}
               </select>
               <p className="help-text">S'applique à toute l'interface, sauf au terminal, qui a sa propre police ci-contre.</p>
+            </section>
+
+            <section className="space-y-3">
+              <p className="eyebrow">Hôtes de la liste</p>
+              <div className="grid max-w-md grid-cols-2 gap-4">
+                <label className="block">
+                  <span className="field-label">
+                    Texte : <span className="font-mono text-[var(--c-text)]">{hostRowMetrics(preferences.hostRowSize, preferences.hostRowIconSize).font}</span>
+                  </span>
+                  <input
+                    type="range"
+                    min={HOST_ROW_SIZE_MIN}
+                    max={HOST_ROW_SIZE_MAX}
+                    step={0.5}
+                    value={preferences.hostRowSize}
+                    onChange={(e) => onPreferencesChange({ ...preferences, hostRowSize: Number(e.target.value) })}
+                    aria-label="Taille du texte des hôtes"
+                    className="w-full"
+                  />
+                  <span className="flex justify-between text-[11px] text-[var(--c-text-faint)]">
+                    <span>{HOST_ROW_SIZE_MIN} px</span><span>{HOST_ROW_SIZE_MAX} px</span>
+                  </span>
+                </label>
+                <label className="block">
+                  <span className="field-label">
+                    Icône : <span className="font-mono text-[var(--c-text)]">{hostRowMetrics(preferences.hostRowSize, preferences.hostRowIconSize).icon}</span>
+                  </span>
+                  <input
+                    type="range"
+                    min={HOST_ROW_ICON_MIN}
+                    max={HOST_ROW_ICON_MAX}
+                    step={1}
+                    value={preferences.hostRowIconSize}
+                    onChange={(e) => onPreferencesChange({ ...preferences, hostRowIconSize: Number(e.target.value) })}
+                    aria-label="Taille de l'icône des hôtes"
+                    className="w-full"
+                  />
+                  <span className="flex justify-between text-[11px] text-[var(--c-text-faint)]">
+                    <span>{HOST_ROW_ICON_MIN} px</span><span>{HOST_ROW_ICON_MAX} px</span>
+                  </span>
+                </label>
+              </div>
+              {/* Une vraie ligne d'hôte, aux tailles réglées. */}
+              <div className="card max-w-md px-2 py-1.5">
+                <EntityRow
+                  icon={<IconTerminal size={13} />}
+                  title="web-01"
+                  meta={<span className="font-mono text-[10.5px] font-medium tabular-nums text-[var(--c-ok)]">61%</span>}
+                  secondary={<><EntityMono>deploy@203.0.113.10</EntityMono><span className="text-[var(--c-text-faint)]">Ubuntu 24.04</span><EntityTags tags={["nginx", "prod"]} /></>}
+                />
+              </div>
+              <p className="help-text">Vaut pour toutes les lignes de ce genre : hôtes, cibles, clés, bases, tunnels.</p>
             </section>
 
             <section className="space-y-3">

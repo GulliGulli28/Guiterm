@@ -291,7 +291,7 @@ export function HostsPanel({
         icon={
           <>
             {host.icon
-              ? <HostIcon iconId={host.icon} customIcons={workspace.customIcons} size={16} />
+              ? <span className="host-icon flex"><HostIcon iconId={host.icon} customIcons={workspace.customIcons} size={16} /></span>
               : <KindIcon size={13} />}
             {online !== undefined && (
               <span

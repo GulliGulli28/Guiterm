@@ -11,7 +11,7 @@ import type { TerminalTabHandle } from "./components/TerminalTab";
 import { TitleBar } from "./components/TitleBar";
 import { TabLoadingFallback } from "./components/TabLoadingFallback";
 
-import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, accentFromHex, hostGroupMetrics, loadPreferences, savePreferences, uiFontStack } from "./lib/preferences";
+import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, accentFromHex, hostGroupMetrics, hostRowMetrics, loadPreferences, savePreferences, uiFontStack } from "./lib/preferences";
 import { resolveVisiblePanel, type SidebarPanelKind } from "./lib/sidebarButtons";
 import { cdCommand } from "./lib/panePath";
 import { describeObject, parseEndpoint, type AppObject } from "./lib/appObject";
@@ -218,6 +218,14 @@ export default function App() {
     root.style.setProperty("--group-row-icon", size.icon);
     root.style.setProperty("--group-row-h", size.height);
   }, [preferences.hostGroupSize, preferences.hostGroupIconSize]);
+
+  useEffect(() => {
+    const size = hostRowMetrics(preferences.hostRowSize, preferences.hostRowIconSize);
+    const root = document.documentElement;
+    root.style.setProperty("--entity-font", size.font);
+    root.style.setProperty("--entity-sub-font", size.sub);
+    root.style.setProperty("--entity-icon", size.icon);
+  }, [preferences.hostRowSize, preferences.hostRowIconSize]);
 
   useEffect(() => {
     document.documentElement.style.setProperty("--font-ui", uiFontStack(preferences.uiFontFamily ?? "system"));

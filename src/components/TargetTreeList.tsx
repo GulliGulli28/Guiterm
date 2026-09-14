@@ -79,13 +79,10 @@ function BulkCheckbox({
 function RowIcon({ host, customIcons, fallback }: { host: Host | undefined; customIcons: CustomIcon[]; fallback?: "terminal" }) {
   const kind = host?.kind ?? "ssh";
   const { label: kindLabel, Icon: KindIcon } = hostKindMeta(kind);
-  return (
-    <span title={host ? kindLabel : undefined} className="flex items-center justify-center">
-      {host?.icon
-        ? <HostIcon iconId={host.icon} customIcons={customIcons} size={16} />
-        : fallback === "terminal" && !host ? <IconTerminal size={13} /> : <KindIcon size={13} />}
-    </span>
-  );
+  if (host?.icon) {
+    return <span className="host-icon flex" title={kindLabel}><HostIcon iconId={host.icon} customIcons={customIcons} size={16} /></span>;
+  }
+  return fallback === "terminal" && !host ? <IconTerminal size={13} /> : <KindIcon size={13} />;
 }
 
 export function TargetTreeList<T extends TargetLike>({

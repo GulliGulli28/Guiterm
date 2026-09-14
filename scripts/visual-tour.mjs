@@ -170,6 +170,8 @@ const scenes = [
   ["30-dossiers-grands", async (page) => {
     await page.locator('input[type="range"][aria-label="Taille du texte des dossiers"]').fill("18");
     await page.locator('input[type="range"][aria-label="Taille de l\'icône des dossiers"]').fill("26");
+    await page.locator('input[type="range"][aria-label="Taille du texte des hôtes"]').fill("15");
+    await page.locator('input[type="range"][aria-label="Taille de l\'icône des hôtes"]').fill("30");
     await page.locator('input[type="color"]').fill("#e11d48");
     await settle(page, 300);
     await clickNav(page, "Hôtes");

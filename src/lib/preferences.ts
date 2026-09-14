@@ -198,6 +198,11 @@ export interface AppPreferences {
   /** Taille, en pixels, de l'icône des lignes de dossier — réglée à part de
    * la police : on veut parfois un gros pictogramme devant un petit nom. */
   hostGroupIconSize: number;
+  /** Taille de police, en pixels, du nom d'une ligne d'hôte (et de toute
+   * ligne d'entité : clés, bases, tunnels…) ; la ligne secondaire en découle. */
+  hostRowSize: number;
+  /** Taille, en pixels, de l'icône d'une ligne d'hôte. */
+  hostRowIconSize: number;
   /** Police des panneaux de transfert. `"inherit"` = celle de l'interface ;
    * une chasse fixe y est un choix courant (les noms de fichiers s'alignent). */
   sftpFontFamily: string;
@@ -213,6 +218,20 @@ export const HOST_GROUP_SIZE_MIN = 11;
 export const HOST_GROUP_SIZE_MAX = 20;
 export const HOST_GROUP_ICON_MIN = 12;
 export const HOST_GROUP_ICON_MAX = 32;
+export const HOST_ROW_SIZE_MIN = 11;
+export const HOST_ROW_SIZE_MAX = 18;
+export const HOST_ROW_ICON_MIN = 12;
+export const HOST_ROW_ICON_MAX = 32;
+
+/** Ce que les deux tailles de ligne d'hôte posent comme variables CSS — lues
+ * par `EntityRow`. La ligne secondaire (adresse, tags) reste un cran sous le
+ * nom, l'icône a sa boîte à elle. */
+export function hostRowMetrics(fontPx: number, iconPx: number): { font: string; sub: string; icon: string } {
+  const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, Math.round(v * 2) / 2));
+  const font = clamp(fontPx, HOST_ROW_SIZE_MIN, HOST_ROW_SIZE_MAX);
+  const icon = clamp(iconPx, HOST_ROW_ICON_MIN, HOST_ROW_ICON_MAX);
+  return { font: `${font}px`, sub: `${Math.max(10, Math.round((font - 2) * 2) / 2)}px`, icon: `${icon}px` };
+}
 
 /** Ce que les deux tailles de dossier posent comme variables CSS — lues par
  * `GroupRow`. La ligne est aussi haute que le plus grand des deux, avec de
@@ -472,6 +491,8 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   hiddenSidebarButtons: [],
   hostGroupSize: 13,
   hostGroupIconSize: 16,
+  hostRowSize: 12.5,
+  hostRowIconSize: 24,
   sftpFontFamily: "inherit",
   uiAccentCustom: "#2563eb",
   uiFontFamily: "system",
