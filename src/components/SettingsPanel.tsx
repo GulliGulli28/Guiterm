@@ -231,7 +231,7 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
     <div className="-m-2 flex h-[calc(100%+1rem)] min-w-0">
       {/* Les catégories, avec leur nom : une colonne d'icônes seules
           demandait de survoler chacune pour savoir ce qu'elle cachait. */}
-      <nav className="flex w-36 shrink-0 flex-col gap-px border-r border-[var(--c-border)] p-1.5">
+      <nav className="flex w-[9.5rem] shrink-0 flex-col gap-px border-r border-[var(--c-border)] p-1.5">
         <p className="eyebrow px-2 pb-1.5 pt-1">Paramètres</p>
         {CATEGORIES.map((c) => {
           const active = category === c.key;
@@ -239,6 +239,7 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
             <button
               key={c.key}
               onClick={() => setCategory(c.key)}
+              title={c.label}
               data-active={active ? "true" : undefined}
               className="list-row h-7 min-h-0 gap-2 px-2 text-[12.5px]"
             >

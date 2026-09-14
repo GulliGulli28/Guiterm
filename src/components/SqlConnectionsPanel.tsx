@@ -23,7 +23,7 @@ export function SqlConnectionsPanel({ workspace, onConnect, onNewConnection, onE
         <button onClick={onNewConnection} className="btn btn-primary flex-1">
           <IconPlus size={13} /> Nouvelle connexion
         </button>
-        <button onClick={onImportAws} title="Importer depuis AWS (RDS, Aurora…)" className="btn btn-secondary text-[var(--c-text-secondary)]">
+        <button onClick={onImportAws} title="Importer depuis AWS (RDS, Aurora, ElastiCache…)" aria-label="Importer depuis AWS" className="btn btn-secondary text-[var(--c-text-secondary)]">
           <IconDownload size={12} /> AWS
         </button>
       </div>

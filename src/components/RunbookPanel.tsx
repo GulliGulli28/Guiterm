@@ -44,7 +44,7 @@ export function RunbookPanel({
   return (
     <div className="flex h-full min-w-0 flex-col">
       <div className="flex shrink-0 items-center gap-1.5">
-        <button onClick={() => setCreating((v) => !v)} className={`btn flex-1 ${creating ? "btn-secondary" : "btn-primary"}`}>
+        <button onClick={() => setCreating((v) => !v)} title="Nouvelle procédure" className={`btn flex-1 ${creating ? "btn-secondary" : "btn-primary"}`}>
           <IconPlus size={13} /> {creating ? "Annuler" : "Nouvelle procédure"}
         </button>
         <button

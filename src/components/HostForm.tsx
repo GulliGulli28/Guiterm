@@ -397,7 +397,7 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
   };
 
   return (
-    <div className="flex min-h-0 flex-1 flex-col border-l border-[var(--c-border)]">
+    <div data-form className="flex min-h-0 flex-1 flex-col border-l border-[var(--c-border)]">
       {/* En-tête fixe : le titre et les deux actions restent sous les yeux
           quel que soit le défilement d'un formulaire long. */}
       <div className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--c-border)] px-4">

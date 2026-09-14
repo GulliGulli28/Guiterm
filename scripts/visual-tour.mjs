@@ -77,6 +77,45 @@ const scenes = [
     await page.getByPlaceholder(/Rechercher/).first().fill("nginx");
     await settle(page, 400);
   }],
+  ["16-menu-hote", async (page) => {
+    await page.getByPlaceholder(/Rechercher/).first().fill("");
+    await settle(page, 300);
+    await page.locator("[data-host-row='pg-primary']").hover();
+    await page.locator("[data-host-row='pg-primary'] button[title='Options']").click();
+    await settle(page, 300);
+  }],
+  ["17-menu-ajouter", async (page) => {
+    await page.keyboard.press("Escape");
+    await page.mouse.click(700, 500);
+    await settle(page, 200);
+    await page.getByRole("button", { name: /^Ajouter/ }).first().click();
+    await settle(page, 300);
+  }],
+  ["18-import-cloud", async (page) => {
+    await page.getByRole("button", { name: /Importer depuis le cloud/ }).first().click();
+    await settle(page, 500);
+  }],
+  ["19-nouvelle-base", async (page) => {
+    await page.getByRole("button", { name: /Fermer/ }).first().click().catch(() => page.keyboard.press("Escape"));
+    await settle(page, 300);
+    await clickNav(page, "Bases de données");
+    await page.getByRole("button", { name: /Nouvelle connexion/ }).first().click();
+    await settle(page, 400);
+  }],
+  ["20-nouveau-dossier", async (page) => {
+    await page.getByRole("button", { name: /Annuler/ }).first().click().catch(() => {});
+    await clickNav(page, "Hôtes");
+    await page.getByRole("button", { name: /^Ajouter/ }).first().click();
+    await settle(page, 200);
+    await page.getByRole("button", { name: /Nouveau dossier/ }).first().click();
+    await settle(page, 400);
+  }],
+  ["21-confirmation", async (page) => {
+    await page.getByRole("button", { name: /Annuler/ }).first().click().catch(() => {});
+    await settle(page, 200);
+    await page.locator("[data-tab-id]").first().locator("button[aria-label=\"Fermer l'onglet\"]").click({ force: true });
+    await settle(page, 400);
+  }],
 ];
 
 try {

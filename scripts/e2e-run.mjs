@@ -884,9 +884,12 @@ async function runAwsDatabasePanelScenario(browser) {
   // The database panel is lazy-loaded, so its button does not exist the
   // instant the tab is clicked — only once the chunk has resolved.
   await browser.waitUntil(async () => await browser.execute(() =>
-    Array.from(document.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Importer depuis AWS")
+    Array.from(document.querySelectorAll("button")).some((b) => b.getAttribute("aria-label") === "Importer depuis AWS")
   ), { timeout: 10_000, timeoutMsg: "le panneau Bases de donnees ne s est pas charge" });
-  await clickButtonByText(browser, "Importer depuis AWS");
+  await browser.execute(() => {
+    const btn = Array.from(document.querySelectorAll("button")).find((b) => b.getAttribute("aria-label") === "Importer depuis AWS");
+    if (btn instanceof HTMLElement) btn.click();
+  });
 
   const panelText = () => browser.execute(() => {
     const heading = Array.from(document.querySelectorAll("p"))
@@ -963,7 +966,7 @@ async function runRemoteSearchScenario(browser) {
     await browser.execute((i) => document.querySelectorAll('button[title="Options"]')[i]?.click(), index);
     clicked = await browser.execute(() => {
       const button = Array.from(document.querySelectorAll("button"))
-        .find((b) => b.textContent?.trim() === "Rechercher");
+        .find((b) => b.textContent?.trim() === "Rechercher des fichiers");
       if (!(button instanceof HTMLElement)) return false;
       button.click();
       return true;
@@ -1076,7 +1079,7 @@ async function runBulkEditScenario(browser) {
 
   const opened = await browser.execute(() => {
     const entry = Array.from(document.querySelectorAll("button"))
-      .find((b) => b.textContent?.trim() === "Sélectionner plusieurs hôtes…");
+      .find((b) => (b.getAttribute("title") || "").startsWith("Sélectionner plusieurs hôtes"));
     if (!(entry instanceof HTMLElement)) return false;
     entry.click();
     return true;
@@ -1104,7 +1107,19 @@ async function runBulkEditScenario(browser) {
     if (disabled !== true) {
       throw new Error(`le bouton d application doit être désactivé tant que rien n est coché (reçu ${disabled})`);
     }
-    await clickButtonByText(browser, "Quitter");
+    // Refermer le panneau, puis quitter le mode sélection — un bouton bascule
+    // dans la barre d'actions du panneau Hôtes, reconnu par son infobulle.
+    // Scopé à la modale : le premier bouton « Fermer » du document est celui
+    // de la barre de titre, qui ferme la fenêtre entière.
+    await browser.execute(() => {
+      const close = document.querySelector('.modal button[aria-label="Fermer"]');
+      if (close instanceof HTMLElement) close.click();
+    });
+    await browser.execute(() => {
+      const leave = Array.from(document.querySelectorAll("button"))
+        .find((b) => (b.getAttribute("title") || "") === "Quitter la sélection");
+      if (leave instanceof HTMLElement) leave.click();
+    });
     console.log("Édition en lot : OK (mode sélection, panneau atteignable, application refusée à vide).");
   } else {
     console.log("Édition en lot : mode sélection non proposé (moins de deux hôtes enregistrés) — partie UI non vérifiée.");
@@ -1620,7 +1635,7 @@ async function setFieldByLabel(browser, label, value) {
     // refusait avec « Adresse et utilisateur sont requis » — constaté.
     const heading = Array.from(document.querySelectorAll("h2"))
       .find((h) => h.textContent?.trim() === "Nouvel hôte" || h.textContent?.trim() === "Modifier l'hôte");
-    const form = heading?.closest("div");
+    const form = heading?.closest("[data-form]") ?? heading?.closest("div");
     const holder = Array.from((form ?? document).querySelectorAll("label"))
       .find((l) => l.querySelector("span")?.textContent?.trim() === wanted);
     const input = holder?.querySelector("input");
@@ -1638,7 +1653,9 @@ async function setFieldByLabel(browser, label, value) {
 async function setFieldByPlaceholder(browser, heading, placeholder, value) {
   const ok = await browser.execute((headingText, ph, v) => {
     const h = Array.from(document.querySelectorAll("h2")).find((el) => el.textContent?.trim() === headingText);
-    const form = h?.closest("div");
+    // `data-form` : la racine du formulaire, dont l'en-tête (où vit le titre)
+    // et le corps défilant sont deux enfants distincts.
+    const form = h?.closest("[data-form]") ?? h?.closest("div");
     const input = Array.from((form ?? document).querySelectorAll("input"))
       .find((i) => (i.getAttribute("placeholder") || "").startsWith(ph));
     if (!input) return false;
@@ -1768,8 +1785,8 @@ async function runSqlHistoryScenario(browser) {
  * distant et coûterait une requête facturée à chaque exécution de la suite.
  */
 async function runAdaptiveComposerScenario(browser) {
-  await openSidebarPanel(browser, "Snippets", "snippets", "Ajouter");
-  await clickPanelButton(browser, "Ajouter");
+  await openSidebarPanel(browser, "Snippets", "snippets", "Nouveau snippet");
+  await clickPanelButton(browser, "Nouveau snippet");
 
   await browser.waitUntil(async () => await browser.execute(() =>
     Array.from(document.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Adaptatif")
@@ -1789,9 +1806,9 @@ async function runAdaptiveComposerScenario(browser) {
     Array.from(document.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Générer"));
   if (!generatable) throw new Error("le bouton « Générer » est absent à côté du composeur");
 
-  // Refermer par le bouton bascule : l annulation du formulaire est une croix
-  // sans texte (elle porte un `aria-label`, pas un libellé visible).
-  await clickPanelButton(browser, "Ajouter");
+  // Refermer par le bouton bascule, qui change de libellé une fois le
+  // formulaire ouvert.
+  await clickPanelButton(browser, "Fermer le formulaire");
 
   console.log("DSL adaptatif : OK (composeur en français atteignable depuis l éditeur de snippets).");
 }
@@ -2493,7 +2510,7 @@ async function runHostAttachmentsScenario(browser) {
       return true;
     }, HOST_LABEL);
     if (!reopened) throw new Error("le bouton de menu de l hôte de test est introuvable");
-    await clickButtonByText(browser, "Éditer");
+    await clickButtonByText(browser, "Modifier");
     await clickButtonByText(browser, "Enregistrer");
 
     const opened = await browser.execute((label) => {
@@ -2560,14 +2577,14 @@ async function runHostAttachmentsScenario(browser) {
  */
 async function runSqlTabScenario(browser) {
   const LABEL = `e2e-sql-${Date.now()}`;
-  const HEADING = "Nouvelle connexion SQL";
+  const HEADING = "Nouvelle connexion";
 
   await browser.execute(() => {
     const btn = Array.from(document.querySelectorAll("aside nav button"))
       .find((b) => (b.getAttribute("title") || "") === "Bases de données");
     if (btn instanceof HTMLElement) btn.click();
   });
-  await clickButtonContaining(browser, "Ajouter une connexion");
+  await clickButtonContaining(browser, "Nouvelle connexion");
 
   await browser.waitUntil(async () => await browser.execute((h) =>
     Array.from(document.querySelectorAll("h2")).some((el) => el.textContent?.trim() === h), HEADING,
@@ -2602,13 +2619,11 @@ async function runSqlTabScenario(browser) {
 
   try {
     const tabsBefore = await browser.execute(() => document.querySelectorAll("[data-tab-id]").length);
-    // La carte porte le libellé ; l'action est un bouton « Connexion » à
-    // l'intérieur, pas la carte elle-même.
+    // La ligne porte le libellé ; l'action est le bouton « Se connecter »
+    // qui l'occupe, pas le bouton « Modifier » à côté.
     const clicked = await browser.execute((label) => {
-      const card = Array.from(document.querySelectorAll("aside div"))
-        .find((d) => d.querySelector("span")?.textContent?.trim() === label && d.querySelector("button"));
-      const connect = Array.from(card?.querySelectorAll("button") ?? [])
-        .find((b) => b.textContent?.trim() === "Connexion");
+      const connect = Array.from(document.querySelectorAll('aside button[title^="Se connecter"]'))
+        .find((b) => Array.from(b.querySelectorAll("span")).some((s) => s.textContent?.trim() === label));
       if (!connect) return false;
       connect.click();
       return true;
@@ -3818,10 +3833,10 @@ async function runTunnelEditScenario(browser) {
   });
 
   await browser.waitUntil(async () => await browser.execute(() =>
-    Array.from(document.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Ajouter un tunnel")
+    Array.from(document.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Nouveau tunnel")
   ), { timeout: 10_000, timeoutMsg: "le panneau Tunnels ne s est pas ouvert" });
 
-  await clickButtonByText(browser, "Ajouter un tunnel");
+  await clickButtonByText(browser, "Nouveau tunnel");
 
   // Lu dans le workspace, plus dans le DOM : le champ hôte n'est plus un
   // `<select>` mais l'arborescence partagée (`HostTreePicker`), et
@@ -3837,7 +3852,7 @@ async function runTunnelEditScenario(browser) {
   });
   if (!hasHost) {
     console.log("Modification de tunnel : ignoré (aucun hôte dans le workspace de cette machine).");
-    await clickButtonByText(browser, "Ajouter un tunnel");
+    await clickButtonByText(browser, "Fermer le formulaire");
     return;
   }
 
@@ -3862,16 +3877,21 @@ async function runTunnelEditScenario(browser) {
     Array.from(document.querySelectorAll("p")).some((p) => (p.textContent || "").includes(`127.0.0.1:${port}`)),
   BIND_PORT), { timeout: 5_000, timeoutMsg: "le tunnel ajouté n apparaît pas dans la liste" });
 
+  // Le bouton de la ligne est une icône : c'est son `aria-label` qui le nomme.
   const labels = await browser.execute(() =>
-    Array.from(document.querySelectorAll("button")).map((b) => b.textContent?.trim()));
-  if (!labels.includes("Modifier")) {
+    Array.from(document.querySelectorAll("button")).map((b) => b.getAttribute("aria-label") || b.textContent?.trim()));
+  if (!labels.includes("Modifier le tunnel")) {
     throw new Error("la ligne de tunnel n offre pas de bouton « Modifier »");
   }
   if (labels.includes("Supprimer")) {
     throw new Error("« Supprimer » est encore un bouton de la ligne : il devait passer dans le formulaire de modification");
   }
 
-  await clickButtonByText(browser, "Modifier");
+  const clickTunnelEdit = () => browser.execute(() => {
+    const btn = Array.from(document.querySelectorAll("button")).find((b) => b.getAttribute("aria-label") === "Modifier le tunnel");
+    if (btn instanceof HTMLElement) btn.click();
+  });
+  await clickTunnelEdit();
   await browser.waitUntil(async () => await browser.execute(() => {
     const found = Array.from(document.querySelectorAll("button")).map((b) => b.textContent?.trim());
     return found.includes("Enregistrer") && found.includes("Supprimer ce tunnel");
@@ -3906,7 +3926,7 @@ async function runTunnelEditScenario(browser) {
 
   // Le nettoyage passe par le bouton du formulaire : c'est aussi la dernière
   // assertion, puisque « Supprimer ce tunnel » est ce que la demande a déplacé.
-  await clickButtonByText(browser, "Modifier");
+  await clickTunnelEdit();
   await browser.waitUntil(async () => await browser.execute(() =>
     Array.from(document.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Supprimer ce tunnel")
   ), { timeout: 5_000, timeoutMsg: "le formulaire de modification n offre pas « Supprimer ce tunnel »" });
@@ -3927,13 +3947,13 @@ async function runSsmTunnelScenario(browser) {
   });
   const opened = await browser.execute(() => {
     const button = Array.from(document.querySelectorAll("button"))
-      .find((b) => b.textContent?.trim() === "Ajouter une connexion");
+      .find((b) => b.textContent?.trim() === "Nouvelle connexion");
     if (!(button instanceof HTMLElement)) return false;
     button.click();
     return true;
   });
   if (!opened) {
-    console.log("Tunnel SSM : ignoré (bouton « Ajouter une connexion » introuvable).");
+    console.log("Tunnel SSM : ignoré (bouton « Nouvelle connexion » introuvable).");
     return;
   }
 
@@ -4282,10 +4302,16 @@ async function runHostTreePickerScenario(browser) {
     });
     // `includes`, pas `===` : la ligne d'un dossier porte son icône dans le
     // même bouton que son nom (« 📁mon-dossier »).
+    // Scopé au formulaire : la liste des hôtes, derrière, porte désormais le
+    // même nom de dossier sur un bouton (celui qui replie le dossier).
     await browser.waitUntil(async () => await browser.execute((group) =>
-      Array.from(document.querySelectorAll("button")).some((b) => (b.textContent || "").includes(group)),
+      Array.from(document.querySelector("[data-form]")?.querySelectorAll("button") ?? []).some((b) => (b.textContent || "").includes(group)),
     GROUP), { timeout: 5_000, timeoutMsg: "le dossier de test n apparaît pas dans le sélecteur de dossier" });
-    await clickButtonContaining(browser, GROUP);
+    await browser.execute((group) => {
+      const btn = Array.from(document.querySelector("[data-form]")?.querySelectorAll("button") ?? [])
+        .find((b) => (b.textContent || "").includes(group));
+      if (btn instanceof HTMLElement) btn.click();
+    }, GROUP);
 
     await clickButtonByText(browser, "Enregistrer");
     await browser.waitUntil(async () => {
@@ -4321,9 +4347,9 @@ async function runHostTreePickerScenario(browser) {
       if (tab instanceof HTMLElement) tab.click();
     });
     await browser.waitUntil(async () => await browser.execute(() =>
-      Array.from(document.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Ajouter un tunnel")
+      Array.from(document.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Nouveau tunnel")
     ), { timeout: 10_000, timeoutMsg: "le panneau Tunnels ne s est pas ouvert" });
-    await clickButtonByText(browser, "Ajouter un tunnel");
+    await clickButtonByText(browser, "Nouveau tunnel");
 
     // Rien n'est déployé tant qu'on n'a pas cliqué : c'est un bouton.
     const openRows = await browser.execute(() => document.querySelectorAll("[data-host-tree-row]").length);
@@ -4632,9 +4658,9 @@ async function runSessionManagerScenario(browser) {
     }, LABEL);
 
     await browser.waitUntil(async () => await browser.execute(() =>
-      Array.from(document.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Sessions")
-    ), { timeout: 5_000, timeoutMsg: "le menu de l hôte n offre pas « Sessions »" });
-    await clickButtonByText(browser, "Sessions");
+      Array.from(document.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Sessions persistantes")
+    ), { timeout: 5_000, timeoutMsg: "le menu de l hôte n offre pas « Sessions persistantes »" });
+    await clickButtonByText(browser, "Sessions persistantes");
 
     await browser.waitUntil(async () => await browser.execute(() =>
       Array.from(document.querySelectorAll("p")).some((p) => (p.textContent || "").startsWith("Sessions persistantes —"))

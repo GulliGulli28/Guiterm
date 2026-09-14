@@ -532,8 +532,7 @@ export function HostsPanel({
             aria-expanded={showAddMenu}
           >
             <IconPlus size={13} />
-            Ajouter
-            <IconChevronDown size={10} className="opacity-70" />
+            Ajouter…
           </button>
         </div>
         <LocalTerminalButton onOpen={onOpenLocalTerminal} />

@@ -100,7 +100,7 @@ function TunnelForm({
       <div className="flex items-center gap-1.5 pt-1">
         {onDelete && (
           <button onClick={onDelete} className="btn btn-ghost btn-sm text-[var(--c-danger)]">
-            <IconTrash size={11} /> Supprimer
+            <IconTrash size={11} /> Supprimer ce tunnel
           </button>
         )}
         <button aria-label="Annuler la saisie" onClick={onCancel} className="btn btn-ghost ml-auto">Annuler</button>
