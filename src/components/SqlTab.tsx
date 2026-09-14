@@ -6,7 +6,7 @@ import { formatRelativeTime } from "../lib/format";
 import { useResizablePane } from "../hooks/useResizablePane";
 import { ResultTable } from "./ResultTable";
 import { SqlExportPanel } from "./SqlExportPanel";
-import { IconChevronDown, IconChevronRight, IconDatabase, IconFolder, IconPlay, IconRefresh } from "./ui-icons";
+import { IconChevronDown, IconChevronRight, IconDatabase, IconPlay, IconRefresh, IconTable } from "./ui-icons";
 
 interface SqlTabProps {
   connection: SqlConnection;
@@ -52,11 +52,11 @@ function highlightSql(sql: string): ReactNode[] {
     if (comment || blockComment) {
       nodes.push(<span key={key++} className="italic text-[var(--c-text-faint)]">{full}</span>);
     } else if (singleQuoted || doubleQuoted || backtick) {
-      nodes.push(<span key={key++} className="text-emerald-400">{full}</span>);
+      nodes.push(<span key={key++} className="text-[var(--c-ok)]">{full}</span>);
     } else if (number) {
-      nodes.push(<span key={key++} className="text-amber-400">{full}</span>);
+      nodes.push(<span key={key++} className="text-[var(--c-warn)]">{full}</span>);
     } else if (word && SQL_KEYWORDS.has(word.toLowerCase())) {
-      nodes.push(<span key={key++} className="font-semibold text-sky-400">{full}</span>);
+      nodes.push(<span key={key++} className="font-semibold text-[var(--c-accent-text)]">{full}</span>);
     } else {
       nodes.push(full);
     }
@@ -387,7 +387,7 @@ export function SqlTab({ connection, workspace, onError }: SqlTabProps) {
   };
 
   if (status === "connecting") {
-    return <div className="flex flex-1 items-center justify-center text-sm text-[var(--c-text-muted)]">Connexion à « {connection.label} »…</div>;
+    return <div className="flex flex-1 items-center justify-center text-[12.5px] text-[var(--c-text-muted)]">Connexion à « {connection.label} »…</div>;
   }
   if (status === "failed") {
     return (
@@ -414,27 +414,27 @@ export function SqlTab({ connection, workspace, onError }: SqlTabProps) {
       return (
         <div key={schema}>
           <div
-            className={`flex w-full items-center gap-0.5 rounded-lg text-[14px] font-semibold transition-colors ${
-              schemaActive ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text)] hover:bg-[var(--c-hover)]"
+            className={`flex h-7 w-full items-center gap-0.5 rounded-md text-[12.5px] font-medium transition-colors ${
+              schemaActive ? "bg-[var(--c-accent-dim)] text-[var(--c-text)]" : "text-[var(--c-text)] hover:bg-[var(--c-hover)]"
             }`}
           >
             <button
               onClick={() => toggleSchemaExpand(schema)}
               title={expandedSchemas.has(schema) ? "Réduire" : "Développer"}
-              className="flex shrink-0 items-center justify-center rounded p-1.5"
+              className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-[var(--c-text-muted)] hover:text-[var(--c-text)]"
             >
-              {expandedSchemas.has(schema) ? <IconChevronDown size={13} /> : <IconChevronRight size={13} />}
+              {expandedSchemas.has(schema) ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
             </button>
             <button
               onClick={() => selectSchema(schema)}
-              className="flex min-w-0 flex-1 items-center gap-1.5 py-1.5 pr-2 text-left"
+              className="flex min-w-0 flex-1 items-center gap-1.5 pr-2 text-left"
             >
-              <IconDatabase size={15} className={`shrink-0 ${schemaActive ? "text-[var(--c-accent-text)]" : "text-[var(--c-text-secondary)]"}`} />
+              <IconDatabase size={13} className={`shrink-0 ${schemaActive ? "text-[var(--c-accent-text)]" : "text-[var(--c-text-muted)]"}`} />
               <span className="min-w-0 flex-1 truncate">{schema}</span>
             </button>
           </div>
           {expandedSchemas.has(schema) && (
-            <div className="ml-4 border-l-2 border-[var(--c-border)] pl-2.5">
+            <div className="ml-2.5 border-l border-[var(--c-border)] pl-1.5">
               {!tablesBySchema[schema] ? (
                 <p className="px-1.5 py-1 text-[11.5px] text-[var(--c-text-muted)]">…</p>
               ) : tablesBySchema[schema].length === 0 ? (
@@ -446,20 +446,20 @@ export function SqlTab({ connection, workspace, onError }: SqlTabProps) {
                     <div key={`${schema}.${t.name}`} className="flex items-center gap-1">
                       <button
                         onClick={() => selectTable(schema, t.name)}
-                        className={`flex min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] font-medium transition-colors ${
-                          tableActive ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]"
+                        className={`flex h-6 min-w-0 flex-1 items-center gap-1.5 rounded-md px-2 text-left text-[12.5px] transition-colors ${
+                          tableActive ? "bg-[var(--c-accent-dim)] text-[var(--c-text)]" : "text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]"
                         }`}
                       >
-                        <IconFolder size={13} className={`shrink-0 ${tableActive ? "text-[var(--c-accent-text)]" : "text-[var(--c-text-faint)]"}`} />
+                        <IconTable size={12} className={`shrink-0 ${tableActive ? "text-[var(--c-accent-text)]" : "text-[var(--c-text-faint)]"}`} />
                         <span className="min-w-0 flex-1 truncate">{t.name}</span>
                         {t.kind === "view" && (
-                          <span className="shrink-0 rounded-full bg-[var(--c-bg2)] px-1.5 py-0.5 text-[9px] font-normal text-[var(--c-text-secondary)]">vue</span>
+                          <span className="tag">vue</span>
                         )}
                       </button>
                       <button
                         onClick={() => insertSelect(t.name)}
                         title="Insérer un SELECT dans l'éditeur"
-                        className="shrink-0 rounded px-1.5 py-1 text-[10px] text-[var(--c-text-faint)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text-secondary)]"
+                        className="btn btn-ghost btn-sm h-5 shrink-0 px-1.5 font-mono text-[10px] text-[var(--c-text-faint)]"
                       >
                         SQL
                       </button>
@@ -485,14 +485,14 @@ export function SqlTab({ connection, workspace, onError }: SqlTabProps) {
        * of overflowing past the content pane, which is what broke before. */}
       <div style={{ width: split.value }} className="flex max-w-[50%] shrink-0 flex-col overflow-hidden border-r border-[var(--c-border)] bg-[var(--c-bg2)]">
         <div className="flex shrink-0 items-center justify-between border-b border-[var(--c-border)] px-3 py-2.5">
-          <span className="truncate text-xs font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">
+          <span className="eyebrow truncate">
             {sqlEngineLabel(connection.engine)}
           </span>
           <button
             onClick={refreshTree}
             disabled={refreshingTree}
             title="Actualiser l'arborescence"
-            className="flex shrink-0 items-center justify-center rounded p-1 text-[var(--c-text-faint)] hover:bg-[var(--c-active)] hover:text-[var(--c-text-secondary)] disabled:opacity-50"
+            className="btn btn-ghost btn-sm btn-icon"
           >
             <IconRefresh size={13} className={refreshingTree ? "animate-spin" : ""} />
           </button>
@@ -510,15 +510,15 @@ export function SqlTab({ connection, workspace, onError }: SqlTabProps) {
                   <div key={db}>
                     <button
                       onClick={() => selectDatabase(db)}
-                      className={`flex w-full items-center gap-1.5 rounded-lg px-2 py-1.5 text-left text-[14px] font-semibold transition-colors ${
-                        active ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text)] hover:bg-[var(--c-hover)]"
+                      className={`flex h-7 w-full items-center gap-1.5 rounded-md px-1 text-left text-[12.5px] font-medium transition-colors ${
+                        active ? "bg-[var(--c-accent-dim)] text-[var(--c-text)]" : "text-[var(--c-text)] hover:bg-[var(--c-hover)]"
                       }`}
                     >
-                      {active ? <IconChevronDown size={13} className="shrink-0" /> : <IconChevronRight size={13} className="shrink-0" />}
-                      <IconDatabase size={15} className={`shrink-0 ${active ? "text-[var(--c-accent-text)]" : "text-[var(--c-text-secondary)]"}`} />
+                      {active ? <IconChevronDown size={12} className="shrink-0 text-[var(--c-text-muted)]" /> : <IconChevronRight size={12} className="shrink-0 text-[var(--c-text-muted)]" />}
+                      <IconDatabase size={13} className={`shrink-0 ${active ? "text-[var(--c-accent-text)]" : "text-[var(--c-text-muted)]"}`} />
                       <span className="min-w-0 flex-1 truncate">{db}</span>
                     </button>
-                    {active && <div className="ml-4 border-l-2 border-[var(--c-border)] pl-2.5">{schemaTree}</div>}
+                    {active && <div className="ml-2.5 border-l border-[var(--c-border)] pl-1.5">{schemaTree}</div>}
                   </div>
                 );
               })
@@ -529,8 +529,8 @@ export function SqlTab({ connection, workspace, onError }: SqlTabProps) {
         </div>
       </div>
 
-      <div onMouseDown={split.onMouseDown} className="group relative flex w-1 shrink-0 cursor-col-resize items-center justify-center">
-        <div className="h-full w-px bg-[var(--c-border)] transition-colors group-hover:bg-[var(--c-accent)]" />
+      <div onMouseDown={split.onMouseDown} className="group relative z-10 -mx-0.5 flex w-1.5 shrink-0 cursor-col-resize items-center justify-center">
+        <div className="h-full w-px bg-[var(--c-border)] transition-colors group-hover:w-0.5 group-hover:bg-[var(--c-accent)]" />
       </div>
 
       {/* Structure / Query pane */}
@@ -539,11 +539,11 @@ export function SqlTab({ connection, workspace, onError }: SqlTabProps) {
          * switcher, used instead of this tab's previous underline style for
          * consistency with the rest of the app's sub-view switchers. */}
         <div className="flex shrink-0 items-center gap-1 border-b border-[var(--c-border)] px-2 py-1.5">
+          <div className="segmented">
           <button
             onClick={() => setActiveSubTab("structure")}
-            className={`truncate rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-              activeSubTab === "structure" ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-muted)] hover:bg-[var(--c-bg2)] hover:text-[var(--c-text-secondary)]"
-            }`}
+            data-active={activeSubTab === "structure" ? "true" : undefined}
+            className="max-w-[16rem] truncate"
           >
             {structureLabel}
           </button>
@@ -551,37 +551,23 @@ export function SqlTab({ connection, workspace, onError }: SqlTabProps) {
            * "all the rows" has no meaning for the schema-level Structure
            * view above. */}
           {selected?.kind === "table" && (
-            <button
-              onClick={openDataTab}
-              className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-                activeSubTab === "data" ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-muted)] hover:bg-[var(--c-bg2)] hover:text-[var(--c-text-secondary)]"
-              }`}
-            >
+            <button onClick={openDataTab} data-active={activeSubTab === "data" ? "true" : undefined}>
               Données
             </button>
           )}
-          <button
-            onClick={() => setActiveSubTab("query")}
-            className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-              activeSubTab === "query" ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-muted)] hover:bg-[var(--c-bg2)] hover:text-[var(--c-text-secondary)]"
-            }`}
-          >
+          <button onClick={() => setActiveSubTab("query")} data-active={activeSubTab === "query" ? "true" : undefined}>
             Requête
           </button>
-          <button
-            onClick={() => setActiveSubTab("export")}
-            className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-              activeSubTab === "export" ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-muted)] hover:bg-[var(--c-bg2)] hover:text-[var(--c-text-secondary)]"
-            }`}
-          >
+          <button onClick={() => setActiveSubTab("export")} data-active={activeSubTab === "export" ? "true" : undefined}>
             Exporter
           </button>
+          </div>
         </div>
 
         {activeSubTab === "structure" && (
-          <div className="m-3 min-h-0 flex-1 overflow-auto rounded-lg border border-[var(--c-border)] p-3">
+          <div className="m-3 min-h-0 flex-1 overflow-auto p-1">
             {selected === null ? (
-              <p className="text-xs text-[var(--c-text-faint)]">Cliquez une base/un schéma ou une table dans l'arbre pour voir sa structure.</p>
+              <p className="text-[12px] text-[var(--c-text-muted)]">Cliquez une base, un schéma ou une table dans l'arbre pour voir sa structure.</p>
             ) : selected.kind === "schema" ? (
               <StructureTables schema={selected.schema} tables={tablesBySchema[selected.schema]} />
             ) : (
@@ -634,7 +620,7 @@ export function SqlTab({ connection, workspace, onError }: SqlTabProps) {
              * the exact same font/padding/line-height so characters line
              * up pixel-for-pixel. */}
             <div
-              className="relative w-full resize-y overflow-hidden rounded-md bg-[var(--c-bg2)] focus-within:ring-1 focus-within:ring-[var(--c-accent)]"
+              className="relative w-full resize-y overflow-hidden rounded-md border border-[var(--c-border)] bg-[var(--c-input-bg)] focus-within:border-[var(--c-accent)]"
               style={{ height: "7.5rem", minHeight: "2.5rem" }}
             >
               <pre
@@ -657,14 +643,14 @@ export function SqlTab({ connection, workspace, onError }: SqlTabProps) {
                 }}
                 placeholder="SELECT * FROM ..."
                 spellCheck={false}
-                className="absolute inset-0 h-full w-full resize-none whitespace-pre-wrap break-words bg-transparent px-2 py-1.5 font-mono text-[13px] leading-[1.5] text-transparent caret-[var(--c-text)] placeholder:text-[var(--c-text-muted)]"
+                className="absolute inset-0 h-full w-full resize-none whitespace-pre-wrap break-words bg-transparent px-2 py-1.5 font-mono text-[13px] leading-[1.5] text-transparent caret-[var(--c-text)] outline-none placeholder:text-[var(--c-text-muted)]"
               />
             </div>
             <div className="flex items-center gap-2">
               <button
                 onClick={run}
                 disabled={running || !query.trim()}
-                className="accent-surface flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+                className="btn btn-primary"
               >
                 <IconPlay size={11} /> {running ? "Exécution…" : "Exécuter"}
               </button>
@@ -672,14 +658,14 @@ export function SqlTab({ connection, workspace, onError }: SqlTabProps) {
                 onClick={() => setHistoryOpen((v) => !v)}
                 disabled={history.length === 0}
                 title="Requêtes déjà exécutées, la plus récente en premier"
-                className="flex items-center gap-1.5 rounded-md border border-[var(--c-border)] px-2.5 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+                className="btn btn-secondary text-[var(--c-text-secondary)]"
               >
                 Historique{history.length > 0 ? ` (${history.length})` : ""}
               </button>
-              <span className="text-[11px] text-[var(--c-text-faint)]">Ctrl+Entrée pour exécuter</span>
+              <span className="flex items-center gap-1 text-[11px] text-[var(--c-text-faint)]"><span className="kbd">Ctrl</span><span className="kbd">↵</span> pour exécuter</span>
             </div>
             {historyOpen && history.length > 0 && (
-              <div className="max-h-48 overflow-y-auto rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)]">
+              <div className="card max-h-48 overflow-y-auto">
                 {[...history].reverse().map((entry, i) => (
                   <button
                     key={`${entry.atMs ?? "?"}-${i}`}
@@ -703,12 +689,12 @@ export function SqlTab({ connection, workspace, onError }: SqlTabProps) {
 
           {/* `overflow-hidden`, not `overflow-auto`: `ResultTable` owns the
               scrolling itself so it can window its rows (see its doc comment). */}
-          <div className="m-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-[var(--c-border)] p-2">
-            {queryError && <p className="whitespace-pre-wrap text-xs text-rose-400">{queryError}</p>}
+          <div className="m-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-[var(--c-border)] p-2">
+            {queryError && <p className="callout callout-danger whitespace-pre-wrap font-mono text-[11.5px]">{queryError}</p>}
             {!queryError && result && (
               <>
                 {result.truncated && (
-                  <p className="mb-2 shrink-0 text-[11px] text-amber-400">
+                  <p className="mb-2 shrink-0 text-[11px] text-[var(--c-warn)]">
                     Résultat tronqué — seules les {result.rows.length} premières lignes sont affichées.
                   </p>
                 )}
@@ -749,18 +735,18 @@ function TableData({
         <button
           onClick={onRefresh}
           disabled={loading}
-          className="flex shrink-0 items-center gap-1.5 rounded-md px-2 py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)] disabled:opacity-50"
+          className="btn btn-ghost btn-sm shrink-0"
         >
           <IconRefresh size={11} /> {loading ? "Chargement…" : "Rafraîchir"}
         </button>
       </div>
       {/* See the query tab's matching container — `ResultTable` scrolls itself. */}
-      <div className="m-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-lg border border-[var(--c-border)] p-2">
-        {error && <p className="whitespace-pre-wrap text-xs text-rose-400">{error}</p>}
+      <div className="m-2 flex min-h-0 flex-1 flex-col overflow-hidden rounded-md border border-[var(--c-border)] p-2">
+        {error && <p className="callout callout-danger whitespace-pre-wrap font-mono text-[11.5px]">{error}</p>}
         {!error && result && (
           <>
             {result.truncated && (
-              <p className="mb-2 shrink-0 text-[11px] text-amber-400">
+              <p className="mb-2 shrink-0 text-[11px] text-[var(--c-warn)]">
                 Résultat tronqué — seules les {result.rows.length} premières lignes sont affichées.
               </p>
             )}
@@ -784,8 +770,8 @@ function StructureTables({ schema, tables }: { schema: string; tables: TableInfo
     <table className="w-full border-collapse text-left text-[12px]">
       <thead>
         <tr>
-          <th className="border-b border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1 font-medium text-[var(--c-text-secondary)]">Nom</th>
-          <th className="border-b border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1 font-medium text-[var(--c-text-secondary)]">Type</th>
+          <th className="border-b border-[var(--c-border)] bg-[var(--c-bg)] px-2 py-1 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-[var(--c-text-muted)]">Nom</th>
+          <th className="border-b border-[var(--c-border)] bg-[var(--c-bg)] px-2 py-1 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-[var(--c-text-muted)]">Type</th>
         </tr>
       </thead>
       <tbody>
@@ -808,7 +794,7 @@ function StructureColumns({ table, columns }: { table: string; columns: ColumnIn
       <thead>
         <tr>
           <th className="border-b border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1 font-medium text-[var(--c-text-secondary)]">Colonne</th>
-          <th className="border-b border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1 font-medium text-[var(--c-text-secondary)]">Type</th>
+          <th className="border-b border-[var(--c-border)] bg-[var(--c-bg)] px-2 py-1 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-[var(--c-text-muted)]">Type</th>
           <th className="border-b border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1 font-medium text-[var(--c-text-secondary)]">Nullable</th>
         </tr>
       </thead>

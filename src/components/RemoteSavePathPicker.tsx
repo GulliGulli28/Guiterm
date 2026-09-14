@@ -115,9 +115,9 @@ export function RemoteSavePathPicker({ hosts, groups, customIcons, initialHostId
   return (
     <>
       <div className="fixed inset-0 z-30 bg-black/50" onClick={cancel} />
-      <div className="fixed left-1/2 top-1/2 z-40 flex max-h-[80vh] w-[440px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]">
+      <div className="fixed left-1/2 top-1/2 z-40 flex max-h-[80vh] w-[440px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 flex-col modal overflow-hidden">
         <div className="border-b border-[var(--c-border)] px-4 py-3">
-          <p className="text-[14px] font-medium text-[var(--c-text)]">Enregistrer sur « {host.label} »</p>
+          <p className="text-[14px] font-semibold text-[var(--c-text)]">Enregistrer sur « {host.label} »</p>
           <p className="mt-0.5 truncate font-mono text-[11px] text-[var(--c-text-muted)]">{cwd}</p>
         </div>
         <div className="min-h-0 flex-1 overflow-y-auto p-1.5">
@@ -127,7 +127,7 @@ export function RemoteSavePathPicker({ hosts, groups, customIcons, initialHostId
               Chargement…
             </div>
           )}
-          {error && <p className="px-3 py-4 text-[12.5px] text-rose-300">{error}</p>}
+          {error && <p className="px-3 py-4 text-[12.5px] text-[var(--c-danger)]">{error}</p>}
           {entries && !error && (
             <>
               {cwd !== "/" && (
@@ -176,16 +176,16 @@ export function RemoteSavePathPicker({ hosts, groups, customIcons, initialHostId
             <button
               onClick={confirm}
               disabled={!fileName.trim()}
-              className="accent-surface shrink-0 rounded-md border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+              className="btn btn-primary shrink-0 disabled:opacity-50"
             >
               Enregistrer ici
             </button>
           </div>
           <div className="flex gap-2">
-            <button onClick={changeHost} className="flex-1 rounded-md bg-[var(--c-bg3)] py-1.5 text-center text-[12px] text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]">
+            <button onClick={changeHost} className="btn btn-ghost flex-1">
               Changer d'hôte
             </button>
-            <button onClick={cancel} className="flex-1 rounded-md bg-[var(--c-bg3)] py-1.5 text-center text-[12px] text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]">
+            <button onClick={cancel} className="btn btn-ghost flex-1">
               Annuler
             </button>
           </div>

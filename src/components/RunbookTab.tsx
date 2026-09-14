@@ -12,7 +12,7 @@ import { RunbookApprovalModal } from "./RunbookApprovalModal";
 import { HostTreePicker } from "./HostTreePicker";
 import { RemoteFilePicker } from "./RemoteFilePicker";
 import { useFleetSelection } from "../hooks/useFleetSelection";
-import { IconPlay, IconPlus, IconTrash, IconChevronDown, IconChevronRight, IconClose } from "./ui-icons";
+import { IconPlay, IconPlus, IconTrash, IconChevronDown, IconChevronRight, IconClose, IconFleet } from "./ui-icons";
 
 interface RunbookTabProps {
   runbookId: RunbookId;
@@ -121,7 +121,7 @@ function StatusDot({ state }: { state: "ok" | "fail" | "pending" }) {
     return <span className="inline-block h-3 w-3 animate-spin rounded-full border-2 border-[var(--c-text-faint)] border-t-transparent" />;
   }
   return (
-    <span className="inline-block h-2.5 w-2.5 rounded-full" style={{ background: state === "ok" ? "#22c55e" : "#ef4444" }} />
+    <span className={`dot ${state === "ok" ? "dot-ok" : "dot-danger"}`} />
   );
 }
 
@@ -382,7 +382,7 @@ export function RunbookTab({ runbookId, workspace, onError, onWorkspaceUpdate, o
 
   if (!draft) {
     return (
-      <div className="flex h-full items-center justify-center p-6 text-sm text-[var(--c-text-muted)]">
+      <div className="flex h-full items-center justify-center p-6 text-[12.5px] text-[var(--c-text-muted)]">
         Cette procédure a été supprimée.
       </div>
     );
@@ -391,7 +391,7 @@ export function RunbookTab({ runbookId, workspace, onError, onWorkspaceUpdate, o
   const running = runId != null;
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[var(--c-bg)]">
+    <div className="flex h-full min-h-0 flex-col bg-[var(--c-bg2)]">
       {/* Dans un portail (voir le composant) : cet onglet reste monté mais
           masqué quand un autre est au premier plan, et une demande qu'on ne
           voit pas finit refusée au bout du délai. */}
@@ -408,19 +408,19 @@ export function RunbookTab({ runbookId, workspace, onError, onWorkspaceUpdate, o
         <input
           value={draft.name}
           onChange={(e) => edit((b) => ({ ...b, name: e.target.value }))}
-          className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-sm font-semibold text-[var(--c-text)] hover:border-[var(--c-border)] focus:border-[var(--c-accent)]"
+          className="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1.5 py-1 text-[13px] font-semibold text-[var(--c-text)] outline-none hover:border-[var(--c-border)] focus:border-[var(--c-accent)]"
         />
         <button
           onClick={onShowTargets}
-          className="rounded border border-[var(--c-border)] px-2 py-1 text-xs text-[var(--c-text-muted)] hover:border-[var(--c-accent)]"
+          className="btn btn-secondary btn-sm text-[var(--c-text-secondary)]"
         >
-          {targets.length} cible{targets.length > 1 ? "s" : ""}
+          <IconFleet size={12} /> {targets.length} cible{targets.length > 1 ? "s" : ""}
         </button>
         {dirty && (
           <button
             onClick={() => persist(draft)}
             disabled={saving}
-            className="rounded border border-[var(--c-accent)] px-2 py-1 text-xs text-[var(--c-accent-text)] disabled:opacity-50"
+            className="btn btn-toggled btn-sm"
           >
             {saving ? "Enregistrement…" : "Enregistrer"}
           </button>
@@ -428,7 +428,7 @@ export function RunbookTab({ runbookId, workspace, onError, onWorkspaceUpdate, o
         <button
           onClick={exportBook}
           title="Écrire cette procédure dans un fichier versionnable"
-          className="rounded border border-[var(--c-border)] px-2 py-1 text-xs text-[var(--c-text-muted)] hover:border-[var(--c-accent)]"
+          className="btn btn-secondary btn-sm text-[var(--c-text-secondary)]"
         >
           Exporter
         </button>
@@ -436,7 +436,7 @@ export function RunbookTab({ runbookId, workspace, onError, onWorkspaceUpdate, o
           <button
             onClick={cancel}
             disabled={cancelling}
-            className="flex items-center gap-1 rounded bg-[#ef4444] px-2.5 py-1 text-xs text-white disabled:opacity-60"
+            className="btn btn-danger btn-sm"
           >
             <IconClose size={13} />
             {cancelling ? "Arrêt après cette étape…" : "Arrêter"}
@@ -444,23 +444,25 @@ export function RunbookTab({ runbookId, workspace, onError, onWorkspaceUpdate, o
         ) : (
           <button
             onClick={run}
-            className="flex items-center gap-1 rounded bg-[var(--c-accent)] px-2.5 py-1 text-xs text-white"
+            className="btn btn-primary btn-sm"
           >
             <IconPlay size={13} /> Lancer
           </button>
         )}
       </div>
 
-      <div className="flex gap-1 border-b border-[var(--c-border)] px-3 py-1.5 text-xs">
+      <div className="flex gap-1 border-b border-[var(--c-border)] px-3 py-1.5">
+        <div className="segmented">
         {(["steps", "history"] as const).map((v) => (
           <button
             key={v}
             onClick={() => setView(v)}
-            className={`rounded px-2 py-0.5 ${view === v ? "bg-[var(--c-bg3)] text-[var(--c-text)]" : "text-[var(--c-text-muted)] hover:bg-[var(--c-bg3)]"}`}
+            data-active={view === v ? "true" : undefined}
           >
             {v === "steps" ? "Étapes" : `Historique (${history.length})`}
           </button>
         ))}
+        </div>
       </div>
 
       {view === "steps" ? (
@@ -470,18 +472,18 @@ export function RunbookTab({ runbookId, workspace, onError, onWorkspaceUpdate, o
             onChange={(e) => edit((b) => ({ ...b, description: e.target.value }))}
             placeholder="À quoi sert cette procédure ?"
             rows={2}
-            className="mb-3 w-full resize-y rounded border border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1.5 text-xs text-[var(--c-text)]"
+            className="input mb-3 w-full resize-y"
           />
 
           {cancelling && (
-            <p className="mb-2 rounded border border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1.5 text-[11px] text-[var(--c-text-muted)]">
+            <p className="callout mb-2 text-[11.5px]">
               L'arrêt prend effet <strong>entre deux étapes</strong> : l'étape en cours va au bout sur ses cibles.
               Couper un <code className="font-mono">apt-get</code> à mi-chemin laisserait des machines dans un état
               que la procédure ne décrit nulle part.
             </p>
           )}
           {finalStatus && !running && (
-            <p className="mb-2 rounded border border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1.5 text-[11px] text-[var(--c-text-muted)]">
+            <p className="callout mb-2 text-[11.5px]">
               Exécution {STATUS_LABELS[finalStatus]}.
             </p>
           )}
@@ -510,7 +512,7 @@ export function RunbookTab({ runbookId, workspace, onError, onWorkspaceUpdate, o
 
           <button
             onClick={() => edit((b) => ({ ...b, steps: [...b.steps, newStep()] }))}
-            className="mt-2 flex items-center gap-1 rounded border border-dashed border-[var(--c-border)] px-2 py-1.5 text-xs text-[var(--c-text-muted)] hover:border-[var(--c-accent)]"
+            className="btn btn-secondary mt-2 w-full border-dashed text-[var(--c-text-secondary)]"
           >
             <IconPlus size={13} /> Ajouter une étape
           </button>
@@ -518,14 +520,14 @@ export function RunbookTab({ runbookId, workspace, onError, onWorkspaceUpdate, o
       ) : (
         <div className="min-h-0 flex-1 overflow-y-auto px-3 py-3">
           {history.length === 0 && (
-            <p className="text-xs text-[var(--c-text-faint)]">Cette procédure n'a pas encore été lancée.</p>
+            <p className="py-6 text-center text-[12.5px] text-[var(--c-text-muted)]">Cette procédure n'a pas encore été lancée.</p>
           )}
           <div className="space-y-1.5">
             {history.map((run) => (
-              <div key={run.id} className="rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)]">
+              <div key={run.id} className="card">
                 <button
                   onClick={() => setOpenReport(openReport === run.id ? null : run.id)}
-                  className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-xs"
+                  className="flex w-full items-center gap-2 px-2 py-1.5 text-left text-[12px]"
                 >
                   {openReport === run.id ? <IconChevronDown size={13} /> : <IconChevronRight size={13} />}
                   <span className="text-[var(--c-text)]">{new Date(run.startedAtMs).toLocaleString()}</span>
@@ -551,7 +553,7 @@ export function RunbookTab({ runbookId, workspace, onError, onWorkspaceUpdate, o
                     onClick={(e) => { e.stopPropagation(); exportReport(run); }}
                     onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.stopPropagation(); exportReport(run); } }}
                     title="Écrire le rapport de cette exécution en markdown"
-                    className="cursor-pointer rounded border border-[var(--c-border)] px-1.5 py-0.5 text-[10px] text-[var(--c-text-muted)] hover:border-[var(--c-accent)]"
+                    className="btn btn-secondary btn-sm h-5 cursor-pointer px-1.5 text-[10.5px]"
                   >
                     Rapport
                   </span>
@@ -570,11 +572,11 @@ export function RunbookTab({ runbookId, workspace, onError, onWorkspaceUpdate, o
                               {record.skipped.length > 0 && ` · ${record.skipped.length} non visée(s)`}
                             </span>
                           </div>
-                          <pre className="mt-0.5 whitespace-pre-wrap break-all rounded bg-[var(--c-bg3)] px-1.5 py-1 font-mono text-[10px] text-[var(--c-text-muted)]">
+                          <pre className="mt-0.5 whitespace-pre-wrap break-all rounded bg-[var(--c-bg)] px-1.5 py-1 font-mono text-[10.5px] text-[var(--c-text-muted)]">
                             {record.summary}
                           </pre>
                           {record.stopReason && (
-                            <p className="mt-0.5 text-[10px] text-[#ef4444]">Arrêt : {record.stopReason}</p>
+                            <p className="mt-0.5 text-[10.5px] text-[var(--c-danger)]">Arrêt : {record.stopReason}</p>
                           )}
                         </div>
                       );
@@ -619,37 +621,40 @@ function StepCard({
     // `data-runbook-step` : le point d'accroche stable d'une étape, pour les
     // scénarios en fenêtre réelle. Sans lui, ils devraient compter les champs
     // du document entier — donc casser au premier champ ajouté ailleurs.
-    <div data-runbook-step={index} className={`rounded-md border ${border} bg-[var(--c-bg2)] p-2`}>
+    <div data-runbook-step={index} className={`rounded-lg border ${border} bg-[var(--c-bg3)] p-2`}>
       <div className="flex items-center gap-1.5">
-        <span className="w-5 text-center text-xs text-[var(--c-text-faint)]">{index + 1}</span>
+        <span className="w-5 text-center font-mono text-[11px] text-[var(--c-text-muted)]">{index + 1}</span>
         <input
           value={step.title}
           onChange={(e) => onChange((s) => ({ ...s, title: e.target.value }))}
           placeholder="Ce que fait cette étape"
-          className="min-w-0 flex-1 rounded border border-transparent bg-transparent px-1 py-0.5 text-xs font-medium text-[var(--c-text)] hover:border-[var(--c-border)] focus:border-[var(--c-accent)]"
+          className="min-w-0 flex-1 rounded-md border border-transparent bg-transparent px-1.5 py-0.5 text-[12.5px] font-medium text-[var(--c-text)] outline-none hover:border-[var(--c-border)] focus:border-[var(--c-accent)]"
         />
         {state?.status === "running" && <StatusDot state="pending" />}
         {state?.status === "awaitingApproval" && (
-          <span className="rounded bg-[#f59e0b22] px-1.5 py-0.5 text-[10px] text-[#f59e0b]">en attente d'accord</span>
+          <span className="tag text-[var(--c-warn)]">en attente d'accord</span>
         )}
-        <button onClick={() => onMove(-1)} disabled={index === 0} title="Monter" className="rounded px-1 text-xs text-[var(--c-text-muted)] hover:bg-[var(--c-bg3)] disabled:opacity-30">↑</button>
-        <button onClick={() => onMove(1)} disabled={index === total - 1} title="Descendre" className="rounded px-1 text-xs text-[var(--c-text-muted)] hover:bg-[var(--c-bg3)] disabled:opacity-30">↓</button>
-        <button onClick={onDelete} title="Supprimer l'étape" className="rounded p-1 text-[var(--c-text-muted)] hover:bg-[var(--c-bg3)]"><IconTrash size={12} /></button>
+        <button onClick={() => onMove(-1)} disabled={index === 0} title="Monter" className="btn btn-ghost btn-sm btn-icon disabled:opacity-30">↑</button>
+        <button onClick={() => onMove(1)} disabled={index === total - 1} title="Descendre" className="btn btn-ghost btn-sm btn-icon disabled:opacity-30">↓</button>
+        <button onClick={onDelete} title="Supprimer l'étape" className="btn btn-ghost btn-sm btn-icon hover:text-[var(--c-danger)]"><IconTrash size={12} /></button>
       </div>
 
       {/* Le choix commande libre / langage adaptatif. Un `switch` fermé sur
           `assertNever` plus bas garantit qu'une troisième forme d'action ne
           pourrait pas être ajoutée sans décider de son rendu ici. */}
-      <div className="mt-1.5 flex gap-1 pl-6 text-[11px]">
+      <div className="mt-1.5 flex pl-6">
+        <div className="segmented">
         {(Object.keys(ACTION_LABELS) as RunbookAction["kind"][]).map((kind) => (
           <button
             key={kind}
             onClick={() => onChange((s) => ({ ...s, action: emptyAction(kind) }))}
-            className={`rounded px-1.5 py-0.5 ${step.action.kind === kind ? "bg-[var(--c-bg3)] text-[var(--c-text)]" : "text-[var(--c-text-muted)] hover:bg-[var(--c-bg3)]"}`}
+            data-active={step.action.kind === kind ? "true" : undefined}
+            className="!py-0.5 !text-[11.5px]"
           >
             {ACTION_LABELS[kind]}
           </button>
         ))}
+        </div>
       </div>
       <ActionEditor
         action={step.action}
@@ -658,42 +663,42 @@ function StepCard({
       />
 
       <div className="mt-1.5 grid grid-cols-1 gap-1.5 pl-6 sm:grid-cols-2 lg:grid-cols-4">
-        <label className="flex flex-col gap-0.5 text-[10px] text-[var(--c-text-muted)]">
+        <label className="flex flex-col gap-0.5 text-[10.5px] text-[var(--c-text-muted)]">
           Tags (tous requis)
           <input
             value={step.scope.tags.join(", ")}
             onChange={(e) => onChange((s) => ({ ...s, scope: { ...s.scope, tags: parseList(e.target.value) } }))}
             placeholder="web, prod"
-            className="rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1.5 py-1 text-[11px] text-[var(--c-text)]"
+            className="input h-6 text-[11.5px]"
           />
         </label>
-        <label className="flex flex-col gap-0.5 text-[10px] text-[var(--c-text-muted)]">
+        <label className="flex flex-col gap-0.5 text-[10.5px] text-[var(--c-text-muted)]">
           Dossiers (un suffit)
           <input
             value={step.scope.groups.join(", ")}
             onChange={(e) => onChange((s) => ({ ...s, scope: { ...s.scope, groups: parseList(e.target.value) } }))}
             placeholder="Paris, Lyon"
-            className="rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1.5 py-1 text-[11px] text-[var(--c-text)]"
+            className="input h-6 text-[11.5px]"
           />
         </label>
-        <label className="flex flex-col gap-0.5 text-[10px] text-[var(--c-text-muted)]">
+        <label className="flex flex-col gap-0.5 text-[10.5px] text-[var(--c-text-muted)]">
           Si une machine échoue
           <select
             value={step.onFailure}
             onChange={(e) => onChange((s) => ({ ...s, onFailure: e.target.value as OnFailure }))}
-            className="rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1.5 py-1 text-[11px] text-[var(--c-text)]"
+            className="input h-6 text-[11.5px]"
           >
             {(Object.keys(FAILURE_LABELS) as OnFailure[]).map((k) => (
               <option key={k} value={k}>{FAILURE_LABELS[k]}</option>
             ))}
           </select>
         </label>
-        <label className="flex flex-col gap-0.5 text-[10px] text-[var(--c-text-muted)]">
+        <label className="flex flex-col gap-0.5 text-[10.5px] text-[var(--c-text-muted)]">
           Demander avant de lancer
           <select
             value={step.approval}
             onChange={(e) => onChange((s) => ({ ...s, approval: e.target.value as Approval }))}
-            className="rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1.5 py-1 text-[11px] text-[var(--c-text)]"
+            className="input h-6 text-[11.5px]"
           >
             {(Object.keys(APPROVAL_LABELS) as Approval[]).map((k) => (
               <option key={k} value={k}>{APPROVAL_LABELS[k]}</option>
@@ -714,7 +719,7 @@ function StepCard({
         onChange={(e) => onChange((s) => ({ ...s, notes: e.target.value }))}
         placeholder="Notes : le pourquoi, le ticket, ce qu'il faut vérifier avant de continuer"
         rows={step.notes ? 3 : 1}
-        className="ml-6 mt-1.5 w-[calc(100%-1.5rem)] resize-y rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1.5 py-1 text-[11px] text-[var(--c-text-muted)]"
+        className="input ml-6 mt-1.5 w-[calc(100%-1.5rem)] resize-y text-[11.5px]"
       />
 
       {/* ── Résultats de l'exécution ──────────────────────────────────── */}
@@ -725,12 +730,12 @@ function StepCard({
               s'empile vers le haut, donc la dernière ligne reste visible même
               quand elle arrive par paquets. */}
           {state.output && (
-            <pre className="flex max-h-72 flex-col-reverse overflow-auto whitespace-pre-wrap break-all rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1.5 py-1 font-mono text-[10px] leading-relaxed text-[var(--c-text-muted)]">
+            <pre className="flex max-h-72 flex-col-reverse overflow-auto whitespace-pre-wrap break-all rounded-md border border-[var(--c-border)] bg-[var(--c-bg)] px-1.5 py-1 font-mono text-[10.5px] leading-relaxed text-[var(--c-text-muted)]">
               <span>{state.output}</span>
             </pre>
           )}
           {state.stopReason && (
-            <p className="rounded bg-[#ef444411] px-1.5 py-1 text-[10px] text-[#ef4444]">Arrêt : {state.stopReason}</p>
+            <p className="callout callout-danger py-1 text-[10.5px]">Arrêt : {state.stopReason}</p>
           )}
           {state.dropped.length > 0 && (
             <p className="text-[10px] text-[var(--c-text-muted)]">
@@ -742,7 +747,7 @@ function StepCard({
             const isOpen = expanded.has(`${step.id}:${key}`);
             const body = o.error ?? [o.stdout, o.stderr].filter(Boolean).join("\n");
             return (
-              <div key={key} className="rounded border border-[var(--c-border)] bg-[var(--c-bg3)]">
+              <div key={key} className="rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)]">
                 <button
                   onClick={() => onToggleExpanded(`${step.id}:${key}`)}
                   className="flex w-full items-center gap-2 px-1.5 py-1 text-left text-[11px]"
@@ -793,7 +798,7 @@ function ActionEditor({ action, onChange, workspace }: {
           onChange={(e) => onChange({ kind: "command", command: e.target.value })}
           placeholder="systemctl restart nginx"
           rows={2}
-          className="ml-6 mt-1 w-[calc(100%-1.5rem)] resize-y rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1.5 py-1 font-mono text-[11px] text-[var(--c-text)]"
+          className="input input-mono ml-6 mt-1 w-[calc(100%-1.5rem)] resize-y text-[11.5px]"
         />
       );
     case "program":
@@ -804,7 +809,7 @@ function ActionEditor({ action, onChange, workspace }: {
             onChange={(e) => onChange({ kind: "program", programText: e.target.value })}
             placeholder={"target os: debian\ninstall-package nginx"}
             rows={3}
-            className="w-full resize-y rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1.5 py-1 font-mono text-[11px] text-[var(--c-text)]"
+            className="input input-mono w-full resize-y text-[11.5px]"
           />
           <p className="mt-0.5 text-[10px] text-[var(--c-text-faint)]">
             Résolu par machine selon sa plateforme. Hôtes SSH uniquement — les conteneurs et le terminal local
@@ -846,11 +851,11 @@ function PlaybookEditor({ action, onChange, workspace }: {
     cible: "playbook" | "inventory",
     aide: string,
   ) => (
-    <label className="flex flex-col gap-0.5 text-[10px] text-[var(--c-text-muted)]">
+    <label className="flex flex-col gap-0.5 text-[10.5px] text-[var(--c-text-muted)]">
       {libelle}
       <div className="flex gap-1">
         <span
-          className={`min-w-0 flex-1 truncate rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1.5 py-1 font-mono text-[11px] ${valeur ? "text-[var(--c-text)]" : "text-[var(--c-text-faint)]"}`}
+          className={`input input-mono h-6 min-w-0 flex-1 truncate text-[11.5px] ${valeur ? "" : "!text-[var(--c-text-faint)]"}`}
           title={valeur || vide}
         >
           {valeur || vide}
@@ -859,7 +864,7 @@ function PlaybookEditor({ action, onChange, workspace }: {
           onClick={() => setBrowsing(cible)}
           disabled={!relais}
           title={relais ? `Parcourir « ${relais.label} »` : "Choisir d'abord le relais"}
-          className="shrink-0 rounded border border-[var(--c-border)] px-1.5 py-1 text-[11px] text-[var(--c-text-muted)] hover:border-[var(--c-accent)] disabled:opacity-40"
+          className="btn btn-secondary btn-sm shrink-0 text-[var(--c-text-secondary)]"
         >
           Parcourir…
         </button>
@@ -867,7 +872,7 @@ function PlaybookEditor({ action, onChange, workspace }: {
           <button
             onClick={() => onChange({ ...action, [cible]: "" })}
             title="Vider"
-            className="shrink-0 rounded border border-[var(--c-border)] px-1.5 py-1 text-[11px] text-[var(--c-text-muted)] hover:border-[var(--c-accent)]"
+            className="btn btn-secondary btn-sm shrink-0 text-[var(--c-text-secondary)]"
           >
             <IconClose size={11} />
           </button>
@@ -879,7 +884,7 @@ function PlaybookEditor({ action, onChange, workspace }: {
 
   return (
     <div className="ml-6 mt-1 flex w-[calc(100%-1.5rem)] flex-col gap-1.5">
-      <label className="flex flex-col gap-0.5 text-[10px] text-[var(--c-text-muted)]">
+      <label className="flex flex-col gap-0.5 text-[10.5px] text-[var(--c-text-muted)]">
         Relais — la machine qui joue le playbook
         <HostTreePicker
           hosts={workspace.hosts.filter((h) => (h.kind ?? "ssh") === "ssh")}
@@ -900,7 +905,7 @@ function PlaybookEditor({ action, onChange, workspace }: {
             });
           }}
           placeholder="Choisir le relais…"
-          className="rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-1.5 py-1 text-[11px]"
+          className="input h-6 text-[11.5px]"
         />
       </label>
 

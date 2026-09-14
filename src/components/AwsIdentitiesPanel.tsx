@@ -143,38 +143,38 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
         <div className="flex gap-1.5">
           <button
             onClick={onConfigureSso}
-            className="accent-surface flex flex-1 items-center justify-center gap-1.5 rounded-xl border py-2 text-xs font-semibold transition-all"
+            className="btn btn-primary flex-1 justify-center"
           >
             <IconPlus size={13} /> Nouvelle session SSO
           </button>
           <button
             onClick={load}
             title="Rafraîchir"
-            className="flex shrink-0 items-center justify-center rounded-xl bg-[var(--c-bg3)] px-2.5 text-[var(--c-text-muted)] transition-all hover:bg-[var(--c-hover)] hover:text-[var(--c-text-secondary)]"
+            className="btn btn-ghost shrink-0 justify-center"
           >
             <IconRefresh size={13} />
           </button>
         </div>
 
         {failure && (
-          <div className="rounded-xl border border-rose-900/60 bg-rose-950/40 p-2.5">
-            <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] text-rose-200/90">{failure.message}</pre>
+          <div className="callout callout-danger">
+            <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] text-[var(--c-danger)]">{failure.message}</pre>
             {failure.hint && <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--c-text-secondary)]">{failure.hint}</p>}
           </div>
         )}
 
         {statusFailure && (
-          <div className="rounded-xl border border-rose-900/60 bg-rose-950/40 p-2.5">
-            <p className="text-[11px] font-medium text-rose-200">Les sessions SSO n'ont pas pu être lues.</p>
-            <pre className="mt-1 max-h-20 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] text-rose-200/80">{statusFailure}</pre>
+          <div className="callout callout-danger">
+            <p className="text-[11px] font-medium text-[var(--c-danger)]">Les sessions SSO n'ont pas pu être lues.</p>
+            <pre className="mt-1 max-h-20 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] text-[var(--c-danger)]/80">{statusFailure}</pre>
           </div>
         )}
 
         {empty && !failure && !statusFailure && (
-          <div className="rounded-xl bg-[var(--c-bg3)] p-3 text-center">
+          <div className="rounded-lg bg-[var(--c-bg3)] p-3 text-center">
             <IconCloud size={22} className="mx-auto text-[var(--c-text-faint)]" />
             <p className="mt-1.5 text-[13px] text-[var(--c-text-secondary)]">Aucune identité AWS configurée</p>
-            <p className="mt-1 text-[11px] leading-relaxed text-[var(--c-text-muted)]">
+            <p className="help-text mt-1">
               Une session SSO donne accès à tes comptes ; chaque profil y associe un compte et un rôle.
               Écrit dans <span className="font-mono">~/.aws/config</span>, donc partagé avec ta CLI.
             </p>
@@ -189,7 +189,7 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
             ? { name: status.name, startUrl: status.startUrl, region: status.region }
             : null;
           return (
-            <div key={status?.name ?? "__sans-session"} className="rounded-xl bg-[var(--c-bg3)] p-2.5">
+            <div key={status?.name ?? "__sans-session"} className="rounded-lg bg-[var(--c-bg3)] p-2.5">
               {status && session && badge ? (
                 <>
                   <div className="flex items-start gap-2">
@@ -205,7 +205,7 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
                     <button
                       onClick={() => setConfirming(confirming === `session:${status.name}` ? null : `session:${status.name}`)}
                       title="Supprimer la session"
-                      className="shrink-0 rounded p-1 text-[var(--c-text-muted)] hover:bg-rose-900/60 hover:text-rose-300"
+                      className="shrink-0 rounded p-1 text-[var(--c-text-muted)] hover:bg-[color-mix(in_srgb,var(--c-danger)_15%,transparent)] hover:text-[var(--c-danger)]"
                     >
                       <IconTrash size={12} />
                     </button>
@@ -213,7 +213,7 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
 
                   <p
                     title={badge.detail}
-                    className={`mt-1.5 text-[11px] ${badge.tone === "ok" ? "text-emerald-400" : badge.tone === "warn" ? "text-amber-400" : "text-[var(--c-text-muted)]"}`}
+                    className={`mt-1.5 text-[11px] ${badge.tone === "ok" ? "text-[var(--c-ok)]" : badge.tone === "warn" ? "text-[var(--c-warn)]" : "text-[var(--c-text-muted)]"}`}
                   >
                     {badge.label}
                   </p>
@@ -225,21 +225,21 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
                   {alert && (
                     <p className={`mt-1 rounded-md px-1.5 py-1 text-[11px] leading-relaxed ${
                       alert.severity.kind === "expired"
-                        ? "bg-rose-950/50 text-rose-200/90"
-                        : "bg-amber-950/40 text-amber-200/90"
+                        ? "bg-[color-mix(in_srgb,var(--c-danger)_12%,transparent)] text-[var(--c-danger)]"
+                        : "bg-[color-mix(in_srgb,var(--c-warn)_14%,transparent)] text-[var(--c-warn)]"
                     }`}>
                       {describeAlert(alert)}
                     </p>
                   )}
 
                   {confirming === `session:${status.name}` && (
-                    <div className="mt-1.5 rounded-md bg-rose-950/50 p-2">
-                      <p className="text-[11px] leading-relaxed text-rose-200/90">
+                    <div className="mt-1.5 rounded-md bg-[color-mix(in_srgb,var(--c-danger)_12%,transparent)] p-2">
+                      <p className="text-[11px] leading-relaxed text-[var(--c-danger)]">
                         Retirer <span className="font-mono">[sso-session {status.name}]</span> de ~/.aws/config ?
                         {group.profiles.length > 0 && ` Les ${group.profiles.length} profil${group.profiles.length > 1 ? "s" : ""} qui l'utilisent resteront, sans pouvoir se connecter.`}
                       </p>
                       <div className="mt-1.5 flex gap-1.5">
-                        <button onClick={() => removeSession(status.name)} className="flex-1 rounded-md bg-rose-900/70 py-1 text-[11px] font-medium text-rose-100 hover:bg-rose-900">
+                        <button onClick={() => removeSession(status.name)} className="btn btn-danger btn-sm flex-1">
                           Supprimer
                         </button>
                         <button onClick={() => setConfirming(null)} className="flex-1 rounded-md bg-[var(--c-bg2)] py-1 text-[11px] text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]">
@@ -251,12 +251,12 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
 
                   <div className="mt-1.5 flex gap-1.5">
                     {badge.needsLogin ? (
-                      <button onClick={() => onReconnectSso(session)} className="accent-surface flex-1 rounded-md border py-1 text-[11px] font-medium">
+                      <button onClick={() => onReconnectSso(session)} className="btn btn-primary btn-sm flex-1">
                         Se connecter
                       </button>
                     ) : (
                       <>
-                        <button onClick={() => onAddProfiles(session)} className="accent-surface flex-1 rounded-md border py-1 text-[11px] font-medium">
+                        <button onClick={() => onAddProfiles(session)} className="btn btn-primary btn-sm flex-1">
                           Ajouter des profils
                         </button>
                         <button
@@ -335,7 +335,7 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
                           <button
                             onClick={() => setConfirming(confirming === `profile:${profile.name}` ? null : `profile:${profile.name}`)}
                             title="Supprimer le profil"
-                            className="rounded p-1 text-[var(--c-text-muted)] hover:bg-rose-900/60 hover:text-rose-300"
+                            className="rounded p-1 text-[var(--c-text-muted)] hover:bg-[color-mix(in_srgb,var(--c-danger)_15%,transparent)] hover:text-[var(--c-danger)]"
                           >
                             <IconTrash size={11} />
                           </button>
@@ -343,12 +343,12 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
                       </div>
 
                       {result?.kind === "ok" && (
-                        <p className="mt-1 truncate text-[10px] text-emerald-400" title={result.identity.arn}>
+                        <p className="mt-1 truncate text-[10px] text-[var(--c-ok)]" title={result.identity.arn}>
                           ✓ {roleFromArn(result.identity.arn) ?? result.identity.arn} · compte {result.identity.account}
                         </p>
                       )}
                       {result?.kind === "error" && (
-                        <p className="mt-1 line-clamp-3 break-words font-mono text-[10px] text-rose-300/90">{result.message}</p>
+                        <p className="mt-1 line-clamp-3 break-words font-mono text-[10px] text-[var(--c-danger)]">{result.message}</p>
                       )}
 
                       {reassigning?.from === profile.name && (
@@ -373,7 +373,7 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
                             <button
                               onClick={runReassign}
                               disabled={!reassigning.to}
-                              className="accent-surface flex-1 rounded border py-0.5 text-[10px] font-medium disabled:opacity-50"
+                              className="btn btn-primary btn-sm flex-1 disabled:opacity-50"
                             >
                               Basculer
                             </button>
@@ -388,28 +388,28 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
                           move the source has no hosts left to point at, so a
                           message there would sit under an empty count. */}
                       {reassigned === profile.name && (
-                        <p className="mt-1 text-[10px] text-emerald-400">
+                        <p className="mt-1 text-[10px] text-[var(--c-ok)]">
                           ✓ {hosts.length} hôte{hosts.length > 1 ? "s" : ""} pointent maintenant vers ce profil
                         </p>
                       )}
 
                       {confirming === `profile:${profile.name}` && (
-                        <div className="mt-1.5 rounded-md bg-rose-950/50 p-1.5">
-                          <p className="text-[10px] leading-relaxed text-rose-200/90">
+                        <div className="mt-1.5 rounded-md bg-[color-mix(in_srgb,var(--c-danger)_12%,transparent)] p-1.5">
+                          <p className="text-[10px] leading-relaxed text-[var(--c-danger)]">
                             Retirer <span className="font-mono">{profile.name}</span> de ~/.aws/config et ~/.aws/credentials ?
                           </p>
                           {hosts.length > 0 && (
                             // Named, not counted: "3 hôtes vont casser" is a
                             // number to accept blindly, "ARCHIVE-1-DEV va
                             // casser" is a decision.
-                            <p className="mt-1 text-[10px] leading-relaxed text-rose-200/90">
+                            <p className="mt-1 text-[10px] leading-relaxed text-[var(--c-danger)]">
                               {hosts.slice(0, 4).join(", ")}
                               {hosts.length > 4 ? ` et ${hosts.length - 4} autre${hosts.length - 4 > 1 ? "s" : ""}` : ""}
                               {" "}perdra{hosts.length > 1 ? "ont" : ""} leur accès SSM — « Basculer » les déplace vers un autre profil d'abord.
                             </p>
                           )}
                           <div className="mt-1.5 flex gap-1.5">
-                            <button onClick={() => removeProfile(profile.name)} className="flex-1 rounded bg-rose-900/70 py-0.5 text-[10px] font-medium text-rose-100 hover:bg-rose-900">
+                            <button onClick={() => removeProfile(profile.name)} className="btn btn-danger btn-sm h-5 flex-1 text-[10.5px]">
                               Supprimer
                             </button>
                             <button onClick={() => setConfirming(null)} className="flex-1 rounded bg-[var(--c-bg3)] py-0.5 text-[10px] text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]">

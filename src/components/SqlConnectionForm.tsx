@@ -185,21 +185,26 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
   };
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto p-4">
-      <div className="w-full space-y-4 rounded-xl bg-[var(--c-bg2)] p-5 shadow-[var(--shadow-md)]">
-        <h2 className="text-[16px] font-semibold text-[var(--c-text)]">
-          {connection ? "Modifier la connexion SQL" : "Nouvelle connexion SQL"}
+    <div className="flex min-h-0 flex-1 flex-col border-l border-[var(--c-border)]">
+      <div className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--c-border)] px-4">
+        <h2 className="text-[13px] font-semibold text-[var(--c-text)]">
+          {connection ? "Modifier la connexion" : "Nouvelle connexion"}
         </h2>
-
+        <div className="flex items-center gap-1.5">
+          <button onClick={onCancel} className="btn btn-ghost">Annuler</button>
+          <button onClick={submit} className="btn btn-primary">{connection ? "Enregistrer" : "Ajouter"}</button>
+        </div>
+      </div>
+      <div className="sidebar-scroll min-h-0 flex-1 space-y-3.5 overflow-y-auto p-4">
         {error && <p className="callout callout-danger">{error}</p>}
 
-        <div className="space-y-1">
-          <span className="text-xs font-medium text-[var(--c-text-secondary)]">Nom</span>
+        <div>
+          <span className="field-label">Nom</span>
           <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Nom" autoFocus className={inputFullClass} />
         </div>
 
-        <div className="space-y-1">
-          <span className="text-xs font-medium text-[var(--c-text-secondary)]">Moteur</span>
+        <div>
+          <span className="field-label">Moteur</span>
           <select value={engine} onChange={(e) => onEngineChange(e.target.value as SqlEngine)} className={selectClass}>
             <option value="mysql">MySQL</option>
             <option value="postgres">PostgreSQL</option>
@@ -211,15 +216,15 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
 
         {engine === "sqlite" ? (
           <div className="space-y-1">
-            <span className="text-xs font-medium text-[var(--c-text-secondary)]">Fichier SQLite</span>
+            <span className="field-label">Fichier SQLite</span>
             <div className="flex gap-1.5">
               <input
                 value={path}
                 onChange={(e) => { setPath(e.target.value); setSqliteHostId(""); }}
                 placeholder="Chemin du fichier .sqlite / .db"
-                className={`${inputClass} w-full font-mono`}
+                className={`${inputClass} input-mono w-full`}
               />
-              <button type="button" onClick={browseLocalFile} className="shrink-0 rounded-md bg-[var(--c-bg3)] px-3 py-2 text-xs font-medium text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]">
+              <button type="button" onClick={browseLocalFile} className="btn btn-ghost shrink-0">
                 Parcourir…
               </button>
             </div>
@@ -227,12 +232,12 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
               …ou choisir un fichier sur un hôte enregistré
             </button>
             {sqliteHostId ? (
-              <p className="px-0.5 text-[11px] leading-relaxed text-[var(--c-text-muted)]">
+              <p className="help-text px-0.5">
                 Sur l'hôte « {workspace.hosts.find((h) => h.id === sqliteHostId)?.label ?? "?"} » — copié
                 localement à la connexion, renvoyé automatiquement à la fermeture propre de l'onglet.
               </p>
             ) : (
-              <p className="px-0.5 text-[11px] leading-relaxed text-[var(--c-text-muted)]">
+              <p className="help-text px-0.5">
                 Fichier local à cette machine.
               </p>
             )}
@@ -240,7 +245,7 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
         ) : engine === "mongodb" ? (
           <>
             <div className="space-y-1">
-              <span className="text-xs font-medium text-[var(--c-text-secondary)]">Chaîne de connexion</span>
+              <span className="field-label">Chaîne de connexion</span>
               <textarea
                 value={connectionString}
                 onChange={(e) => setConnectionString(e.target.value)}
@@ -249,7 +254,7 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
                 spellCheck={false}
                 className={`${inputClass} w-full resize-y font-mono`}
               />
-              <p className="px-0.5 text-[11px] leading-relaxed text-[var(--c-text-muted)]">
+              <p className="help-text px-0.5">
                 Peut inclure directement les identifiants (mongodb://utilisateur:motdepasse@hôte/base), ou les
                 laisser dans les champs ci-dessous — insérés automatiquement à la connexion.
               </p>
@@ -263,8 +268,8 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
                 probeTarget={mongoProbeTarget(connectionString)}
               />
               <label className="flex items-center gap-2">
-                <input type="checkbox" checked={mongoTls} onChange={(e) => setMongoTls(e.target.checked)} className="h-4 w-4 accent-[var(--c-accent)]" />
-                <span className="text-xs text-[var(--c-text-secondary)]">
+                <input type="checkbox" checked={mongoTls} onChange={(e) => setMongoTls(e.target.checked)} className="h-3.5 w-3.5" />
+                <span className="text-[12px] text-[var(--c-text-secondary)]">
                   Connexion chiffrée (TLS)
                   <span className="ml-1 text-[var(--c-text-faint)]">— exigé par DocumentDB</span>
                 </span>
@@ -275,11 +280,11 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
                     value={mongoCaFile}
                     onChange={(e) => setMongoCaFile(e.target.value)}
                     placeholder="Bundle CA (optionnel) — vide : magasin de certificats du système"
-                    className={`${inputClass} w-full font-mono`}
+                    className={`${inputClass} input-mono w-full`}
                   />
                   <label className="flex items-start gap-2">
-                    <input type="checkbox" checked={mongoInsecure} onChange={(e) => setMongoInsecure(e.target.checked)} className="mt-0.5 h-4 w-4 accent-[var(--c-accent)]" />
-                    <span className="text-xs text-[var(--c-text-secondary)]">
+                    <input type="checkbox" checked={mongoInsecure} onChange={(e) => setMongoInsecure(e.target.checked)} className="mt-0.5 h-3.5 w-3.5" />
+                    <span className="text-[12px] text-[var(--c-text-secondary)]">
                       Ne pas vérifier le certificat
                       <span className="ml-1 text-[var(--c-text-faint)]">
                         — nécessaire pour combiner TLS et un tunnel : le certificat du serveur ne peut
@@ -291,7 +296,7 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
                 </>
               )}
               {tunnel.kind !== "direct" && !isTunnelableMongoUri(connectionString) && (
-                <p className="px-0.5 text-[11px] leading-relaxed text-amber-400">
+                <p className="px-0.5 text-[11.5px] leading-relaxed text-[var(--c-warn)]">
                   Un tunnel ne fonctionne qu'avec une chaîne mongodb:// mono-hôte — mongodb+srv:// ou une
                   liste d'hôtes séparés par des virgules ne peut pas passer par un tunnel TCP unique. La
                   connexion échouera tant que ce tunnel est sélectionné avec cette chaîne.
@@ -300,7 +305,7 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
             </div>
 
             <div className="space-y-1">
-              <span className="text-xs font-medium text-[var(--c-text-secondary)]">Utilisateur (optionnel)</span>
+              <span className="field-label">Utilisateur (optionnel)</span>
               <input
                 value={username}
                 onChange={(e) => setUsername(e.target.value)}
@@ -310,7 +315,7 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
             </div>
 
             <div className="space-y-1">
-              <span className="text-xs font-medium text-[var(--c-text-secondary)]">Mot de passe</span>
+              <span className="field-label">Mot de passe</span>
               <input
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -331,20 +336,20 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
 
             <div className="flex gap-1.5">
               <div className="min-w-0 flex-1 space-y-1">
-                <span className="text-xs font-medium text-[var(--c-text-secondary)]">Adresse</span>
-                <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Adresse" className={`${inputClass} w-full font-mono`} />
+                <span className="field-label">Adresse</span>
+                <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Adresse" className={`${inputClass} input-mono w-full`} />
               </div>
               <div className="w-20 shrink-0 space-y-1">
-                <span className="text-xs font-medium text-[var(--c-text-secondary)]">Port</span>
-                <input value={port} onChange={(e) => setPort(e.target.value)} placeholder="Port" inputMode="numeric" className={`${inputClass} w-full font-mono`} />
+                <span className="field-label">Port</span>
+                <input value={port} onChange={(e) => setPort(e.target.value)} placeholder="Port" inputMode="numeric" className={`${inputClass} input-mono w-full`} />
               </div>
             </div>
             {/* Redis only: MySQL and PostgreSQL negotiate TLS through sqlx's
                 own defaults and have never needed a switch here. */}
             {engine === "redis" && (
               <label className="flex items-center gap-2">
-                <input type="checkbox" checked={tls} onChange={(e) => setTls(e.target.checked)} className="h-4 w-4 accent-[var(--c-accent)]" />
-                <span className="text-xs text-[var(--c-text-secondary)]">
+                <input type="checkbox" checked={tls} onChange={(e) => setTls(e.target.checked)} className="h-3.5 w-3.5" />
+                <span className="text-[12px] text-[var(--c-text-secondary)]">
                   Connexion chiffrée (TLS)
                   <span className="ml-1 text-[var(--c-text-faint)]">— requis par ElastiCache avec chiffrement en transit</span>
                 </span>
@@ -352,7 +357,7 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
             )}
 
             <div className="space-y-1">
-              <span className="text-xs font-medium text-[var(--c-text-secondary)]">
+              <span className="field-label">
                 Utilisateur{engine === "redis" ? " (optionnel)" : ""}
               </span>
               <input
@@ -362,14 +367,14 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
                 className={inputFullClass}
               />
               {engine === "redis" && !username.trim() && (
-                <p className="px-0.5 text-[11px] leading-relaxed text-[var(--c-text-muted)]">
+                <p className="help-text px-0.5">
                   Laissé vide : authentification par mot de passe seul (`requirepass`), le cas le plus courant.
                 </p>
               )}
             </div>
 
             <div className="space-y-1">
-              <span className="text-xs font-medium text-[var(--c-text-secondary)]">Mot de passe</span>
+              <span className="field-label">Mot de passe</span>
               <input
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
@@ -381,7 +386,7 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
 
             {engine === "redis" ? (
               <div className="space-y-1">
-                <span className="text-xs font-medium text-[var(--c-text-secondary)]">Base (0-15)</span>
+                <span className="field-label">Base (0-15)</span>
                 <select value={database || "0"} onChange={(e) => setDatabase(e.target.value)} className={selectClass}>
                   {Array.from({ length: 16 }, (_, i) => (
                     <option key={i} value={i}>{i}</option>
@@ -390,10 +395,10 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
               </div>
             ) : (
               <div className="space-y-1">
-                <span className="text-xs font-medium text-[var(--c-text-secondary)]">Base de données (optionnel)</span>
+                <span className="field-label">Base de données (optionnel)</span>
                 <input value={database} onChange={(e) => setDatabase(e.target.value)} placeholder="Base de données (optionnel)" className={inputFullClass} />
                 {engine === "postgres" && !database.trim() && (
-                  <p className="px-0.5 text-[11px] leading-relaxed text-[var(--c-text-muted)]">
+                  <p className="help-text px-0.5">
                     Laissé vide : la connexion listera toutes les bases du serveur au lieu d'une seule.
                   </p>
                 )}
@@ -402,37 +407,22 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
           </>
         )}
 
-        <div className="flex gap-2 pt-2">
-          <button onClick={submit} className="flex-1 rounded-md bg-[var(--c-accent)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--c-accent-hover)]">
-            {connection ? "Enregistrer" : "Ajouter"}
-          </button>
-          <button onClick={onCancel} className="flex-1 rounded-md bg-[var(--c-bg3)] px-3 py-2 text-sm font-medium text-[var(--c-text)] hover:bg-[var(--c-hover)]">
-            Annuler
-          </button>
-        </div>
-
         {connection && onDeleteConnection && (
           <div className="border-t border-[var(--c-border)] pt-3">
             {confirmDelete ? (
-              <div className="space-y-2 rounded-lg bg-rose-950/30 p-3">
-                <p className="text-sm text-rose-300">Supprimer cette connexion définitivement ?</p>
+              <div className="callout callout-danger space-y-2">
+                <p className="font-medium">Supprimer cette connexion définitivement ?</p>
                 <div className="flex gap-2">
-                  <button
-                    onClick={() => onDeleteConnection(connection.id)}
-                    className="flex-1 rounded-md bg-rose-700 px-3 py-2 text-sm font-medium text-white hover:bg-rose-600"
-                  >
+                  <button onClick={() => onDeleteConnection(connection.id)} className="btn btn-danger">
                     Oui, supprimer
                   </button>
-                  <button onClick={() => setConfirmDelete(false)} className="flex-1 rounded-md bg-[var(--c-bg3)] px-3 py-2 text-sm font-medium text-[var(--c-text)] hover:bg-[var(--c-hover)]">
+                  <button onClick={() => setConfirmDelete(false)} className="btn btn-ghost">
                     Annuler
                   </button>
                 </div>
               </div>
             ) : (
-              <button
-                onClick={() => setConfirmDelete(true)}
-                className="flex w-full items-center justify-center gap-2 rounded-md py-2 text-sm text-rose-400 hover:bg-rose-950/40 hover:text-rose-300"
-              >
+              <button onClick={() => setConfirmDelete(true)} className="btn btn-ghost text-[var(--c-danger)] hover:bg-[color-mix(in_srgb,var(--c-danger)_10%,transparent)]">
                 <IconTrash size={13} /> Supprimer cette connexion
               </button>
             )}

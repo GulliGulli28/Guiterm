@@ -78,7 +78,7 @@ export function IconPicker({ value, customIcons, onSelect, onWorkspaceUpdate, on
   return (
     <div
       ref={ref}
-      className="absolute z-50 mt-1 w-72 rounded-xl bg-[var(--c-bg2)] p-3 shadow-[var(--shadow-lg)]"
+      className="absolute z-50 mt-1 w-72 popover p-3"
     >
       {/* Tab row */}
       <div className="mb-2.5 flex items-center gap-1">
@@ -134,7 +134,7 @@ export function IconPicker({ value, customIcons, onSelect, onWorkspaceUpdate, on
       {tab === "custom" && (
         <>
           {importError && (
-            <p className="mb-2 rounded bg-rose-950 px-2 py-1 text-xs text-rose-300">{importError}</p>
+            <p className="mb-2 rounded bg-[color-mix(in_srgb,var(--c-danger)_12%,transparent)] px-2 py-1 text-xs text-[var(--c-danger)]">{importError}</p>
           )}
 
           {importing && importDataUrl ? (
@@ -151,7 +151,7 @@ export function IconPicker({ value, customIcons, onSelect, onWorkspaceUpdate, on
               <div className="flex gap-1.5">
                 <button
                   onClick={confirmImport}
-                  className="flex-1 rounded-md bg-[var(--c-accent)] py-1.5 text-xs font-medium text-white hover:bg-[var(--c-accent-hover)]"
+                  className="btn btn-primary flex-1"
                 >
                   Enregistrer
                 </button>

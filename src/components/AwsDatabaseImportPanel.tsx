@@ -130,26 +130,26 @@ export function AwsDatabaseImportPanel({ workspace, onWorkspaceUpdate, onClose, 
   })();
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6" onClick={onClose}>
       <div
-        className="flex max-h-full w-[min(48rem,100%)] flex-col overflow-hidden rounded-xl border border-[var(--c-border)] bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]"
+        className="flex max-h-full w-[min(48rem,100%)] flex-col overflow-hidden modal"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-[var(--c-border)] px-4 py-2.5">
           <div>
-            <p className="text-[13px] font-medium text-[var(--c-text)]">Importer des bases depuis AWS</p>
-            <p className="text-[11px] text-[var(--c-text-muted)]">
+            <p className="text-[13px] font-semibold text-[var(--c-text)]">Importer des bases depuis AWS</p>
+            <p className="text-[11.5px] text-[var(--c-text-muted)]">
               RDS, Aurora et ElastiCache, via ta CLI `aws` déjà connectée.
             </p>
           </div>
-          <button onClick={onClose} aria-label="Fermer" className="rounded p-1 text-[var(--c-text-muted)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]">
+          <button onClick={onClose} aria-label="Fermer" className="btn btn-ghost btn-sm btn-icon">
             <IconClose size={13} />
           </button>
         </div>
 
         <div className="flex shrink-0 items-end gap-2 border-b border-[var(--c-border)] px-4 py-2.5">
           <label className="block flex-1 space-y-1">
-            <span className="text-xs font-medium text-[var(--c-text-muted)]">Profil</span>
+            <span className="field-label">Profil</span>
             {profiles && profiles.length > 0 ? (
               <select value={profile} onChange={(e) => setProfile(e.target.value)} className={inputClass}>
                 {profileGroups.map((group) => (
@@ -165,13 +165,13 @@ export function AwsDatabaseImportPanel({ workspace, onWorkspaceUpdate, onClose, 
             )}
           </label>
           <label className="block w-40 space-y-1">
-            <span className="text-xs font-medium text-[var(--c-text-muted)]">Région</span>
+            <span className="field-label">Région</span>
               <RegionSelect value={region} onChange={setRegion} className={inputClass} />
           </label>
           <button
             onClick={discover}
             disabled={loading || !profile.trim() || !region.trim()}
-            className="accent-surface shrink-0 rounded-md border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+            className="btn btn-primary shrink-0 disabled:opacity-50"
           >
             {loading ? "Recherche…" : "Lister les bases"}
           </button>
@@ -191,8 +191,8 @@ export function AwsDatabaseImportPanel({ workspace, onWorkspaceUpdate, onClose, 
         </div>
 
         {failure && (
-          <div className="shrink-0 border-b border-rose-900/60 bg-rose-950/40 px-4 py-2.5">
-            <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] text-rose-200/90">{failure.message}</pre>
+          <div className="shrink-0 border-b border-[color-mix(in_srgb,var(--c-danger)_35%,transparent)] bg-[color-mix(in_srgb,var(--c-danger)_10%,transparent)] px-4 py-2.5">
+            <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] text-[var(--c-danger)]">{failure.message}</pre>
             {failure.hint && <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--c-text-secondary)]">{failure.hint}</p>}
             {/* Offered only for an expired login — the one failure that
                 reconnecting actually fixes. Denied permissions or absent
@@ -200,7 +200,7 @@ export function AwsDatabaseImportPanel({ workspace, onWorkspaceUpdate, onClose, 
             {failure.sessionExpired && expiredSession && (
               <button
                 onClick={() => onReconnectSso(expiredSession)}
-                className="accent-surface mt-2 rounded-md border px-2.5 py-1 text-xs font-medium"
+                className="btn btn-primary btn-sm mt-2"
               >
                 Reconnecter la session « {expiredSession.name} »
               </button>
@@ -210,12 +210,12 @@ export function AwsDatabaseImportPanel({ workspace, onWorkspaceUpdate, onClose, 
 
         <div className="sidebar-scroll min-h-0 flex-1 overflow-y-auto p-2">
           {databases === null && !failure && (
-            <p className="px-2 py-8 text-center text-[13px] text-[var(--c-text-muted)]">
+            <p className="px-2 py-8 text-center text-[12.5px] text-[var(--c-text-muted)]">
               Choisis un profil et une région, puis liste les bases.
             </p>
           )}
           {databases?.length === 0 && (
-            <p className="px-2 py-8 text-center text-[13px] text-[var(--c-text-muted)]">
+            <p className="px-2 py-8 text-center text-[12.5px] text-[var(--c-text-muted)]">
               Aucune base managée dans cette région pour ce profil.
             </p>
           )}
@@ -236,7 +236,7 @@ export function AwsDatabaseImportPanel({ workspace, onWorkspaceUpdate, onClose, 
                     else next.add(key(database));
                     return next;
                   })}
-                  className="mt-0.5 h-4 w-4 shrink-0 accent-[var(--c-accent)]"
+                  className="mt-0.5 h-4 w-4 shrink-0"
                 />
                 <div className="min-w-0 flex-1">
                   <p className="truncate text-[13px] text-[var(--c-text)]">
@@ -255,11 +255,11 @@ export function AwsDatabaseImportPanel({ workspace, onWorkspaceUpdate, onClose, 
                       end, where a listed entry with its reason points straight
                       at what to change. */}
                   {database.unsupportedReason && (
-                    <p className="mt-0.5 text-[10px] leading-relaxed text-amber-400/90">{database.unsupportedReason}</p>
+                    <p className="mt-0.5 text-[10px] leading-relaxed text-[var(--c-warn)]/90">{database.unsupportedReason}</p>
                   )}
                 </div>
                 {database.tls && (
-                  <span className="mt-0.5 shrink-0 rounded bg-emerald-950/60 px-1.5 py-0.5 text-[10px] text-emerald-300">TLS</span>
+                  <span className="mt-0.5 shrink-0 rounded bg-[color-mix(in_srgb,var(--c-ok)_14%,transparent)] px-1.5 py-0.5 text-[10px] text-[var(--c-ok)]">TLS</span>
                 )}
                 {database.supportedEngine && (
                   <span className="mt-0.5 shrink-0 rounded bg-[var(--c-bg3)] px-1.5 py-0.5 text-[10px] text-[var(--c-text-secondary)]">
@@ -308,7 +308,7 @@ export function AwsDatabaseImportPanel({ workspace, onWorkspaceUpdate, onClose, 
           <button
             onClick={runImport}
             disabled={importing || selected.size === 0}
-            className="accent-surface rounded-md border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+            className="btn btn-primary disabled:opacity-50"
           >
             Importer {selected.size > 0 ? `(${selected.size})` : ""}
           </button>

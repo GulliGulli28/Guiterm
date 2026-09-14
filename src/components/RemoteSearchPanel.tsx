@@ -104,32 +104,31 @@ export function RemoteSearchPanel({ host, workspace, objectActions, onClose, onE
   const canRun = !running && pattern.trim().length > 0 && root.trim().length > 0;
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6" onClick={onClose}>
       <div
-        className="flex max-h-full w-[min(46rem,100%)] flex-col overflow-hidden rounded-xl border border-[var(--c-border)] bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]"
+        className="flex max-h-full w-[min(46rem,100%)] flex-col overflow-hidden modal"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-[var(--c-border)] px-4 py-2.5">
           <div>
-            <p className="text-[13px] font-medium text-[var(--c-text)]">Rechercher des fichiers — {host.label}</p>
-            <p className="text-[11px] text-[var(--c-text-muted)]">
+            <p className="text-[13px] font-semibold text-[var(--c-text)]">Rechercher des fichiers — {host.label}</p>
+            <p className="text-[11.5px] text-[var(--c-text-muted)]">
               Par nom ou par contenu. Chaque recherche est bornée en profondeur, en résultats et en durée.
             </p>
           </div>
-          <button onClick={onClose} aria-label="Fermer" className="rounded p-1 text-[var(--c-text-muted)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]">
+          <button onClick={onClose} aria-label="Fermer" className="btn btn-ghost btn-sm btn-icon">
             <IconClose size={13} />
           </button>
         </div>
 
         <div className="shrink-0 space-y-2 border-b border-[var(--c-border)] px-4 py-2.5">
-          <div className="flex gap-1.5 rounded-md bg-[var(--c-bg3)] p-1">
+          <div className="segmented flex w-full">
             {([["name", "Par nom"], ["content", "Par contenu"]] as [RemoteSearchMode, string][]).map(([m, label]) => (
               <button
                 key={m}
                 onClick={() => setMode(m)}
-                className={`flex-1 rounded border py-1 text-xs font-medium transition-all ${
-                  mode === m ? "accent-surface" : "border-transparent text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]"
-                }`}
+                data-active={mode === m ? "true" : undefined}
+                className="flex-1"
               >
                 {label}
               </button>
@@ -137,7 +136,7 @@ export function RemoteSearchPanel({ host, workspace, objectActions, onClose, onE
           </div>
           <div className="flex items-end gap-2">
             <label className="block w-44 space-y-1">
-              <span className="text-xs font-medium text-[var(--c-text-muted)]">Dossier de départ</span>
+              <span className="field-label">Dossier de départ</span>
               <input
                 value={root}
                 onChange={(e) => setRoot(e.target.value)}
@@ -147,7 +146,7 @@ export function RemoteSearchPanel({ host, workspace, objectActions, onClose, onE
               />
             </label>
             <label className="block flex-1 space-y-1">
-              <span className="text-xs font-medium text-[var(--c-text-muted)]">
+              <span className="field-label">
                 {mode === "name" ? "Nom de fichier" : "Texte à trouver"}
               </span>
               <input
@@ -162,24 +161,24 @@ export function RemoteSearchPanel({ host, workspace, objectActions, onClose, onE
             <button
               onClick={run}
               disabled={!canRun}
-              className="accent-surface flex shrink-0 items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+              className="btn btn-primary shrink-0 disabled:opacity-50"
             >
               <IconSearch size={12} /> {running ? "Recherche…" : "Chercher"}
             </button>
           </div>
-          {error && <p className="text-[11px] text-rose-300">{error}</p>}
+          {error && <p className="text-[11px] text-[var(--c-danger)]">{error}</p>}
         </div>
 
         <div className="sidebar-scroll min-h-0 flex-1 overflow-y-auto p-2">
           {outcome === null && !running && (
-            <p className="px-2 py-8 text-center text-[13px] text-[var(--c-text-muted)]">
+            <p className="px-2 py-8 text-center text-[12.5px] text-[var(--c-text-muted)]">
               {mode === "name"
                 ? "Le nom est cherché en tant que fragment : « nginx » trouve « nginx.conf »."
                 : "Une seule ligne par fichier est rapportée, les binaires sont ignorés."}
             </p>
           )}
           {outcome?.hits.length === 0 && (
-            <p className="px-2 py-8 text-center text-[13px] text-[var(--c-text-muted)]">
+            <p className="px-2 py-8 text-center text-[12.5px] text-[var(--c-text-muted)]">
               Aucun résultat sous {root}
               {outcome.timedOut && " — mais la recherche a été interrompue avant la fin, donc ce n'est pas une réponse."}
             </p>
@@ -201,7 +200,7 @@ export function RemoteSearchPanel({ host, workspace, objectActions, onClose, onE
                 <button
                   onClick={() => copyPath(hit.path)}
                   title="Copier le chemin"
-                  className="rounded p-1 text-[var(--c-text-muted)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text-secondary)]"
+                  className="btn btn-ghost btn-sm btn-icon"
                 >
                   {copied === hit.path ? <IconCheck size={12} className="text-[var(--c-ok)]" /> : <IconCopy size={12} />}
                 </button>
@@ -211,7 +210,7 @@ export function RemoteSearchPanel({ host, workspace, objectActions, onClose, onE
                     setMenu({ x: r.left, y: r.bottom + 2, path: hit.path });
                   }}
                   title="Envoyer vers un autre onglet"
-                  className="rounded p-1 text-[var(--c-text-muted)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text-secondary)]"
+                  className="btn btn-ghost btn-sm btn-icon"
                 >
                   <IconDotsVertical size={12} />
                 </button>
@@ -229,8 +228,8 @@ export function RemoteSearchPanel({ host, workspace, objectActions, onClose, onE
         </div>
 
         {outcome && (outcome.truncated || outcome.timedOut) && (
-          <div className="shrink-0 border-t border-amber-900/60 bg-amber-950/30 px-4 py-2">
-            <p className="text-[11px] leading-relaxed text-amber-200/90">
+          <div className="shrink-0 border-t border-[color-mix(in_srgb,var(--c-warn)_35%,transparent)] bg-[color-mix(in_srgb,var(--c-warn)_10%,transparent)] px-4 py-2">
+            <p className="text-[11px] leading-relaxed text-[var(--c-warn)]/90">
               {outcome.timedOut
                 ? "Recherche interrompue au bout de 20 s : cette liste est partielle. Restreindre le dossier de départ."
                 : "Limite de résultats atteinte : il y en a d'autres. Affiner le motif ou le dossier de départ."}

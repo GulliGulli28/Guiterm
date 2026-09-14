@@ -49,9 +49,9 @@ interface HostFormProps {
 function ProxyProbeResult({ probe }: { probe: ProxyProbe }) {
   if (probe.kind === "reached") {
     return (
-      <div className="rounded-md border border-emerald-800/60 bg-emerald-950/40 px-2.5 py-2">
-        <p className="text-xs font-medium text-emerald-300">Le tunnel s'ouvre et un serveur SSH répond.</p>
-        <code className="mt-0.5 block truncate font-mono text-[10px] text-emerald-400/80">{probe.banner}</code>
+      <div className="rounded-md border border-[color-mix(in_srgb,var(--c-ok)_35%,transparent)] bg-[color-mix(in_srgb,var(--c-ok)_12%,transparent)] px-2.5 py-2">
+        <p className="text-xs font-medium text-[var(--c-ok)]">Le tunnel s'ouvre et un serveur SSH répond.</p>
+        <code className="mt-0.5 block truncate font-mono text-[10px] text-[var(--c-ok)]/80">{probe.banner}</code>
         <p className="mt-1 text-[10px] text-[var(--c-text-muted)]">
           L'authentification n'est pas testée : il reste à vérifier l'utilisateur et la clé.
         </p>
@@ -60,8 +60,8 @@ function ProxyProbeResult({ probe }: { probe: ProxyProbe }) {
   }
   if (probe.kind === "silent") {
     return (
-      <div className="rounded-md border border-amber-800/60 bg-amber-950/40 px-2.5 py-2">
-        <p className="text-xs font-medium text-amber-300">La commande tourne, mais rien ne répond.</p>
+      <div className="callout callout-warn">
+        <p className="text-xs font-medium text-[var(--c-warn)]">La commande tourne, mais rien ne répond.</p>
         <p className="mt-1 text-[10px] text-[var(--c-text-muted)]">
           Le tunnel s'ouvre sans doute vers un port où rien n'écoute, ou la cible met très longtemps
           à répondre.
@@ -70,9 +70,9 @@ function ProxyProbeResult({ probe }: { probe: ProxyProbe }) {
     );
   }
   return (
-    <div className="rounded-md border border-rose-900/60 bg-rose-950/40 px-2.5 py-2">
-      <p className="text-xs font-medium text-rose-300">La commande n'a pas établi de tunnel.</p>
-      <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] text-rose-200/80">{probe.message}</pre>
+    <div className="callout callout-danger">
+      <p className="text-xs font-medium text-[var(--c-danger)]">La commande n'a pas établi de tunnel.</p>
+      <pre className="mt-1 max-h-24 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] text-[var(--c-danger)]/80">{probe.message}</pre>
       {probe.hint && <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--c-text-secondary)]">{probe.hint}</p>}
     </div>
   );

@@ -102,36 +102,43 @@ export function FleetTargetsPanel({ workspace, onOpenTab }: { workspace: Workspa
     )}
     {(sshHosts.length > 0 || dockerHosts.length > 0 || k8sHosts.length > 0) && (
       <div className="space-y-1.5 px-1">
-        {sshHosts.length > 0 && (
-          <button
-            onClick={() => collectFacts()}
-            disabled={collectingFacts}
-            className="btn btn-secondary w-full text-[var(--c-text-secondary)]"
-          >
-            <IconRefresh size={12} className={collectingFacts ? "animate-spin" : ""} />
-            {collectingFacts ? "Collecte de l'état…" : "Collecter l'état (OS, RAM)"}
-          </button>
-        )}
-        {dockerHosts.length > 0 && (
-          <button
-            onClick={refreshContainers}
-            disabled={loadingContainers}
-            className="btn btn-secondary w-full text-[var(--c-text-secondary)]"
-          >
-            <IconRefresh size={12} className={loadingContainers ? "animate-spin" : ""} />
-            {loadingContainers ? "Actualisation…" : "Actualiser les conteneurs"}
-          </button>
-        )}
-        {k8sHosts.length > 0 && (
-          <button
-            onClick={refreshPods}
-            disabled={loadingPods}
-            className="btn btn-secondary w-full text-[var(--c-text-secondary)]"
-          >
-            <IconRefresh size={12} className={loadingPods ? "animate-spin" : ""} />
-            {loadingPods ? "Actualisation…" : "Actualiser les pods"}
-          </button>
-        )}
+        {/* Les trois rafraîchissements sur une ligne : ce sont des actions
+            d'appoint, pas ce qu'on vient faire ici. */}
+        <div className="flex flex-wrap gap-1.5">
+          {sshHosts.length > 0 && (
+            <button
+              onClick={() => collectFacts()}
+              disabled={collectingFacts}
+              title="Collecter l'état des hôtes SSH (OS, RAM, charge)"
+              className="btn btn-secondary btn-sm flex-1 text-[var(--c-text-secondary)]"
+            >
+              <IconRefresh size={12} className={collectingFacts ? "animate-spin" : ""} />
+              {collectingFacts ? "Collecte…" : "État"}
+            </button>
+          )}
+          {dockerHosts.length > 0 && (
+            <button
+              onClick={refreshContainers}
+              disabled={loadingContainers}
+              title="Actualiser la liste des conteneurs"
+              className="btn btn-secondary btn-sm flex-1 text-[var(--c-text-secondary)]"
+            >
+              <IconRefresh size={12} className={loadingContainers ? "animate-spin" : ""} />
+              Conteneurs
+            </button>
+          )}
+          {k8sHosts.length > 0 && (
+            <button
+              onClick={refreshPods}
+              disabled={loadingPods}
+              title="Actualiser la liste des pods"
+              className="btn btn-secondary btn-sm flex-1 text-[var(--c-text-secondary)]"
+            >
+              <IconRefresh size={12} className={loadingPods ? "animate-spin" : ""} />
+              Pods
+            </button>
+          )}
+        </div>
         {mode === "intent" && (
           <p className="callout text-[11.5px]">
             {hasTargetLine ? (

@@ -168,7 +168,7 @@ export function AzureImportPanel({ workspace, onWorkspaceUpdate, onClose, onErro
             failure.needsLogin ? (
               <button
                 onClick={() => setSignInOpen(true)}
-                className="rounded-md bg-rose-500/20 px-2.5 py-1 text-[11px] font-medium text-rose-100 hover:bg-rose-500/30"
+                className="btn btn-danger btn-sm"
               >
                 Se connecter à Azure
               </button>

@@ -138,26 +138,26 @@ export function AnsibleImportPanel({ workspace, onWorkspaceUpdate, onClose, onEr
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6" onClick={onClose}>
       <div
-        className="flex max-h-full w-[min(48rem,100%)] flex-col overflow-hidden rounded-xl border border-[var(--c-border)] bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]"
+        className="flex max-h-full w-[min(48rem,100%)] flex-col overflow-hidden modal"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-[var(--c-border)] px-4 py-2.5">
           <div>
-            <p className="text-[13px] font-medium text-[var(--c-text)]">Importer un inventaire Ansible</p>
-            <p className="text-[11px] text-[var(--c-text-muted)]">
+            <p className="text-[13px] font-semibold text-[var(--c-text)]">Importer un inventaire Ansible</p>
+            <p className="text-[11.5px] text-[var(--c-text-muted)]">
               Un fichier, aucune API. Les groupes deviennent des tags, donc <span className="font-mono">target tag: …</span> les cible aussitôt.
             </p>
           </div>
-          <button onClick={onClose} aria-label="Fermer" className="rounded p-1 text-[var(--c-text-muted)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]">
+          <button onClick={onClose} aria-label="Fermer" className="btn btn-ghost btn-sm btn-icon">
             <IconClose size={13} />
           </button>
         </div>
 
         <div className="shrink-0 border-b border-[var(--c-border)] px-4 py-2.5">
           <label className="block space-y-1">
-            <span className="text-xs font-medium text-[var(--c-text-muted)]">Fichier d'inventaire</span>
+            <span className="field-label">Fichier d'inventaire</span>
             <div className="flex gap-1.5">
               <input
                 value={path}
@@ -172,7 +172,7 @@ export function AnsibleImportPanel({ workspace, onWorkspaceUpdate, onClose, onEr
               <button
                 onClick={() => path.trim() && load(path.trim())}
                 disabled={loading || !path.trim()}
-                className="accent-surface shrink-0 rounded-md border px-3 text-xs font-medium disabled:opacity-40"
+                className="btn btn-primary shrink-0 disabled:opacity-40"
               >
                 {loading ? "…" : "Lire"}
               </button>
@@ -183,11 +183,11 @@ export function AnsibleImportPanel({ workspace, onWorkspaceUpdate, onClose, onEr
         {inventory && (
           <>
             {inventory.skipped.length > 0 && (
-              <div className="shrink-0 border-b border-[var(--c-border)] bg-amber-950/30 px-4 py-2">
-                <p className="text-[11px] font-medium text-amber-200">Entrées non importées :</p>
+              <div className="shrink-0 border-b border-[var(--c-border)] bg-[color-mix(in_srgb,var(--c-warn)_10%,transparent)] px-4 py-2">
+                <p className="text-[11px] font-medium text-[var(--c-warn)]">Entrées non importées :</p>
                 <ul className="mt-1 space-y-0.5">
                   {inventory.skipped.map((s, i) => (
-                    <li key={i} className="text-[11px] text-amber-200/90">
+                    <li key={i} className="text-[11px] text-[var(--c-warn)]/90">
                       <span className="font-mono">{s.entry}</span> — {s.reason}
                     </li>
                   ))}
@@ -239,7 +239,7 @@ export function AnsibleImportPanel({ workspace, onWorkspaceUpdate, onClose, onEr
             <div className="shrink-0 space-y-2 border-t border-[var(--c-border)] px-4 py-2.5">
               <div className="flex gap-2">
                 <label className="block flex-1 space-y-1">
-                  <span className="text-xs font-medium text-[var(--c-text-muted)]">Utilisateur par défaut</span>
+                  <span className="field-label">Utilisateur par défaut</span>
                   <input
                     value={username}
                     onChange={(e) => setUsername(e.target.value)}
@@ -251,7 +251,7 @@ export function AnsibleImportPanel({ workspace, onWorkspaceUpdate, onClose, onEr
                   </span>
                 </label>
                 <label className="block flex-1 space-y-1">
-                  <span className="text-xs font-medium text-[var(--c-text-muted)]">Authentification</span>
+                  <span className="field-label">Authentification</span>
                   <select value={authKind} onChange={(e) => setAuthKind(e.target.value as AuthKind)} className={inputClass}>
                     <option value="agent">Agent SSH</option>
                     <option value="password">Mot de passe</option>
@@ -296,7 +296,7 @@ export function AnsibleImportPanel({ workspace, onWorkspaceUpdate, onClose, onEr
               )}
 
               <label className="block space-y-1">
-                <span className="text-xs font-medium text-[var(--c-text-muted)]">Groupe de destination</span>
+                <span className="field-label">Groupe de destination</span>
                 <GroupTreePicker
                   groups={workspace.groups}
                   value={groupId}
@@ -308,7 +308,7 @@ export function AnsibleImportPanel({ workspace, onWorkspaceUpdate, onClose, onEr
               <button
                 onClick={runImport}
                 disabled={importing || picked.size === 0}
-                className="accent-surface w-full rounded-md border py-2 text-sm font-medium disabled:opacity-40"
+                className="btn btn-primary w-full disabled:opacity-40"
               >
                 {importing ? "Import…" : `Importer ${picked.size} hôte(s)`}
               </button>

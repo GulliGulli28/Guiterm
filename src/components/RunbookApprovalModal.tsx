@@ -62,13 +62,13 @@ export function RunbookApprovalModal({ request, labelOf, onApprove, onRefuse }: 
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/60 p-4"
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/50 p-4"
       onMouseDown={(e) => { if (e.target === e.currentTarget) onRefuse(); }}
     >
       <div
         ref={ref}
         {...dialogProps}
-        className="flex max-h-[80vh] w-full max-w-xl flex-col overflow-hidden rounded-xl border border-[var(--c-border)] bg-[var(--c-bg2)] shadow-2xl"
+        className="flex max-h-[80vh] w-full max-w-xl flex-col overflow-hidden rounded-lg border border-[var(--c-border)] bg-[var(--c-bg2)] shadow-2xl"
       >
         <div className="border-b border-[var(--c-border)] px-4 py-3">
           <p className="text-sm font-semibold text-[var(--c-text)]">Approbation demandée</p>
@@ -110,7 +110,7 @@ export function RunbookApprovalModal({ request, labelOf, onApprove, onRefuse }: 
           </button>
           <button
             onClick={onApprove}
-            className="rounded bg-[var(--c-accent)] px-3 py-1.5 text-xs text-white"
+            className="btn btn-primary"
           >
             Approuver et continuer
           </button>

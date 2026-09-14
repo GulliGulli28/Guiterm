@@ -75,7 +75,7 @@ export function NetDiagTargetsPanel({ workspace, onOpenTab }: { workspace: Works
           <button
             onClick={() => collectFacts()}
             disabled={collectingFacts}
-            className="btn btn-secondary w-full text-[var(--c-text-secondary)]"
+            className="btn btn-secondary btn-sm w-full text-[var(--c-text-secondary)]"
           >
             <IconRefresh size={12} className={collectingFacts ? "animate-spin" : ""} />
             {collectingFacts ? "Collecte de l'état…" : "Collecter l'état (OS, RAM)"}

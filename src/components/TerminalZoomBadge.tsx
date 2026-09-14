@@ -15,7 +15,7 @@ interface TerminalZoomBadgeProps {
  */
 export function TerminalZoomBadge({ fontSize, offset }: TerminalZoomBadgeProps) {
   return (
-    <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 select-none rounded-md border border-[var(--c-border)] bg-black/75 px-2.5 py-1 font-mono text-[11px] text-[var(--c-text-secondary)] shadow-lg">
+    <div className="pointer-events-none absolute left-1/2 top-3 -translate-x-1/2 select-none popover px-2.5 py-1 font-mono text-[11px] text-[var(--c-text-secondary)]">
       {fontSize} px
       {offset === 0 && <span className="text-[var(--c-text-faint)]"> · défaut</span>}
     </div>

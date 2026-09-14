@@ -35,10 +35,10 @@ interface NetDiagTabProps {
 const inputClass = "input";
 
 const TONE_CLASS: Record<string, string> = {
-  ok: "bg-emerald-500/15 text-emerald-300",
-  bad: "bg-rose-500/15 text-rose-300",
-  unknown: "bg-amber-500/15 text-amber-200",
-  muted: "bg-[var(--c-bg3)] text-[var(--c-text-muted)]",
+  ok: "bg-[color-mix(in_srgb,var(--c-ok)_14%,transparent)] text-[var(--c-ok)]",
+  bad: "bg-[color-mix(in_srgb,var(--c-danger)_14%,transparent)] text-[var(--c-danger)]",
+  unknown: "bg-[color-mix(in_srgb,var(--c-warn)_14%,transparent)] text-[var(--c-warn)]",
+  muted: "bg-[var(--c-hover)] text-[var(--c-text-muted)]",
 };
 
 /**
@@ -204,11 +204,11 @@ export function NetDiagTab({ onError, initialSourceId, initialDestination, initi
   };
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[var(--c-bg)]">
+    <div className="flex h-full min-h-0 flex-col bg-[var(--c-bg2)]">
       <div className="shrink-0 space-y-2 border-b border-[var(--c-border)] px-4 py-3">
         <div className="flex items-center gap-2">
-          <h2 className="text-[15px] font-semibold text-[var(--c-text)]">Diagnostic réseau</h2>
-          <div className="flex overflow-hidden rounded-md border border-[var(--c-border)] text-[11px]">
+          <h2 className="text-[13px] font-semibold text-[var(--c-text)]">Diagnostic réseau</h2>
+          <div className="segmented">
             {(["from", "to"] as const).map((value) => (
               <button
                 key={value}
@@ -216,17 +216,13 @@ export function NetDiagTab({ onError, initialSourceId, initialDestination, initi
                 // cochent pas la même liste) ; la grille déjà affichée part
                 // ici, elle répondait à l'autre question.
                 onClick={() => { setDirection(value); setRanRows([]); }}
-                className={`px-2.5 py-1 transition-colors ${
-                  direction === value
-                    ? "accent-surface"
-                    : "text-[var(--c-text-muted)] hover:bg-[var(--c-bg3)]"
-                }`}
+                data-active={direction === value ? "true" : undefined}
               >
                 {value === "from" ? "Depuis les hôtes" : "Vers les hôtes"}
               </button>
             ))}
           </div>
-          <span className="text-[11px] text-[var(--c-text-muted)]">
+          <span className="text-[11.5px] text-[var(--c-text-muted)]">
             {direction === "from"
               ? "Chaque machine répond pour elle-même."
               : "Depuis cette machine — aucune connexion SSH, donc répond même sur un hôte en panne."}
@@ -239,35 +235,35 @@ export function NetDiagTab({ onError, initialSourceId, initialDestination, initi
             onChange={(e) => setDestination(e.target.value)}
             onKeyDown={(e) => { if (e.key === "Enter" && !running) run(); }}
             placeholder="Adresse à joindre — api.example.com, 10.0.0.5…"
-            className={`${inputClass} w-full font-mono`}
+            className={`${inputClass} input-mono w-full`}
           />
         )}
 
         <div className="flex flex-wrap items-center gap-3">
-          <label className="flex items-center gap-1.5 text-[11px] text-[var(--c-text-secondary)]">
-            <input type="checkbox" checked={tcpOn} onChange={(e) => setTcpOn(e.target.checked)} className="accent-[var(--c-accent)]" />
+          <label className="flex items-center gap-1.5 text-[11.5px] text-[var(--c-text-secondary)]">
+            <input type="checkbox" checked={tcpOn} onChange={(e) => setTcpOn(e.target.checked)}  />
             TCP
             <input
               value={tcpPort}
               onChange={(e) => setTcpPort(e.target.value.replace(/\D/g, ""))}
               disabled={!tcpOn}
-              className={`${inputClass} w-16 py-0.5 text-center font-mono text-[11px] disabled:opacity-40`}
+              className={`${inputClass} input-mono h-6 w-16 text-center text-[11px] disabled:opacity-40`}
             />
           </label>
 
-          <label className="flex items-center gap-1.5 text-[11px] text-[var(--c-text-secondary)]">
-            <input type="checkbox" checked={dnsOn} onChange={(e) => setDnsOn(e.target.checked)} className="accent-[var(--c-accent)]" />
+          <label className="flex items-center gap-1.5 text-[11.5px] text-[var(--c-text-secondary)]">
+            <input type="checkbox" checked={dnsOn} onChange={(e) => setDnsOn(e.target.checked)}  />
             DNS
           </label>
 
-          <label className="flex items-center gap-1.5 text-[11px] text-[var(--c-text-secondary)]">
-            <input type="checkbox" checked={httpOn} onChange={(e) => setHttpOn(e.target.checked)} className="accent-[var(--c-accent)]" />
+          <label className="flex items-center gap-1.5 text-[11.5px] text-[var(--c-text-secondary)]">
+            <input type="checkbox" checked={httpOn} onChange={(e) => setHttpOn(e.target.checked)}  />
             HTTP
             <select
               value={httpSecure ? "https" : "http"}
               onChange={(e) => setHttpSecure(e.target.value === "https")}
               disabled={!httpOn}
-              className={`${inputClass} py-0.5 text-[11px] disabled:opacity-40`}
+              className={`${inputClass} h-6 w-auto text-[11px] disabled:opacity-40`}
             >
               <option value="https">https</option>
               <option value="http">http</option>
@@ -277,19 +273,19 @@ export function NetDiagTab({ onError, initialSourceId, initialDestination, initi
               onChange={(e) => setHttpPath(e.target.value)}
               disabled={!httpOn}
               placeholder="/"
-              className={`${inputClass} w-28 py-0.5 font-mono text-[11px] disabled:opacity-40`}
+              className={`${inputClass} input-mono h-6 w-28 text-[11px] disabled:opacity-40`}
             />
           </label>
 
-          <label className="flex items-center gap-1.5 text-[11px] text-[var(--c-text-secondary)]">
-            <input type="checkbox" checked={pingOn} onChange={(e) => setPingOn(e.target.checked)} className="accent-[var(--c-accent)]" />
+          <label className="flex items-center gap-1.5 text-[11.5px] text-[var(--c-text-secondary)]">
+            <input type="checkbox" checked={pingOn} onChange={(e) => setPingOn(e.target.checked)}  />
             <span title="Souvent indisponible : ICMP demande des privilèges, et beaucoup d'images conteneur n'embarquent pas ping.">
               Ping
             </span>
           </label>
 
-          <label className="flex items-center gap-1.5 text-[11px] text-[var(--c-text-secondary)]">
-            <input type="checkbox" checked={tracerouteOn} onChange={(e) => setTracerouteOn(e.target.checked)} className="accent-[var(--c-accent)]" />
+          <label className="flex items-center gap-1.5 text-[11.5px] text-[var(--c-text-secondary)]">
+            <input type="checkbox" checked={tracerouteOn} onChange={(e) => setTracerouteOn(e.target.checked)}  />
             <span title="Lent (jusqu'à une minute) et rarement installé. Les résultats arrivent au fil de l'eau.">
               Traceroute
             </span>
@@ -302,7 +298,7 @@ export function NetDiagTab({ onError, initialSourceId, initialDestination, initi
           <button
             onClick={onShowTargets}
             title="Choisir les machines — ouvre le panneau « Diagnostic réseau » dans la barre latérale"
-            className="ml-auto rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-2.5 py-1.5 text-[11px] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)]"
+            className="btn btn-secondary btn-sm ml-auto text-[var(--c-text-secondary)]"
           >
             {selected.size === 0
               ? "Aucune machine choisie"
@@ -316,7 +312,7 @@ export function NetDiagTab({ onError, initialSourceId, initialDestination, initi
                 setSendMenu({ x: r.left, y: r.bottom + 2 });
               }}
               title="Reprendre cette sélection dans un autre onglet"
-              className="rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-2.5 py-1.5 text-[11px] text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)]"
+              className="btn btn-secondary btn-sm text-[var(--c-text-secondary)]"
             >
               Envoyer vers…
             </button>
@@ -333,7 +329,7 @@ export function NetDiagTab({ onError, initialSourceId, initialDestination, initi
           <button
             onClick={run}
             disabled={running || (direction === "from" && !destination.trim())}
-            className="accent-surface flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium disabled:opacity-40"
+            className="btn btn-primary btn-sm"
           >
             <IconPlay size={12} />
             {running ? "Diagnostic…" : `Lancer sur ${selected.size} hôte(s)`}
@@ -345,7 +341,7 @@ export function NetDiagTab({ onError, initialSourceId, initialDestination, initi
         {/* Grid */}
         <div className="min-h-0 flex-1 overflow-auto p-3">
           {ranRows.length === 0 ? (
-            <p className="py-8 text-center text-xs text-[var(--c-text-faint)]">
+            <p className="py-8 text-center text-[12.5px] text-[var(--c-text-muted)]">
               {direction === "from"
                 ? "Choisissez une adresse, les diagnostics à faire et les machines depuis lesquelles les faire. Chaque machine répond pour elle-même — c'est ce qui distingue « le service est tombé » de « ce réseau-là ne l'atteint pas »."
                 : "Choisissez les hôtes à diagnostiquer depuis cette machine. Aucune connexion SSH n'est ouverte, donc la réponse arrive même quand c'est l'hôte lui-même qui ne va pas."}
@@ -353,7 +349,7 @@ export function NetDiagTab({ onError, initialSourceId, initialDestination, initi
           ) : (
             <table className="w-full border-collapse text-[12px]">
               <thead>
-                <tr className="text-left text-[10px] uppercase tracking-wide text-[var(--c-text-faint)]">
+                <tr className="text-left text-[10.5px] uppercase tracking-[0.06em] text-[var(--c-text-muted)]">
                   <th className="px-2 py-1 font-semibold">{direction === "from" ? "Depuis" : "Hôte"}</th>
                   {ranTools.map((tool) => (
                     <th key={diagToolKey(tool)} className="px-2 py-1 font-semibold">{diagToolLabel(tool)}</th>
@@ -365,7 +361,7 @@ export function NetDiagTab({ onError, initialSourceId, initialDestination, initi
                   <tr key={info.key} className="border-t border-[var(--c-border)]">
                     <td className="px-2 py-1.5">
                       <div className="truncate text-[var(--c-text)]">{info.label}</div>
-                      {info.sub && <div className="truncate text-[10px] text-[var(--c-text-muted)]">{info.sub}</div>}
+                      {info.sub && <div className="truncate font-mono text-[10.5px] text-[var(--c-text-muted)]">{info.sub}</div>}
                     </td>
                     {ranTools.map((tool) => {
                       const cell = results.get(`${info.key}|${diagToolKey(tool)}`);
@@ -401,9 +397,9 @@ export function NetDiagTab({ onError, initialSourceId, initialDestination, initi
                           >
                             {described.label}
                           </button>
-                          <span className="ml-1.5 text-[10px] text-[var(--c-text-faint)]">{cell.durationMs} ms</span>
+                          <span className="ml-1.5 font-mono text-[10.5px] text-[var(--c-text-faint)]">{cell.durationMs} ms</span>
                           {isOpen && cell.raw && (
-                            <pre className="mt-1 max-h-64 max-w-[32rem] overflow-auto whitespace-pre rounded bg-[var(--c-bg)] p-2 font-mono text-[10px] leading-relaxed text-[var(--c-text-secondary)]">
+                            <pre className="mt-1 max-h-64 max-w-[32rem] overflow-auto whitespace-pre rounded bg-[var(--c-bg)] p-2 font-mono text-[10.5px] leading-relaxed text-[var(--c-text-secondary)]">
                               {cell.raw}
                             </pre>
                           )}

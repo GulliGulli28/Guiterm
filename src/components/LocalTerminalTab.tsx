@@ -350,12 +350,12 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
       {zoom.badgeVisible && <TerminalZoomBadge fontSize={zoom.fontSize} offset={zoom.offset} />}
       {preferences?.terminalRenderStats && renderStats && (
         <div
-          className="pointer-events-none absolute right-3 top-3 select-none rounded bg-black/60 px-2 py-1 font-mono text-[11px] text-[var(--c-text-secondary)]"
+          className="pointer-events-none absolute right-3 top-3 select-none rounded bg-black/50 px-2 py-1 font-mono text-[11px] text-[var(--c-text-secondary)]"
           title="Moyenne du temps entre deux images rendues, pendant que la sortie défile"
         >
           {renderStats.renderer === "webgl" ? "GPU" : "DOM"}
           {renderStats.msPerFrame > 0 && (
-            <span className={renderStats.msPerFrame > 16.7 ? " text-amber-400" : ""}>
+            <span className={renderStats.msPerFrame > 16.7 ? " text-[var(--c-warn)]" : ""}>
               {" "}{renderStats.msPerFrame.toFixed(1)} ms/img
             </span>
           )}

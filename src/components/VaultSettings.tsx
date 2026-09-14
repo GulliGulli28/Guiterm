@@ -56,8 +56,8 @@ export function VaultSettings({ status, onChange, preferences, onPreferencesChan
     <p
       className={`rounded-md px-2.5 py-2 text-[12px] ${
         notice.kind === "ok"
-          ? "border border-emerald-500/30 bg-emerald-500/10 text-emerald-200"
-          : "border border-rose-500/30 bg-rose-500/10 text-rose-200"
+          ? "border border-[color-mix(in_srgb,var(--c-ok)_35%,transparent)] bg-[color-mix(in_srgb,var(--c-ok)_10%,transparent)] text-[var(--c-ok)]"
+          : "border border-[color-mix(in_srgb,var(--c-danger)_35%,transparent)] bg-[color-mix(in_srgb,var(--c-danger)_10%,transparent)] text-[var(--c-danger)]"
       }`}
     >
       {notice.text}
@@ -69,14 +69,14 @@ export function VaultSettings({ status, onChange, preferences, onPreferencesChan
     return (
       <div className="space-y-3">
         <div className="space-y-2 rounded-lg bg-[var(--c-bg3)] p-3">
-          <p className="text-[13px] font-medium text-[var(--c-text)]">Mot de passe maître</p>
-          <p className="text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+          <p className="text-[13px] font-semibold text-[var(--c-text)]">Mot de passe maître</p>
+          <p className="help-text">
             Chiffre les mots de passe et passphrases dans un fichier local protégé par un mot de passe
             (Argon2id + XChaCha20-Poly1305), à la place du trousseau du système. Portable entre machines et
             fonctionne même sans trousseau OS. La liste des hôtes reste visible ; le mot de passe n'est demandé
             qu'au lancement.
           </p>
-          <p className="rounded-md border border-amber-500/30 bg-amber-500/10 px-2.5 py-2 text-[12px] text-amber-200">
+          <p className="callout callout-warn">
             Il n'y a aucun moyen de récupérer les secrets si vous oubliez ce mot de passe.
           </p>
           <input type="password" value={newPw} onChange={(e) => setNewPw(e.target.value)} placeholder="Nouveau mot de passe maître" className={inputClass} />
@@ -103,9 +103,9 @@ export function VaultSettings({ status, onChange, preferences, onPreferencesChan
       <div className="space-y-3">
         <div className="space-y-2 rounded-lg bg-[var(--c-bg3)] p-3">
           <p className="flex items-center gap-2 text-[13px] font-medium text-[var(--c-text)]">
-            <span className="h-2 w-2 rounded-full bg-amber-400" /> Coffre verrouillé
+            <span className="h-2 w-2 rounded-full bg-[var(--c-warn)]" /> Coffre verrouillé
           </p>
-          <p className="text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+          <p className="help-text">
             Déverrouillez-le pour vous connecter aux hôtes qui utilisent un secret enregistré, et pour gérer ses paramètres.
           </p>
           <input
@@ -135,7 +135,7 @@ export function VaultSettings({ status, onChange, preferences, onPreferencesChan
     <div className="space-y-3">
       <div className="space-y-2 rounded-lg bg-[var(--c-bg3)] p-3">
         <p className="flex items-center gap-2 text-[13px] font-medium text-[var(--c-text)]">
-          <span className="h-2 w-2 shrink-0 rounded-full bg-emerald-400" /> Coffre chiffré actif — déverrouillé
+          <span className="h-2 w-2 shrink-0 rounded-full bg-[var(--c-ok)]" /> Coffre chiffré actif — déverrouillé
         </p>
         <button
           disabled={busy}
@@ -172,11 +172,11 @@ export function VaultSettings({ status, onChange, preferences, onPreferencesChan
             <span className="shrink-0 text-[12px] text-[var(--c-text-muted)]">min</span>
           </div>
         </div>
-        <p className="text-[12px] leading-relaxed text-[var(--c-text-muted)]">{autoLock === 0 ? "Désactivé — le coffre reste déverrouillé jusqu'à la fermeture de l'application." : `Le coffre se verrouille après ${autoLock} min sans activité.`}</p>
+        <p className="help-text">{autoLock === 0 ? "Désactivé — le coffre reste déverrouillé jusqu'à la fermeture de l'application." : `Le coffre se verrouille après ${autoLock} min sans activité.`}</p>
       </div>
 
       <div className="space-y-2 rounded-lg bg-[var(--c-bg3)] p-3">
-        <p className="text-[13px] font-medium text-[var(--c-text)]">Changer le mot de passe maître</p>
+        <p className="text-[13px] font-semibold text-[var(--c-text)]">Changer le mot de passe maître</p>
         <input type="password" value={curPw} onChange={(e) => setCurPw(e.target.value)} placeholder="Mot de passe actuel" className={inputClass} />
         <input type="password" value={changeNewPw} onChange={(e) => setChangeNewPw(e.target.value)} placeholder="Nouveau mot de passe" className={inputClass} />
         <input type="password" value={changeConfirm} onChange={(e) => setChangeConfirm(e.target.value)} placeholder="Confirmer le nouveau" className={inputClass} />
@@ -193,15 +193,15 @@ export function VaultSettings({ status, onChange, preferences, onPreferencesChan
       </div>
 
       <div className="space-y-2 rounded-lg bg-[var(--c-bg3)] p-3">
-        <p className="text-[13px] font-medium text-[var(--c-text)]">Désactiver le coffre</p>
-        <p className="text-[12px] leading-relaxed text-[var(--c-text-muted)]">
+        <p className="text-[13px] font-semibold text-[var(--c-text)]">Désactiver le coffre</p>
+        <p className="help-text">
           Restaure les secrets dans le trousseau du système et supprime le fichier chiffré.
         </p>
         <input type="password" value={disablePw} onChange={(e) => setDisablePw(e.target.value)} placeholder="Mot de passe maître" className={inputClass} />
         <button
           disabled={busy || !disablePw}
           onClick={() => run(() => api.disableMasterPassword(disablePw), "Coffre désactivé — secrets rendus au trousseau du système.").then(() => setDisablePw(""))}
-          className="w-full rounded-md bg-rose-700 px-3 py-2 text-[13px] font-medium text-white hover:bg-rose-600 disabled:opacity-50"
+          className="btn btn-danger w-full"
         >
           {busy ? "…" : "Désactiver le coffre"}
         </button>

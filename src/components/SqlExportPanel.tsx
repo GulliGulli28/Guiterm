@@ -236,7 +236,7 @@ export function SqlExportPanel({
       <div className="max-w-lg space-y-4">
         <div className="space-y-1">
           <div className="flex items-center justify-between">
-            <span className="text-xs font-medium text-[var(--c-text-secondary)]">Bases/schémas et tables</span>
+            <span className="field-label">Bases/schémas et tables</span>
             <div className="flex gap-2.5">
               <button onClick={selectAllSchemas} className="text-[11px] text-[var(--c-accent-text)] hover:underline">
                 Toutes les bases
@@ -247,7 +247,7 @@ export function SqlExportPanel({
             </div>
           </div>
           {multiDatabase && (
-            <p className="px-0.5 text-[11px] leading-relaxed text-[var(--c-text-muted)]">
+            <p className="help-text px-0.5">
               « Toutes les bases » ne couvre que la base PostgreSQL actuellement active — changer de base
               réinitialiserait la session en cours.
             </p>
@@ -292,7 +292,7 @@ export function SqlExportPanel({
                             <input type="checkbox" checked={selectedSet.has(t.name)} onChange={() => toggleTable(schema, t.name)} />
                             <span className="min-w-0 flex-1 truncate font-mono">{t.name}</span>
                             {t.kind === "view" && (
-                              <span className="shrink-0 rounded-full bg-[var(--c-bg3)] px-1.5 py-0.5 text-[9px] text-[var(--c-text-secondary)]">vue</span>
+                              <span className="tag">vue</span>
                             )}
                           </label>
                         ))
@@ -306,7 +306,7 @@ export function SqlExportPanel({
         </div>
 
         <div className="space-y-1">
-          <span className="text-xs font-medium text-[var(--c-text-secondary)]">Destination</span>
+          <span className="field-label">Destination</span>
           <div className="flex gap-4 text-[13px] text-[var(--c-text)]">
             <label className="flex cursor-pointer items-center gap-1.5">
               <input type="radio" checked={destKind === "local"} onChange={() => setDestKind("local")} /> Local
@@ -316,7 +316,7 @@ export function SqlExportPanel({
             </label>
           </div>
           {destKind === "local" ? (
-            <p className="px-0.5 text-[11px] leading-relaxed text-[var(--c-text-muted)]">
+            <p className="help-text px-0.5">
               Un sélecteur de fichier s'ouvre au clic sur « Exporter ».
             </p>
           ) : (
@@ -348,13 +348,13 @@ export function SqlExportPanel({
           )}
         </div>
 
-        {error && <p className="whitespace-pre-wrap text-xs text-rose-400">{error}</p>}
-        {done && <p className="text-xs text-emerald-400">{done}</p>}
+        {error && <p className="whitespace-pre-wrap text-xs text-[var(--c-danger)]">{error}</p>}
+        {done && <p className="text-xs text-[var(--c-ok)]">{done}</p>}
 
         <button
           onClick={runExport}
           disabled={!canExport || exporting}
-          className="accent-surface flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+          className="btn btn-primary disabled:opacity-50"
         >
           <IconDownload size={11} /> {exporting ? "Export en cours…" : "Exporter"}
         </button>

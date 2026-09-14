@@ -40,20 +40,20 @@ export function CloudProviderPicker({
   onClose: () => void;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6" onClick={onClose}>
       <div
-        className="w-[min(30rem,100%)] overflow-hidden rounded-xl border border-[var(--c-border)] bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]"
+        className="w-[min(30rem,100%)] overflow-hidden modal"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-center justify-between border-b border-[var(--c-border)] px-4 py-2.5">
           <div>
-            <p className="text-[13px] font-medium text-[var(--c-text)]">Importer depuis le cloud</p>
-            <p className="text-[11px] text-[var(--c-text-muted)]">
+            <p className="text-[13px] font-semibold text-[var(--c-text)]">Importer depuis le cloud</p>
+            <p className="text-[11.5px] text-[var(--c-text-muted)]">
               Chaque import passe par la CLI que vous avez déjà configurée — aucun identifiant
               cloud n'est demandé ni conservé.
             </p>
           </div>
-          <button onClick={onClose} aria-label="Fermer" className="rounded p-1 text-[var(--c-text-muted)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]">
+          <button onClick={onClose} aria-label="Fermer" className="btn btn-ghost btn-sm btn-icon">
             <IconClose size={13} />
           </button>
         </div>

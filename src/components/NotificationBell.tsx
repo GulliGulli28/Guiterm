@@ -11,9 +11,9 @@ interface NotificationBellProps {
 }
 
 const KIND_DOT: Record<AppNotification["kind"], string> = {
-  info: "bg-sky-400",
-  success: "bg-emerald-400",
-  error: "bg-rose-400",
+  info: "bg-[var(--c-accent)]",
+  success: "bg-[var(--c-ok)]",
+  error: "bg-[var(--c-danger)]",
 };
 
 export function NotificationBell({ notifications, onDismiss, onClearAll, onMarkAllRead }: NotificationBellProps) {

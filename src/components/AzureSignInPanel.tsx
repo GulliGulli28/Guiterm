@@ -72,23 +72,23 @@ export function AzureSignInPanel({ onClose, onSignedIn, initialTenant }: AzureSi
   // cliquer à côté d'ici fermait les deux d'un coup.
   return (
     <div
-      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-6"
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-6"
       onClick={(e) => { e.stopPropagation(); onClose(); }}
     >
       <div
-        className="flex max-h-full w-[min(38rem,100%)] flex-col overflow-hidden rounded-xl border border-[var(--c-border)] bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]"
+        className="flex max-h-full w-[min(38rem,100%)] flex-col overflow-hidden modal"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-[var(--c-border)] px-4 py-2.5">
           <div>
-            <p className="text-[13px] font-medium text-[var(--c-text)]">Se connecter à Azure</p>
-            <p className="text-[11px] text-[var(--c-text-muted)]">
+            <p className="text-[13px] font-semibold text-[var(--c-text)]">Se connecter à Azure</p>
+            <p className="text-[11.5px] text-[var(--c-text-muted)]">
               Ouvre la session avec votre CLI <span className="font-mono">az</span>. Rien n'est
               stocké ici : le jeton va dans <span className="font-mono">~/.azure</span>, comme
               depuis un terminal, donc vos autres outils voient la même session.
             </p>
           </div>
-          <button onClick={onClose} aria-label="Fermer" className="rounded p-1 text-[var(--c-text-muted)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]">
+          <button onClick={onClose} aria-label="Fermer" className="btn btn-ghost btn-sm btn-icon">
             <IconClose size={13} />
           </button>
         </div>
@@ -101,14 +101,14 @@ export function AzureSignInPanel({ onClose, onSignedIn, initialTenant }: AzureSi
             <p className="mt-1 text-[11px] text-[var(--c-text-muted)]">
               La liste des abonnements a été rechargée.
             </p>
-            <button onClick={onClose} className="accent-surface mt-4 rounded-md border px-4 py-1.5 text-xs font-medium">
+            <button onClick={onClose} className="btn btn-primary mt-4">
               Fermer
             </button>
           </div>
         ) : (
           <div className="space-y-2.5 px-4 py-3">
             <label className="block space-y-1">
-              <span className="text-xs font-medium text-[var(--c-text-muted)]">
+              <span className="field-label">
                 Tenant <span className="font-normal text-[var(--c-text-faint)]">(facultatif)</span>
               </span>
               <input
@@ -131,7 +131,7 @@ export function AzureSignInPanel({ onClose, onSignedIn, initialTenant }: AzureSi
                 checked={signOutFirst}
                 onChange={(e) => setSignOutFirst(e.target.checked)}
                 disabled={stage === "signingIn"}
-                className="mt-0.5 accent-[var(--c-accent)]"
+                className="mt-0.5"
               />
               <span className="text-[11px] text-[var(--c-text-secondary)]">
                 Se déconnecter d'abord
@@ -148,7 +148,7 @@ export function AzureSignInPanel({ onClose, onSignedIn, initialTenant }: AzureSi
                 checked={deviceCode}
                 onChange={(e) => setDeviceCode(e.target.checked)}
                 disabled={stage === "signingIn"}
-                className="mt-0.5 accent-[var(--c-accent)]"
+                className="mt-0.5"
               />
               <span className="text-[11px] text-[var(--c-text-secondary)]">
                 Utiliser un code d'appareil
@@ -162,7 +162,7 @@ export function AzureSignInPanel({ onClose, onSignedIn, initialTenant }: AzureSi
             <button
               onClick={signIn}
               disabled={stage === "signingIn"}
-              className="accent-surface w-full rounded-md border py-2 text-sm font-medium disabled:opacity-40"
+              className="btn btn-primary w-full disabled:opacity-40"
             >
               {stage === "signingIn" ? "Connexion en cours — terminez dans le navigateur…" : "Se connecter"}
             </button>

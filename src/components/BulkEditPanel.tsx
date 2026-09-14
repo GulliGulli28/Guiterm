@@ -107,31 +107,31 @@ export function BulkEditPanel({ workspace, hosts, onWorkspaceUpdate, onClose, on
         type="checkbox"
         checked={checked}
         onChange={(e) => onToggle(e.target.checked)}
-        className="mt-2 shrink-0 accent-[var(--c-accent)]"
+        className="mt-2 shrink-0"
       />
       <label className="block min-w-0 flex-1 space-y-1">
-        <span className="text-xs font-medium text-[var(--c-text-muted)]">{label}</span>
+        <span className="field-label">{label}</span>
         <div className={checked ? "" : "pointer-events-none opacity-40"}>{control}</div>
       </label>
     </div>
   );
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6" onClick={onClose}>
       <div
-        className="flex max-h-full w-[min(34rem,100%)] flex-col overflow-hidden rounded-xl border border-[var(--c-border)] bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]"
+        className="flex max-h-full w-[min(34rem,100%)] flex-col overflow-hidden modal"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-[var(--c-border)] px-4 py-2.5">
           <div className="min-w-0">
-            <p className="text-[13px] font-medium text-[var(--c-text)]">
+            <p className="text-[13px] font-semibold text-[var(--c-text)]">
               Modifier {hosts.length} hôte(s)
             </p>
             <p className="truncate text-[11px] text-[var(--c-text-muted)]" title={hosts.map((h) => h.label).join(", ")}>
               {hosts.map((h) => h.label).join(", ")}
             </p>
           </div>
-          <button onClick={onClose} aria-label="Fermer" className="rounded p-1 text-[var(--c-text-muted)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]">
+          <button onClick={onClose} aria-label="Fermer" className="btn btn-ghost btn-sm btn-icon">
             <IconClose size={13} />
           </button>
         </div>
@@ -207,7 +207,7 @@ export function BulkEditPanel({ workspace, hosts, onWorkspaceUpdate, onClose, on
           ))}
 
           <div className="space-y-1">
-            <span className="text-xs font-medium text-[var(--c-text-muted)]">Tags</span>
+            <span className="field-label">Tags</span>
             <input
               value={addTags}
               onChange={(e) => setAddTags(e.target.value)}
@@ -231,7 +231,7 @@ export function BulkEditPanel({ workspace, hosts, onWorkspaceUpdate, onClose, on
           <button
             onClick={apply}
             disabled={busy || changes === 0}
-            className="accent-surface w-full rounded-md border py-2 text-sm font-medium disabled:opacity-40"
+            className="btn btn-primary w-full disabled:opacity-40"
           >
             {busy
               ? "Modification…"

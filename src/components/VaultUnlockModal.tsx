@@ -24,13 +24,13 @@ export function VaultUnlockModal({ error, submitting, onDismiss, onSubmit }: Vau
   return (
     <>
       <div className="fixed inset-0 z-[60] bg-black/70" onClick={() => onDismiss?.()} />
-      <div ref={ref} {...dialogProps} className="fixed left-1/2 top-1/2 z-[61] w-full max-w-sm -translate-x-1/2 -translate-y-1/2 rounded-lg bg-[var(--c-bg2)] p-5 shadow-[var(--shadow-lg)]">
+      <div ref={ref} {...dialogProps} className="fixed left-1/2 top-1/2 z-[61] w-full max-w-sm -translate-x-1/2 -translate-y-1/2 modal p-5">
         <div className="flex items-center gap-2.5">
           <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]">
             <IconShield size={18} />
           </div>
           <div>
-            <h2 className="text-[15px] font-semibold text-[var(--c-text)]">Coffre verrouillé</h2>
+            <h2 className="text-[14px] font-semibold text-[var(--c-text)]">Coffre verrouillé</h2>
             <p className="text-[12px] text-[var(--c-text-muted)]">Saisissez le mot de passe maître.</p>
           </div>
         </div>
@@ -46,19 +46,19 @@ export function VaultUnlockModal({ error, submitting, onDismiss, onSubmit }: Vau
         />
 
         {error && (
-          <p className="mt-2 rounded-md border border-rose-500/30 bg-rose-500/10 px-2.5 py-1.5 text-[12px] text-rose-200">{error}</p>
+          <p className="mt-2 rounded-md border border-[color-mix(in_srgb,var(--c-danger)_35%,transparent)] bg-[color-mix(in_srgb,var(--c-danger)_10%,transparent)] px-2.5 py-1.5 text-[12px] text-[var(--c-danger)]">{error}</p>
         )}
 
         <div className="mt-4 flex justify-end gap-2">
           {onDismiss && (
-            <button onClick={onDismiss} className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs font-medium text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]">
+            <button onClick={onDismiss} className="btn btn-ghost">
               Plus tard
             </button>
           )}
           <button
             onClick={submit}
             disabled={!password || submitting}
-            className="rounded-md bg-[var(--c-accent)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--c-accent-hover)] disabled:opacity-50"
+            className="btn btn-primary disabled:opacity-50"
           >
             {submitting ? "Déverrouillage…" : "Déverrouiller"}
           </button>

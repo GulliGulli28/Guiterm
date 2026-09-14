@@ -66,7 +66,7 @@ export function SplitPane({ workspace, preferences, source, onSourceChange, onRe
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <div className="flex shrink-0 items-center gap-2 border-b border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1.5">
-        <span className="shrink-0 text-[10px] font-semibold uppercase tracking-wider text-[var(--c-text-muted)]">Panneau 2</span>
+        <span className="eyebrow shrink-0">Panneau 2</span>
         <HostTreePicker
           hosts={workspace.hosts}
           groups={workspace.groups}
@@ -82,7 +82,7 @@ export function SplitPane({ workspace, preferences, source, onSourceChange, onRe
           {source === "local" ? (
             <LocalTerminalTab key={source} isActive={true} preferences={preferences} onInputData={onInputData} ref={onRef} />
           ) : !host ? (
-            <div className="flex flex-1 items-center justify-center text-sm text-[var(--c-text-muted)]">Hôte introuvable</div>
+            <div className="flex flex-1 items-center justify-center text-[12.5px] text-[var(--c-text-muted)]">Hôte introuvable</div>
           ) : kind === "k8sExec" ? (
             k8sPod ? (
               <TerminalTab

@@ -501,7 +501,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
   }, [runTargets, results, pending]);
 
   return (
-    <div className="flex h-full min-h-0 min-w-0 bg-[var(--c-bg)] text-[var(--c-text)]">
+    <div className="flex h-full min-h-0 min-w-0 bg-[var(--c-bg2)] text-[var(--c-text)]">
       {/* ── Target picker ─────────────────────────────────────────────── */}
       {/* `max-w-[50%]` caps this fixed-pixel sidebar (`leftPane.value`) as a
        * share of this tab's own container rather than the window — without
@@ -511,18 +511,12 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
       {/* ── Command + results ─────────────────────────────────────────── */}
       <section ref={rightSectionRef} className="flex min-w-0 flex-1 flex-col">
         <div style={{ height: `${composer.value}%` }} className="shrink-0 overflow-y-auto border-b border-[var(--c-border)] p-3">
-          <div className="mb-2 flex shrink-0 items-center gap-2 text-[11px]">
-          <div className="flex rounded-md bg-[var(--c-bg2)] p-0.5">
-            <button
-              onClick={() => setMode("command")}
-              className={`rounded px-2 py-0.5 font-medium ${mode === "command" ? "bg-[var(--c-bg3)] text-[var(--c-text)]" : "text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)]"}`}
-            >
+          <div className="mb-2 flex shrink-0 items-center gap-2 text-[11.5px]">
+          <div className="segmented">
+            <button onClick={() => setMode("command")} data-active={mode === "command" ? "true" : undefined}>
               Commande
             </button>
-            <button
-              onClick={() => setMode("intent")}
-              className={`rounded px-2 py-0.5 font-medium ${mode === "intent" ? "bg-[var(--c-bg3)] text-[var(--c-text)]" : "text-[var(--c-text-muted)] hover:text-[var(--c-text-secondary)]"}`}
-            >
+            <button onClick={() => setMode("intent")} data-active={mode === "intent" ? "true" : undefined}>
               Langage
             </button>
           </div>
@@ -542,7 +536,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
             <button
               onClick={onShowTargets}
               title="Choisir les cibles — ouvre le panneau « Opérations de flotte » dans la barre latérale"
-              className="ml-auto rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-2.5 py-1 text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)]"
+              className="btn btn-secondary btn-sm ml-auto text-[var(--c-text-secondary)]"
             >
               {selected.size === 0
                 ? "Aucune cible sélectionnée"
@@ -559,7 +553,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
                   setSendMenu({ x: r.left, y: r.bottom + 2 });
                 }}
                 title="Reprendre cette sélection dans un autre onglet"
-                className="rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-2.5 py-1 text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)]"
+                className="btn btn-secondary btn-sm text-[var(--c-text-secondary)]"
               >
                 Envoyer vers…
               </button>
@@ -571,7 +565,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
               onClick={() => setShowSnippetPicker(true)}
               disabled={workspace.snippets.length === 0}
               title={workspace.snippets.length === 0 ? "Aucun snippet enregistré" : "Choisir un snippet — remplit la commande, à réviser avant d'exécuter"}
-              className="flex shrink-0 items-center gap-1.5 self-stretch rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-2.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)] disabled:cursor-not-allowed disabled:opacity-40"
+              className="btn btn-secondary h-auto self-stretch text-[var(--c-text-secondary)]"
             >
               <IconSnippets size={13} />
               Snippet
@@ -590,12 +584,12 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
                   rows={2}
                   placeholder="Commande à exécuter sur les cibles sélectionnées…  (Ctrl+Entrée)"
                   spellCheck={false}
-                  className="min-h-[2.5rem] flex-1 resize-y rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-3 py-2 font-mono text-sm text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] focus:border-[var(--c-accent)]"
+                  className="input input-mono min-h-[2.5rem] flex-1 resize-y px-3 text-[12.5px]"
                 />
                 <button
                   onClick={run}
                   disabled={running || selected.size === 0 || !command.trim()}
-                  className="flex items-center gap-1.5 rounded-md bg-[var(--c-accent)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--c-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="btn btn-primary h-auto self-stretch px-4"
                 >
                   <IconPlay size={14} />
                   {running ? "En cours…" : `Exécuter (${selected.size})`}
@@ -610,7 +604,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
                     rows={5}
                     placeholder={"install-package nginx\n\ntarget ram: > 80\nrestart-service nginx"}
                     spellCheck={false}
-                    className="min-h-[2.5rem] flex-1 resize-y rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-3 py-2 font-mono text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-faint)] focus:border-[var(--c-accent)]"
+                    className="input input-mono min-h-[2.5rem] flex-1 resize-y px-3"
                   />
                   {/* Reads the program as wanted state instead of as actions:
                       same text, opposite direction. Read-only on the hosts —
@@ -619,7 +613,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
                     onClick={runDriftCheck}
                     disabled={checkingDrift || selectedSshHostIds().length === 0 || !programText.trim()}
                     title="Lit ce programme comme un état voulu et dit quels hôtes s'en écartent — ne change rien"
-                    className="flex items-center gap-1.5 self-stretch rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-3 py-2 text-sm text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)] hover:text-[var(--c-text)] disabled:cursor-not-allowed disabled:opacity-40"
+                    className="btn btn-secondary h-auto self-stretch px-3"
                   >
                     {checkingDrift ? "…" : "Vérifier l'écart"}
                   </button>
@@ -627,7 +621,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
                     onClick={runPreview}
                     disabled={previewing || selectedSshHostIds().length === 0 || !programText.trim()}
                     title="Analyse le programme et montre quels hôtes exécuteraient quoi — ne lance rien"
-                    className="flex items-center gap-1.5 self-stretch rounded-md bg-[var(--c-accent)] px-4 py-2 text-sm font-medium text-white hover:bg-[var(--c-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+                    className="btn btn-primary h-auto self-stretch px-4"
                   >
                     <IconPlay size={14} />
                     {previewing ? "…" : "Prévisualiser"}
@@ -635,7 +629,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
                 </div>
 
                 {drift && (
-                  <div className="rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] p-2">
+                  <div className="card p-2">
                     <div className="flex items-center gap-2">
                       <p className="flex-1 text-[11px] font-medium text-[var(--c-text-secondary)]">
                         Écart par rapport à l'état décrit
@@ -644,14 +638,14 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
                         <button
                           onClick={selectDriftedHosts}
                           title="Ne garder que les hôtes en écart, pour n'exécuter que sur eux"
-                          className="rounded bg-[var(--c-accent-dim)] px-2 py-0.5 text-[10px] font-medium text-[var(--c-accent-text)] hover:bg-[var(--c-accent)] hover:text-white"
+                          className="btn btn-toggled btn-sm h-5 px-2 text-[10.5px]"
                         >
                           Sélectionner les {driftedHostIds.length} hôte(s) en écart
                         </button>
                       )}
                       <button
                         onClick={() => setDrift(null)}
-                        className="rounded px-1.5 py-0.5 text-[10px] text-[var(--c-text-muted)] hover:bg-[var(--c-hover)]"
+                        className="btn btn-ghost btn-sm h-5 px-1.5 text-[10.5px]"
                       >
                         Fermer
                       </button>
@@ -662,17 +656,17 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
                         const unknown = entry.checks.filter((c) => c.verdict.kind === "unknown");
                         const summary = summarise(entry);
                         return (
-                          <div key={entry.hostId} className="rounded bg-[var(--c-bg3)] px-2 py-1.5">
+                          <div key={entry.hostId} className="rounded-md bg-[var(--c-bg2)] px-2 py-1.5">
                             <div className="flex items-center gap-2">
                               <span className="min-w-0 flex-1 truncate text-[11px] text-[var(--c-text)]">
                                 {hostById.get(entry.hostId)?.label ?? entry.hostId}
                               </span>
                               {summary === "unreachable" ? (
-                                <span className="shrink-0 text-[10px] text-[#ef4444]">injoignable</span>
+                                <span className="shrink-0 text-[10.5px] text-[var(--c-danger)]">injoignable</span>
                               ) : summary === "drifted" ? (
-                                <span className="shrink-0 text-[10px] text-amber-400">{drifted.length} écart(s)</span>
+                                <span className="shrink-0 text-[10.5px] text-[var(--c-warn)]">{drifted.length} écart(s)</span>
                               ) : (
-                                <span className="shrink-0 text-[10px] text-emerald-400">conforme</span>
+                                <span className="shrink-0 text-[10.5px] text-[var(--c-ok)]">conforme</span>
                               )}
                               {/* Shown even on a conforming host: "conforme
                                   sur 2 lignes, 3 non vérifiables" is a
@@ -684,13 +678,13 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
                               )}
                             </div>
                             {entry.error && (
-                              <p className="mt-0.5 font-mono text-[10px] text-[#ef4444]/90">{entry.error}</p>
+                              <p className="mt-0.5 font-mono text-[10.5px] text-[var(--c-danger)]">{entry.error}</p>
                             )}
                             {(drifted.length > 0 || unknown.length > 0) && (
                               <ul className="mt-1 space-y-0.5">
                                 {drifted.map((c, i) => (
-                                  <li key={`d${i}`} className="font-mono text-[10px] text-amber-300/90">
-                                    ✕ {c.operation}
+                                  <li key={`d${i}`} className="font-mono text-[10.5px] text-[var(--c-warn)]">
+                                    − {c.operation}
                                   </li>
                                 ))}
                                 {unknown.map((c, i) => (
@@ -714,7 +708,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
                 />
                 <details className="text-[11px] text-[var(--c-text-faint)]">
                   <summary className="cursor-pointer select-none hover:text-[var(--c-text-muted)]">Aide-mémoire de la syntaxe</summary>
-                  <div className="mt-1.5 max-h-64 space-y-1 overflow-y-auto rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] p-2">
+                  <div className="card mt-1.5 max-h-64 space-y-1 overflow-y-auto p-2">
                     <p>Un bloc = conditions/options facultatives, puis une commande. Blocs séparés par une ligne vide.</p>
                     <ul className="list-inside list-disc space-y-0.5">
                       {DSL_CONDITION_FIELDS.map((c) => (
@@ -738,7 +732,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
           {mode === "intent" && previewGroups && (
             <div className="mt-3 space-y-2">
               {previewGroups.map((g, i) => (
-                <div key={i} className="rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] p-2">
+                <div key={i} className="card p-2">
                   <div className="mb-1 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs">
                     <span className="shrink-0 font-medium text-[var(--c-text)]">{g.hostIds.length} hôte(s) :</span>
                     <span className="text-[var(--c-text-secondary)]">
@@ -751,10 +745,10 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
                       onChange={(e) => updateGroupCommand(i, e.target.value)}
                       rows={g.command.split("\n").length}
                       spellCheck={false}
-                      className="w-full resize-y rounded border border-[var(--c-border)] bg-[var(--c-bg3)] px-2 py-1.5 font-mono text-xs text-[var(--c-text)] focus:border-[var(--c-accent)]"
+                      className="input input-mono w-full resize-y"
                     />
                   ) : (
-                    <p className="rounded border border-amber-500/30 bg-amber-500/10 px-2 py-1.5 text-[11px] text-amber-200">
+                    <p className="callout callout-warn text-[11.5px]">
                       {g.note ?? "Rien à exécuter pour ces hôtes"} — exclus de l'exécution.
                     </p>
                   )}
@@ -764,14 +758,14 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
                 <button
                   onClick={runPlan}
                   disabled={running || !previewGroups.some((g) => g.command != null)}
-                  className="flex flex-1 items-center justify-center gap-1.5 rounded-md bg-[var(--c-accent)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--c-accent-hover)] disabled:cursor-not-allowed disabled:opacity-40"
+                  className="btn btn-primary flex-1"
                 >
                   <IconPlay size={13} />
                   Exécuter le plan ({previewGroups.filter((g) => g.command != null).reduce((n, g) => n + g.hostIds.length, 0)} hôte(s))
                 </button>
                 <button
                   onClick={openSaveDialog}
-                  className="rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] px-3 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-bg3)]"
+                  className="btn btn-secondary text-[var(--c-text-secondary)]"
                 >
                   Sauvegarder comme snippet adaptatif
                 </button>
@@ -780,10 +774,10 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
           )}
 
           {runTargets.length > 0 && (
-            <div className="mt-2 flex items-center gap-3 text-xs">
-              <span className="text-[#22c55e]">✓ {summary.ok} ok</span>
-              <span className="text-[#ef4444]">✕ {summary.fail} échec</span>
-              {summary.pending > 0 && <span className="text-[var(--c-text-muted)]">◷ {summary.pending} en cours</span>}
+            <div className="mt-2 flex items-center gap-3 text-[11.5px] tabular-nums">
+              <span className="flex items-center gap-1.5 text-[var(--c-ok)]"><span className="dot dot-ok" /> {summary.ok} ok</span>
+              <span className="flex items-center gap-1.5 text-[var(--c-danger)]"><span className="dot dot-danger" /> {summary.fail} échec</span>
+              {summary.pending > 0 && <span className="flex items-center gap-1.5 text-[var(--c-text-muted)]"><span className="dot" /> {summary.pending} en cours</span>}
               <span className="text-[var(--c-text-faint)]">· {summary.total} cible(s)</span>
             </div>
           )}
@@ -792,31 +786,27 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
         {/* Composer resize handle */}
         <div
           onMouseDown={composer.onMouseDown}
-          className="group relative flex h-1 shrink-0 cursor-row-resize items-center justify-center"
+          className="group relative z-10 -my-0.5 flex h-1.5 shrink-0 cursor-row-resize items-center justify-center"
         >
-          <div className="h-px w-full bg-[var(--c-border)] transition-colors group-hover:bg-[var(--c-accent)]" />
+          <div className="h-px w-full bg-[var(--c-border)] transition-colors group-hover:h-0.5 group-hover:bg-[var(--c-accent)]" />
         </div>
 
         {/* Résultats / Historique */}
-        <div className="flex items-center gap-1 border-b border-[var(--c-border)] px-3 py-1.5 text-xs">
-          <button
-            onClick={() => setView("run")}
-            className={`rounded px-2 py-1 ${view === "run" ? "bg-[var(--c-bg3)] text-[var(--c-text)]" : "text-[var(--c-text-muted)] hover:bg-[var(--c-bg2)]"}`}
-          >
-            Résultats
-          </button>
-          <button
-            onClick={() => setView("history")}
-            className={`rounded px-2 py-1 ${view === "history" ? "bg-[var(--c-bg3)] text-[var(--c-text)]" : "text-[var(--c-text-muted)] hover:bg-[var(--c-bg2)]"}`}
-          >
-            Historique ({history.length})
-          </button>
+        <div className="flex items-center gap-1 border-b border-[var(--c-border)] px-3 py-1.5">
+          <div className="segmented">
+            <button onClick={() => setView("run")} data-active={view === "run" ? "true" : undefined}>
+              Résultats
+            </button>
+            <button onClick={() => setView("history")} data-active={view === "history" ? "true" : undefined}>
+              Historique ({history.length})
+            </button>
+          </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto">
           {view === "history" ? (
             history.length === 0 ? (
-              <div className="flex h-full items-center justify-center px-6 text-center text-sm text-[var(--c-text-faint)]">
+              <div className="flex h-full items-center justify-center px-6 text-center text-[12.5px] text-[var(--c-text-muted)]">
                 Aucun run enregistré. Les exécutions passées apparaîtront ici.
               </div>
             ) : (
@@ -829,7 +819,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
                     <li key={hrun.id} className="border-b border-[var(--c-border)]">
                       <div
                         onClick={() => toggleRun(hrun.id)}
-                        className="flex cursor-pointer items-center gap-2 px-3 py-2 hover:bg-[var(--c-bg2)]"
+                        className="flex cursor-pointer items-center gap-2 px-3 py-2 hover:bg-[var(--c-hover)]"
                       >
                         {isOpen ? (
                           <IconChevronDown size={12} className="shrink-0 text-[var(--c-text-faint)]" />
@@ -842,8 +832,8 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
                             {formatTimestamp(hrun.startedAtMs)} · {hrun.targets.length} cible(s)
                           </div>
                         </div>
-                        <span className="shrink-0 text-xs text-[#22c55e]">✓{counts.ok}</span>
-                        <span className="shrink-0 text-xs text-[#ef4444]">✕{counts.fail}</span>
+                        <span className="flex shrink-0 items-center gap-1 text-[11.5px] tabular-nums text-[var(--c-ok)]"><span className="dot dot-ok" />{counts.ok}</span>
+                        <span className="flex shrink-0 items-center gap-1 text-[11.5px] tabular-nums text-[var(--c-danger)]"><span className="dot dot-danger" />{counts.fail}</span>
                         {/* Disabled rather than hidden, with the reason on
                             hover: "why can't I undo this one" is a question
                             worth answering where it is asked. */}
@@ -854,7 +844,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
                             e.stopPropagation();
                             void reviewRollback(hrun);
                           }}
-                          className="shrink-0 rounded bg-[var(--c-bg3)] px-2 py-0.5 text-[11px] text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)] disabled:cursor-not-allowed disabled:opacity-40"
+                          className="btn btn-secondary btn-sm shrink-0"
                         >
                           {rollbackLoading === hrun.id ? "…" : "Annuler"}
                         </button>
@@ -863,7 +853,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
                             e.stopPropagation();
                             loadRun(hrun);
                           }}
-                          className="shrink-0 rounded bg-[var(--c-accent-dim)] px-2 py-0.5 text-[11px] text-[var(--c-accent-text)] hover:bg-[var(--c-accent)] hover:text-white"
+                          className="btn btn-toggled btn-sm shrink-0"
                         >
                           Charger
                         </button>
@@ -884,12 +874,12 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
                               {(o.stdout || o.stderr || o.error) && (
                                 <details className="ml-5 mt-0.5">
                                   <summary className="cursor-pointer text-[11px] text-[var(--c-text-muted)]">sortie</summary>
-                                  {o.error != null && <p className="mt-1 text-[11px] text-[#ef4444]">{o.error}</p>}
+                                  {o.error != null && <p className="mt-1 text-[11px] text-[var(--c-danger)]">{o.error}</p>}
                                   {o.stdout && (
-                                    <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-[var(--c-bg2)] p-2 font-mono text-[11px] text-[var(--c-text-secondary)]">{o.stdout}</pre>
+                                    <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-[var(--c-bg)] p-2 font-mono text-[11px] text-[var(--c-text-secondary)]">{o.stdout}</pre>
                                   )}
                                   {o.stderr && (
-                                    <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-[var(--c-bg2)] p-2 font-mono text-[11px] text-[#fca5a5]">{o.stderr}</pre>
+                                    <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap rounded bg-[var(--c-bg)] p-2 font-mono text-[11px] text-[var(--c-danger)]">{o.stderr}</pre>
                                   )}
                                 </details>
                               )}
@@ -903,13 +893,13 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
               </ul>
             )
           ) : runTargets.length === 0 ? (
-            <div className="flex h-full items-center justify-center px-6 text-center text-sm text-[var(--c-text-faint)]">
+            <div className="flex h-full items-center justify-center px-6 text-center text-[12.5px] text-[var(--c-text-muted)]">
               Sélectionne des cibles, saisis une commande, puis exécute — le résultat de chacune s'affiche ici.
             </div>
           ) : (
-            <table className="w-full border-collapse text-sm">
+            <table className="w-full border-collapse text-[12.5px]">
               <thead>
-                <tr className="sticky top-0 bg-[var(--c-bg2)] text-left text-[11px] uppercase tracking-wide text-[var(--c-text-muted)]">
+                <tr className="sticky top-0 bg-[var(--c-bg)] text-left text-[10.5px] font-semibold uppercase tracking-[0.06em] text-[var(--c-text-muted)]">
                   <th className="w-8 py-2 pl-3"></th>
                   <th className="py-2">Cible</th>
                   <th className="w-16 py-2 text-center">Code</th>
@@ -928,7 +918,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
                     <Fragment key={key}>
                       <tr
                         onClick={() => hasDetail && toggleExpanded(key)}
-                        className={`border-b border-[var(--c-border)] ${hasDetail ? "cursor-pointer hover:bg-[var(--c-bg2)]" : ""}`}
+                        className={`border-b border-[var(--c-border)] ${hasDetail ? "cursor-pointer hover:bg-[var(--c-hover)]" : ""}`}
                       >
                         <td className="py-2 pl-3">
                           <div className="flex items-center gap-1">
@@ -952,13 +942,13 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
                         <tr className="border-b border-[var(--c-border)] bg-[var(--c-bg)]">
                           <td colSpan={4} className="px-4 py-2">
                             {outcome.error != null && (
-                              <p className="mb-2 text-xs text-[#ef4444]">{outcome.error}</p>
+                              <p className="mb-2 text-xs text-[var(--c-danger)]">{outcome.error}</p>
                             )}
                             {outcome.stdout && (
-                              <pre className="mb-2 max-h-64 overflow-auto whitespace-pre-wrap rounded bg-[var(--c-bg2)] p-2 font-mono text-xs text-[var(--c-text-secondary)]">{outcome.stdout}</pre>
+                              <pre className="mb-2 max-h-64 overflow-auto whitespace-pre-wrap rounded bg-[var(--c-bg2)] p-2 font-mono text-[11.5px] text-[var(--c-text-secondary)]">{outcome.stdout}</pre>
                             )}
                             {outcome.stderr && (
-                              <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-[var(--c-bg2)] p-2 font-mono text-xs text-[#fca5a5]">{outcome.stderr}</pre>
+                              <pre className="max-h-64 overflow-auto whitespace-pre-wrap rounded bg-[var(--c-bg2)] p-2 font-mono text-[11.5px] text-[var(--c-danger)]">{outcome.stderr}</pre>
                             )}
                           </td>
                         </tr>
@@ -983,8 +973,8 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
 
       {showSaveDialog && (
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 pt-[15vh]" onClick={() => setShowSaveDialog(false)}>
-          <div className="w-full max-w-sm overflow-hidden rounded-lg bg-[var(--c-bg2)] p-4 shadow-[var(--shadow-lg)]" onClick={(e) => e.stopPropagation()}>
-            <p className="mb-2 text-sm font-medium text-[var(--c-text)]">Sauvegarder comme snippet adaptatif</p>
+          <div className="modal w-full max-w-sm overflow-hidden p-4" onClick={(e) => e.stopPropagation()}>
+            <p className="mb-2 text-[13px] font-semibold text-[var(--c-text)]">Sauvegarder comme snippet adaptatif</p>
             <input
               value={saveSnippetName}
               onChange={(e) => setSaveSnippetName(e.target.value)}
@@ -1000,11 +990,11 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
               <button
                 onClick={confirmSaveSnippet}
                 disabled={!saveSnippetName.trim()}
-                className="accent-surface flex-1 rounded-md border py-1.5 text-xs font-medium disabled:opacity-40"
+                className="btn btn-primary flex-1"
               >
                 Sauvegarder
               </button>
-              <button onClick={() => setShowSaveDialog(false)} className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]">
+              <button onClick={() => setShowSaveDialog(false)} className="btn btn-ghost">
                 Annuler
               </button>
             </div>
@@ -1014,9 +1004,9 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
 
       {rollback && (
         <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/50 pt-[10vh]" onClick={() => setRollback(null)}>
-          <div className="flex max-h-[75vh] w-full max-w-2xl flex-col overflow-hidden rounded-lg bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]" onClick={(e) => e.stopPropagation()}>
+          <div className="modal flex max-h-[75vh] w-full max-w-2xl flex-col overflow-hidden" onClick={(e) => e.stopPropagation()}>
             <div className="border-b border-[var(--c-border)] px-4 py-3">
-              <p className="text-sm font-medium text-[var(--c-text)]">Annuler ce run</p>
+              <p className="text-[14px] font-semibold text-[var(--c-text)]">Annuler ce run</p>
               <p className="mt-0.5 truncate font-mono text-[11px] text-[var(--c-text-muted)]" title={rollback.run.command}>
                 {rollback.run.command}
               </p>
@@ -1027,13 +1017,13 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
                   the plan it would look like a footnote, when it is the thing
                   that decides whether running this is a good idea at all. */}
               {rollback.plan.unreversed.length > 0 && (
-                <div className="rounded-md border border-rose-900/60 bg-rose-950/40 p-2.5">
-                  <p className="text-[11px] font-medium text-rose-200">
+                <div className="callout callout-danger">
+                  <p className="text-[11.5px] font-medium">
                     Ce que cette annulation ne remettra pas en état :
                   </p>
                   <ul className="mt-1.5 space-y-1">
                     {rollback.plan.unreversed.map((u, i) => (
-                      <li key={`${u.function}-${i}`} className="text-[11px] leading-relaxed text-rose-200/90">
+                      <li key={`${u.function}-${i}`} className="text-[11.5px] leading-relaxed">
                         <span className="font-mono">{u.function}</span> — {u.reason}
                       </li>
                     ))}
@@ -1042,7 +1032,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
               )}
 
               {!hasSomethingToRun(rollback.plan) ? (
-                <p className="rounded-md bg-[var(--c-bg3)] p-2.5 text-[11px] leading-relaxed text-[var(--c-text-secondary)]">
+                <p className="callout">
                   Rien à exécuter : aucune opération de ce run n'a d'inverse applicable sur ces hôtes.
                 </p>
               ) : (
@@ -1080,16 +1070,16 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
               )}
             </div>
 
-            <div className="flex gap-1.5 border-t border-[var(--c-border)] px-4 py-3">
+            <div className="flex justify-end gap-1.5 border-t border-[var(--c-border)] px-4 py-3">
+              <button onClick={() => setRollback(null)} className="btn btn-ghost">
+                Fermer
+              </button>
               <button
                 onClick={executeRollback}
                 disabled={running || !hasSomethingToRun(rollback.plan)}
-                className="accent-surface flex-1 rounded-md border py-1.5 text-xs font-medium disabled:opacity-40"
+                className="btn btn-primary"
               >
                 Exécuter l'annulation
-              </button>
-              <button onClick={() => setRollback(null)} className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]">
-                Fermer
               </button>
             </div>
           </div>

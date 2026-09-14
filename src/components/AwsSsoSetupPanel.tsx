@@ -130,25 +130,25 @@ export function AwsSsoSetupPanel({ onClose, onProfilesCreated, initialSession, s
     // opened *from* one of those, and with the same z-index the winner is
     // whichever React renders later — which put it invisibly behind the
     // database panel while working from the hosts panel, purely by JSX order.
-    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-6" onClick={onClose}>
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-6" onClick={onClose}>
       <div
-        className="flex max-h-full w-[min(44rem,100%)] flex-col overflow-hidden rounded-xl border border-[var(--c-border)] bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]"
+        className="flex max-h-full w-[min(44rem,100%)] flex-col overflow-hidden modal"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-[var(--c-border)] px-4 py-2.5">
           <div>
-            <p className="text-[13px] font-medium text-[var(--c-text)]">
+            <p className="text-[13px] font-semibold text-[var(--c-text)]">
               {startAt === "accounts"
                 ? "Ajouter des profils"
                 : initialSession
                   ? "Reconnecter la session SSO"
                   : "Configurer une session SSO"}
             </p>
-            <p className="text-[11px] text-[var(--c-text-muted)]">
+            <p className="text-[11.5px] text-[var(--c-text-muted)]">
               Écrit dans `~/.aws/config` : ta CLI et tes autres outils verront la même configuration.
             </p>
           </div>
-          <button onClick={onClose} aria-label="Fermer" className="rounded p-1 text-[var(--c-text-muted)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]">
+          <button onClick={onClose} aria-label="Fermer" className="btn btn-ghost btn-sm btn-icon">
             <IconClose size={13} />
           </button>
         </div>
@@ -157,7 +157,7 @@ export function AwsSsoSetupPanel({ onClose, onProfilesCreated, initialSession, s
           {(stage === "form" || stage === "loggingIn") && (
             <>
               <label className="block space-y-1">
-                <span className="text-xs font-medium text-[var(--c-text-muted)]">Nom de la session</span>
+                <span className="field-label">Nom de la session</span>
                 <input
                   value={name}
                   onChange={(e) => setName(e.target.value)}
@@ -171,7 +171,7 @@ export function AwsSsoSetupPanel({ onClose, onProfilesCreated, initialSession, s
                 </span>
               </label>
               <label className="block space-y-1">
-                <span className="text-xs font-medium text-[var(--c-text-muted)]">URL du portail</span>
+                <span className="field-label">URL du portail</span>
                 <input
                   value={startUrl}
                   onChange={(e) => setStartUrl(e.target.value)}
@@ -181,7 +181,7 @@ export function AwsSsoSetupPanel({ onClose, onProfilesCreated, initialSession, s
                 />
               </label>
               <label className="block space-y-1">
-                <span className="text-xs font-medium text-[var(--c-text-muted)]">Région du portail SSO</span>
+                <span className="field-label">Région du portail SSO</span>
                 <input
                   value={region}
                   onChange={(e) => setRegion(e.target.value)}
@@ -217,15 +217,15 @@ export function AwsSsoSetupPanel({ onClose, onProfilesCreated, initialSession, s
           )}
 
           {failure && (
-            <div className="rounded-md border border-rose-900/60 bg-rose-950/40 px-2.5 py-2">
-              <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] text-rose-200/90">{failure.message}</pre>
+            <div className="callout callout-danger">
+              <pre className="max-h-24 overflow-auto whitespace-pre-wrap break-words font-mono text-[10px] text-[var(--c-danger)]">{failure.message}</pre>
               {failure.hint && <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--c-text-secondary)]">{failure.hint}</p>}
             </div>
           )}
 
           {stage === "accounts" && (
             <>
-              <p className="text-xs text-[var(--c-text-secondary)]">
+              <p className="text-[12px] text-[var(--c-text-secondary)]">
                 Connecté. Choisis les rôles pour lesquels créer un profil.
               </p>
               {accounts?.length === 0 && (
@@ -252,9 +252,9 @@ export function AwsSsoSetupPanel({ onClose, onProfilesCreated, initialSession, s
                             type="checkbox"
                             checked={selected.has(key)}
                             onChange={() => toggle(key)}
-                            className="h-4 w-4 shrink-0 accent-[var(--c-accent)]"
+                            className="h-4 w-4 shrink-0"
                           />
-                          <span className="text-xs text-[var(--c-text-secondary)]">{role}</span>
+                          <span className="text-[12px] text-[var(--c-text-secondary)]">{role}</span>
                           <span className="ml-auto truncate font-mono text-[10px] text-[var(--c-text-faint)]">
                             {profileName(role, account.accountId)}
                           </span>
@@ -268,7 +268,7 @@ export function AwsSsoSetupPanel({ onClose, onProfilesCreated, initialSession, s
           )}
 
           {stage === "done" && (
-            <p className="py-6 text-center text-[13px] text-emerald-300">
+            <p className="py-6 text-center text-[13px] text-[var(--c-ok)]">
               Profils créés. Ils sont disponibles ici et dans ta CLI.
             </p>
           )}
@@ -279,12 +279,12 @@ export function AwsSsoSetupPanel({ onClose, onProfilesCreated, initialSession, s
             {stage === "accounts" && `${selected.size} profil${selected.size > 1 ? "s" : ""} à créer`}
           </span>
           {stage === "done" ? (
-            <button onClick={onClose} className="accent-surface rounded-md border px-3 py-1.5 text-xs font-medium">Fermer</button>
+            <button onClick={onClose} className="btn btn-primary">Fermer</button>
           ) : stage === "accounts" ? (
             <button
               onClick={createProfiles}
               disabled={saving || selected.size === 0}
-              className="accent-surface rounded-md border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+              className="btn btn-primary disabled:opacity-50"
             >
               Créer les profils
             </button>
@@ -292,7 +292,7 @@ export function AwsSsoSetupPanel({ onClose, onProfilesCreated, initialSession, s
             <button
               onClick={start}
               disabled={stage === "loggingIn" || stage === "listing" || !canStart}
-              className="accent-surface rounded-md border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+              className="btn btn-primary disabled:opacity-50"
             >
               {stage === "loggingIn" ? "Connexion…" : stage === "listing" ? "Lecture…" : initialSession ? "Reconnecter" : "Se connecter"}
             </button>

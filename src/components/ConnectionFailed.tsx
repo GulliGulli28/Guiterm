@@ -40,19 +40,19 @@ export function ConnectionFailed({ title, error, onRetry, onClose, overlay }: Co
         overlay ? "absolute inset-0" : "min-h-0 flex-1"
       }`}
     >
-      <p className="text-sm text-[var(--c-text-secondary)]">{title}</p>
-      {error && <p className="max-w-md break-words text-xs text-rose-400">{error}</p>}
+      <p className="text-[13px] font-medium text-[var(--c-text)]">{title}</p>
+      {error && <p className="callout callout-danger max-w-md break-words font-mono text-[11.5px]">{error}</p>}
       <div className="flex gap-2">
         <button
           onClick={onRetry}
-          className="rounded-md bg-[var(--c-accent)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--c-accent-hover)]"
+          className="btn btn-primary"
         >
           Réessayer
         </button>
         {onClose && (
           <button
             onClick={onClose}
-            className="rounded-md bg-[var(--c-bg2)] px-3 py-1.5 text-xs font-medium text-[var(--c-text)] hover:bg-[var(--c-hover)]"
+            className="btn btn-ghost"
           >
             Fermer l'onglet
           </button>

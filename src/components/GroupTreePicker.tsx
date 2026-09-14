@@ -114,7 +114,7 @@ export function GroupTreePicker({
       {open && (
         <>
           <div className="fixed inset-0 z-[9998]" onClick={() => setOpen(false)} />
-          <div style={dropdownStyle} className="overflow-hidden rounded-md bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]">
+          <div style={dropdownStyle} className="popover overflow-hidden">
             <div className="max-h-52 overflow-y-auto py-1">
               <button
                 type="button"

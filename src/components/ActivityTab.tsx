@@ -26,10 +26,12 @@ const PERIODS: { id: string; label: string; days: number | null }[] = [
   { id: "30", label: "30 derniers jours", days: 30 },
 ];
 
+// Une seule teinte : ce qui distingue les genres est le libellé, pas une
+// couleur à mémoriser. L'accent marque le filtre actif.
 const KIND_TONE: Record<ActivityKind, string> = {
-  fleetRun: "bg-indigo-500/15 text-indigo-300",
-  command: "bg-slate-500/15 text-slate-300",
-  recording: "bg-teal-500/15 text-teal-300",
+  fleetRun: "tag-accent",
+  command: "",
+  recording: "",
 };
 
 /**
@@ -99,21 +101,21 @@ export function ActivityTab({ workspace, onError, onExported }: ActivityTabProps
   const groups = groupByDay(events ?? []);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[var(--c-bg)]">
+    <div className="flex h-full min-h-0 flex-col bg-[var(--c-bg2)]">
       <div className="shrink-0 space-y-2 border-b border-[var(--c-border)] px-4 py-3">
         <div className="flex items-center gap-2">
-          <h2 className="flex-1 text-[15px] font-semibold text-[var(--c-text)]">Activité</h2>
+          <h2 className="flex-1 text-[13px] font-semibold text-[var(--c-text)]">Activité</h2>
           <button
             onClick={() => runExport("csv")}
             disabled={!events?.length}
-            className="rounded-md bg-[var(--c-bg3)] px-2.5 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)] disabled:opacity-40"
+            className="btn btn-secondary btn-sm text-[var(--c-text-secondary)]"
           >
             Exporter en CSV
           </button>
           <button
             onClick={() => runExport("json")}
             disabled={!events?.length}
-            className="rounded-md bg-[var(--c-bg3)] px-2.5 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)] disabled:opacity-40"
+            className="btn btn-secondary btn-sm text-[var(--c-text-secondary)]"
           >
             Exporter en JSON
           </button>
@@ -126,9 +128,8 @@ export function ActivityTab({ workspace, onError, onExported }: ActivityTabProps
               <button
                 key={kind}
                 onClick={() => toggleKind(kind)}
-                className={`rounded-full px-2.5 py-1 text-[11px] transition-colors ${
-                  active ? KIND_TONE[kind] : "bg-[var(--c-bg3)] text-[var(--c-text-muted)]"
-                }`}
+                aria-pressed={active}
+                className={`btn btn-sm ${active ? "btn-toggled" : "btn-secondary text-[var(--c-text-muted)]"}`}
               >
                 {activityKindLabel(kind)}
               </button>
@@ -163,7 +164,7 @@ export function ActivityTab({ workspace, onError, onExported }: ActivityTabProps
             the journal reads the ghost-text history, which keeps one entry per
             distinct command. Leaving it out would make an audit trail look
             more complete than it is. */}
-        <p className="text-[10px] leading-relaxed text-[var(--c-text-faint)]">
+        <p className="help-text">
           Les commandes proviennent de l'historique de saisie : une entrée par commande distincte,
           datée de sa dernière utilisation — pas une ligne par exécution. Les opérations de flotte et
           les enregistrements sont, eux, listés un par un.
@@ -171,9 +172,9 @@ export function ActivityTab({ workspace, onError, onExported }: ActivityTabProps
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
-        {loading && events === null && <p className="text-sm text-[var(--c-text-muted)]">Lecture du journal…</p>}
+        {loading && events === null && <p className="text-[12.5px] text-[var(--c-text-muted)]">Lecture du journal…</p>}
         {events !== null && events.length === 0 && (
-          <p className="text-sm text-[var(--c-text-muted)]">
+          <p className="text-[12.5px] text-[var(--c-text-muted)]">
             Aucun évènement pour ces filtres. Les opérations de flotte, les commandes saisies dans un
             terminal et les enregistrements de session apparaissent ici au fur et à mesure.
           </p>
@@ -181,27 +182,27 @@ export function ActivityTab({ workspace, onError, onExported }: ActivityTabProps
 
         {groups.map((group) => (
           <div key={group.day} className="mb-4">
-            <h3 className="sticky top-0 z-10 bg-[var(--c-bg)] py-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--c-text-faint)]">
+            <h3 className="eyebrow sticky top-0 z-10 bg-[var(--c-bg2)] py-1">
               {group.day}
             </h3>
             <div className="space-y-1">
               {group.events.map((event, i) => (
                 <div
                   key={`${event.kind}-${event.atMs}-${i}`}
-                  className={`rounded-lg border p-2.5 ${
-                    event.failed ? "border-rose-500/30 bg-rose-950/20" : "border-transparent bg-[var(--c-bg2)]"
+                  className={`rounded-md border px-2.5 py-2 ${
+                    event.failed ? "border-[color-mix(in_srgb,var(--c-danger)_35%,transparent)] bg-[color-mix(in_srgb,var(--c-danger)_8%,transparent)]" : "border-[var(--c-border)] bg-[var(--c-bg3)]"
                   }`}
                 >
                   <div className="flex items-baseline gap-2">
-                    <span className={`shrink-0 rounded px-1.5 py-0.5 text-[10px] ${KIND_TONE[event.kind]}`}>
+                    <span className={`tag ${KIND_TONE[event.kind]}`}>
                       {activityKindLabel(event.kind)}
                     </span>
                     <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-[var(--c-text)]" title={event.summary}>
                       {event.summary}
                     </span>
-                    <span className="shrink-0 text-[10px] text-[var(--c-text-faint)]">{formatActivityTime(event.atMs)}</span>
+                    <span className="shrink-0 font-mono text-[10.5px] tabular-nums text-[var(--c-text-faint)]">{formatActivityTime(event.atMs)}</span>
                   </div>
-                  <p className="mt-0.5 truncate text-[10px] text-[var(--c-text-muted)]" title={event.detail}>
+                  <p className="mt-0.5 truncate text-[11px] text-[var(--c-text-muted)]" title={event.detail}>
                     {event.target}
                     {event.detail && <> · {event.detail}</>}
                   </p>

@@ -46,17 +46,22 @@ export function GroupForm({ workspace, group, onCancel, onSave, onDeleteGroup, o
   };
 
   return (
-    <div className="flex flex-1 flex-col overflow-y-auto p-4">
-      <div className="w-full space-y-4 rounded-xl bg-[var(--c-bg2)] p-5 shadow-[var(--shadow-md)]">
-        <h2 className="text-[16px] font-semibold text-[var(--c-text)]">
+    <div className="flex min-h-0 flex-1 flex-col border-l border-[var(--c-border)]">
+      <div className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--c-border)] px-4">
+        <h2 className="text-[13px] font-semibold text-[var(--c-text)]">
           {group.id ? "Modifier le dossier" : "Nouveau dossier"}
         </h2>
-
+        <div className="flex items-center gap-1.5">
+          <button onClick={onCancel} className="btn btn-ghost">Annuler</button>
+          <button onClick={submit} className="btn btn-primary">Enregistrer</button>
+        </div>
+      </div>
+      <div className="sidebar-scroll min-h-0 flex-1 space-y-3.5 overflow-y-auto p-4">
         {error && <p className="callout callout-danger">{error}</p>}
 
         {/* Icon */}
         <div className="space-y-1">
-          <span className="text-xs font-medium text-[var(--c-text-secondary)]">Icône</span>
+          <span className="field-label">Icône</span>
           <div className="relative">
             <div className="flex items-center gap-2">
               <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--c-border)] bg-[var(--c-bg3)] text-[var(--c-text-muted)]">
@@ -95,7 +100,7 @@ export function GroupForm({ workspace, group, onCancel, onSave, onDeleteGroup, o
 
         {/* Color tag */}
         <div className="space-y-1">
-          <span className="text-xs font-medium text-[var(--c-text-secondary)]">Couleur (affichée sur les onglets)</span>
+          <span className="field-label">Couleur (affichée sur les onglets)</span>
           <div className="flex flex-wrap items-center gap-1.5">
             <button
               type="button"
@@ -123,7 +128,7 @@ export function GroupForm({ workspace, group, onCancel, onSave, onDeleteGroup, o
 
         {/* Name */}
         <div className="space-y-1">
-          <span className="text-xs font-medium text-[var(--c-text-secondary)]">Nom</span>
+          <span className="field-label">Nom</span>
           <input
             value={name}
             onChange={(e) => setName(e.target.value)}
@@ -136,7 +141,7 @@ export function GroupForm({ workspace, group, onCancel, onSave, onDeleteGroup, o
 
         {/* Parent folder */}
         <div className="space-y-1">
-          <span className="text-xs font-medium text-[var(--c-text-secondary)]">Dossier parent</span>
+          <span className="field-label">Dossier parent</span>
           <GroupTreePicker
             groups={workspace.groups}
             value={parentId}
@@ -146,46 +151,22 @@ export function GroupForm({ workspace, group, onCancel, onSave, onDeleteGroup, o
           />
         </div>
 
-        <div className="flex gap-2 pt-2">
-          <button
-            onClick={submit}
-            className="flex-1 rounded-md bg-[var(--c-accent)] px-3 py-2 text-sm font-medium text-white hover:bg-[var(--c-accent-hover)]"
-          >
-            Enregistrer
-          </button>
-          <button
-            onClick={onCancel}
-            className="flex-1 rounded-md bg-[var(--c-bg3)] px-3 py-2 text-sm font-medium text-[var(--c-text)] hover:bg-[var(--c-hover)]"
-          >
-            Annuler
-          </button>
-        </div>
-
         {group.id && onDeleteGroup && (
           <div className="border-t border-[var(--c-border)] pt-3">
             {confirmDelete ? (
-              <div className="space-y-2 rounded-lg bg-rose-950/30 p-3">
-                <p className="text-sm text-rose-300">Supprimer ce dossier définitivement ?</p>
+              <div className="callout callout-danger space-y-2">
+                <p className="font-medium">Supprimer ce dossier définitivement ?</p>
                 <div className="flex gap-2">
-                  <button
-                    onClick={() => onDeleteGroup(group.id!)}
-                    className="flex-1 rounded-md bg-rose-700 px-3 py-2 text-sm font-medium text-white hover:bg-rose-600"
-                  >
+                  <button onClick={() => onDeleteGroup(group.id!)} className="btn btn-danger">
                     Oui, supprimer
                   </button>
-                  <button
-                    onClick={() => setConfirmDelete(false)}
-                    className="flex-1 rounded-md bg-[var(--c-bg3)] px-3 py-2 text-sm font-medium text-[var(--c-text)] hover:bg-[var(--c-hover)]"
-                  >
+                  <button onClick={() => setConfirmDelete(false)} className="btn btn-ghost">
                     Annuler
                   </button>
                 </div>
               </div>
             ) : (
-              <button
-                onClick={() => setConfirmDelete(true)}
-                className="flex w-full items-center justify-center gap-2 rounded-md py-2 text-sm text-rose-400 hover:bg-rose-950/40 hover:text-rose-300"
-              >
+              <button onClick={() => setConfirmDelete(true)} className="btn btn-ghost text-[var(--c-danger)] hover:bg-[color-mix(in_srgb,var(--c-danger)_10%,transparent)]">
                 <IconTrash size={13} /> Supprimer ce dossier
               </button>
             )}

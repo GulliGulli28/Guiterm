@@ -25,26 +25,20 @@ export function BroadcastBar({ targets, selectedIds, onChangeSelected, liveSyncM
   };
 
   return (
-    <div className="flex shrink-0 items-center gap-2 border-b border-amber-500/30 bg-amber-950/40 px-3 py-2">
-      <IconBroadcast size={14} className="shrink-0 text-amber-300" />
+    <div className="flex shrink-0 items-center gap-2 border-b border-[color-mix(in_srgb,var(--c-warn)_35%,transparent)] bg-[color-mix(in_srgb,var(--c-warn)_10%,transparent)] px-3 py-2">
+      <IconBroadcast size={14} className="shrink-0 text-[var(--c-warn)]" />
 
-      <div className="flex shrink-0 rounded-md bg-black/20 p-0.5">
-        <button
-          onClick={() => { if (liveSyncMode) onToggleLiveSync(); }}
-          className={`rounded px-2 py-0.5 text-[11px] font-medium ${!liveSyncMode ? "bg-amber-800 text-amber-50" : "text-amber-300/70 hover:text-amber-200"}`}
-        >
+      <div className="segmented shrink-0">
+        <button onClick={() => { if (liveSyncMode) onToggleLiveSync(); }} data-active={!liveSyncMode ? "true" : undefined} className="!py-0.5 !text-[11.5px]">
           Commande
         </button>
-        <button
-          onClick={() => { if (!liveSyncMode) onToggleLiveSync(); }}
-          className={`rounded px-2 py-0.5 text-[11px] font-medium ${liveSyncMode ? "bg-amber-800 text-amber-50" : "text-amber-300/70 hover:text-amber-200"}`}
-        >
+        <button onClick={() => { if (!liveSyncMode) onToggleLiveSync(); }} data-active={liveSyncMode ? "true" : undefined} className="!py-0.5 !text-[11.5px]">
           Direct
         </button>
       </div>
 
       {liveSyncMode ? (
-        <p className="min-w-0 flex-1 truncate text-xs text-amber-200/80">
+        <p className="min-w-0 flex-1 truncate text-[12px] text-[var(--c-text-secondary)]">
           Tapez dans un terminal : la frappe est répercutée en direct vers {selectedIds.size} terminal(aux) sélectionné(s).
         </p>
       ) : (
@@ -58,7 +52,7 @@ export function BroadcastBar({ targets, selectedIds, onChangeSelected, liveSyncM
           }}
           placeholder={selectedIds.size > 0 ? `Diffuser vers ${selectedIds.size} terminal(aux)…` : "Aucune cible sélectionnée"}
           disabled={targets.length === 0}
-          className="min-w-0 flex-1 bg-transparent font-mono text-sm text-amber-100 placeholder:font-sans placeholder:text-amber-300/50 disabled:cursor-not-allowed"
+          className="min-w-0 flex-1 bg-transparent font-mono text-[12.5px] text-[var(--c-text)] outline-none placeholder:font-sans placeholder:text-[var(--c-text-muted)] disabled:cursor-not-allowed"
         />
       )}
 
@@ -67,12 +61,12 @@ export function BroadcastBar({ targets, selectedIds, onChangeSelected, liveSyncM
         <button
           onClick={submit}
           disabled={selectedIds.size === 0 || !value.trim()}
-          className="shrink-0 rounded-md bg-amber-800/60 px-2.5 py-1 text-xs font-medium text-amber-100 hover:bg-amber-800 disabled:cursor-not-allowed disabled:opacity-40"
+          className="btn btn-sm shrink-0 border-[color-mix(in_srgb,var(--c-warn)_40%,transparent)] bg-[color-mix(in_srgb,var(--c-warn)_15%,transparent)] text-[var(--c-warn)] hover:bg-[color-mix(in_srgb,var(--c-warn)_25%,transparent)]"
         >
           Envoyer
         </button>
       )}
-      <button onClick={onClose} title="Fermer (Échap)" className="flex shrink-0 items-center rounded p-1 text-amber-300 hover:bg-[var(--c-active)]">
+      <button onClick={onClose} title="Fermer (Échap)" className="btn btn-ghost btn-sm btn-icon shrink-0 text-[var(--c-warn)]">
         <IconClose size={12} />
       </button>
     </div>

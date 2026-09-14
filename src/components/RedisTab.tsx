@@ -164,7 +164,7 @@ export function RedisTab({ connection, onError }: RedisTabProps) {
   };
 
   if (status === "connecting") {
-    return <div className="flex flex-1 items-center justify-center text-sm text-[var(--c-text-muted)]">Connexion à « {connection.label} »…</div>;
+    return <div className="flex flex-1 items-center justify-center text-[12.5px] text-[var(--c-text-muted)]">Connexion à « {connection.label} »…</div>;
   }
   if (status === "failed") {
     return (
@@ -183,26 +183,26 @@ export function RedisTab({ connection, onError }: RedisTabProps) {
        * squeezed narrow by the split-terminal view). */}
       <div style={{ width: split.value }} className="flex max-w-[50%] shrink-0 flex-col overflow-hidden border-r border-[var(--c-border)] bg-[var(--c-bg2)]">
         <div className="flex shrink-0 items-center justify-between border-b border-[var(--c-border)] px-3 py-2.5">
-          <span className="truncate text-xs font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">
+          <span className="eyebrow truncate">
             Redis{database !== null ? ` · DB ${database}` : ""}
           </span>
           <button
             onClick={refreshKeys}
             disabled={loadingKeys}
             title="Actualiser la liste des clés"
-            className="flex shrink-0 items-center justify-center rounded p-1 text-[var(--c-text-faint)] hover:bg-[var(--c-active)] hover:text-[var(--c-text-secondary)] disabled:opacity-50"
+            className="btn btn-ghost btn-sm btn-icon"
           >
             <IconRefresh size={13} className={loadingKeys && !hasLoadedOnce ? "animate-spin" : ""} />
           </button>
         </div>
         <div className="shrink-0 border-b border-[var(--c-border)] p-2">
-          <div className="flex items-center gap-2 rounded-md border border-[var(--c-border)] bg-[var(--c-bg)] px-2 py-1.5">
+          <div className="input flex items-center gap-2">
             <IconSearch size={13} className="shrink-0 text-[var(--c-text-faint)]" />
             <input
               value={pattern}
               onChange={(e) => onPatternChange(e.target.value)}
               placeholder="Rechercher (motif ou sous-chaîne)…"
-              className="w-full bg-transparent text-xs text-[var(--c-text)] placeholder:text-[var(--c-text-faint)]"
+              className="w-full bg-transparent text-[12px] text-[var(--c-text)] outline-none placeholder:text-[var(--c-text-faint)]"
             />
           </div>
         </div>
@@ -218,13 +218,13 @@ export function RedisTab({ connection, onError }: RedisTabProps) {
                 <button
                   key={entry.key}
                   onClick={() => selectKey(entry.key)}
-                  className={`flex w-full items-center gap-1.5 rounded-md px-2 py-1.5 text-left text-[13px] transition-colors ${
-                    active ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]"
+                  className={`flex h-7 w-full items-center gap-1.5 rounded-md px-2 text-left text-[12px] transition-colors ${
+                    active ? "bg-[var(--c-accent-dim)] text-[var(--c-text)]" : "text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]"
                   }`}
                 >
                   <span className="min-w-0 flex-1 truncate font-mono">{entry.key}</span>
-                  <span className="shrink-0 rounded-full bg-[var(--c-bg3)] px-1.5 py-0.5 text-[9px] text-[var(--c-text-secondary)]">{entry.keyType}</span>
-                  {entry.ttlSecs !== null && <span className="shrink-0 text-[9px] text-amber-400">{formatTtl(entry.ttlSecs)}</span>}
+                  <span className="tag font-mono">{entry.keyType}</span>
+                  {entry.ttlSecs !== null && <span className="shrink-0 font-mono text-[10px] text-[var(--c-warn)]">{formatTtl(entry.ttlSecs)}</span>}
                 </button>
               );
             })
@@ -233,7 +233,7 @@ export function RedisTab({ connection, onError }: RedisTabProps) {
             <button
               onClick={loadMoreKeys}
               disabled={loadingKeys}
-              className="w-full rounded-md px-2 py-1.5 text-center text-[11px] text-[var(--c-accent-text)] hover:bg-[var(--c-hover)] disabled:opacity-50"
+              className="btn btn-ghost btn-sm w-full text-[var(--c-accent-text)]"
             >
               {loadingKeys ? "Chargement…" : "Charger plus"}
             </button>
@@ -241,38 +241,30 @@ export function RedisTab({ connection, onError }: RedisTabProps) {
         </div>
       </div>
 
-      <div onMouseDown={split.onMouseDown} className="group relative flex w-1 shrink-0 cursor-col-resize items-center justify-center">
-        <div className="h-full w-px bg-[var(--c-border)] transition-colors group-hover:bg-[var(--c-accent)]" />
+      <div onMouseDown={split.onMouseDown} className="group relative z-10 -mx-0.5 flex w-1.5 shrink-0 cursor-col-resize items-center justify-center">
+        <div className="h-full w-px bg-[var(--c-border)] transition-colors group-hover:w-0.5 group-hover:bg-[var(--c-accent)]" />
       </div>
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         <div className="flex shrink-0 items-center gap-1 border-b border-[var(--c-border)] px-2 py-1.5">
-          <button
-            onClick={() => setActiveSubTab("value")}
-            className={`truncate rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-              activeSubTab === "value" ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-muted)] hover:bg-[var(--c-bg2)] hover:text-[var(--c-text-secondary)]"
-            }`}
-          >
-            {selectedKey ? `Valeur : ${selectedKey}` : "Valeur"}
-          </button>
-          <button
-            onClick={() => setActiveSubTab("console")}
-            className={`rounded px-2.5 py-1 text-xs font-medium transition-colors ${
-              activeSubTab === "console" ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)]" : "text-[var(--c-text-muted)] hover:bg-[var(--c-bg2)] hover:text-[var(--c-text-secondary)]"
-            }`}
-          >
-            Console
-          </button>
+          <div className="segmented">
+            <button onClick={() => setActiveSubTab("value")} data-active={activeSubTab === "value" ? "true" : undefined} className="max-w-[16rem] truncate">
+              {selectedKey ? `Valeur : ${selectedKey}` : "Valeur"}
+            </button>
+            <button onClick={() => setActiveSubTab("console")} data-active={activeSubTab === "console" ? "true" : undefined}>
+              Console
+            </button>
+          </div>
         </div>
 
         {activeSubTab === "value" && (
-          <div className="m-2 min-h-0 flex-1 overflow-auto rounded-lg border border-[var(--c-border)] p-3">
+          <div className="m-2 min-h-0 flex-1 overflow-auto p-1">
             {selectedKey === null ? (
-              <p className="text-xs text-[var(--c-text-faint)]">Cliquez une clé dans la liste pour voir sa valeur.</p>
+              <p className="text-[12px] text-[var(--c-text-muted)]">Cliquez une clé dans la liste pour voir sa valeur.</p>
             ) : loadingDetail ? (
               <p className="text-xs text-[var(--c-text-muted)]">Chargement…</p>
             ) : keyDetailError ? (
-              <p className="whitespace-pre-wrap text-xs text-rose-400">{keyDetailError}</p>
+              <p className="callout callout-danger whitespace-pre-wrap font-mono text-[11.5px]">{keyDetailError}</p>
             ) : keyDetailMissing ? (
               <p className="text-xs text-[var(--c-text-muted)]">Clé introuvable — expirée ou supprimée depuis le dernier chargement de la liste.</p>
             ) : keyDetail ? (
@@ -294,20 +286,20 @@ export function RedisTab({ connection, onError }: RedisTabProps) {
             <button
               onClick={runConsoleCommand}
               disabled={consoleRunning || !consoleInput.trim()}
-              className="accent-surface flex shrink-0 items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+              className="btn btn-primary"
             >
               <IconPlay size={11} /> {consoleRunning ? "…" : "Exécuter"}
             </button>
           </div>
-          <div className="m-2 min-h-0 flex-1 space-y-3 overflow-auto rounded-lg border border-[var(--c-border)] p-3">
+          <div className="m-2 min-h-0 flex-1 space-y-3 overflow-auto p-1">
             {consoleHistory.length === 0 ? (
-              <p className="text-xs text-[var(--c-text-faint)]">Aucune commande — tapez-en une ci-dessus et appuyez sur Entrée.</p>
+              <p className="text-[12px] text-[var(--c-text-muted)]">Aucune commande — tapez-en une ci-dessus et appuyez sur Entrée.</p>
             ) : (
               consoleHistory.map((entry, i) => (
                 <div key={i} className="space-y-1">
                   <p className="font-mono text-[12px] text-[var(--c-text-secondary)]">&gt; {entry.command}</p>
                   {entry.error ? (
-                    <p className="whitespace-pre-wrap pl-3 text-xs text-rose-400">{entry.error}</p>
+                    <p className="whitespace-pre-wrap pl-3 font-mono text-[11.5px] text-[var(--c-danger)]">{entry.error}</p>
                   ) : (
                     <div className="pl-3">
                       <RedisReplyView reply={entry.reply ?? null} />
@@ -327,7 +319,7 @@ function tableClass() {
   return "w-full border-collapse text-left text-[12px]";
 }
 function thClass() {
-  return "border-b border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1 font-medium text-[var(--c-text-secondary)]";
+  return "border-b border-[var(--c-border)] bg-[var(--c-bg)] px-2 py-1 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-[var(--c-text-muted)]";
 }
 function tdClass() {
   return "border-b border-[var(--c-border)] px-2 py-1 font-mono text-[var(--c-text)]";
@@ -346,7 +338,7 @@ function prettyPrintIfJson(value: string): string {
 
 function TruncatedNotice({ truncated }: { truncated: boolean }) {
   if (!truncated) return null;
-  return <p className="mb-2 text-[11px] text-amber-400">Résultat tronqué — seuls les premiers éléments sont affichés.</p>;
+  return <p className="mb-2 text-[11px] text-[var(--c-warn)]">Résultat tronqué — seuls les premiers éléments sont affichés.</p>;
 }
 
 /** The "Valeur" tab's body — type-dispatched rendering of `detail.value`,
@@ -459,5 +451,5 @@ function RedisReplyView({ reply }: { reply: RedisReply }) {
       </ol>
     );
   }
-  return <span className="whitespace-pre-wrap text-[13px] text-rose-400">{reply.error}</span>;
+  return <span className="whitespace-pre-wrap text-[13px] text-[var(--c-danger)]">{reply.error}</span>;
 }

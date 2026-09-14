@@ -147,7 +147,7 @@ export function useContainerPicker(
       {logs && (
         <>
           <div className="fixed inset-0 z-40 bg-black/50" onClick={() => setLogs(null)} />
-          <div className="fixed left-1/2 top-1/2 z-50 flex h-[70vh] w-[720px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]">
+          <div className="fixed left-1/2 top-1/2 z-50 flex h-[70vh] w-[720px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 flex-col modal overflow-hidden">
             <div className="shrink-0 border-b border-[var(--c-border)] px-4 py-3">
               <p className="truncate text-[14px] font-medium text-[var(--c-text)]">{logs.title}</p>
               <p className="mt-0.5 text-[11px] text-[var(--c-text-muted)]">
@@ -156,7 +156,7 @@ export function useContainerPicker(
             </div>
             <div className="min-h-0 flex-1 overflow-auto p-3">
               {logs.error ? (
-                <p className="whitespace-pre-wrap text-[12px] text-rose-300">{logs.error}</p>
+                <p className="whitespace-pre-wrap text-[12px] text-[var(--c-danger)]">{logs.error}</p>
               ) : logs.body === null ? (
                 <p className="text-[12px] text-[var(--c-text-muted)]">Chargement…</p>
               ) : logs.body.trim() === "" ? (

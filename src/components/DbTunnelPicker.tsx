@@ -85,7 +85,7 @@ export function DbTunnelPicker({ workspace, value, onChange, probeTarget, ssmDef
 
   return (
     <div className="space-y-1">
-      <span className="text-xs font-medium text-[var(--c-text-secondary)]">Tunnel</span>
+      <span className="field-label">Tunnel</span>
       <select value={value.kind} onChange={(e) => onModeChange(e.target.value as DbTunnel["kind"])} className={selectClass}>
         <option value="direct">Connexion directe (pas de tunnel)</option>
         <option value="sshHost" disabled={sshHosts.length === 0}>
@@ -109,7 +109,7 @@ export function DbTunnelPicker({ workspace, value, onChange, probeTarget, ssmDef
             placeholder="Choisir un hôte SSH…"
             className={`${selectClass} flex items-center justify-between gap-2 text-left`}
           />
-          <p className="px-0.5 text-[11px] leading-relaxed text-[var(--c-text-muted)]">
+          <p className="help-text px-0.5">
             L'adresse de la base doit être joignable <em>depuis</em> cet hôte — souvent 127.0.0.1 si
             la base n'écoute qu'en local sur le serveur.
           </p>
@@ -126,7 +126,7 @@ export function DbTunnelPicker({ workspace, value, onChange, probeTarget, ssmDef
             }}
             placeholder="Instance SSM (i-0abc123… ou mi-…)"
             spellCheck={false}
-            className={`${inputClass} w-full font-mono`}
+            className={`${inputClass} input-mono w-full`}
           />
           <div className="flex gap-1.5">
             <input
@@ -153,7 +153,7 @@ export function DbTunnelPicker({ workspace, value, onChange, probeTarget, ssmDef
           {/* Said plainly because it is the thing people get wrong about SSM:
               it is not "no machine in the middle", it is "no SSH on the
               machine in the middle". */}
-          <p className="px-0.5 text-[11px] leading-relaxed text-[var(--c-text-muted)]">
+          <p className="help-text px-0.5">
             Le trafic passe par cette instance, mais elle n'a besoin ni de serveur SSH, ni de clé, ni
             de port ouvert en entrée — seulement de l'agent SSM et des droits IAM. L'adresse de la
             base est celle que <em>l'instance</em> résout, généralement le point de terminaison AWS.
@@ -186,13 +186,13 @@ function SsmProbeResult({ probe }: { probe: SsmProbe }) {
   switch (probe.kind) {
     case "reached":
       return (
-        <p className="rounded-md bg-emerald-950 px-3 py-2 text-[11px] leading-relaxed text-emerald-300">
+        <p className="rounded-md bg-[color-mix(in_srgb,var(--c-ok)_12%,transparent)] px-3 py-2 text-[11px] leading-relaxed text-[var(--c-ok)]">
           Tunnel ouvert (port local {probe.localPort}) et la base répond. Rien d'autre à configurer.
         </p>
       );
     case "opened":
       return (
-        <p className="rounded-md bg-amber-950 px-3 py-2 text-[11px] leading-relaxed text-amber-300">
+        <p className="callout callout-warn text-[11.5px]">
           Le tunnel s'ouvre (AWS, IAM et l'agent SSM sont donc bons), mais l'instance n'atteint pas la
           base. À vérifier : l'adresse et le port de la base, et le groupe de sécurité qui autorise
           l'instance à s'y connecter.

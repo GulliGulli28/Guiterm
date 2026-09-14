@@ -22,11 +22,11 @@ export function QuickEditModal({ fileName, content, loading, saving, error, onSa
 
   return (
     <>
-      <div className="fixed inset-0 z-30 bg-black/60" onClick={onClose} />
-      <div ref={ref} {...dialogProps} className="fixed inset-8 z-40 flex flex-col overflow-hidden rounded-lg bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]">
+      <div className="fixed inset-0 z-30 bg-black/50" onClick={onClose} />
+      <div ref={ref} {...dialogProps} className="fixed inset-8 z-40 flex flex-col modal overflow-hidden">
         <div className="flex items-center justify-between border-b border-[var(--c-border)] px-4 py-2.5">
           <p className="truncate font-mono text-[13px] font-medium text-[var(--c-text)]">{fileName}</p>
-          <button aria-label="Fermer l'éditeur" onClick={onClose} className="flex shrink-0 items-center rounded p-1 text-[var(--c-text-muted)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]">
+          <button aria-label="Fermer l'éditeur" onClick={onClose} className="btn btn-ghost btn-sm btn-icon shrink-0">
             <IconClose size={14} />
           </button>
         </div>
@@ -46,15 +46,15 @@ export function QuickEditModal({ fileName, content, loading, saving, error, onSa
         </div>
 
         <div className="flex items-center justify-between gap-2 border-t border-[var(--c-border)] px-4 py-2.5">
-          <span className="truncate text-[12px] text-rose-300">{error ?? ""}</span>
+          <span className="truncate text-[12px] text-[var(--c-danger)]">{error ?? ""}</span>
           <div className="flex shrink-0 gap-1.5">
-            <button onClick={onClose} className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]">
+            <button onClick={onClose} className="btn btn-ghost">
               Annuler
             </button>
             <button
               onClick={() => onSave(value)}
               disabled={loading || saving}
-              className="accent-surface rounded-md border px-3 py-1.5 text-xs font-medium disabled:opacity-50"
+              className="btn btn-primary disabled:opacity-50"
             >
               {saving ? "Enregistrement…" : "Enregistrer"}
             </button>

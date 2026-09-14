@@ -975,7 +975,7 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
       {/* Vignette qui suit le curseur pendant un glisser interne. */}
       {drag && (
         <div
-          className="pointer-events-none fixed z-50 rounded-md border border-[var(--c-accent)] bg-[var(--c-bg2)] px-2 py-1 text-xs text-[var(--c-text)] shadow-lg"
+          className="pointer-events-none fixed z-50 popover border border-[var(--c-accent)] px-2 py-1 text-[12px] text-[var(--c-text)]"
           style={{ left: drag.x + 14, top: drag.y + 14 }}
         >
           {drag.entries.length === 1 ? drag.entries[0].name : `${drag.entries.length} éléments`}
@@ -1741,7 +1741,7 @@ export function PaneView({
               {disk && disk.totalBytes > 0 && (
                 <span
                   title={`${formatSize(disk.freeBytes)} libres sur ${formatSize(disk.totalBytes)} — système de fichiers de ${pane.cwd}`}
-                  className={`shrink-0 tabular-nums ${disk.freeBytes / disk.totalBytes < 0.1 ? "text-amber-400" : "text-[var(--c-text-faint)]"}`}
+                  className={`shrink-0 tabular-nums ${disk.freeBytes / disk.totalBytes < 0.1 ? "text-[var(--c-warn)]" : "text-[var(--c-text-faint)]"}`}
                   style={{ fontSize: `${Math.max(9, fontSize - 3)}px` }}
                 >
                   {formatSize(disk.freeBytes)} libres
@@ -2313,7 +2313,7 @@ function FindResults({
       <div className="flex items-center gap-2 border-b border-[var(--c-border)] bg-[var(--c-bg3)]/60 px-2 py-1 text-[11px] text-[var(--c-text-muted)]">
         <span className="min-w-0 flex-1 truncate">
           {find.status === "running" && `Recherche de « ${find.pattern} » sous ${cwd}…`}
-          {find.status === "failed" && <span className="text-rose-300">Échec : {find.error}</span>}
+          {find.status === "failed" && <span className="text-[var(--c-danger)]">Échec : {find.error}</span>}
           {find.status === "done" &&
             `${find.outcome.paths.length} résultat(s) pour « ${find.pattern} »${find.outcome.truncated ? " — liste tronquée" : ""}`}
         </span>
@@ -2367,7 +2367,7 @@ function ConflictModal({
       <div
         ref={ref}
         {...dialogProps}
-        className="w-full max-w-lg rounded-lg border border-[var(--c-border)] bg-[var(--c-bg2)] p-4 shadow-xl"
+        className="w-full max-w-lg modal p-4"
         onClick={(e) => e.stopPropagation()}
       >
         <p className="text-sm text-[var(--c-text)]">
@@ -2392,7 +2392,7 @@ function ConflictModal({
         <div className="mt-4 flex flex-wrap justify-end gap-2">
           <button
             onClick={onCancel}
-            className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]"
+            className="btn btn-ghost"
           >
             Annuler
           </button>
@@ -2496,7 +2496,7 @@ export function ComparisonPanel({
         </p>
       )}
       {state.status === "failed" && (
-        <p className="flex flex-1 items-center justify-center px-6 text-center text-sm text-rose-300">{state.error}</p>
+        <p className="flex flex-1 items-center justify-center px-6 text-center text-sm text-[var(--c-danger)]">{state.error}</p>
       )}
 
       {state.status === "done" && (
@@ -2510,7 +2510,7 @@ export function ComparisonPanel({
               <span className="text-[var(--c-text-muted)]">{state.result.identical} fichier(s) identique(s)</span>
             </span>
             {state.result.truncated && (
-              <span className="text-amber-400">
+              <span className="text-[var(--c-warn)]">
                 Trop de fichiers : la comparaison ne couvre qu'une partie de l'arborescence.
               </span>
             )}
@@ -2546,7 +2546,7 @@ export function ComparisonPanel({
                     disabled={!movable}
                     checked={movable && checked.has(difference.path)}
                     onChange={() => toggle(difference.path)}
-                    className="h-3.5 w-3.5 shrink-0 accent-[var(--c-accent)]"
+                    className="h-3.5 w-3.5 shrink-0"
                   />
                   <span className="min-w-0 flex-1 truncate font-mono text-[var(--c-text)]" title={difference.path}>
                     {difference.path}
@@ -2685,11 +2685,11 @@ export function FileDiffModal({
         ref={ref}
         {...dialogProps}
         onClick={(e) => e.stopPropagation()}
-        className="flex h-full max-h-[85vh] w-full max-w-6xl flex-col rounded-lg border border-[var(--c-border)] bg-[var(--c-bg2)] shadow-xl"
+        className="flex h-full max-h-[85vh] w-full max-w-6xl flex-col modal"
       >
         {/* Les deux fichiers, nommés. */}
         <div className="flex items-center gap-2 border-b border-[var(--c-border)] px-3 py-2 text-xs">
-          <span className="min-w-0 flex-1 truncate font-mono text-rose-200" title={labelOf(state.left)}>
+          <span className="min-w-0 flex-1 truncate font-mono text-[var(--c-danger)]" title={labelOf(state.left)}>
             − {labelOf(state.left)}
           </span>
           <button
@@ -2699,7 +2699,7 @@ export function FileDiffModal({
           >
             ↔
           </button>
-          <span className="min-w-0 flex-1 truncate text-right font-mono text-emerald-200" title={labelOf(state.right)}>
+          <span className="min-w-0 flex-1 truncate text-right font-mono text-[var(--c-ok)]" title={labelOf(state.right)}>
             + {labelOf(state.right)}
           </span>
           <button aria-label="Fermer la comparaison" onClick={onClose} className="shrink-0 rounded px-2 py-0.5 text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]">
@@ -2711,7 +2711,7 @@ export function FileDiffModal({
           <p className="flex flex-1 items-center justify-center text-sm text-[var(--c-text-muted)]">Lecture des deux fichiers…</p>
         )}
         {state.status === "failed" && (
-          <p className="flex flex-1 items-center justify-center px-6 text-center text-sm text-rose-300">{state.error}</p>
+          <p className="flex flex-1 items-center justify-center px-6 text-center text-sm text-[var(--c-danger)]">{state.error}</p>
         )}
 
         {state.status === "done" && (
@@ -2778,7 +2778,7 @@ export function FileDiffModal({
             )}
 
             {state.diff.truncated && (
-              <p className="shrink-0 border-t border-[var(--c-border)] px-3 py-1.5 text-[11px] text-amber-400">
+              <p className="shrink-0 border-t border-[var(--c-border)] px-3 py-1.5 text-[11px] text-[var(--c-warn)]">
                 Trop de différences : l'affichage s'arrête ici, le reste n'est pas montré.
               </p>
             )}
@@ -2799,7 +2799,7 @@ function DiffText({ line }: { line: DiffLine }) {
       {line.segments.map((segment, index) => (
         <span
           key={index}
-          className={segment.emphasis ? (line.kind === "deleted" ? "rounded-sm bg-rose-500/30" : "rounded-sm bg-emerald-500/30") : ""}
+          className={segment.emphasis ? (line.kind === "deleted" ? "rounded-sm bg-[color-mix(in_srgb,var(--c-danger)_30%,transparent)]" : "rounded-sm bg-[color-mix(in_srgb,var(--c-ok)_30%,transparent)]") : ""}
         >
           {segment.text}
         </span>
@@ -2809,8 +2809,8 @@ function DiffText({ line }: { line: DiffLine }) {
 }
 
 const LINE_BG: Record<DiffLine["kind"], string> = {
-  deleted: "bg-rose-950/40 text-rose-200",
-  inserted: "bg-emerald-950/40 text-emerald-200",
+  deleted: "bg-[color-mix(in_srgb,var(--c-danger)_12%,transparent)] text-[var(--c-danger)]",
+  inserted: "bg-[color-mix(in_srgb,var(--c-ok)_12%,transparent)] text-[var(--c-ok)]",
   equal: "text-[var(--c-text-secondary)]",
 };
 

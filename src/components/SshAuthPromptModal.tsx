@@ -35,15 +35,15 @@ export function SshAuthPromptModal({ prompt, onSubmit, onCancel }: SshAuthPrompt
   const submit = () => onSubmit(answers);
 
   return (
-    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/60 p-6">
+    <div className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/50 p-6">
       <form
         ref={ref}
         {...dialogProps}
-        className="w-full max-w-md space-y-4 rounded-xl bg-[var(--c-bg2)] p-5 shadow-[var(--shadow-md)]"
+        className="w-full max-w-md space-y-4 modal p-5"
         onSubmit={(e) => { e.preventDefault(); submit(); }}
       >
         <div className="space-y-1">
-          <h2 className="text-[15px] font-semibold text-[var(--c-text)]">
+          <h2 className="text-[14px] font-semibold text-[var(--c-text)]">
             {prompt.request.name || "Authentification"} — {prompt.hostLabel}
           </h2>
           {/* La phrase générique ne vaut que pour le cas d'origine : ces mêmes
@@ -68,7 +68,7 @@ export function SshAuthPromptModal({ prompt, onSubmit, onCancel }: SshAuthPrompt
 
         {prompt.request.prompts.map((field, i) => (
           <label key={i} className="block space-y-1">
-            <span className="text-xs font-medium text-[var(--c-text-secondary)]">{field.prompt}</span>
+            <span className="field-label">{field.prompt}</span>
             <input
               ref={i === 0 ? firstFieldRef : undefined}
               // `echo: false` is the server saying this is secret-like.
@@ -86,11 +86,11 @@ export function SshAuthPromptModal({ prompt, onSubmit, onCancel }: SshAuthPrompt
           <button
             type="button"
             onClick={onCancel}
-            className="rounded-md bg-[var(--c-bg3)] px-3 py-1.5 text-xs text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]"
+            className="btn btn-ghost"
           >
             Annuler
           </button>
-          <button type="submit" className="accent-surface rounded-md border px-3 py-1.5 text-xs font-medium">
+          <button type="submit" className="btn btn-primary">
             Valider
           </button>
         </div>

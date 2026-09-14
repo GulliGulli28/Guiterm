@@ -131,7 +131,7 @@ export function ResultTable({ columns, rows }: { columns: string[]; rows: SqlCel
               <th
                 key={c}
                 title={c}
-                className="sticky top-0 z-10 overflow-hidden text-ellipsis whitespace-nowrap border-b border-[var(--c-border)] bg-[var(--c-bg2)] px-2 py-1 font-medium text-[var(--c-text-secondary)]"
+                className="sticky top-0 z-10 overflow-hidden text-ellipsis whitespace-nowrap border-b border-[var(--c-border)] bg-[var(--c-bg)] px-2 py-1 text-[10.5px] font-semibold uppercase tracking-[0.06em] text-[var(--c-text-muted)]"
               >
                 {c}
               </th>

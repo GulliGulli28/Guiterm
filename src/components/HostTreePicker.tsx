@@ -381,7 +381,7 @@ export function HostTreePicker({
           <div
             style={dropdownStyle}
             onKeyDown={(e) => { if (e.key === "Escape") { e.stopPropagation(); setOpen(false); } }}
-            className="overflow-hidden rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]"
+            className="overflow-hidden popover"
           >
             <HostTreeList
               hosts={hosts}
@@ -419,10 +419,10 @@ export function HostTreeModal({ title, hosts, groups, customIcons, onPick, onClo
       <div
         ref={ref}
         {...dialogProps}
-        className="fixed left-1/2 top-1/2 z-40 flex max-h-[80vh] w-[400px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-lg bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]"
+        className="fixed left-1/2 top-1/2 z-40 flex max-h-[80vh] w-[400px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 flex-col modal overflow-hidden"
       >
         <div className="border-b border-[var(--c-border)] px-4 py-3">
-          <p className="text-[14px] font-medium text-[var(--c-text)]">{title}</p>
+          <p className="text-[14px] font-semibold text-[var(--c-text)]">{title}</p>
         </div>
         <HostTreeList
           hosts={hosts}
@@ -436,7 +436,7 @@ export function HostTreeModal({ title, hosts, groups, customIcons, onPick, onClo
         <div className="border-t border-[var(--c-border)] p-2">
           <button
             onClick={onClose}
-            className="w-full rounded-md bg-[var(--c-bg3)] py-1.5 text-center text-[12px] text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]"
+            className="btn btn-ghost w-full"
           >
             Fermer
           </button>

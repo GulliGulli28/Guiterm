@@ -26,7 +26,7 @@ export function ConfirmDialog({ title, message, confirmLabel = "Confirmer", canc
 
   return (
     <>
-      <div className="fixed inset-0 z-40 bg-black/60" onClick={onCancel} />
+      <div className="fixed inset-0 z-40 bg-black/50" onClick={onCancel} />
       <div ref={ref} {...dialogProps} className="modal fixed left-1/2 top-1/2 z-50 w-full max-w-sm -translate-x-1/2 -translate-y-1/2 p-4">
         <h2 className="text-[14px] font-semibold text-[var(--c-text)]">{title}</h2>
         <p className="mt-1.5 text-[12.5px] leading-relaxed text-[var(--c-text-secondary)]">{message}</p>

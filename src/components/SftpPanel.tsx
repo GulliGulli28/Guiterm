@@ -3,7 +3,7 @@ import { api } from "../lib/api";
 import type { Group, GroupId, Host, Workspace } from "../lib/types";
 import { HostIcon } from "./icons";
 import { hostKindMeta } from "../lib/hostKinds";
-import { IconSearch, IconHosts, IconFolder, IconTransfer, IconChevronDown, IconChevronRight } from "./ui-icons";
+import { IconSearch, IconFolder, IconTransfer, IconChevronDown, IconChevronRight } from "./ui-icons";
 import { usePolledHostStat } from "../hooks/usePolledHostStat";
 import { useContainerPicker } from "../hooks/useContainerPicker";
 
@@ -64,61 +64,44 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
     const kind = host.kind ?? "ssh";
     const isDocker = kind === "dockerExec";
     const isK8s = kind === "k8sExec";
+    const { label: kindLabel, Icon: KindIcon } = hostKindMeta(kind);
     const subtitle = isDocker || isK8s ? host.address : `${host.username}@${host.address}${host.port !== 22 ? `:${host.port}` : ""}`;
+    const online = hostStatus[host.id];
     return (
-    <div
-      key={host.id}
-      style={{ marginLeft: depth * 14 }}
-      className="group rounded-xl border border-transparent bg-[var(--c-bg3)] transition-all hover:border-[var(--c-border-strong)]"
-    >
-      <div className="flex items-stretch">
+      <div key={host.id} className="list-row group h-10 pr-1" style={{ paddingLeft: 8 + depth * 14 }}>
         <button
           onClick={() => (isDocker ? openDockerPicker(host) : isK8s ? openK8sPicker(host) : onOpenTransfer(host))}
-          className="flex min-w-0 flex-1 items-center gap-2.5 p-3 text-left"
-          title={isDocker || isK8s ? hostKindMeta(kind).label : `Transférer — ${subtitle}`}
+          className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+          title={isDocker || isK8s ? kindLabel : `Transférer — ${subtitle}`}
         >
-          <div className="relative flex h-11 w-11 shrink-0 items-center justify-center rounded-lg bg-[var(--c-accent-dim)]">
+          <span className="relative flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--c-bg3)] text-[var(--c-text-secondary)]">
             {host.icon
-              ? <HostIcon iconId={host.icon} customIcons={workspace.customIcons} size={24} />
-              : <IconHosts size={18} className="text-[var(--c-accent-text)]" />
-            }
-            {(isDocker || isK8s) && (
+              ? <HostIcon iconId={host.icon} customIcons={workspace.customIcons} size={16} />
+              : <KindIcon size={13} />}
+            {online !== undefined && (
               <span
-                title={hostKindMeta(kind).label}
-                className="absolute -left-1 -top-1 flex h-4 w-4 items-center justify-center rounded-full border-2 border-[var(--c-bg3)] bg-[var(--c-bg2)] text-[var(--c-text-secondary)]"
-              >
-                {(() => { const { Icon } = hostKindMeta(kind); return <Icon size={9} />; })()}
-              </span>
-            )}
-            {hostStatus[host.id] !== undefined && (
-              <span
-                title={hostStatus[host.id] ? "En ligne" : "Hors ligne"}
-                className={`absolute -bottom-0.5 -right-0.5 h-2.5 w-2.5 rounded-full border-2 border-[var(--c-bg2)] ${
-                  hostStatus[host.id] ? "bg-emerald-500" : "bg-[var(--c-text-faint)]"
-                }`}
+                title={online ? "En ligne" : "Hors ligne"}
+                className={`dot absolute -bottom-0.5 -right-0.5 ring-2 ring-[var(--c-bg2)] ${online ? "dot-ok" : ""}`}
               />
             )}
-          </div>
-          <div className="min-w-0 flex-1">
-            <div className="truncate text-[14px] font-medium text-[var(--c-text)]">{host.label}</div>
-            <div className="truncate font-mono text-[11px] text-[var(--c-text-muted)]">{subtitle}</div>
-          </div>
-        </button>
-        <div className="flex shrink-0 items-center px-2 text-[var(--c-text-faint)] opacity-0 transition-all focus-visible:opacity-100 group-hover:opacity-100 group-focus-within:opacity-100">
-          <IconTransfer size={14} />
-        </div>
-      </div>
-
-      {host.tags.length > 0 && (
-        <div className="flex flex-wrap gap-1 px-3 pb-2.5">
-          {host.tags.map((tag) => (
-            <span key={tag} className="rounded-full bg-[var(--c-bg2)] px-1.5 py-0.5 text-[10px] text-[var(--c-text-secondary)]">
-              {tag}
+          </span>
+          <span className="flex min-w-0 flex-1 flex-col justify-center gap-px leading-tight">
+            <span className="truncate text-[12.5px] font-medium text-[var(--c-text)]">{host.label}</span>
+            <span className="flex items-center gap-1.5">
+              <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-[var(--c-text-muted)]">{subtitle}</span>
+              {host.tags.length > 0 && (
+                <span className="flex shrink-0 gap-1">
+                  {host.tags.slice(0, 2).map((tag) => <span key={tag} className="tag">{tag}</span>)}
+                  {host.tags.length > 2 && <span className="tag" title={host.tags.slice(2).join(", ")}>+{host.tags.length - 2}</span>}
+                </span>
+              )}
             </span>
-          ))}
-        </div>
-      )}
-    </div>
+          </span>
+        </button>
+        <span className="flex h-6 w-6 shrink-0 items-center justify-center text-[var(--c-text-muted)] opacity-0 transition-opacity group-hover:opacity-100">
+          <IconTransfer size={13} />
+        </span>
+      </div>
     );
   };
 
@@ -126,25 +109,29 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
     if (query && !groupHasMatches(group.id)) return null;
     const expanded = isExpanded(group.id);
     return (
-      <div key={group.id} className="space-y-1">
+      <div key={group.id}>
         <div
-          style={{ marginLeft: depth * 14 }}
-          className="flex items-center gap-0.5 rounded-md px-1 py-1 hover:bg-[var(--c-hover)]"
+          style={{ paddingLeft: 4 + depth * 14 }}
+          className="flex h-7 items-center gap-1 rounded-md pr-1 hover:bg-[var(--c-hover)]"
         >
-          <button onClick={() => toggleGroup(group.id)} className="flex w-4 shrink-0 items-center justify-center text-[var(--c-text-muted)]">
+          <button
+            onClick={() => toggleGroup(group.id)}
+            aria-label={expanded ? `Replier ${group.name}` : `Déplier ${group.name}`}
+            className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-[var(--c-text-muted)] hover:text-[var(--c-text)]"
+          >
             {expanded ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}
           </button>
-          <span className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-[13px] font-medium text-[var(--c-text-secondary)]">
+          <button onClick={() => toggleGroup(group.id)} className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left text-[12.5px] font-medium text-[var(--c-text-secondary)]">
             {group.icon ? (
-              <HostIcon iconId={group.icon} customIcons={workspace.customIcons} size={20} />
+              <HostIcon iconId={group.icon} customIcons={workspace.customIcons} size={15} />
             ) : (
-              <IconFolder size={18} className="text-[var(--c-text-muted)]" />
+              <IconFolder size={14} className="shrink-0 text-[var(--c-text-muted)]" />
             )}
-            {group.name}
-          </span>
+            <span className="truncate">{group.name}</span>
+          </button>
         </div>
         {expanded && (
-          <div className="space-y-1">
+          <div>
             {hostsIn(group.id).map((h) => renderHost(h, depth + 1))}
             {childGroups(group.id).map((g) => renderGroup(g, depth + 1))}
           </div>
@@ -154,23 +141,27 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
   };
 
   return (
-    <div className="flex h-full min-w-0 flex-col gap-2">
-      <div className="relative">
-        <div className="pointer-events-none absolute inset-y-0 left-3 flex items-center">
+    <div className="flex h-full min-w-0 flex-col">
+      <div className="relative shrink-0">
+        <div className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center">
           <IconSearch size={13} className="text-[var(--c-text-muted)]" />
         </div>
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Rechercher un hôte…"
-          className="input w-full"
+          className="input pl-8"
         />
       </div>
-      <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-1 overflow-y-auto pb-2 pl-2 pt-2">
+      <p className="eyebrow mt-2.5 pl-1">Ouvrir un transfert vers</p>
+      <div className="sidebar-scroll -mx-1 mt-1 min-h-0 min-w-0 flex-1 overflow-y-auto px-1 pb-2">
         {hostsIn(null).map((h) => renderHost(h, 0))}
         {childGroups(null).map((g) => renderGroup(g, 0))}
         {workspace.hosts.length === 0 && (
-          <p className="px-1 py-4 text-center text-[13px] text-[var(--c-text-muted)]">Aucun hôte enregistré</p>
+          <div className="px-2 py-8 text-center">
+            <p className="text-[12.5px] font-medium text-[var(--c-text-secondary)]">Aucun hôte enregistré</p>
+            <p className="help-text mt-1">Les hôtes SSH, Docker et Kubernetes apparaissent ici pour ouvrir un panneau de fichiers.</p>
+          </div>
         )}
       </div>
 

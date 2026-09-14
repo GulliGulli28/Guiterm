@@ -97,10 +97,10 @@ export function CloudFailureNotice({
   action?: ReactNode;
 }) {
   return (
-    <div className="shrink-0 border-b border-[var(--c-border)] bg-rose-950/30 px-4 py-2">
-      <p className="whitespace-pre-wrap break-words text-[11px] text-rose-200">{failure.message}</p>
+    <div className="shrink-0 border-b border-[var(--c-border)] bg-[color-mix(in_srgb,var(--c-danger)_10%,transparent)] px-4 py-2">
+      <p className="whitespace-pre-wrap break-words text-[11px] text-[var(--c-danger)]">{failure.message}</p>
       {failure.remedy && (
-        <p className="mt-1 text-[11px] font-medium text-rose-100">→ {failure.remedy}</p>
+        <p className="mt-1 text-[11px] font-medium text-[var(--c-danger)]">→ {failure.remedy}</p>
       )}
       {action && <div className="mt-1.5">{action}</div>}
     </div>
@@ -129,26 +129,26 @@ export function InventoryDriftNotice({
 }) {
   if (diff.gone.length === 0 && diff.notImported.length === 0) return null;
   return (
-    <div className="shrink-0 space-y-1 border-b border-[var(--c-border)] bg-amber-950/25 px-4 py-2">
+    <div className="shrink-0 space-y-1 border-b border-[var(--c-border)] bg-[color-mix(in_srgb,var(--c-warn)_10%,transparent)] px-4 py-2">
       {diff.gone.length > 0 && (
-        <p className="text-[11px] text-amber-200">
+        <p className="text-[11px] text-[var(--c-warn)]">
           <span className="font-medium">{diff.gone.length} hôte(s)</span> de cet {scopeLabel}{" "}
           n'existent plus côté fournisseur :{" "}
-          <span className="text-amber-100">{diff.gone.map(([, label]) => label).join(", ")}</span>.
+          <span className="text-[var(--c-warn)]">{diff.gone.map(([, label]) => label).join(", ")}</span>.
           {" "}À supprimer depuis la liste des hôtes si c'est bien voulu.
         </p>
       )}
       {diff.notImported.length > 0 && (
-        <p className="text-[11px] text-amber-200">
+        <p className="text-[11px] text-[var(--c-warn)]">
           <span className="font-medium">{diff.notImported.length} instance(s)</span> ne sont pas
           encore importées.{" "}
-          <button onClick={onSelectNew} className="underline hover:text-amber-100">
+          <button onClick={onSelectNew} className="underline hover:text-[var(--c-warn)]">
             Les cocher
           </button>
         </p>
       )}
       {diff.unattributed > 0 && (
-        <p className="text-[10px] text-amber-200/70">
+        <p className="text-[10px] text-[var(--c-warn)]">
           {diff.unattributed} hôte(s) de ce fournisseur viennent d'un autre {scopeLabel} ou d'un
           import antérieur : ce listing ne dit rien sur eux.
         </p>
@@ -189,7 +189,7 @@ export function CloudInstanceRow({
           onChange={onToggle}
           // A machine with no address at all can't become a usable host.
           disabled={!address}
-          className="accent-[var(--c-accent)] disabled:opacity-30"
+          className="disabled:opacity-30"
         />
         <div className="min-w-0 flex-1">
           <div className="flex items-center gap-1.5">
@@ -235,7 +235,7 @@ export function CloudBatchCredentials({
     <>
       <div className="flex gap-2">
         <label className="block flex-1 space-y-1">
-          <span className="text-xs font-medium text-[var(--c-text-muted)]">Utilisateur par défaut</span>
+          <span className="field-label">Utilisateur par défaut</span>
           <input
             value={auth.username}
             onChange={(e) => set("username", e.target.value)}
@@ -245,7 +245,7 @@ export function CloudBatchCredentials({
           <span className="block text-[10px] text-[var(--c-text-faint)]">{usernameHint}</span>
         </label>
         <label className="block flex-1 space-y-1">
-          <span className="text-xs font-medium text-[var(--c-text-muted)]">Authentification</span>
+          <span className="field-label">Authentification</span>
           <select
             value={auth.kind}
             onChange={(e) => set("kind", e.target.value as AuthKind)}
@@ -294,7 +294,7 @@ export function CloudBatchCredentials({
       )}
 
       <label className="block space-y-1">
-        <span className="text-xs font-medium text-[var(--c-text-muted)]">Groupe de destination</span>
+        <span className="field-label">Groupe de destination</span>
         <GroupTreePicker
           groups={workspace.groups}
           value={auth.groupId}
@@ -325,20 +325,20 @@ export function CloudImportModal({
   children: ReactNode;
 }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-6" onClick={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6" onClick={onClose}>
       <div
-        className="flex max-h-full w-[min(52rem,100%)] flex-col overflow-hidden rounded-xl border border-[var(--c-border)] bg-[var(--c-bg2)] shadow-[var(--shadow-lg)]"
+        className="flex max-h-full w-[min(52rem,100%)] flex-col overflow-hidden modal"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex shrink-0 items-center justify-between border-b border-[var(--c-border)] px-4 py-2.5">
           <div>
-            <p className="text-[13px] font-medium text-[var(--c-text)]">{title}</p>
-            <p className="text-[11px] text-[var(--c-text-muted)]">{intro}</p>
+            <p className="text-[13px] font-semibold text-[var(--c-text)]">{title}</p>
+            <p className="text-[11.5px] text-[var(--c-text-muted)]">{intro}</p>
           </div>
           <button
             onClick={onClose}
             aria-label="Fermer"
-            className="rounded p-1 text-[var(--c-text-muted)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]"
+            className="btn btn-ghost btn-sm btn-icon"
           >
             <IconClose size={13} />
           </button>
@@ -382,7 +382,7 @@ export function CloudScopeBar({
   return (
     <div className="shrink-0 border-b border-[var(--c-border)] px-4 py-2.5">
       <label className="block space-y-1">
-        <span className="text-xs font-medium text-[var(--c-text-muted)]">{label}</span>
+        <span className="field-label">{label}</span>
         <div className="flex gap-1.5">
           <select
             value={value}
@@ -400,7 +400,7 @@ export function CloudScopeBar({
           <button
             onClick={onLoad}
             disabled={loading}
-            className="accent-surface shrink-0 rounded-md border px-3 text-xs font-medium disabled:opacity-40"
+            className="btn btn-primary shrink-0 disabled:opacity-40"
           >
             {loading ? "…" : loadLabel}
           </button>
@@ -532,7 +532,7 @@ export function CloudImportFooter({
       <button
         onClick={onImport}
         disabled={importing || count === 0}
-        className="accent-surface w-full rounded-md border py-2 text-sm font-medium disabled:opacity-40"
+        className="btn btn-primary w-full disabled:opacity-40"
       >
         {importing ? "Import…" : `Importer ${count} hôte(s)`}
       </button>

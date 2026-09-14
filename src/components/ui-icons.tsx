@@ -566,3 +566,13 @@ export function IconArrowUp({ size = 16, className }: P) {
     </svg>
   );
 }
+
+/** Une table : la grille d'une base de données. */
+export function IconTable({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <rect x="2" y="3" width="12" height="10" rx="1.5" stroke="currentColor" strokeWidth="1.25" />
+      <path d="M2 6.5h12M6.5 6.5V13" stroke="currentColor" strokeWidth="1.25" />
+    </svg>
+  );
+}

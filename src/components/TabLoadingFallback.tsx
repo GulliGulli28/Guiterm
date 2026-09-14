@@ -4,7 +4,7 @@
  * doesn't flash blank content instead. */
 export function TabLoadingFallback() {
   return (
-    <div className="flex flex-1 items-center justify-center text-xs text-[var(--c-text-faint)]">
+    <div className="flex flex-1 items-center justify-center text-[12px] text-[var(--c-text-muted)]">
       Chargement…
     </div>
   );

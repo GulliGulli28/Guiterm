@@ -52,7 +52,7 @@ export function AdaptiveComposer({ programText, onGenerated, onError }: Adaptive
 
   return (
     <div className="flex items-center gap-2 rounded-md border border-[var(--c-border)] bg-[var(--c-bg2)] p-1.5">
-      <IconFlash size={13} className="ml-1 shrink-0 text-sky-400" />
+      <IconFlash size={13} className="ml-1 shrink-0 text-[var(--c-accent-text)]" />
       <input
         value={intent}
         onChange={(e) => setIntent(e.target.value)}

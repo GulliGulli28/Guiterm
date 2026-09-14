@@ -112,9 +112,9 @@ progress {
    - scrollbar-gutter: stable → la place de la barre est toujours réservée
      (aucun décalage de mise en page quand elle apparaît) ;
    - padding-right → un écart visuel entre le contenu et la piste.
-   Les consommateurs qui dessinent un anneau (`.glow-ring`) au ras du bord
-   du conteneur ont besoin de leur propre `pl-2 pt-2` : `overflow-y-auto`
-   force `overflow-x` à `auto` aussi, et une ombre qui déborde y est coupée. */
+   Un `-mx-1 px-1` sur le conteneur laisse la place au marqueur d'accent des
+   `.list-row` actives, sinon coupé par `overflow-y-auto` (qui force
+   `overflow-x: auto` aussi). */
 .sidebar-scroll {
   scrollbar-gutter: stable;
   padding-right: 4px;
@@ -347,30 +347,6 @@ progress {
     border-color: color-mix(in srgb, var(--c-danger) 30%, transparent);
     color: var(--c-text);
   }
-}
-
-/* ── Compatibilité ─────────────────────────────────────────────────────────
- *
- * Ces deux classes datent de l'habillage précédent (verre dégradé, halo). Elles
- * restent définies pour les composants pas encore repassés, mais en version
- * plate : un remplissage d'accent uni pour `.accent-surface`, une bordure
- * d'accent pour `.glow-ring`. Ne plus les employer dans du code neuf —
- * `.btn-primary`, `.btn-toggled` et `.list-row[data-active]` disent chacun ce
- * qu'ils sont. */
-.accent-surface,
-.accent-surface-hover:hover {
-  background: var(--c-accent);
-  border-color: transparent;
-  color: #fff;
-}
-.accent-surface:hover {
-  background: var(--c-accent-hover);
-}
-.accent-surface:disabled {
-  opacity: 0.45;
-}
-.glow-ring {
-  box-shadow: 0 0 0 1px var(--c-accent);
 }
 
 /* ── Focus clavier visible ──────────────────────────────────────────────────
