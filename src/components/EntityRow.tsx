@@ -164,7 +164,15 @@ export function GroupRow({
         className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left font-medium text-[var(--c-text-secondary)]"
         style={{ fontSize: "var(--group-row-font)" }}
       >
-        <span className="shrink-0 text-[var(--c-text-muted)]">{icon}</span>
+        {/* L'icône suit la taille réglée, quelle que soit celle demandée par
+            l'appelant : le SVG (ou l'image d'une icône personnalisée) remplit
+            la boîte. */}
+        <span
+          className="flex shrink-0 items-center justify-center text-[var(--c-text-muted)] [&>*]:h-full [&>*]:w-full"
+          style={{ width: "var(--group-row-icon)", height: "var(--group-row-icon)" }}
+        >
+          {icon}
+        </span>
         <span className="truncate">{name}</span>
         {count != null && count > 0 && <span className="text-[10.5px] font-normal text-[var(--c-text-faint)]">{count}</span>}
       </button>

@@ -7,10 +7,11 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { api } from "../lib/api";
 import type { VaultStatus, Workspace } from "../lib/types";
 import type { AppPreferences } from "../lib/preferences";
-import { TERMINAL_THEMES, FONT_FAMILIES, ACCENT_COLORS, BG_THEMES, HOST_GROUP_SIZES, type UiAccent, type UiBg, type ColorMode, type HostGroupSize } from "../lib/preferences";
+import { TERMINAL_THEMES, FONT_FAMILIES, UI_FONT_FAMILIES, ACCENT_COLORS, BG_THEMES, HOST_GROUP_SIZE_MIN, HOST_GROUP_SIZE_MAX, bgThemeLabel, hostGroupMetrics, type UiAccent, type UiBg, type ColorMode } from "../lib/preferences";
+import { GroupRow } from "./EntityRow";
 import { SHORTCUT_ACTIONS, comboConflicts, defaultShortcuts, comboFromEvent, shellBindingWarning, shortcutLabel } from "../lib/shortcuts";
 import { SIDEBAR_BUTTONS, ALWAYS_VISIBLE_SIDEBAR_BUTTONS, isSidebarButtonVisible } from "../lib/sidebarButtons";
-import { IconUpload, IconDownload, IconPalette, IconTerminal, IconTransfer, IconKeyboard, IconBell, IconSettings, IconSun, IconMoon, IconRefresh, IconShield, IconCheck, IconWarning, IconFolderFilled, IconFileFilled } from "./ui-icons";
+import { IconUpload, IconDownload, IconPalette, IconTerminal, IconTransfer, IconKeyboard, IconBell, IconSettings, IconSun, IconMoon, IconRefresh, IconShield, IconCheck, IconWarning, IconFolderFilled, IconFileFilled, IconFolder } from "./ui-icons";
 import { VaultSettings } from "./VaultSettings";
 import { AdaptiveEngineSettings } from "./AdaptiveEngineSettings";
 
@@ -285,7 +286,9 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
             <section className="space-y-2">
               <p className="eyebrow">Fond de l'interface</p>
               {/* Un échantillon par fond : les trois tons de surface tels
-                  qu'ils se superposent, pas une pilule colorée. */}
+                  qu'ils se superposent, pas une pilule colorée. Les fonds
+                  clairs ont leur teinte et leur nom propres — ce ne sont pas
+                  les fonds sombres éclaircis. */}
               <div className="flex flex-wrap gap-2">
                 {(Object.entries(BG_THEMES) as [UiBg, typeof BG_THEMES[UiBg]][]).map(([key, bg]) => {
                   const active = (preferences.uiBg ?? "zinc") === key;
@@ -294,7 +297,7 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
                     <button
                       key={key}
                       type="button"
-                      title={bg.label}
+                      title={bgThemeLabel(bg, preferences.colorMode ?? "dark")}
                       aria-pressed={active}
                       onClick={() => onPreferencesChange({ ...preferences, uiBg: key })}
                       className={`flex w-[4.5rem] flex-col items-center gap-1.5 rounded-md p-1.5 transition-colors ${active ? "bg-[var(--c-accent-dim)]" : "hover:bg-[var(--c-hover)]"}`}
@@ -306,7 +309,7 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
                         <span className="h-full w-1/3" style={{ backgroundColor: shade.bg2, borderRight: `1px solid ${shade.border}` }} />
                         <span className="m-1.5 h-2.5 flex-1 rounded-sm" style={{ backgroundColor: shade.bg3 }} />
                       </span>
-                      <span className={`text-[11px] ${active ? "font-medium text-[var(--c-text)]" : "text-[var(--c-text-secondary)]"}`}>{bg.label}</span>
+                      <span className={`text-[11px] ${active ? "font-medium text-[var(--c-text)]" : "text-[var(--c-text-secondary)]"}`}>{bgThemeLabel(bg, preferences.colorMode ?? "dark")}</span>
                     </button>
                   );
                 })}
@@ -333,26 +336,69 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
                     </button>
                   );
                 })}
-                <span className="ml-1 text-[12px] text-[var(--c-text-secondary)]">{ACCENT_COLORS[preferences.uiAccent ?? "blue"]?.label}</span>
+                {/* N'importe quelle couleur : le sélecteur natif, derrière une
+                    pastille qui montre la couleur choisie. Choisir dans le
+                    sélecteur active la couleur libre. */}
+                <label
+                  title="Couleur personnalisée"
+                  className={`relative flex h-7 w-7 cursor-pointer items-center justify-center rounded-full text-white transition-transform hover:scale-110 ${preferences.uiAccent === "custom" ? "ring-2 ring-[var(--c-text)] ring-offset-2 ring-offset-[var(--c-bg2)]" : ""}`}
+                  style={{ background: preferences.uiAccent === "custom" ? preferences.uiAccentCustom : "conic-gradient(#ef4444, #f59e0b, #22c55e, #06b6d4, #2563eb, #a855f7, #ef4444)" }}
+                >
+                  <input
+                    type="color"
+                    value={preferences.uiAccentCustom}
+                    onChange={(e) => onPreferencesChange({ ...preferences, uiAccent: "custom", uiAccentCustom: e.target.value })}
+                    aria-label="Couleur personnalisée"
+                    className="absolute inset-0 h-full w-full cursor-pointer opacity-0"
+                  />
+                  {preferences.uiAccent === "custom" && <IconCheck size={13} />}
+                </label>
+                <span className="ml-1 flex items-center gap-2 text-[12px] text-[var(--c-text-secondary)]">
+                  {preferences.uiAccent === "custom"
+                    ? <><span>Personnalisée</span><span className="kbd">{preferences.uiAccentCustom.toUpperCase()}</span></>
+                    : ACCENT_COLORS[preferences.uiAccent ?? "blue"]?.label}
+                </span>
               </div>
             </section>
 
             <section className="space-y-2">
-              <p className="eyebrow">Dossiers de la liste d'hôtes</p>
-              <div className="segmented">
-                {(Object.entries(HOST_GROUP_SIZES) as [HostGroupSize, typeof HOST_GROUP_SIZES[HostGroupSize]][]).map(([key, size]) => (
-                  <button
-                    key={key}
-                    type="button"
-                    onClick={() => onPreferencesChange({ ...preferences, hostGroupSize: key })}
-                    data-active={(preferences.hostGroupSize ?? "medium") === key ? "true" : undefined}
-                    className="min-w-[5rem]"
-                  >
-                    {size.label}
-                  </button>
+              <p className="eyebrow">Police de l'interface</p>
+              <select
+                value={preferences.uiFontFamily ?? "system"}
+                onChange={(e) => onPreferencesChange({ ...preferences, uiFontFamily: e.target.value })}
+                className="input w-full max-w-xs"
+              >
+                {UI_FONT_FAMILIES.map((f) => (
+                  <option key={f.value} value={f.value}>{f.label}</option>
                 ))}
+              </select>
+              <p className="help-text">S'applique à toute l'interface, sauf au terminal, qui a sa propre police ci-contre.</p>
+            </section>
+
+            <section className="space-y-2">
+              <p className="eyebrow">
+                Dossiers de la liste d'hôtes : <span className="font-mono normal-case tracking-normal text-[var(--c-text)]">{hostGroupMetrics(preferences.hostGroupSize).font}</span>
+              </p>
+              <input
+                type="range"
+                min={HOST_GROUP_SIZE_MIN}
+                max={HOST_GROUP_SIZE_MAX}
+                step={0.5}
+                value={preferences.hostGroupSize}
+                onChange={(e) => onPreferencesChange({ ...preferences, hostGroupSize: Number(e.target.value) })}
+                aria-label="Taille des dossiers de la liste d'hôtes"
+                className="w-full max-w-xs"
+              />
+              <div className="flex max-w-xs justify-between text-[11px] text-[var(--c-text-faint)]">
+                <span>{HOST_GROUP_SIZE_MIN} px</span><span>{HOST_GROUP_SIZE_MAX} px</span>
               </div>
-              <p className="help-text">La taille des en-têtes de dossier dans les listes d'hôtes, de transfert et de cibles.</p>
+              {/* Un vrai en-tête de dossier, à la taille réglée — le même
+                  composant que dans les listes, pas une imitation. */}
+              <div className="card max-w-xs px-2 py-1.5">
+                <GroupRow depth={0} expanded onToggle={() => {}} icon={<IconFolder />} name="Production" count={12} />
+                <GroupRow depth={1} expanded={false} onToggle={() => {}} icon={<IconFolder />} name="Frontaux web" count={4} />
+              </div>
+              <p className="help-text">La taille des en-têtes de dossier dans les listes d'hôtes, de transfert et de cibles — l'icône suit.</p>
             </section>
 
             <section className="space-y-2">

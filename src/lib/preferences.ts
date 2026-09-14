@@ -3,6 +3,8 @@ import type { SidebarButtonId } from "./sidebarButtons";
 import { defaultShortcuts } from "./shortcuts";
 
 export type UiAccent = "indigo" | "blue" | "violet" | "emerald" | "rose" | "teal" | "amber" | "cyan";
+/** Une couleur nommée, ou la couleur libre de `uiAccentCustom`. */
+export type UiAccentChoice = UiAccent | "custom";
 
 export interface AccentColorEntry {
   label: string;
@@ -39,6 +41,8 @@ export interface BgShade {
 
 export interface BgThemeEntry {
   label: string;
+  /** Quand le fond clair a sa teinte propre (« Noir pur » → « Blanc pur »). */
+  lightLabel?: string;
   dark: BgShade;
   light: BgShade;
 }
@@ -53,34 +57,45 @@ export const BG_THEMES: Record<UiBg, BgThemeEntry> = {
   slate: {
     label: "Ardoise",
     dark:  { bg: "#0a0e17", bg2: "#10151f", bg3: "#171d2a", border: "#232b3b" },
-    light: { bg: "#f3f5f8", bg2: "#ffffff", bg3: "#eceff3", border: "#d5dae2" },
+    light: { bg: "#e9eef5", bg2: "#f8fafc", bg3: "#e2e8f0", border: "#c9d3e0" },
   },
   gray: {
     label: "Gris",
     dark:  { bg: "#0b0d12", bg2: "#111318", bg3: "#181b22", border: "#242830" },
-    light: { bg: "#f4f4f5", bg2: "#ffffff", bg3: "#ededee", border: "#d6d6d8" },
+    light: { bg: "#ececee", bg2: "#f9f9fa", bg3: "#e3e3e6", border: "#cfcfd4" },
   },
   zinc: {
     label: "Zinc",
+    lightLabel: "Sable",
     dark:  { bg: "#0c0c0e", bg2: "#121215", bg3: "#19191d", border: "#26262b" },
-    light: { bg: "#f4f4f5", bg2: "#ffffff", bg3: "#ebebec", border: "#d9d9dc" },
+    light: { bg: "#f0eee9", bg2: "#fbfaf7", bg3: "#e8e5de", border: "#d6d2c8" },
   },
   black: {
     label: "Noir pur",
+    lightLabel: "Blanc pur",
     dark:  { bg: "#000000", bg2: "#0a0a0a", bg3: "#141414", border: "#222222" },
-    light: { bg: "#ffffff", bg2: "#fafafa", bg3: "#f0f0f0", border: "#dcdcdc" },
+    light: { bg: "#ffffff", bg2: "#ffffff", bg3: "#f2f2f2", border: "#e2e2e2" },
   },
   navy: {
     label: "Marine",
+    lightLabel: "Ciel",
     dark:  { bg: "#060d1a", bg2: "#0b1526", bg3: "#122036", border: "#1c2d47" },
-    light: { bg: "#eef2f7", bg2: "#ffffff", bg3: "#e4eaf2", border: "#c9d3e0" },
+    light: { bg: "#e3ebf6", bg2: "#f4f7fc", bg3: "#d9e3f0", border: "#bfcde0" },
   },
   aurora: {
     label: "Prune",
+    lightLabel: "Lavande",
     dark:  { bg: "#0b0910", bg2: "#110e17", bg3: "#191420", border: "#26202f" },
-    light: { bg: "#f4f1f9", bg2: "#ffffff", bg3: "#ece7f4", border: "#d6cde3" },
+    light: { bg: "#ede8f5", bg2: "#f9f7fc", bg3: "#e4dcef", border: "#cdc2df" },
   },
 };
+
+/** Le nom d'un fond tel qu'il se présente dans le mode courant : les fonds
+ * clairs ne sont pas les fonds sombres éclaircis, ils ont leur teinte propre
+ * et donc leur nom. */
+export function bgThemeLabel(entry: BgThemeEntry, mode: ColorMode): string {
+  return mode === "light" ? entry.lightLabel ?? entry.label : entry.label;
+}
 
 export interface AppPreferences {
   terminalThemeName: string;
@@ -97,7 +112,7 @@ export interface AppPreferences {
    * fois sur l'autre — c'est une habitude de lecture, pas un choix par
    * fichier. */
   transferDiffView: "unified" | "split";
-  uiAccent: UiAccent;
+  uiAccent: UiAccentChoice;
   uiBg: UiBg;
   colorMode: ColorMode;
   notifyOnDisconnect: boolean;
@@ -174,21 +189,57 @@ export interface AppPreferences {
    * jamais d'un défaut modifié. Une liste d'affichés serait absente chez tous
    * les utilisateurs actuels — et leur viderait la barre à la mise à jour. */
   hiddenSidebarButtons: SidebarButtonId[];
-  /** Taille des lignes de dossier dans les arborescences (hôtes, SFTP,
-   * cibles). Une préférence de lecture : quelqu'un qui range trente
-   * machines en cinq dossiers veut des en-têtes qui se voient, quelqu'un
-   * qui en a deux les veut discrets. */
-  hostGroupSize: HostGroupSize;
+  /** Taille de police, en pixels, des lignes de dossier dans les
+   * arborescences (hôtes, SFTP, cibles) — l'icône et la hauteur de ligne en
+   * découlent (`hostGroupMetrics`). Une préférence de lecture : quelqu'un qui
+   * range trente machines en cinq dossiers veut des en-têtes qui se voient,
+   * quelqu'un qui en a deux les veut discrets. */
+  hostGroupSize: number;
+  /** Couleur d'accent libre, en hexadécimal, quand `uiAccent` vaut
+   * `"custom"`. Les huit couleurs nommées restent des raccourcis. */
+  uiAccentCustom: string;
+  /** Police de l'interface (pas celle du terminal). Une valeur de
+   * `UI_FONT_FAMILIES`. */
+  uiFontFamily: string;
 }
 
-export type HostGroupSize = "small" | "medium" | "large";
+export const HOST_GROUP_SIZE_MIN = 11;
+export const HOST_GROUP_SIZE_MAX = 20;
 
-/** Ce que chaque taille pose comme variables CSS — lues par `GroupRow`. */
-export const HOST_GROUP_SIZES: Record<HostGroupSize, { label: string; font: string; height: string }> = {
-  small:  { label: "Petits",  font: "11.5px", height: "24px" },
-  medium: { label: "Normaux", font: "12.5px", height: "28px" },
-  large:  { label: "Grands",  font: "14px",   height: "34px" },
-};
+/** Ce qu'une taille de police de dossier pose comme variables CSS — lues par
+ * `GroupRow`. L'icône suit la police, la ligne garde de l'air autour. */
+export function hostGroupMetrics(fontPx: number): { font: string; icon: number; height: string } {
+  const px = Math.min(HOST_GROUP_SIZE_MAX, Math.max(HOST_GROUP_SIZE_MIN, Math.round(fontPx)));
+  return { font: `${px}px`, icon: Math.round(px * 1.25), height: `${Math.round(px * 2.2)}px` };
+}
+
+export const UI_FONT_FAMILIES: { value: string; label: string }[] = [
+  { value: "system", label: "Système (Segoe UI sous Windows)" },
+  { value: "\"Inter\", system-ui, sans-serif", label: "Inter" },
+  { value: "\"Segoe UI Variable Text\", \"Segoe UI\", system-ui, sans-serif", label: "Segoe UI" },
+  { value: "\"Helvetica Neue\", Helvetica, Arial, sans-serif", label: "Helvetica / Arial" },
+  { value: "Verdana, Geneva, sans-serif", label: "Verdana" },
+  { value: "\"JetBrains Mono\", ui-monospace, monospace", label: "JetBrains Mono (tout en mono)" },
+];
+
+/** La pile de polices réellement appliquée pour une valeur de `uiFontFamily`.
+ * `"system"` est la valeur par défaut, laissée au navigateur. */
+export function uiFontStack(value: string): string {
+  return value === "system"
+    ? "\"Segoe UI Variable Text\", \"Segoe UI\", system-ui, -apple-system, \"Helvetica Neue\", Arial, sans-serif"
+    : value;
+}
+
+/** Les quatre teintes d'accent dérivées d'une couleur libre : remplissage,
+ * survol (un peu plus clair), texte sur fond sombre (nettement plus clair),
+ * et le voile atténué. */
+export function accentFromHex(hex: string): AccentColorEntry {
+  const m = /^#?([0-9a-f]{6})$/i.exec(hex.trim());
+  const n = m ? parseInt(m[1], 16) : 0x2563eb;
+  const r = (n >> 16) & 255, g = (n >> 8) & 255, b = n & 255;
+  const mix = (t: number) => "#" + [r, g, b].map((c) => Math.round(c + (255 - c) * t).toString(16).padStart(2, "0")).join("");
+  return { label: "Personnalisée", c600: mix(0), c500: mix(0.12), c300: mix(0.45), dim: `rgba(${r},${g},${b},0.18)` };
+}
 
 export interface TerminalThemeEntry {
   label: string;
@@ -269,6 +320,51 @@ export const TERMINAL_THEMES: Record<string, TerminalThemeEntry> = {
       magenta: "#c678dd", brightMagenta: "#c678dd",
       cyan: "#56b6c2", brightCyan: "#56b6c2",
       white: "#abb2bf", brightWhite: "#ffffff",
+    },
+  },
+  light: {
+    label: "Clair",
+    theme: {
+      background: "#fbfaf7", foreground: "#27272a", cursor: "#2563eb",
+      selectionBackground: "#dbe4f3",
+      black: "#3f3f46", brightBlack: "#71717a",
+      red: "#c81e1e", brightRed: "#dc2626",
+      green: "#15803d", brightGreen: "#16a34a",
+      yellow: "#a16207", brightYellow: "#ca8a04",
+      blue: "#1d4ed8", brightBlue: "#2563eb",
+      magenta: "#7e22ce", brightMagenta: "#9333ea",
+      cyan: "#0e7490", brightCyan: "#0891b2",
+      white: "#e4e4e7", brightWhite: "#ffffff",
+    },
+  },
+  solarizedLight: {
+    label: "Solarized Light",
+    theme: {
+      background: "#fdf6e3", foreground: "#657b83", cursor: "#657b83",
+      selectionBackground: "#eee8d5",
+      black: "#073642", brightBlack: "#002b36",
+      red: "#dc322f", brightRed: "#cb4b16",
+      green: "#859900", brightGreen: "#586e75",
+      yellow: "#b58900", brightYellow: "#657b83",
+      blue: "#268bd2", brightBlue: "#839496",
+      magenta: "#d33682", brightMagenta: "#6c71c4",
+      cyan: "#2aa198", brightCyan: "#93a1a1",
+      white: "#eee8d5", brightWhite: "#fdf6e3",
+    },
+  },
+  githubLight: {
+    label: "GitHub Light",
+    theme: {
+      background: "#ffffff", foreground: "#24292f", cursor: "#0969da",
+      selectionBackground: "#ddf4ff",
+      black: "#24292f", brightBlack: "#57606a",
+      red: "#cf222e", brightRed: "#a40e26",
+      green: "#116329", brightGreen: "#1a7f37",
+      yellow: "#4d2d00", brightYellow: "#633c01",
+      blue: "#0969da", brightBlue: "#218bff",
+      magenta: "#8250df", brightMagenta: "#a475f9",
+      cyan: "#1b7c83", brightCyan: "#3192aa",
+      white: "#6e7781", brightWhite: "#8c959f",
     },
   },
   nord: {
@@ -358,7 +454,9 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   terminalWebglRenderer: true,
   terminalRenderStats: false,
   hiddenSidebarButtons: [],
-  hostGroupSize: "medium",
+  hostGroupSize: 13,
+  uiAccentCustom: "#2563eb",
+  uiFontFamily: "system",
 };
 
 const STORAGE_KEY = "gui-termius-prefs";
@@ -376,6 +474,11 @@ export function loadPreferences(): AppPreferences {
         // `localStorage` édité à la main y met autre chose qu'un tableau,
         // l'app entière n'affiche plus rien plutôt qu'un bouton de trop.
         hiddenSidebarButtons: Array.isArray(parsed.hiddenSidebarButtons) ? parsed.hiddenSidebarButtons : [],
+        // Était « petits / normaux / grands » le temps d'une version : ces
+        // trois mots deviennent les pixels qu'ils valaient.
+        hostGroupSize: typeof parsed.hostGroupSize === "number"
+          ? parsed.hostGroupSize
+          : ({ small: 11.5, medium: 13, large: 15 } as Record<string, number>)[parsed.hostGroupSize] ?? DEFAULT_PREFERENCES.hostGroupSize,
       };
     }
   } catch { /* ignore */ }

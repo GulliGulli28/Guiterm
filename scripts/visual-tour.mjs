@@ -161,6 +161,19 @@ const scenes = [
   ["26-bases-etroit", async (page) => { await clickNav(page, "Bases de données"); }],
   ["27-tunnels-etroit", async (page) => { await clickNav(page, "Tunnels"); }],
   ["28-snippets-etroit", async (page) => { await clickNav(page, "Snippets"); }],
+  ["29-apparence", async (page) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await clickNav(page, "Paramètres");
+    await settle(page, 400);
+  }],
+  // Dossiers au maximum, accent libre : le réglage doit se voir dans la liste.
+  ["30-dossiers-grands", async (page) => {
+    await page.locator('input[type="range"][aria-label^="Taille des dossiers"]').fill("18");
+    await page.locator('input[type="color"]').fill("#e11d48");
+    await settle(page, 300);
+    await clickNav(page, "Hôtes");
+    await settle(page, 400);
+  }],
 ];
 
 try {

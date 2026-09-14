@@ -11,7 +11,7 @@ import type { TerminalTabHandle } from "./components/TerminalTab";
 import { TitleBar } from "./components/TitleBar";
 import { TabLoadingFallback } from "./components/TabLoadingFallback";
 
-import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, HOST_GROUP_SIZES, loadPreferences, savePreferences } from "./lib/preferences";
+import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, accentFromHex, hostGroupMetrics, loadPreferences, savePreferences, uiFontStack } from "./lib/preferences";
 import { resolveVisiblePanel, type SidebarPanelKind } from "./lib/sidebarButtons";
 import { cdCommand } from "./lib/panePath";
 import { describeObject, parseEndpoint, type AppObject } from "./lib/appObject";
@@ -183,7 +183,8 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const colors = ACCENT_COLORS[preferences.uiAccent ?? "blue"];
+    const choice = preferences.uiAccent ?? "blue";
+    const colors = choice === "custom" ? accentFromHex(preferences.uiAccentCustom) : ACCENT_COLORS[choice];
     if (!colors) return;
     const light = (preferences.colorMode ?? "dark") === "light";
     const root = document.documentElement;
@@ -193,7 +194,7 @@ export default function App() {
     // plein sur clair.
     root.style.setProperty("--c-accent-text", light ? colors.c600 : colors.c300);
     root.style.setProperty("--c-accent-dim", light ? colors.dim.replace("0.18", "0.12") : colors.dim);
-  }, [preferences.uiAccent, preferences.colorMode]);
+  }, [preferences.uiAccent, preferences.uiAccentCustom, preferences.colorMode]);
 
   useEffect(() => {
     const bg = BG_THEMES[preferences.uiBg ?? "zinc"];
@@ -211,11 +212,16 @@ export default function App() {
   // Une variable CSS plutôt qu'une prop : `GroupRow` est rendu par quatre
   // panneaux qui n'ont pas tous les préférences sous la main.
   useEffect(() => {
-    const size = HOST_GROUP_SIZES[preferences.hostGroupSize ?? "medium"] ?? HOST_GROUP_SIZES.medium;
+    const size = hostGroupMetrics(preferences.hostGroupSize);
     const root = document.documentElement;
     root.style.setProperty("--group-row-font", size.font);
+    root.style.setProperty("--group-row-icon", `${size.icon}px`);
     root.style.setProperty("--group-row-h", size.height);
   }, [preferences.hostGroupSize]);
+
+  useEffect(() => {
+    document.documentElement.style.setProperty("--font-ui", uiFontStack(preferences.uiFontFamily ?? "system"));
+  }, [preferences.uiFontFamily]);
 
   useEffect(() => {
     api.getWorkspace().then(setWorkspace).catch((e) => reportError(String(e)));
