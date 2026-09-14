@@ -46,6 +46,52 @@ This changelog starts 2026-07-21 — for earlier versions, see
   votre session, et un conteneur Docker ou un pod Kubernetes s'ouvre déjà avec
   les droits de son `exec`.
 
+### Changed
+
+- **Refonte visuelle de l'interface.** Surfaces plates séparées par une
+  bordure d'un pixel, rayons resserrés (6 px pour ce qu'on manipule, 8 pour
+  les cartes, 12 pour les modales), accent réservé à ce qui agit (bouton
+  primaire, élément actif, focus), données en chasse fixe et coquille en
+  sans. Le halo « aurora » en fond, les boutons en verre dégradé, l'anneau
+  lumineux sur l'hôte actif, les emojis en guise d'icônes et les textes de
+  10 px disparaissent. Les cases à cocher sont dessinées par l'application
+  (elles suivent le thème) et les onglets se partagent la largeur comme dans
+  un navigateur au lieu de faire apparaître une barre de défilement. Fond
+  par défaut : Zinc, accent par défaut : Bleu — un fond et un accent déjà
+  choisis restent tels quels.
+
+- **Une seule ligne pour toutes les listes.** Hôtes, SFTP, cibles de flotte
+  et de diagnostic, clés, bases, tunnels, snippets, runbooks et clés d'hôtes
+  ont la même anatomie : icône, nom avec badges et méta, ligne secondaire
+  (adresse en mono, système collecté, tags), actions révélées au survol. En
+  fenêtre étroite, rien ne disparaît : ce qui ne tient pas passe à la ligne
+  et la ligne grandit — le nom garde la priorité. La liste des hôtes montre
+  ainsi trois fois plus de machines qu'avant, adresse et système compris.
+
+- **Mode clair remis d'aplomb.** Plus aucune couleur codée en dur : les
+  fonds clairs ont leur teinte et leur nom propres (Ardoise, Gris, Sable,
+  Blanc pur, Ciel, Lavande) et le texte accentué contraste correctement
+  sur du blanc.
+
+- **Paramètres plus larges.** Le panneau s'élargit à leur ouverture, les
+  catégories ont leur nom, les fonds sont des échantillons à trois tons.
+
+### Added
+
+- **Apparence, réglages fins.** Taille du texte et de l'icône des hôtes
+  (11–18 px, 12–32 px) et des dossiers (11–20 px, 12–32 px), chacune au
+  curseur avec un aperçu réel juste dessous ; couleur d'accent libre via le
+  sélecteur de couleur du système, en plus des huit couleurs nommées ;
+  police de l'interface (Système, Inter, Segoe UI, Helvetica/Arial, Verdana,
+  JetBrains Mono) séparée de celle du terminal ; police propre aux panneaux
+  de transfert ; trois thèmes de terminal clairs (Clair, Solarized Light,
+  GitHub Light).
+
+- **L'arborescence d'hôtes se souvient.** Les dossiers repliés et la
+  position de défilement sont retenus d'un lancement à l'autre — les
+  dossiers repliés en commun entre les panneaux Hôtes et SFTP, le
+  défilement propre à chacun.
+
 ### Fixed
 
 - **Un fichier copié vers un hôte arrivait vide.** Toute copie SFTP vers un
