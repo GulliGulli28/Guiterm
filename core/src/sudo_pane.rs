@@ -31,10 +31,16 @@ use std::sync::atomic::AtomicBool;
 
 /// Copie un fichier vers le transit et le rend lisible par l'utilisateur.
 /// `$1` source (souvent illisible pour lui), `$2` transit, `$3` son `uid`.
+///
+/// `--` **avant** le mode, pas après : le `getopt` BSD (macOS) s'arrête au
+/// premier argument qui n'est pas une option, donc `chmod 600 -- f` y prend
+/// `--` pour un fichier — « chmod: --: No such file or directory » sur le CI
+/// macOS. GNU l'accepte aux deux places ; la forme `-- 600 f` marche partout,
+/// comme le `chown -- uid f` juste au-dessus.
 const STAGE_OUT_SCRIPT: &str = r#"
 cp -- "$1" "$2" || exit 1
 chown -- "$3" "$2" || exit 1
-chmod 600 -- "$2"
+chmod -- 600 "$2"
 "#;
 
 /// Recopie le transit à sa place définitive. Le `cp` (et non un `mv`) est
