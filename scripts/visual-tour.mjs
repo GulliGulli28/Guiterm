@@ -55,7 +55,7 @@ const scenes = [
     await page.getByRole("button", { name: /Annuler/ }).first().click().catch(() => {});
     await clickNav(page, "SFTP");
     await page.locator("[data-sidebar-panel] button", { hasText: "pg-primary" }).first().click();
-    await page.waitForSelector("text=docker-compose.yml", { timeout: 10_000 });
+    await page.waitForSelector("text=docker-compose", { timeout: 10_000 });
     await settle(page, 600);
   }],
   ["05-snippets", async (page) => { await clickNav(page, "Snippets"); }],

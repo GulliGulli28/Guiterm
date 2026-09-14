@@ -191,7 +191,14 @@ sans Tauri) pour ce qui dépend de la **géométrie** ou d'un **geste**, que ni
 `scripts/visual-check-ghost-text.*` (positionnement sur la grille xterm) et
 `npm run check:transfer` (`visual-check-transfer-{columns,dnd}.*` : alignement
 des colonnes du panneau de transfert à plusieurs tailles de police, et vrai
-glisser-déposer à la souris entre deux panneaux). Un composant peut y être
+glisser-déposer à la souris entre deux panneaux). **Pour juger un changement
+visuel sur l'app entière**, `node scripts/visual-tour.mjs [--light]`
+(`visual-tour.client.tsx`) monte `App` dans Chromium avec une couche Tauri
+factice (`window.__TAURI_INTERNALS__` répondant à chaque `invoke` avec un
+espace de travail peuplé, un terminal qui affiche une invite, des fichiers
+listés) et dépose une capture par écran dans `scripts/.output/tour/` —
+c'est ce qui a servi à la refonte visuelle de septembre 2026, et c'est là
+qu'ajouter une scène quand on retouche un écran. Un composant peut y être
 monté seul s'il ne parle à Tauri que par ses callbacks — c'est pour ça que
 `PaneView` est exporté. Aucune de ces techniques ne couvre ce qui passe
 par `invoke(...)` (`window.__TAURI__` n'existe que dans la vraie webview
@@ -524,6 +531,25 @@ limité (pas de curseur rendu, molette approximative), voir
   état frais — oublier de le reposer fait retomber silencieusement sur le
   target dir par défaut (chemin UNC) et reproduit le piège du lock file
   incrémental.
+
+- **Le langage visuel vit dans `src/index.css` (jetons + primitives `.btn*`,
+  `.input`, `.card`, `.popover`, `.modal`, `.list-row`, `.segmented`, `.tag`,
+  `.callout`…), pas dans des chaînes Tailwind répétées.** Un nouveau
+  composant les reprend ; une couleur d'état passe par `--c-ok`/`--c-warn`/
+  `--c-danger` (jamais `text-rose-400` en dur, illisible en mode clair), un
+  survol par `--c-hover` (jamais `white/5`), une opacité sur ces variables
+  par `color-mix(in srgb, var(--c-x) N%, transparent)` — Tailwind ne sait pas
+  faire `bg-[var(--c-x)]/20`. Pas de dégradé, pas de halo, pas d'emoji en
+  guise d'icône (`ui-icons.tsx`), pas de texte sous 10,5 px.
+
+- **E2E : le premier bouton `aria-label="Fermer"` du document est celui de la
+  barre de titre, qui ferme la fenêtre** — un `.click()` dessus fait planter la
+  session WebDriver (« page crash or hang »). Scoper toute recherche de
+  « Fermer » à la modale (`.modal button[aria-label="Fermer"]`). Et
+  `tauri-plugin-window-state` persiste la géométrie d'un run interrompu dans
+  `~/.config/dev.guitermius.app/.window-state.json` : un état « maximisé »
+  périmé fait échouer le scénario plein écran à chaque run suivant, jusqu'à
+  effacer ce fichier.
 
 - **Un process `rdp-sidecar.exe`/`guiterm.exe` resté ouvert après un test
   précédent verrouille le binaire que le build suivant essaie d'écrire.**
