@@ -168,11 +168,27 @@ const scenes = [
   }],
   // Dossiers au maximum, accent libre : le réglage doit se voir dans la liste.
   ["30-dossiers-grands", async (page) => {
-    await page.locator('input[type="range"][aria-label^="Taille des dossiers"]').fill("18");
+    await page.locator('input[type="range"][aria-label="Taille du texte des dossiers"]').fill("18");
+    await page.locator('input[type="range"][aria-label="Taille de l\'icône des dossiers"]').fill("26");
     await page.locator('input[type="color"]').fill("#e11d48");
     await settle(page, 300);
     await clickNav(page, "Hôtes");
     await settle(page, 400);
+  }],
+  // Replier un dossier, défiler, recharger : l'arbre doit revenir tel quel.
+  ["31-memoire-arbre", async (page) => {
+    await page.locator('button[aria-label="Replier Labo"]').click();
+    await page.locator('button[aria-label="Replier Préproduction"]').click();
+    await settle(page, 300);
+    await page.goto("http://localhost:4331/scripts/visual-tour.html?keep=1");
+    await page.waitForSelector("text=web-01", { timeout: 15_000 });
+    await settle(page, 600);
+    const state = await page.evaluate(() => ({
+      labo: !!document.querySelector('button[aria-label="Déplier Labo"]'),
+      prepro: !!document.querySelector('button[aria-label="Déplier Préproduction"]'),
+      prod: !!document.querySelector('button[aria-label="Replier Production"]'),
+    }));
+    if (!state.labo || !state.prepro || !state.prod) throw new Error(`dossiers non restaurés : ${JSON.stringify(state)}`);
   }],
 ];
 

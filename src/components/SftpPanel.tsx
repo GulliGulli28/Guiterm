@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { api } from "../lib/api";
 import type { Group, GroupId, Host, Workspace } from "../lib/types";
 import { HostIcon } from "./icons";
@@ -7,6 +7,7 @@ import { IconSearch, IconFolder, IconTransfer } from "./ui-icons";
 import { EntityRow, EntityMono, EntityTags, GroupRow } from "./EntityRow";
 import { usePolledHostStat } from "../hooks/usePolledHostStat";
 import { useContainerPicker } from "../hooks/useContainerPicker";
+import { useHostTreeMemory } from "../hooks/useHostTreeMemory";
 
 interface SftpPanelProps {
   workspace: Workspace;
@@ -15,7 +16,8 @@ interface SftpPanelProps {
 
 export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
   const [search, setSearch] = useState("");
-  const [collapsed, setCollapsed] = useState<Set<GroupId>>(new Set());
+  const listRef = useRef<HTMLDivElement>(null);
+  const { collapsed, toggle: toggleGroup, onScroll: onListScroll } = useHostTreeMemory("sftp", workspace.groups, listRef);
   // Unlike HostsPanel's equivalent poll, this one isn't filtered to SSH
   // hosts only — kept as-is (pre-existing behavior, not changed here).
   const hostStatus = usePolledHostStat(workspace.hosts, () => true, (h) => api.checkHostStatus(h.id), false);
@@ -53,13 +55,6 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
     return childGroups(groupId).some((g) => groupHasMatches(g.id));
   }
 
-  const toggleGroup = (id: GroupId) =>
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
 
   const renderHost = (host: Host, depth: number) => {
     const kind = host.kind ?? "ssh";
@@ -133,7 +128,7 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
         />
       </div>
       <p className="eyebrow mt-3.5 pl-1">Ouvrir un transfert vers</p>
-      <div className="sidebar-scroll -mx-1 mt-1 min-h-0 min-w-0 flex-1 overflow-y-auto px-1 pb-2">
+      <div ref={listRef} onScroll={onListScroll} className="sidebar-scroll -mx-1 mt-1 min-h-0 min-w-0 flex-1 overflow-y-auto px-1 pb-2">
         {hostsIn(null).map((h) => renderHost(h, 0))}
         {childGroups(null).map((g) => renderGroup(g, 0))}
         {workspace.hosts.length === 0 && (

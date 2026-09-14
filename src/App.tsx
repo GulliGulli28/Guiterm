@@ -212,12 +212,12 @@ export default function App() {
   // Une variable CSS plutôt qu'une prop : `GroupRow` est rendu par quatre
   // panneaux qui n'ont pas tous les préférences sous la main.
   useEffect(() => {
-    const size = hostGroupMetrics(preferences.hostGroupSize);
+    const size = hostGroupMetrics(preferences.hostGroupSize, preferences.hostGroupIconSize);
     const root = document.documentElement;
     root.style.setProperty("--group-row-font", size.font);
-    root.style.setProperty("--group-row-icon", `${size.icon}px`);
+    root.style.setProperty("--group-row-icon", size.icon);
     root.style.setProperty("--group-row-h", size.height);
-  }, [preferences.hostGroupSize]);
+  }, [preferences.hostGroupSize, preferences.hostGroupIconSize]);
 
   useEffect(() => {
     document.documentElement.style.setProperty("--font-ui", uiFontStack(preferences.uiFontFamily ?? "system"));

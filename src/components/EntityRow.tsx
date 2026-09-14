@@ -161,7 +161,7 @@ export function GroupRow({
       {leading}
       <button
         onClick={onToggle}
-        className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left font-medium text-[var(--c-text-secondary)]"
+        className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left font-medium text-[var(--c-text)]"
         style={{ fontSize: "var(--group-row-font)" }}
       >
         {/* L'icône suit la taille réglée, quelle que soit celle demandée par

@@ -10,6 +10,7 @@ import { formatRelativeTime } from "../lib/format";
 import { buildHostTree } from "../lib/hostTree";
 import { usePolledHostStat } from "../hooks/usePolledHostStat";
 import { useContainerPicker } from "../hooks/useContainerPicker";
+import { useHostTreeMemory } from "../hooks/useHostTreeMemory";
 import { BulkEditPanel } from "./BulkEditPanel";
 import { EntityRow, EntityMono, EntityTags, GroupRow } from "./EntityRow";
 import { PersistentSessionsModal } from "./PersistentSessionsModal";
@@ -139,7 +140,8 @@ export function HostsPanel({
     });
   const leaveSelection = () => { setSelecting(false); setSelectedHosts(new Set()); };
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
-  const [collapsed, setCollapsed] = useState<Set<GroupId>>(new Set());
+  const listRef = useRef<HTMLDivElement>(null);
+  const { collapsed, toggle: toggleGroup, onScroll: onListScroll } = useHostTreeMemory("hosts", workspace.groups, listRef);
   const [openMenuHostId, setOpenMenuHostId] = useState<HostId | null>(null);
   /** Où accrocher le menu « … » : sous son bouton, aligné à droite. */
   const [menuAnchor, setMenuAnchor] = useState<{ top: number; right: number } | null>(null);
@@ -209,14 +211,6 @@ export function HostsPanel({
   const childGroups = (parentId: GroupId | null) => groupsByParent.get(parentId) ?? [];
   const hostsIn = (groupId: GroupId | null) => hostsByGroup.get(groupId) ?? [];
   const isExpanded = (id: GroupId) => (query ? true : !collapsed.has(id));
-
-  const toggleGroup = (id: GroupId) =>
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
 
   const fileFilters = [{ name: "JSON", extensions: ["json"] }];
 
@@ -545,7 +539,7 @@ export function HostsPanel({
       )}
 
       {/* Host list */}
-      <div className="sidebar-scroll -mx-1 mt-3 min-h-0 min-w-0 flex-1 overflow-y-auto px-1 pb-2">
+      <div ref={listRef} onScroll={onListScroll} className="sidebar-scroll -mx-1 mt-3 min-h-0 min-w-0 flex-1 overflow-y-auto px-1 pb-2">
         {quickSSH && (
           <button
             onClick={handleQuickConnect}

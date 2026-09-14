@@ -195,6 +195,12 @@ export interface AppPreferences {
    * range trente machines en cinq dossiers veut des en-têtes qui se voient,
    * quelqu'un qui en a deux les veut discrets. */
   hostGroupSize: number;
+  /** Taille, en pixels, de l'icône des lignes de dossier — réglée à part de
+   * la police : on veut parfois un gros pictogramme devant un petit nom. */
+  hostGroupIconSize: number;
+  /** Police des panneaux de transfert. `"inherit"` = celle de l'interface ;
+   * une chasse fixe y est un choix courant (les noms de fichiers s'alignent). */
+  sftpFontFamily: string;
   /** Couleur d'accent libre, en hexadécimal, quand `uiAccent` vaut
    * `"custom"`. Les huit couleurs nommées restent des raccourcis. */
   uiAccentCustom: string;
@@ -205,12 +211,17 @@ export interface AppPreferences {
 
 export const HOST_GROUP_SIZE_MIN = 11;
 export const HOST_GROUP_SIZE_MAX = 20;
+export const HOST_GROUP_ICON_MIN = 12;
+export const HOST_GROUP_ICON_MAX = 32;
 
-/** Ce qu'une taille de police de dossier pose comme variables CSS — lues par
- * `GroupRow`. L'icône suit la police, la ligne garde de l'air autour. */
-export function hostGroupMetrics(fontPx: number): { font: string; icon: number; height: string } {
-  const px = Math.min(HOST_GROUP_SIZE_MAX, Math.max(HOST_GROUP_SIZE_MIN, Math.round(fontPx)));
-  return { font: `${px}px`, icon: Math.round(px * 1.25), height: `${Math.round(px * 2.2)}px` };
+/** Ce que les deux tailles de dossier posent comme variables CSS — lues par
+ * `GroupRow`. La ligne est aussi haute que le plus grand des deux, avec de
+ * l'air autour. */
+export function hostGroupMetrics(fontPx: number, iconPx: number): { font: string; icon: string; height: string } {
+  const clamp = (v: number, min: number, max: number) => Math.min(max, Math.max(min, Math.round(v * 2) / 2));
+  const font = clamp(fontPx, HOST_GROUP_SIZE_MIN, HOST_GROUP_SIZE_MAX);
+  const icon = clamp(iconPx, HOST_GROUP_ICON_MIN, HOST_GROUP_ICON_MAX);
+  return { font: `${font}px`, icon: `${icon}px`, height: `${Math.round(Math.max(font * 2.2, icon + 10))}px` };
 }
 
 export const UI_FONT_FAMILIES: { value: string; label: string }[] = [
@@ -228,6 +239,11 @@ export function uiFontStack(value: string): string {
   return value === "system"
     ? "\"Segoe UI Variable Text\", \"Segoe UI\", system-ui, -apple-system, \"Helvetica Neue\", Arial, sans-serif"
     : value;
+}
+
+/** La police des panneaux de transfert : `"inherit"` suit l'interface. */
+export function sftpFontStack(value: string | undefined): string | undefined {
+  return !value || value === "inherit" ? undefined : value;
 }
 
 /** Les quatre teintes d'accent dérivées d'une couleur libre : remplissage,
@@ -455,6 +471,8 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   terminalRenderStats: false,
   hiddenSidebarButtons: [],
   hostGroupSize: 13,
+  hostGroupIconSize: 16,
+  sftpFontFamily: "inherit",
   uiAccentCustom: "#2563eb",
   uiFontFamily: "system",
 };

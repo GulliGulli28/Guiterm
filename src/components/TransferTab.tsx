@@ -6,7 +6,7 @@ import { ConnectionFailed } from "./ConnectionFailed";
 import { ContextMenu } from "./ContextMenu";
 import type { AppObject } from "../lib/appObject";
 import type { ObjectAction } from "../modules/types";
-import type { AppPreferences } from "../lib/preferences";
+import { sftpFontStack, type AppPreferences } from "../lib/preferences";
 import type { ArchiveFormat, ConflictPolicy, CopyConflict, DiffHunk, DiffLine, DiffPick, Entry, FileDiff, Host, HostId, PaneComparison, PaneDiskSpace, PaneFindOutcome, SyncItem, PaneListed, PaneOpened, PaneSource, PaneState, RemoteEditListed, TransferPanes, Workspace } from "../lib/types";
 import {
   IconFolder, IconEdit, IconExternal, IconTrash, IconShield, IconClose, IconSearch,
@@ -904,7 +904,7 @@ export function TransferTab({ host, workspace, preferences, onPreferencesChange,
   return (
     // `relative` : le panneau de comparaison se pose par-dessus les deux
     // listings (voir `ComparisonPanel`), pas à côté.
-    <div className="relative flex min-h-0 flex-1 flex-col">
+    <div className="relative flex min-h-0 flex-1 flex-col" style={{ fontFamily: sftpFontStack(preferences?.sftpFontFamily) }}>
       <div ref={containerRef} className="flex min-h-0 flex-1">
         <div ref={leftPaneRef} style={{ width: `${divider.value}%` }} className="flex min-h-0 shrink-0 flex-col overflow-hidden">
           <PaneView {...paneProps("left")} onCopy={copyOrPushToRdp} isRdpPush={isRdpTarget} />

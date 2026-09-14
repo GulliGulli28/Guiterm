@@ -7,7 +7,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { api } from "../lib/api";
 import type { VaultStatus, Workspace } from "../lib/types";
 import type { AppPreferences } from "../lib/preferences";
-import { TERMINAL_THEMES, FONT_FAMILIES, UI_FONT_FAMILIES, ACCENT_COLORS, BG_THEMES, HOST_GROUP_SIZE_MIN, HOST_GROUP_SIZE_MAX, bgThemeLabel, hostGroupMetrics, type UiAccent, type UiBg, type ColorMode } from "../lib/preferences";
+import { TERMINAL_THEMES, FONT_FAMILIES, UI_FONT_FAMILIES, ACCENT_COLORS, BG_THEMES, HOST_GROUP_SIZE_MIN, HOST_GROUP_SIZE_MAX, HOST_GROUP_ICON_MIN, HOST_GROUP_ICON_MAX, bgThemeLabel, hostGroupMetrics, sftpFontStack, type UiAccent, type UiBg, type ColorMode } from "../lib/preferences";
 import { GroupRow } from "./EntityRow";
 import { SHORTCUT_ACTIONS, comboConflicts, defaultShortcuts, comboFromEvent, shellBindingWarning, shortcutLabel } from "../lib/shortcuts";
 import { SIDEBAR_BUTTONS, ALWAYS_VISIBLE_SIDEBAR_BUTTONS, isSidebarButtonVisible } from "../lib/sidebarButtons";
@@ -375,30 +375,53 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
               <p className="help-text">S'applique à toute l'interface, sauf au terminal, qui a sa propre police ci-contre.</p>
             </section>
 
-            <section className="space-y-2">
-              <p className="eyebrow">
-                Dossiers de la liste d'hôtes : <span className="font-mono normal-case tracking-normal text-[var(--c-text)]">{hostGroupMetrics(preferences.hostGroupSize).font}</span>
-              </p>
-              <input
-                type="range"
-                min={HOST_GROUP_SIZE_MIN}
-                max={HOST_GROUP_SIZE_MAX}
-                step={0.5}
-                value={preferences.hostGroupSize}
-                onChange={(e) => onPreferencesChange({ ...preferences, hostGroupSize: Number(e.target.value) })}
-                aria-label="Taille des dossiers de la liste d'hôtes"
-                className="w-full max-w-xs"
-              />
-              <div className="flex max-w-xs justify-between text-[11px] text-[var(--c-text-faint)]">
-                <span>{HOST_GROUP_SIZE_MIN} px</span><span>{HOST_GROUP_SIZE_MAX} px</span>
+            <section className="space-y-3">
+              <p className="eyebrow">Dossiers de la liste d'hôtes</p>
+              <div className="grid max-w-md grid-cols-2 gap-4">
+                <label className="block">
+                  <span className="field-label">
+                    Texte : <span className="font-mono text-[var(--c-text)]">{hostGroupMetrics(preferences.hostGroupSize, preferences.hostGroupIconSize).font}</span>
+                  </span>
+                  <input
+                    type="range"
+                    min={HOST_GROUP_SIZE_MIN}
+                    max={HOST_GROUP_SIZE_MAX}
+                    step={0.5}
+                    value={preferences.hostGroupSize}
+                    onChange={(e) => onPreferencesChange({ ...preferences, hostGroupSize: Number(e.target.value) })}
+                    aria-label="Taille du texte des dossiers"
+                    className="w-full"
+                  />
+                  <span className="flex justify-between text-[11px] text-[var(--c-text-faint)]">
+                    <span>{HOST_GROUP_SIZE_MIN} px</span><span>{HOST_GROUP_SIZE_MAX} px</span>
+                  </span>
+                </label>
+                <label className="block">
+                  <span className="field-label">
+                    Icône : <span className="font-mono text-[var(--c-text)]">{hostGroupMetrics(preferences.hostGroupSize, preferences.hostGroupIconSize).icon}</span>
+                  </span>
+                  <input
+                    type="range"
+                    min={HOST_GROUP_ICON_MIN}
+                    max={HOST_GROUP_ICON_MAX}
+                    step={1}
+                    value={preferences.hostGroupIconSize}
+                    onChange={(e) => onPreferencesChange({ ...preferences, hostGroupIconSize: Number(e.target.value) })}
+                    aria-label="Taille de l'icône des dossiers"
+                    className="w-full"
+                  />
+                  <span className="flex justify-between text-[11px] text-[var(--c-text-faint)]">
+                    <span>{HOST_GROUP_ICON_MIN} px</span><span>{HOST_GROUP_ICON_MAX} px</span>
+                  </span>
+                </label>
               </div>
-              {/* Un vrai en-tête de dossier, à la taille réglée — le même
+              {/* Un vrai en-tête de dossier, aux tailles réglées — le même
                   composant que dans les listes, pas une imitation. */}
-              <div className="card max-w-xs px-2 py-1.5">
+              <div className="card max-w-md px-2 py-1.5">
                 <GroupRow depth={0} expanded onToggle={() => {}} icon={<IconFolder />} name="Production" count={12} />
                 <GroupRow depth={1} expanded={false} onToggle={() => {}} icon={<IconFolder />} name="Frontaux web" count={4} />
               </div>
-              <p className="help-text">La taille des en-têtes de dossier dans les listes d'hôtes, de transfert et de cibles — l'icône suit.</p>
+              <p className="help-text">Dans les listes d'hôtes, de transfert et de cibles. Les dossiers repliés et la position dans la liste sont retenus d'un lancement à l'autre.</p>
             </section>
 
             <section className="space-y-2">
@@ -633,9 +656,25 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
                 <span>11</span><span>18</span>
               </div>
             </div>
+            <div className="space-y-1">
+              <label className="field-label">Police</label>
+              <select
+                value={preferences.sftpFontFamily ?? "inherit"}
+                onChange={(e) => onPreferencesChange({ ...preferences, sftpFontFamily: e.target.value })}
+                className="input w-full"
+              >
+                <option value="inherit">Comme l'interface</option>
+                {UI_FONT_FAMILIES.filter((f) => f.value !== "system").map((f) => (
+                  <option key={f.value} value={f.value}>{f.label}</option>
+                ))}
+                {FONT_FAMILIES.map((f) => (
+                  <option key={f.value} value={f.value}>{f.label} (chasse fixe)</option>
+                ))}
+              </select>
+            </div>
             <div
               className="rounded-md bg-[var(--c-bg)] p-2"
-              style={{ fontSize: `${preferences.sftpFontSize ?? 13}px` }}
+              style={{ fontSize: `${preferences.sftpFontSize ?? 13}px`, fontFamily: sftpFontStack(preferences.sftpFontFamily) }}
             >
               <div className="flex items-center gap-2 text-[var(--c-text-secondary)]">
                 <IconFolderFilled size={14} className="text-[var(--c-accent-text)]" /><span className="flex-1 font-medium text-[var(--c-accent-text)]">documents</span>

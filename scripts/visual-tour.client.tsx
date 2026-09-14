@@ -232,7 +232,9 @@ const internals = {
 // Un état local propre à chaque tour : les préférences vivent en
 // `localStorage`, et un thème choisi lors d'un passage précédent fausserait
 // les captures du suivant.
-localStorage.clear();
+// `?keep=1` : garder ce que le passage précédent a laissé en `localStorage`
+// — pour vérifier ce qui doit justement survivre à un rechargement.
+if (!new URLSearchParams(location.search).has("keep")) localStorage.clear();
 // `?mode=light` : le tour en thème clair, décidé avant que l'app ne lise ses
 // préférences — même clé que `lib/preferences.ts`.
 const mode = new URLSearchParams(location.search).get("mode");
