@@ -55,9 +55,8 @@ interface TargetTreeListProps<T extends TargetLike> {
 function TagChips({ tags }: { tags: string[] }) {
   if (tags.length === 0) return null;
   return (
-    <span className="flex shrink-0 gap-1">
-      {tags.slice(0, 2).map((tag) => <span key={tag} className="tag">{tag}</span>)}
-      {tags.length > 2 && <span className="tag" title={tags.slice(2).join(", ")}>+{tags.length - 2}</span>}
+    <span className="flex flex-wrap gap-1">
+      {tags.map((tag) => <span key={tag} className="tag">{tag}</span>)}
     </span>
   );
 }
@@ -182,7 +181,7 @@ export function TargetTreeList<T extends TargetLike>({
             <div
               key={row.id}
               style={{ paddingLeft: 4 + row.depth * 14 }}
-              className="list-row mb-0.5 h-11 pr-1.5"
+              className="list-row mb-0.5 min-h-11 py-1.5 pr-1.5"
             >
               <button
                 onClick={() => toggleCollapsed(row.id)}
@@ -202,8 +201,8 @@ export function TargetTreeList<T extends TargetLike>({
               <RowIcon host={row.host} customIcons={customIcons} />
               <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 leading-tight">
                 <span className="truncate text-[12.5px] font-medium text-[var(--c-text)]">{row.host.label}</span>
-                <span className="flex items-center gap-1.5">
-                  <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-[var(--c-text-muted)]">{row.host.address}</span>
+                <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                  <span className="max-w-full break-all font-mono text-[10.5px] text-[var(--c-text-muted)]">{row.host.address}</span>
                   <TagChips tags={row.host.tags} />
                 </span>
               </span>
@@ -222,7 +221,7 @@ export function TargetTreeList<T extends TargetLike>({
             title={disabled ? disabledTitle : undefined}
             data-active={checked ? "true" : undefined}
             style={{ paddingLeft: 8 + row.depth * 14 }}
-            className={`list-row mb-0.5 h-11 pr-2 ${disabled ? "opacity-50" : "cursor-pointer"}`}
+            className={`list-row mb-0.5 min-h-11 py-1.5 pr-2 ${disabled ? "opacity-50" : "cursor-pointer"}`}
           >
             <input
               type="checkbox"
@@ -237,8 +236,8 @@ export function TargetTreeList<T extends TargetLike>({
                 <span className="truncate text-[12.5px] font-medium text-[var(--c-text)]">{row.target.label}</span>
                 {extra && <span className="ml-auto flex shrink-0 items-center gap-1.5">{extra}</span>}
               </span>
-              <span className="flex items-center gap-1.5">
-                <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-[var(--c-text-muted)]">{row.target.sub ?? ""}</span>
+              <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+                {row.target.sub && <span className="max-w-full break-all font-mono text-[10.5px] text-[var(--c-text-muted)]">{row.target.sub}</span>}
                 <TagChips tags={row.tags} />
               </span>
             </span>

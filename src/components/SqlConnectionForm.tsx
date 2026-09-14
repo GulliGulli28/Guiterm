@@ -186,7 +186,7 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
 
   return (
     <div data-form className="flex min-h-0 flex-1 flex-col border-l border-[var(--c-border)]">
-      <div className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--c-border)] px-4">
+      <div className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--c-border)] px-5">
         <h2 className="text-[13px] font-semibold text-[var(--c-text)]">
           {connection ? "Modifier la connexion" : "Nouvelle connexion"}
         </h2>
@@ -195,7 +195,7 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
           <button onClick={submit} className="btn btn-primary">{connection ? "Enregistrer" : "Ajouter"}</button>
         </div>
       </div>
-      <div className="sidebar-scroll min-h-0 flex-1 space-y-3.5 overflow-y-auto p-4">
+      <div className="sidebar-scroll min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
         {error && <p className="callout callout-danger">{error}</p>}
 
         <div>

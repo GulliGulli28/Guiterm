@@ -283,7 +283,7 @@ export function HostsPanel({
         key={host.id}
         data-host-row={host.label}
         data-active={isActive ? "true" : undefined}
-        className={`list-row group mb-0.5 h-11 pr-1.5 ${menuOpen ? "bg-[var(--c-hover)]" : ""}`}
+        className={`list-row group mb-0.5 min-h-11 py-1.5 pr-1.5 ${menuOpen ? "bg-[var(--c-hover)]" : ""}`}
         style={{ paddingLeft: 8 + depth * 14 }}
       >
         {selecting && (
@@ -297,10 +297,10 @@ export function HostsPanel({
         )}
         <button
           onClick={() => (selecting ? toggleSelected(host.id) : handleConnect(host))}
-          className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+          className="flex min-w-0 flex-1 items-start gap-2.5 text-left"
           title={tooltip}
         >
-          <span className="relative flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--c-bg3)] text-[var(--c-text-secondary)]">
+          <span className="relative mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--c-bg3)] text-[var(--c-text-secondary)]">
             {host.icon
               ? <HostIcon iconId={host.icon} customIcons={workspace.customIcons} size={16} />
               : <KindIcon size={13} />}
@@ -311,6 +311,10 @@ export function HostsPanel({
               />
             )}
           </span>
+          {/* Rien n'est sacrifié à la largeur : ce qui ne tient pas sur la
+              ligne de l'adresse (système, tags) passe à la ligne suivante, et
+              la ligne grandit. Seule l'adresse elle-même se tronque, si elle
+              dépasse à elle seule la largeur du panneau. */}
           <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 leading-tight">
             <span className="flex items-center gap-1.5">
               <span className="truncate text-[12.5px] font-medium text-[var(--c-text)]">{host.label}</span>
@@ -323,12 +327,14 @@ export function HostsPanel({
                 </span>
               )}
             </span>
-            <span className="flex items-center gap-1.5">
-              <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-[var(--c-text-muted)]">{subtitle}</span>
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="max-w-full break-all font-mono text-[10.5px] text-[var(--c-text-muted)]">{subtitle}</span>
+              {(facts?.osName || facts?.osId) && (
+                <span className="shrink-0 text-[10.5px] text-[var(--c-text-faint)]">{facts.osName || facts.osId}</span>
+              )}
               {host.tags.length > 0 && (
-                <span className="flex shrink-0 gap-1">
-                  {host.tags.slice(0, 2).map((tag) => <span key={tag} className="tag">{tag}</span>)}
-                  {host.tags.length > 2 && <span className="tag" title={host.tags.slice(2).join(", ")}>+{host.tags.length - 2}</span>}
+                <span className="flex flex-wrap gap-1">
+                  {host.tags.map((tag) => <span key={tag} className="tag">{tag}</span>)}
                 </span>
               )}
             </span>
@@ -510,7 +516,7 @@ export function HostsPanel({
       </div>
 
       {/* Action row */}
-      <div className="mt-2 flex shrink-0 items-center gap-1.5">
+      <div className="mt-2.5 flex shrink-0 items-center gap-2">
         <div className="relative flex-1">
           {showAddMenu && (
             <>
@@ -565,7 +571,7 @@ export function HostsPanel({
       )}
 
       {/* Host list */}
-      <div className="sidebar-scroll -mx-1 mt-2 min-h-0 min-w-0 flex-1 overflow-y-auto px-1 pb-2">
+      <div className="sidebar-scroll -mx-1 mt-3 min-h-0 min-w-0 flex-1 overflow-y-auto px-1 pb-2">
         {quickSSH && (
           <button
             onClick={handleQuickConnect}

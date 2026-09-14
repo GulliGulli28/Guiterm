@@ -510,7 +510,7 @@ export function FleetTab({ workspace, onError, onWorkspaceUpdate, onShowTargets,
        * shrinking, same bug `SqlTab`'s schema tree used to have. */}
       {/* ── Command + results ─────────────────────────────────────────── */}
       <section ref={rightSectionRef} className="flex min-w-0 flex-1 flex-col">
-        <div style={{ height: `${composer.value}%` }} className="shrink-0 overflow-y-auto border-b border-[var(--c-border)] p-3">
+        <div style={{ height: `${composer.value}%` }} className="shrink-0 overflow-y-auto border-b border-[var(--c-border)] p-4">
           <div className="mb-2 flex shrink-0 items-center gap-2 text-[11.5px]">
           <div className="segmented">
             <button onClick={() => setMode("command")} data-active={mode === "command" ? "true" : undefined}>

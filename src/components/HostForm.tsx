@@ -400,14 +400,14 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
     <div data-form className="flex min-h-0 flex-1 flex-col border-l border-[var(--c-border)]">
       {/* En-tête fixe : le titre et les deux actions restent sous les yeux
           quel que soit le défilement d'un formulaire long. */}
-      <div className="flex h-11 shrink-0 items-center justify-between border-b border-[var(--c-border)] px-4">
+      <div className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--c-border)] px-5">
         <h2 className="text-[13px] font-semibold text-[var(--c-text)]">{host ? "Modifier l'hôte" : "Nouvel hôte"}</h2>
         <div className="flex items-center gap-1.5">
           <button onClick={onCancel} className="btn btn-ghost">Annuler</button>
           <button onClick={submit} className="btn btn-primary">Enregistrer</button>
         </div>
       </div>
-      <div className="sidebar-scroll min-h-0 flex-1 space-y-3.5 overflow-y-auto p-4">
+      <div className="sidebar-scroll min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
         {error && <p className="callout callout-danger">{error}</p>}
 
         <Field label="Nom">

@@ -228,10 +228,10 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
   };
 
   return (
-    <div className="-m-2 flex h-[calc(100%+1rem)] min-w-0">
+    <div className="-m-3 flex h-[calc(100%+1.5rem)] min-w-0">
       {/* Les catégories, avec leur nom : une colonne d'icônes seules
           demandait de survoler chacune pour savoir ce qu'elle cachait. */}
-      <nav className="flex w-[9.5rem] shrink-0 flex-col gap-px border-r border-[var(--c-border)] p-1.5">
+      <nav className="flex w-[10rem] shrink-0 flex-col gap-px border-r border-[var(--c-border)] p-2.5">
         <p className="eyebrow px-2 pb-1.5 pt-1">Paramètres</p>
         {CATEGORIES.map((c) => {
           const active = category === c.key;
@@ -251,7 +251,7 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
       </nav>
 
       {/* Category content */}
-      <div className="sidebar-scroll min-w-0 flex-1 space-y-5 overflow-y-auto p-4">
+      <div className="sidebar-scroll min-w-0 flex-1 space-y-6 overflow-y-auto px-6 py-5">
         <p className="text-[14px] font-semibold text-[var(--c-text)]">
           {CATEGORIES.find((c) => c.key === category)?.label}
         </p>

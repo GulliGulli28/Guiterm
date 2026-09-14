@@ -336,7 +336,7 @@ input[type="checkbox"]:disabled {
      marqueur à gauche. Le marqueur est ce qui dit « c'est celui-ci » sans
      remplir la ligne. */
   .list-row {
-    @apply relative flex min-w-0 items-center gap-2 rounded-md px-2 text-left transition-colors;
+    @apply relative flex min-w-0 items-center gap-2.5 rounded-md px-2.5 text-left transition-colors;
     min-height: 32px;
   }
   .list-row:hover {

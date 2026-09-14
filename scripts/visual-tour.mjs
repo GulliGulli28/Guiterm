@@ -138,6 +138,20 @@ const scenes = [
     await page.setViewportSize({ width: 1000, height: 700 });
     await settle(page, 500);
   }],
+  // Panneau au plus étroit : les tags et le système passent à la ligne,
+  // rien n'est tronqué sauf une adresse plus large que le panneau.
+  ["24-panneau-etroit", async (page) => {
+    await page.setViewportSize({ width: 1440, height: 900 });
+    await page.evaluate(() => {
+      const handle = document.querySelector(".cursor-col-resize");
+      if (!handle) return;
+      const rect = handle.getBoundingClientRect();
+      handle.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, clientX: rect.left + 2, clientY: 300 }));
+      window.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: rect.left - 80, clientY: 300 }));
+      window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, clientX: rect.left - 80, clientY: 300 }));
+    });
+    await settle(page, 500);
+  }],
 ];
 
 try {

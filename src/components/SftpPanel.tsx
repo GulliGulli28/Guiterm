@@ -68,13 +68,13 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
     const subtitle = isDocker || isK8s ? host.address : `${host.username}@${host.address}${host.port !== 22 ? `:${host.port}` : ""}`;
     const online = hostStatus[host.id];
     return (
-      <div key={host.id} className="list-row group mb-0.5 h-11 pr-1.5" style={{ paddingLeft: 8 + depth * 14 }}>
+      <div key={host.id} className="list-row group mb-0.5 min-h-11 py-1.5 pr-1.5" style={{ paddingLeft: 8 + depth * 14 }}>
         <button
           onClick={() => (isDocker ? openDockerPicker(host) : isK8s ? openK8sPicker(host) : onOpenTransfer(host))}
-          className="flex min-w-0 flex-1 items-center gap-2.5 text-left"
+          className="flex min-w-0 flex-1 items-start gap-2.5 text-left"
           title={isDocker || isK8s ? kindLabel : `Transférer — ${subtitle}`}
         >
-          <span className="relative flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--c-bg3)] text-[var(--c-text-secondary)]">
+          <span className="relative mt-0.5 flex h-6 w-6 shrink-0 items-center justify-center rounded-md bg-[var(--c-bg3)] text-[var(--c-text-secondary)]">
             {host.icon
               ? <HostIcon iconId={host.icon} customIcons={workspace.customIcons} size={16} />
               : <KindIcon size={13} />}
@@ -87,12 +87,11 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
           </span>
           <span className="flex min-w-0 flex-1 flex-col justify-center gap-0.5 leading-tight">
             <span className="truncate text-[12.5px] font-medium text-[var(--c-text)]">{host.label}</span>
-            <span className="flex items-center gap-1.5">
-              <span className="min-w-0 flex-1 truncate font-mono text-[10.5px] text-[var(--c-text-muted)]">{subtitle}</span>
+            <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
+              <span className="max-w-full break-all font-mono text-[10.5px] text-[var(--c-text-muted)]">{subtitle}</span>
               {host.tags.length > 0 && (
-                <span className="flex shrink-0 gap-1">
-                  {host.tags.slice(0, 2).map((tag) => <span key={tag} className="tag">{tag}</span>)}
-                  {host.tags.length > 2 && <span className="tag" title={host.tags.slice(2).join(", ")}>+{host.tags.length - 2}</span>}
+                <span className="flex flex-wrap gap-1">
+                  {host.tags.map((tag) => <span key={tag} className="tag">{tag}</span>)}
                 </span>
               )}
             </span>
@@ -153,7 +152,7 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
           className="input pl-8"
         />
       </div>
-      <p className="eyebrow mt-2.5 pl-1">Ouvrir un transfert vers</p>
+      <p className="eyebrow mt-3.5 pl-1">Ouvrir un transfert vers</p>
       <div className="sidebar-scroll -mx-1 mt-1 min-h-0 min-w-0 flex-1 overflow-y-auto px-1 pb-2">
         {hostsIn(null).map((h) => renderHost(h, 0))}
         {childGroups(null).map((g) => renderGroup(g, 0))}

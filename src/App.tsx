@@ -167,7 +167,7 @@ export default function App() {
   const splitContainerRef = useRef<HTMLDivElement>(null);
 
   const sidebar = useResizablePane({
-    initial: 320, min: 240, max: 600, axis: "horizontal", mode: "px", onDragChange: setSidebarDragging,
+    initial: 340, min: 260, max: 640, axis: "horizontal", mode: "px", onDragChange: setSidebarDragging,
   });
   const rightPanel = useResizablePane({
     initial: 420, min: 280, max: 700, axis: "horizontal", mode: "px", invert: true, onDragChange: setRightDragging,

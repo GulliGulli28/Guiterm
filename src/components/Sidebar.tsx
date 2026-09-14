@@ -116,7 +116,7 @@ export function Sidebar({ panel, onPanelChange, ctx, actions }: SidebarProps) {
             en E2E que le panneau demandé rend bien quelque chose. Sans lui, le
             test devrait viser des classes utilitaires Tailwind, qui changent
             au premier ajustement de style. */}
-        <div data-sidebar-panel={panel} className="min-h-0 min-w-0 flex-1 overflow-hidden p-2">
+        <div data-sidebar-panel={panel} className="min-h-0 min-w-0 flex-1 overflow-hidden p-3">
           <Suspense fallback={<TabLoadingFallback />}>
             {renderModulePanel(panel, ctx, actions)}
           </Suspense>
