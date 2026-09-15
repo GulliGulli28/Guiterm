@@ -9,6 +9,44 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+### Added
+
+- **GuiVault : synchronisation chiffrée et vaults partagés.** Un serveur
+  compagnon auto-hébergé ([GuiVault](https://github.com/GulliGulli28/GuiVault),
+  une image Docker) synchronise hôtes, dossiers, clés, snippets et
+  connexions SQL — mots de passe, passphrases et contenus de clés compris —
+  entre appareils, et les partage dans des **vaults** d'équipe. Guiterm reste
+  utilisable sans compte, comme avant.
+
+  **Chiffré ici, jamais lisible là-bas.** Tout est chiffré dans Guiterm avant
+  de partir (Argon2id, XChaCha20-Poly1305, X25519) ; le serveur ne détient
+  aucune clé et ne voit que des blobs. Personne ne peut réinitialiser un mot
+  de passe maître oublié — c'est le prix de ce modèle, dit dans le
+  formulaire.
+
+  **Partager, c'est envelopper une clé pour quelqu'un.** Un vault partagé a
+  des membres et des rôles (lecteur, éditeur, admin, propriétaire), des
+  invitations — y compris vers quelqu'un qui n'a pas encore de compte — et
+  une **rotation de clé** au retrait d'un membre. Avant tout partage, Guiterm
+  exige que l'**empreinte** de la clé publique du destinataire ait été
+  vérifiée par un autre canal et épinglée : c'est la seule défense contre un
+  serveur qui substituerait sa propre clé, et une empreinte qui change est
+  affichée comme une alerte, jamais acceptée en silence.
+
+  **Un workspace par compte.** Connecté, on voit les hôtes du compte —
+  vault personnel et vaults partagés ; déconnecté, le profil local de
+  l'appareil, et le panneau propose les comptes déjà utilisés ici pour se
+  reconnecter. À la première connexion d'un compte, le profil local peut
+  être transféré dans son vault personnel. Un hôte se range dans un vault
+  depuis son formulaire (champ « Vault ») ; sa clé du trousseau le suit.
+
+  **Le reste** : second facteur TOTP avec codes de récupération, liste des
+  appareils connectés et déconnexion à distance, changement de mot de passe
+  maître, journal d'audit par vault, synchronisation automatique (intervalle
+  réglable) et **immédiate** dès qu'un autre membre écrit, « rester
+  déverrouillé sur cet appareil » désactivable. En cas de modification des
+  deux côtés, la version locale est conservée et la notification le dit.
+
 ## [3.5.0] - 2026-09-15
 
 ### Added
