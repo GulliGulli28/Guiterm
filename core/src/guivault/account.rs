@@ -41,6 +41,12 @@ pub struct ItemState {
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
 pub struct SyncState {
+    /// Version des règles de réconciliation qui ont produit cet état. Quand
+    /// le moteur change de règles (voir `sync::SYNC_FORMAT`), il oublie les
+    /// révisions connues pour tout relire une fois — les empreintes évitent
+    /// de tout re-pousser.
+    #[serde(default)]
+    pub format: u32,
     /// Dernière révision vue de chaque vault (pour `?since=`).
     #[serde(default)]
     pub vault_revisions: BTreeMap<VaultId, i64>,

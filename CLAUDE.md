@@ -326,6 +326,12 @@ doivent rester identiques).
 - `sync.rs` : le moteur. Copie du workspace → réseau/crypto hors verrou →
   liste de `Change` rejouée sous verrou par `commands::guivault::run_sync`.
   Fusion : les deux côtés modifiés = le local gagne et le rapport le dit.
+  **Une entité ne vit que dans un vault** : si elle arrive d'un vault
+  alors qu'elle est rangée ici dans un autre, on suit le serveur — sauf
+  qu'une copie *personnelle* ne rétrograde jamais une entité partagée, et
+  la copie personnelle en trop est supprimée en face. C'est le cas « deux
+  comptes sur le même PC » (bug du 2026-09-15). `SYNC_FORMAT` force une
+  relecture complète quand ces règles changent.
 - `sharing.rs` : vaults, membres, invitations. **Aucune enveloppe de clé ne
   part vers une empreinte non épinglée** (`Manager::require_pinned`) : c'est
   la seule défense contre un serveur qui substituerait une clé publique.

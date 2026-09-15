@@ -192,13 +192,13 @@ pub async fn guivault_logout(state: State<'_, AppState>) -> Result<Status, Strin
     state.guivault.logout().await.map_err(err)
 }
 
-/// Retire le compte de la machine. Les entités restent, toutes redevenues
-/// locales (plus d'affiliation à un vault partagé).
+/// Retire le compte de la machine. Les entités du vault personnel restent
+/// (locales) ; celles des vaults partagés partent, sauf `keep_shared`.
 #[tauri::command]
-pub async fn guivault_disconnect(state: State<'_, AppState>) -> Result<Status, String> {
+pub async fn guivault_disconnect(state: State<'_, AppState>, keep_shared: bool) -> Result<Status, String> {
     let status = state.guivault.disconnect().await.map_err(err)?;
     let mut ws = state.workspace.lock_recover();
-    sync::detach_all(&mut ws);
+    sync::detach_all(&mut ws, keep_shared);
     persist(&ws)?;
     Ok(status)
 }

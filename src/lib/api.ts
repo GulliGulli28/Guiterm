@@ -309,7 +309,8 @@ export const api = {
   guivaultTotpEnable: (code: string) => invoke<string[]>("guivault_totp_enable", { code }),
   guivaultTotpDisable: (code: string) => invoke<void>("guivault_totp_disable", { code }),
   guivaultLogout: () => invoke<GuiVaultStatus>("guivault_logout"),
-  guivaultDisconnect: () => invoke<GuiVaultStatus>("guivault_disconnect"),
+  /** `keepShared` : garder une copie locale des entités des vaults partagés. */
+  guivaultDisconnect: (keepShared: boolean) => invoke<GuiVaultStatus>("guivault_disconnect", { keepShared }),
   guivaultSetPreferences: (autoSyncSecs: number, persistUnlock: boolean) => invoke<GuiVaultStatus>("guivault_set_preferences", { autoSyncSecs, persistUnlock }),
   guivaultChangePassword: (current: string, next: string) => invoke<void>("guivault_change_password", { current, new: next }),
   guivaultSync: () => invoke<GuiVaultReport>("guivault_sync"),

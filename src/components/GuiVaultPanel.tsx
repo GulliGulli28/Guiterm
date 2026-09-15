@@ -168,7 +168,7 @@ function ConnectForm({ onDone, onError }: { onDone: () => void; onError: (m: str
       <p className="text-[12px] leading-relaxed text-[var(--c-text-secondary)]">
         GuiVault synchronise vos hôtes, clés et mots de passe entre vos appareils et les partage avec votre équipe —
         chiffrés ici avant d'être envoyés. Le serveur ne peut rien lire, et personne ne peut réinitialiser un mot de passe
-        maître oublié.
+        maître oublié. Ce qui est déjà sur cet appareil rejoindra le vault personnel du compte connecté.
       </p>
       <div className="segmented flex w-full">
         {([["login", "Se connecter"], ["register", "Créer un compte"]] as [typeof mode, string][]).map(([m, label]) => (
@@ -275,6 +275,7 @@ function AccountCard({ status, onStatusChange, onError, onNotify }: { status: Gu
   const [pwNext, setPwNext] = useState("");
   const [pwBusy, setPwBusy] = useState(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const [keepShared, setKeepShared] = useState(false);
   const [totpEnabled, setTotpEnabled] = useState<boolean | null>(null);
   const [totpSetup, setTotpSetup] = useState<{ secret: string; otpauthUrl: string } | null>(null);
   const [totpCode, setTotpCode] = useState("");
@@ -430,14 +431,25 @@ function AccountCard({ status, onStatusChange, onError, onNotify }: { status: Gu
         </div>
       )}
       {confirmDisconnect && (
-        <ConfirmDialog
-          title="Retirer le compte GuiVault de cet appareil ?"
-          message="Vos hôtes, clés et snippets restent ici, mais ne sont plus synchronisés ni partagés : ceux qui venaient de vaults partagés deviennent des copies locales. Rien n'est supprimé sur le serveur."
-          confirmLabel="Retirer"
-          danger
-          onConfirm={() => { setConfirmDisconnect(false); api.guivaultDisconnect().then(onStatusChange).catch((e) => onError(String(e))); }}
-          onCancel={() => setConfirmDisconnect(false)}
-        />
+        <>
+          <ConfirmDialog
+            title="Retirer le compte GuiVault de cet appareil ?"
+            message={
+              "Vos hôtes, clés et snippets personnels restent ici, sans plus être synchronisés. Rien n'est supprimé sur le serveur. " +
+              (keepShared
+                ? "Les entités des vaults partagés restent aussi, comme copies locales — attention : un autre compte connecté ensuite sur cet appareil les enverrait dans son vault personnel."
+                : "Les entités des vaults partagés sont retirées de cet appareil (elles appartiennent à l'équipe, elles reviendront à la reconnexion).")
+            }
+            confirmLabel="Retirer"
+            danger
+            onConfirm={() => { setConfirmDisconnect(false); api.guivaultDisconnect(keepShared).then(onStatusChange).catch((e) => onError(String(e))); }}
+            onCancel={() => setConfirmDisconnect(false)}
+          />
+          <label className="flex cursor-pointer items-center gap-2 text-[12px] text-[var(--c-text-secondary)]">
+            <input type="checkbox" checked={keepShared} onChange={(e) => setKeepShared(e.target.checked)} className="h-3.5 w-3.5" />
+            Garder une copie locale des entités des vaults partagés
+          </label>
+        </>
       )}
     </div>
   );

@@ -33,6 +33,8 @@ use uuid::Uuid;
 pub enum Change {
     Upsert { payload: Box<Payload>, vault: Option<VaultId> },
     Remove { item_type: String, id: Uuid },
+    /// Même contenu, autre vault : seule l'affiliation change.
+    Rebind { id: Uuid, vault: Option<VaultId> },
 }
 
 #[derive(Debug, Clone, Default, Serialize)]
@@ -68,6 +70,11 @@ fn conflict_current(e: &ClientError) -> Option<Item> {
     }
 }
 
+/// À incrémenter quand les règles de fusion changent de façon à ce qu'un
+/// état déjà « à jour » doive être relu (2 : résolution d'une entité
+/// présente dans deux vaults).
+pub const SYNC_FORMAT: u32 = 2;
+
 pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec<Change>, Report)> {
     let client = manager.client()?;
     let _account = manager.account()?;
@@ -85,6 +92,10 @@ pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec
         .clone();
 
     let mut state = manager.with_state(|s| s.sync.clone())?;
+    if state.format < SYNC_FORMAT {
+        state.vault_revisions.clear();
+        state.format = SYNC_FORMAT;
+    }
     let mut changes = Vec::new();
 
     // ─── Vue locale ──────────────────────────────────────────────────────
@@ -123,8 +134,11 @@ pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec
         }
         let page = client.items(v.id, known).await.map_err(super::account::user_error)?;
         for item in page.items {
-            let local = locals.get(&item.id);
-            let st = state.items.get(&item.id);
+            // Copie : la boucle modifie `locals` plus bas.
+            let local = locals.get(&item.id).cloned();
+            let local = local.as_ref();
+            let st = state.items.get(&item.id).cloned();
+            let st = st.as_ref();
             let local_modified = local.is_some_and(|l| st.is_none_or(|s| s.hash != l.hash));
 
             if item.deleted {
@@ -174,24 +188,52 @@ pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec
                 }
             };
 
-            if local_modified && st.is_some() {
-                // Les deux côtés ont bougé : le local gagne, en se posant sur
-                // la révision du serveur pour que le push passe.
-                let mut s = st.cloned().expect("st.is_some()");
-                s.revision = item.revision;
-                state.items.insert(item.id, s);
-                report.conflicts.push(format!("{} modifié des deux côtés : votre version conservée", label_of(&local.expect("local_modified").json)));
-                continue;
-            }
-
             let json = payload.to_json()?;
             let hash = entity::hash(&json);
-            if local.is_some_and(|l| l.hash == hash) {
+
+            // Une entité ne vit que dans un vault. Si elle arrive de V alors
+            // qu'elle est rangée ici dans W, on suit V — sauf si V est le
+            // vault personnel et W un vault partagé : une copie personnelle
+            // ne rétrograde jamais une entité partagée (c'est ce qui arrive
+            // quand un compte se connecte sur une machine où l'entité a été
+            // détachée). Dans les deux cas, la copie personnelle en trop est
+            // supprimée en face : deux exemplaires, c'est un de trop.
+            let mut same_content = local.is_some_and(|l| l.hash == hash);
+            if let Some(l) = local.cloned()
+                && l.vault_id != v.id
+            {
+                let w_shared = vaults.get(&l.vault_id).is_some_and(|w| w.kind == VaultKind::Shared);
+                if v.kind == VaultKind::Personal && w_shared {
+                    match client.delete_item(v.id, item.id).await {
+                        Ok(()) => report.deleted_remotely += 1,
+                        Err(e) if e.code() == Some("not_found") => {}
+                        Err(e) => return Err(super::account::user_error(e)),
+                    }
+                    continue;
+                }
+                if l.vault_id == personal.id {
+                    match client.delete_item(personal.id, item.id).await {
+                        Ok(()) => report.deleted_remotely += 1,
+                        Err(e) if e.code() == Some("not_found") => {}
+                        Err(e) => return Err(super::account::user_error(e)),
+                    }
+                }
+                let vault = (v.kind != VaultKind::Personal).then_some(v.id);
+                if same_content {
+                    changes.push(Change::Rebind { id: item.id, vault });
+                    if let Some(entry) = locals.get_mut(&item.id) {
+                        entry.vault_id = v.id;
+                    }
+                } else {
+                    // Contenu différent : la version du vault suivi est la
+                    // référence, le reste du chemin l'applique.
+                    same_content = false;
+                    state.items.remove(&item.id);
+                }
+            }
+            if same_content {
                 // Déjà identique ici — typiquement notre propre écriture de
                 // la synchro précédente qui revient : on note la révision.
-                // Si l'entité a été déplacée localement vers un autre vault
-                // entre-temps, l'état garde le vault du serveur et la phase
-                // de push verra le déplacement.
                 state.items.insert(
                     item.id,
                     ItemState {
@@ -201,6 +243,19 @@ pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec
                         revision: item.revision,
                     },
                 );
+                continue;
+            }
+            let st = state.items.get(&item.id).cloned();
+            let local_modified = local.is_some_and(|l| st.as_ref().is_none_or(|s| s.hash != l.hash));
+            if local_modified && let Some(mut s) = st {
+                // Les deux côtés ont bougé : le local gagne, en se posant sur
+                // la révision du serveur pour que le push passe.
+                s.revision = item.revision;
+                state.items.insert(item.id, s);
+                report.conflicts.push(format!(
+                    "{} modifié des deux côtés : votre version conservée",
+                    label_of(&local.expect("local_modified").json)
+                ));
                 continue;
             }
             let vault = (v.kind != VaultKind::Personal).then_some(v.id);
@@ -362,14 +417,41 @@ pub fn apply_changes(workspace: &mut Workspace, changes: Vec<Change>) {
                 }
             }
             Change::Remove { item_type, id } => entity::remove(workspace, &item_type, id),
+            Change::Rebind { id, vault } => match vault {
+                Some(v) => {
+                    workspace.vault_bindings.insert(id, v);
+                }
+                None => {
+                    workspace.vault_bindings.remove(&id);
+                }
+            },
         }
     }
 }
 
-/// Après une déconnexion du compte : plus aucune entité n'appartient à un
-/// vault partagé, tout redevient local.
-pub fn detach_all(workspace: &mut Workspace) {
+/// Après le retrait du compte de cette machine. Les entités des vaults
+/// partagés appartiennent à l'équipe, pas à l'appareil : par défaut elles
+/// partent (`keep_shared = false`). Les garder les transforme en copies
+/// locales — qu'un autre compte connecté ensuite sur cette machine pousserait
+/// dans *son* vault personnel, d'où la question posée à l'utilisateur.
+pub fn detach_all(workspace: &mut Workspace, keep_shared: bool) -> usize {
+    let bound: Vec<(Uuid, &'static str)> = workspace
+        .vault_bindings
+        .keys()
+        .map(|id| (*id, entity::type_of(workspace, *id)))
+        .collect();
     workspace.vault_bindings.clear();
+    if keep_shared {
+        return 0;
+    }
+    let mut removed = 0;
+    for (id, item_type) in bound {
+        if !item_type.is_empty() {
+            entity::remove(workspace, item_type, id);
+            removed += 1;
+        }
+    }
+    removed
 }
 
 /// Re-chiffre tout un vault sous une nouvelle clé (après le retrait d'un

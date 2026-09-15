@@ -253,12 +253,71 @@ async fn shared_vault_with_fingerprint_gate_roles_and_rotation() {
     let lookup = sharing::lookup_user(&alice.manager, &carol_email).await.unwrap().unwrap();
     assert!(matches!(lookup.trust, FingerprintTrust::Changed { .. }));
 
-    // Déconnexion d'Alice : le compte disparaît de la machine, les hôtes restent.
+    // Déconnexion d'Alice : le compte disparaît de la machine ; par défaut
+    // les entités des vaults partagés aussi, les personnelles restent.
+    alice.ws.hosts.push(Host::new("perso", "10.1.1.1", "me"));
+    alice.sync().await;
     alice.manager.disconnect().await.unwrap();
-    sync::detach_all(&mut alice.ws);
+    assert_eq!(sync::detach_all(&mut alice.ws, false), 1);
     assert!(!alice.manager.status().configured);
     assert_eq!(alice.ws.hosts.len(), 1);
+    assert_eq!(alice.ws.hosts[0].label, "perso");
     assert!(alice.ws.vault_bindings.is_empty());
+}
+
+/// Le scénario rapporté le 2026-09-15 : deux comptes sur le même PC, donc le
+/// même workspace. Alice range un hôte dans un vault partagé, retire son
+/// compte en gardant les copies locales, Bob se connecte (l'hôte, redevenu
+/// « personnel » ici, part dans SON vault personnel) puis accepte
+/// l'invitation au vault partagé. L'hôte doit finir dans le vault partagé,
+/// et la copie personnelle de Bob disparaître — pas l'inverse.
+#[tokio::test]
+async fn same_machine_account_switch_keeps_shared_entity_in_shared_vault() {
+    if !server_available().await {
+        return;
+    }
+    let tag = Uuid::new_v4().simple();
+    let (alice_email, bob_email) = (format!("alice-{tag}@test.local"), format!("bob-{tag}@test.local"));
+    let mut alice = Device::register(&alice_email, "pw-a").await;
+    let bob_reg = Device::register(&bob_email, "pw-b").await;
+    let team = sharing::create_vault(&alice.manager, "testing").await.unwrap();
+    let host = Host::new("srv", "10.0.0.1", "root");
+    alice.ws.hosts.push(host.clone());
+    alice.ws.vault_bindings.insert(host.id, team.id);
+    assert_eq!(alice.sync().await.pushed, 1);
+    let lookup = sharing::lookup_user(&alice.manager, &bob_email).await.unwrap().unwrap();
+    alice.manager.pin_fingerprint(&bob_email, &lookup.fingerprint).unwrap();
+    sharing::invite(&alice.manager, team.id, &bob_email, Role::Reader).await.unwrap();
+
+    // Retrait du compte en gardant les copies : l'hôte est maintenant local.
+    alice.manager.disconnect().await.unwrap();
+    sync::detach_all(&mut alice.ws, true);
+    assert!(alice.ws.vault_bindings.is_empty());
+
+    // Bob se connecte sur le même workspace. Première synchro : l'hôte part
+    // dans son vault personnel (il n'a pas encore accès à « testing »).
+    let mut bob = Device::new();
+    bob.manager.login(&server_url(), &bob_email, "pw-b", None).await.unwrap();
+    bob.ws = alice.ws.clone();
+    let r = bob.sync().await;
+    assert_eq!(r.pushed, 1, "{r:?}");
+
+    // Il accepte l'invitation : l'hôte rejoint « testing » et sa copie
+    // personnelle en face est supprimée.
+    let mine = sharing::my_invitations(&bob.manager).await.unwrap();
+    sharing::accept_invitation(&bob.manager, mine[0].id).await.unwrap();
+    let r = bob.sync().await;
+    assert_eq!(bob.ws.vault_bindings.get(&host.id), Some(&team.id), "{r:?}");
+    assert_eq!(r.deleted_remotely, 1, "{r:?}");
+    assert_eq!(bob.ws.hosts.len(), 1);
+    let personal = bob.manager.status().vaults.iter().find(|v| v.kind == guivault_protocol::VaultKind::Personal).unwrap().id;
+    let page = bob.manager.client().unwrap().items(personal, None).await.unwrap();
+    assert!(page.items.is_empty(), "plus de copie personnelle : {:?}", page.items.len());
+    // Stable : une synchro de plus ne change rien.
+    let r = bob.sync().await;
+    assert_eq!((r.pushed, r.pulled, r.deleted_remotely), (0, 0, 0), "{r:?}");
+    assert_eq!(bob.ws.vault_bindings.get(&host.id), Some(&team.id));
+    drop(bob_reg);
 }
 
 #[tokio::test]
