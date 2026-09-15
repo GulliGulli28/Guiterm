@@ -298,8 +298,10 @@ export const api = {
 
   // GuiVault : compte, synchronisation, vaults partagés (voir `commands::guivault`).
   guivaultStatus: () => invoke<GuiVaultStatus>("guivault_status"),
-  guivaultRegister: (input: { serverUrl: string; email: string; password: string; deviceName?: string | null }) => invoke<GuiVaultStatus>("guivault_register", { input }),
-  guivaultLogin: (input: { serverUrl: string; email: string; password: string; deviceName?: string | null }) => invoke<GuiVaultLoginStep>("guivault_login", { input }),
+  /** `adoptLocal` : transférer le profil local dans ce compte (première
+   * connexion de ce compte sur cet appareil). */
+  guivaultRegister: (input: { serverUrl: string; email: string; password: string; deviceName?: string | null; adoptLocal?: boolean }) => invoke<GuiVaultStatus>("guivault_register", { input }),
+  guivaultLogin: (input: { serverUrl: string; email: string; password: string; deviceName?: string | null; adoptLocal?: boolean }) => invoke<GuiVaultLoginStep>("guivault_login", { input }),
   /** Deuxième temps de la connexion : le code TOTP ou un code de récupération. */
   guivaultLoginTotp: (code: string) => invoke<GuiVaultStatus>("guivault_login_totp", { code }),
   guivaultUnlock: (password: string) => invoke<GuiVaultLoginStep>("guivault_unlock", { password }),
@@ -309,8 +311,8 @@ export const api = {
   guivaultTotpEnable: (code: string) => invoke<string[]>("guivault_totp_enable", { code }),
   guivaultTotpDisable: (code: string) => invoke<void>("guivault_totp_disable", { code }),
   guivaultLogout: () => invoke<GuiVaultStatus>("guivault_logout"),
-  /** `keepShared` : garder une copie locale des entités des vaults partagés. */
-  guivaultDisconnect: (keepShared: boolean) => invoke<GuiVaultStatus>("guivault_disconnect", { keepShared }),
+  /** Oublie un compte sur cet appareil (son workspace local compris). */
+  guivaultForget: (userId: string) => invoke<GuiVaultStatus>("guivault_forget", { userId }),
   guivaultSetPreferences: (autoSyncSecs: number, persistUnlock: boolean) => invoke<GuiVaultStatus>("guivault_set_preferences", { autoSyncSecs, persistUnlock }),
   guivaultChangePassword: (current: string, next: string) => invoke<void>("guivault_change_password", { current, new: next }),
   guivaultSync: () => invoke<GuiVaultReport>("guivault_sync"),

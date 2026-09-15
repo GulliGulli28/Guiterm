@@ -266,24 +266,6 @@ pub fn apply(workspace: &mut Workspace, payload: Payload) {
     }
 }
 
-/// Le type d'item d'une entité du workspace, ou `""` si l'id ne correspond
-/// à rien (une affiliation orpheline).
-pub fn type_of(workspace: &Workspace, id: Uuid) -> &'static str {
-    if workspace.hosts.iter().any(|h| h.id == id) {
-        TYPE_HOST
-    } else if workspace.groups.iter().any(|g| g.id == id) {
-        TYPE_GROUP
-    } else if workspace.snippets.iter().any(|s| s.id == id) {
-        TYPE_SNIPPET
-    } else if workspace.keychain.iter().any(|k| k.id == id) {
-        TYPE_KEY
-    } else if workspace.sql_connections.iter().any(|c| c.id == id) {
-        TYPE_SQL
-    } else {
-        ""
-    }
-}
-
 /// Retire une entité (et ses secrets) suite à une pierre tombale ou à la
 /// perte d'accès à son vault.
 pub fn remove(workspace: &mut Workspace, item_type: &str, id: Uuid) {
@@ -334,7 +316,8 @@ mod tests {
             secrets: HostSecrets::default(),
         };
         let json = p.to_json().unwrap();
-        assert!(!json.contains("42"));
+        // Pas `contains("42")` : l'uuid aléatoire de l'hôte peut le contenir.
+        assert!(json.contains("\"lastFactsAtMs\":null"), "{json}");
         assert_eq!(hash(&json), hash(&Payload::from_json(json.as_bytes()).unwrap().to_json().unwrap()));
         assert_eq!(p.item_type(), TYPE_HOST);
         assert_eq!(p.id(), host.id);

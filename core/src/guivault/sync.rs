@@ -429,31 +429,6 @@ pub fn apply_changes(workspace: &mut Workspace, changes: Vec<Change>) {
     }
 }
 
-/// Après le retrait du compte de cette machine. Les entités des vaults
-/// partagés appartiennent à l'équipe, pas à l'appareil : par défaut elles
-/// partent (`keep_shared = false`). Les garder les transforme en copies
-/// locales — qu'un autre compte connecté ensuite sur cette machine pousserait
-/// dans *son* vault personnel, d'où la question posée à l'utilisateur.
-pub fn detach_all(workspace: &mut Workspace, keep_shared: bool) -> usize {
-    let bound: Vec<(Uuid, &'static str)> = workspace
-        .vault_bindings
-        .keys()
-        .map(|id| (*id, entity::type_of(workspace, *id)))
-        .collect();
-    workspace.vault_bindings.clear();
-    if keep_shared {
-        return 0;
-    }
-    let mut removed = 0;
-    for (id, item_type) in bound {
-        if !item_type.is_empty() {
-            entity::remove(workspace, item_type, id);
-            removed += 1;
-        }
-    }
-    removed
-}
-
 /// Re-chiffre tout un vault sous une nouvelle clé (après le retrait d'un
 /// membre). Lit les items en face plutôt que le workspace : c'est le contenu
 /// du serveur qu'on protège, y compris ce que d'autres y ont mis.

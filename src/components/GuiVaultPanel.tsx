@@ -2,8 +2,8 @@ import { useCallback, useEffect, useState } from "react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { api } from "../lib/api";
 import type {
-  FingerprintTrust, GuiVaultAuditEntry, GuiVaultInvitation, GuiVaultMember, GuiVaultReport, GuiVaultSession,
-  GuiVaultStatus, GuiVaultUserLookup, GuiVaultVault, VaultId, VaultRole, Workspace,
+  FingerprintTrust, GuiVaultAuditEntry, GuiVaultInvitation, GuiVaultKnownAccount, GuiVaultMember, GuiVaultReport,
+  GuiVaultSession, GuiVaultStatus, GuiVaultUserLookup, GuiVaultVault, VaultId, VaultRole, Workspace,
 } from "../lib/types";
 import { IconCheck, IconCopy, IconEye, IconEyeOff, IconPlus, IconRefresh, IconTrash, IconVault } from "./ui-icons";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -116,10 +116,16 @@ function TrustBadge({ email, fingerprint, trust, onPinned }: { email: string; fi
 
 // ─── Connexion ───────────────────────────────────────────────────────────────
 
-function ConnectForm({ onDone, onError }: { onDone: () => void; onError: (m: string) => void }) {
+function ConnectForm({ accounts, localCount, onDone, onError, onNotify }: { accounts: GuiVaultKnownAccount[]; localCount: number; onDone: () => void; onError: (m: string) => void; onNotify: (m: string) => void }) {
   const [mode, setMode] = useState<"login" | "register">("login");
-  const [serverUrl, setServerUrl] = useState("https://");
+  const [serverUrl, setServerUrl] = useState(accounts[0]?.serverUrl ?? "https://");
   const [email, setEmail] = useState("");
+  /** Compte connu choisi dans la liste : serveur et e-mail figés. */
+  const [known, setKnown] = useState<GuiVaultKnownAccount | null>(null);
+  const [adoptLocal, setAdoptLocal] = useState(true);
+  const [forgetting, setForgetting] = useState<GuiVaultKnownAccount | null>(null);
+  const isKnownEmail = accounts.some((a) => a.email === email.trim().toLowerCase() && a.serverUrl === serverUrl.trim().replace(/\/$/, ""));
+  const offerAdopt = localCount > 0 && !known && !isKnownEmail;
   const [password, setPassword] = useState("");
   const [confirm, setConfirm] = useState("");
   const [show, setShow] = useState(false);
@@ -144,7 +150,7 @@ function ConnectForm({ onDone, onError }: { onDone: () => void; onError: (m: str
     } else if (!password) { setError("Le mot de passe maître est requis"); return; }
     setBusy(true);
     try {
-      const input = { serverUrl: serverUrl.trim(), email: email.trim(), password };
+      const input = { serverUrl: serverUrl.trim(), email: email.trim(), password, adoptLocal: offerAdopt && adoptLocal };
       if (mode === "register") { await api.guivaultRegister(input); onDone(); return; }
       const step = await api.guivaultLogin(input);
       if (step.step === "totpRequired") { setTotpCode(""); return; }
@@ -163,21 +169,58 @@ function ConnectForm({ onDone, onError }: { onDone: () => void; onError: (m: str
     );
   }
 
+  const pickKnown = (a: GuiVaultKnownAccount) => { setKnown(a); setServerUrl(a.serverUrl); setEmail(a.email); setMode("login"); setError(null); };
+
   return (
+    <div className="space-y-3">
+      {accounts.length > 0 && !known && (
+        <div className="space-y-1.5">
+          <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">Comptes sur cet appareil</p>
+          {accounts.map((a) => (
+            <div key={a.userId} className="card flex items-center gap-2 p-2">
+              <button type="button" onClick={() => pickKnown(a)} className="min-w-0 flex-1 text-left">
+                <span className="block truncate text-[12.5px] text-[var(--c-text)]">{a.email}</span>
+                <span className="block truncate text-[11px] text-[var(--c-text-muted)]">{a.serverUrl} — {formatWhen(a.lastUsedAt)}</span>
+              </button>
+              <button type="button" onClick={() => setForgetting(a)} className="btn btn-ghost btn-sm btn-icon hover:text-[var(--c-danger)]" title="Oublier ce compte sur cet appareil"><IconTrash size={11} /></button>
+            </div>
+          ))}
+          <p className="text-[11.5px] text-[var(--c-text-muted)]">Chaque compte a ses propres hôtes ici ; déconnecté, vous voyez le profil local de cet appareil.</p>
+        </div>
+      )}
+      {forgetting && (
+        <ConfirmDialog
+          title={`Oublier ${forgetting.email} sur cet appareil ?`}
+          message="Ses hôtes, clés et snippets sont retirés de cet appareil (ils restent sur le serveur et reviendront à une prochaine connexion). Les empreintes vérifiées pour ce compte sont oubliées aussi."
+          confirmLabel="Oublier"
+          danger
+          onConfirm={() => { const a = forgetting; setForgetting(null); api.guivaultForget(a.userId).then(() => { onNotify(`Compte ${a.email} oublié sur cet appareil.`); onDone(); }).catch((e) => onError(String(e))); }}
+          onCancel={() => setForgetting(null)}
+        />
+      )}
     <div className="card space-y-2 p-3">
-      <p className="text-[12px] leading-relaxed text-[var(--c-text-secondary)]">
-        GuiVault synchronise vos hôtes, clés et mots de passe entre vos appareils et les partage avec votre équipe —
-        chiffrés ici avant d'être envoyés. Le serveur ne peut rien lire, et personne ne peut réinitialiser un mot de passe
-        maître oublié. Ce qui est déjà sur cet appareil rejoindra le vault personnel du compte connecté.
-      </p>
-      <div className="segmented flex w-full">
-        {([["login", "Se connecter"], ["register", "Créer un compte"]] as [typeof mode, string][]).map(([m, label]) => (
-          <button key={m} type="button" onClick={() => setMode(m)} data-active={mode === m ? "true" : undefined} className="flex-1">{label}</button>
-        ))}
-      </div>
+      {known ? (
+        <div className="flex items-center gap-2">
+          <p className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--c-text)]">{known.email} <span className="text-[var(--c-text-muted)]">sur {known.serverUrl}</span></p>
+          <button type="button" onClick={() => { setKnown(null); setEmail(""); }} className="btn btn-ghost btn-sm">Autre compte</button>
+        </div>
+      ) : (
+        <>
+          <p className="text-[12px] leading-relaxed text-[var(--c-text-secondary)]">
+            GuiVault synchronise vos hôtes, clés et mots de passe entre vos appareils et les partage avec votre équipe —
+            chiffrés ici avant d'être envoyés. Le serveur ne peut rien lire, et personne ne peut réinitialiser un mot de passe
+            maître oublié.
+          </p>
+          <div className="segmented flex w-full">
+            {([["login", "Se connecter"], ["register", "Créer un compte"]] as [typeof mode, string][]).map(([m, label]) => (
+              <button key={m} type="button" onClick={() => setMode(m)} data-active={mode === m ? "true" : undefined} className="flex-1">{label}</button>
+            ))}
+          </div>
+        </>
+      )}
       {error && <p className="callout callout-danger py-1">{error}</p>}
-      <input value={serverUrl} onChange={(e) => setServerUrl(e.target.value)} placeholder="https://vault.example.com" className={`${inputClass} input-mono w-full`} />
-      <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="E-mail" type="email" autoComplete="username" className={`${inputClass} w-full`} />
+      {!known && <input value={serverUrl} onChange={(e) => setServerUrl(e.target.value)} placeholder="https://vault.example.com" className={`${inputClass} input-mono w-full`} />}
+      {!known && <input value={email} onChange={(e) => setEmail(e.target.value)} placeholder="E-mail" type="email" autoComplete="username" className={`${inputClass} w-full`} />}
       <div className="flex gap-1.5">
         <input
           value={password}
@@ -203,11 +246,18 @@ function ConnectForm({ onDone, onError }: { onDone: () => void; onError: (m: str
           className={`${inputClass} w-full`}
         />
       )}
+      {offerAdopt && (
+        <label className="flex cursor-pointer items-start gap-2 text-[12px] text-[var(--c-text-secondary)]" title="Décoché : le compte démarre vide ici, le profil local garde ses données.">
+          <input type="checkbox" checked={adoptLocal} onChange={(e) => setAdoptLocal(e.target.checked)} className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span>Transférer les {localCount} entité(s) de cet appareil (hôtes, groupes, clés, snippets, connexions) dans le vault personnel de ce compte. Le profil local sera vide ensuite.</span>
+        </label>
+      )}
       <div className="flex justify-end pt-1">
         <button onClick={submit} disabled={busy} className="btn btn-primary">
           {busy ? "Connexion…" : mode === "register" ? "Créer le compte" : "Se connecter"}
         </button>
       </div>
+    </div>
     </div>
   );
 }
@@ -275,7 +325,6 @@ function AccountCard({ status, onStatusChange, onError, onNotify }: { status: Gu
   const [pwNext, setPwNext] = useState("");
   const [pwBusy, setPwBusy] = useState(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
-  const [keepShared, setKeepShared] = useState(false);
   const [totpEnabled, setTotpEnabled] = useState<boolean | null>(null);
   const [totpSetup, setTotpSetup] = useState<{ secret: string; otpauthUrl: string } | null>(null);
   const [totpCode, setTotpCode] = useState("");
@@ -425,31 +474,20 @@ function AccountCard({ status, onStatusChange, onError, onNotify }: { status: Gu
             </div>
           </div>
           <div className="flex flex-wrap justify-end gap-1.5">
-            <button onClick={() => api.guivaultLogout().then(onStatusChange).catch((e) => onError(String(e)))} className="btn btn-secondary btn-sm" title="Ferme la session ; les données restent, il faudra se reconnecter">Se déconnecter</button>
-            <button onClick={() => setConfirmDisconnect(true)} className="btn btn-danger btn-sm" title="Retire le compte de cet appareil">Retirer le compte</button>
+            <button onClick={() => api.guivaultLogout().then(onStatusChange).catch((e) => onError(String(e)))} className="btn btn-secondary btn-sm" title="Ferme la session et revient au profil local de cet appareil ; le compte reste proposé pour se reconnecter">Se déconnecter</button>
+            <button onClick={() => setConfirmDisconnect(true)} className="btn btn-danger btn-sm" title="Retire le compte et ses données de cet appareil">Oublier le compte</button>
           </div>
         </div>
       )}
       {confirmDisconnect && (
-        <>
-          <ConfirmDialog
-            title="Retirer le compte GuiVault de cet appareil ?"
-            message={
-              "Vos hôtes, clés et snippets personnels restent ici, sans plus être synchronisés. Rien n'est supprimé sur le serveur. " +
-              (keepShared
-                ? "Les entités des vaults partagés restent aussi, comme copies locales — attention : un autre compte connecté ensuite sur cet appareil les enverrait dans son vault personnel."
-                : "Les entités des vaults partagés sont retirées de cet appareil (elles appartiennent à l'équipe, elles reviendront à la reconnexion).")
-            }
-            confirmLabel="Retirer"
-            danger
-            onConfirm={() => { setConfirmDisconnect(false); api.guivaultDisconnect(keepShared).then(onStatusChange).catch((e) => onError(String(e))); }}
-            onCancel={() => setConfirmDisconnect(false)}
-          />
-          <label className="flex cursor-pointer items-center gap-2 text-[12px] text-[var(--c-text-secondary)]">
-            <input type="checkbox" checked={keepShared} onChange={(e) => setKeepShared(e.target.checked)} className="h-3.5 w-3.5" />
-            Garder une copie locale des entités des vaults partagés
-          </label>
-        </>
+        <ConfirmDialog
+          title="Oublier ce compte sur cet appareil ?"
+          message="Ses hôtes, clés et snippets sont retirés de cet appareil — ils restent sur le serveur et reviendront à une prochaine connexion. Pour simplement changer de compte, « Se déconnecter » suffit."
+          confirmLabel="Oublier"
+          danger
+          onConfirm={() => { setConfirmDisconnect(false); if (status.userId) api.guivaultForget(status.userId).then(onStatusChange).catch((e) => onError(String(e))); }}
+          onCancel={() => setConfirmDisconnect(false)}
+        />
       )}
     </div>
   );
@@ -752,7 +790,15 @@ export function GuiVaultPanel({ workspace, status, onStatusChange, onError, onNo
     <div className="flex h-full min-w-0 flex-col">
       <div className="sidebar-scroll -mx-1 min-h-0 min-w-0 flex-1 overflow-y-auto px-1 pb-2">
         {status === null && <p className="text-[12px] text-[var(--c-text-muted)]">Chargement…</p>}
-        {status && !status.configured && <ConnectForm onDone={onStatusChange} onError={onError} />}
+        {status && !status.configured && (
+          <ConnectForm
+            accounts={status.accounts}
+            localCount={workspace.hosts.length + workspace.groups.length + workspace.snippets.length + workspace.keychain.length + workspace.sqlConnections.length}
+            onDone={onStatusChange}
+            onError={onError}
+            onNotify={onNotify}
+          />
+        )}
         {status && status.configured && !status.unlocked && <UnlockForm status={status} onDone={onStatusChange} onError={onError} />}
         {status && unlocked && selectedVault && (
           <VaultDetail vault={selectedVault} workspace={workspace} onBack={() => setSelected(null)} onStatusChange={onStatusChange} onError={onError} onNotify={onNotify} />

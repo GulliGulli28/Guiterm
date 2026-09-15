@@ -153,8 +153,11 @@ export default function App() {
   // Chargé au lancement et rechargé après chaque action du panneau ou fin de
   // synchronisation ; le formulaire d'hôte s'en sert pour lister les vaults.
   const [guivaultStatus, setGuivaultStatus] = useState<GuiVaultStatus | null>(null);
+  // Recharge aussi le workspace : se connecter ou se déconnecter change de
+  // workspace (un par compte, plus le profil local).
   const refreshGuivaultStatus = useCallback(() => {
     api.guivaultStatus().then(setGuivaultStatus).catch(() => setGuivaultStatus(null));
+    api.getWorkspace().then(setWorkspace).catch(() => {});
   }, []);
   useEffect(() => { refreshGuivaultStatus(); }, [refreshGuivaultStatus]);
   useEffect(() => {

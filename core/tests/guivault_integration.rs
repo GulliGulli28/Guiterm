@@ -42,7 +42,7 @@ impl Device {
     fn new() -> Self {
         let dir = tempfile::tempdir().unwrap();
         Device {
-            manager: Manager::with(dir.path().join("guivault.json"), Box::new(MemoryStore::default())),
+            manager: Manager::with(dir.path().join("guivault"), Box::new(MemoryStore::default())),
             ws: Workspace::default(),
             _dir: dir,
         }
@@ -253,24 +253,24 @@ async fn shared_vault_with_fingerprint_gate_roles_and_rotation() {
     let lookup = sharing::lookup_user(&alice.manager, &carol_email).await.unwrap().unwrap();
     assert!(matches!(lookup.trust, FingerprintTrust::Changed { .. }));
 
-    // Déconnexion d'Alice : le compte disparaît de la machine ; par défaut
-    // les entités des vaults partagés aussi, les personnelles restent.
-    alice.ws.hosts.push(Host::new("perso", "10.1.1.1", "me"));
-    alice.sync().await;
-    alice.manager.disconnect().await.unwrap();
-    assert_eq!(sync::detach_all(&mut alice.ws, false), 1);
-    assert!(!alice.manager.status().configured);
-    assert_eq!(alice.ws.hosts.len(), 1);
-    assert_eq!(alice.ws.hosts[0].label, "perso");
-    assert!(alice.ws.vault_bindings.is_empty());
+    // Déconnexion d'Alice : plus de compte actif, mais il reste connu (le
+    // panneau le propose) ; l'oublier l'efface de la liste et de la machine.
+    let alice_id = alice.manager.status().user_id.unwrap();
+    alice.manager.logout().await.unwrap();
+    let st = alice.manager.status();
+    assert!(!st.configured);
+    assert!(st.accounts.iter().any(|a| a.user_id == alice_id && a.email == alice_email));
+    alice.manager.forget(alice_id).await.unwrap();
+    assert!(alice.manager.status().accounts.is_empty());
+    assert!(!alice.manager.workspace_path(alice_id).exists());
 }
 
-/// Le scénario rapporté le 2026-09-15 : deux comptes sur le même PC, donc le
-/// même workspace. Alice range un hôte dans un vault partagé, retire son
-/// compte en gardant les copies locales, Bob se connecte (l'hôte, redevenu
-/// « personnel » ici, part dans SON vault personnel) puis accepte
-/// l'invitation au vault partagé. L'hôte doit finir dans le vault partagé,
-/// et la copie personnelle de Bob disparaître — pas l'inverse.
+/// Le scénario rapporté le 2026-09-15 (deux comptes sur le même PC qui
+/// partageaient alors un seul workspace) : Alice range un hôte dans un vault
+/// partagé ; Bob se retrouve avec le même hôte « personnel », le pousse dans
+/// SON vault personnel, puis accepte l'invitation au vault partagé. L'hôte
+/// doit finir dans le vault partagé, et la copie personnelle de Bob
+/// disparaître — pas l'inverse.
 #[tokio::test]
 async fn same_machine_account_switch_keeps_shared_entity_in_shared_vault() {
     if !server_available().await {
@@ -289,16 +289,13 @@ async fn same_machine_account_switch_keeps_shared_entity_in_shared_vault() {
     alice.manager.pin_fingerprint(&bob_email, &lookup.fingerprint).unwrap();
     sharing::invite(&alice.manager, team.id, &bob_email, Role::Reader).await.unwrap();
 
-    // Retrait du compte en gardant les copies : l'hôte est maintenant local.
-    alice.manager.disconnect().await.unwrap();
-    sync::detach_all(&mut alice.ws, true);
-    assert!(alice.ws.vault_bindings.is_empty());
-
-    // Bob se connecte sur le même workspace. Première synchro : l'hôte part
-    // dans son vault personnel (il n'a pas encore accès à « testing »).
+    // Avec un workspace par compte ce scénario n'arrive plus par l'app —
+    // mais le moteur doit rester correct si un hôte identique se retrouve
+    // « personnel » sur un appareil (import, restauration d'une sauvegarde…).
     let mut bob = Device::new();
     bob.manager.login(&server_url(), &bob_email, "pw-b", None).await.unwrap();
     bob.ws = alice.ws.clone();
+    bob.ws.vault_bindings.clear();
     let r = bob.sync().await;
     assert_eq!(r.pushed, 1, "{r:?}");
 

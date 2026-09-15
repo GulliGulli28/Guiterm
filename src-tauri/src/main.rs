@@ -27,6 +27,16 @@ fn main() {
         std::process::id()
     );
 
+    // Le compte GuiVault actif décide quel workspace charger (un par
+    // compte, plus le local) : restaurer sa session — sans réseau — avant
+    // de lire le fichier. Si le coffre local est verrouillé, `unlock_vault`
+    // refera la restauration ; le compte actif, lui, est connu sans secret.
+    let guivault = std::sync::Arc::new(termius_core::guivault::Manager::default());
+    if let Err(e) = guivault.restore() {
+        tracing::warn!("compte GuiVault non restauré : {e}");
+    }
+    termius_core::store::set_active_workspace(guivault.active_workspace_path());
+
     let workspace = match termius_core::store::load_resilient() {
         Ok(termius_core::store::LoadOutcome::Loaded(ws)) => ws,
         Ok(termius_core::store::LoadOutcome::Recovered { workspace, backup }) => {
@@ -51,6 +61,7 @@ fn main() {
     let runbook_history = termius_core::runbook_history::load().unwrap_or_default();
     let app_state = AppState {
         workspace: std::sync::Mutex::new(workspace),
+        guivault,
         local_history: std::sync::Mutex::new(local_history),
         ssh_history: std::sync::Mutex::new(ssh_history),
         sql_history: std::sync::Mutex::new(sql_history),
@@ -87,16 +98,8 @@ fn main() {
             termius_core::interactive_auth::set_prompter(std::sync::Arc::new(
                 commands::interactive_auth::FrontendPrompter::new(app.handle().clone()),
             ));
-            // Compte GuiVault : restaure la session depuis le coffre local
-            // (sans réseau), puis la boucle de synchronisation automatique.
-            // Si le coffre local est verrouillé, `unlock_vault` refera la
-            // restauration une fois le mot de passe maître saisi.
-            {
-                let state: tauri::State<'_, AppState> = app.state();
-                if let Err(e) = state.guivault.restore() {
-                    tracing::warn!("compte GuiVault non restauré : {e}");
-                }
-            }
+            // Compte GuiVault (session restaurée plus haut, avant le
+            // workspace) : boucle de synchronisation et flux d'événements.
             commands::guivault::spawn_auto_sync(app.handle().clone());
             commands::guivault::spawn_event_listener(app.handle().clone());
             Ok(())
@@ -318,7 +321,7 @@ fn main() {
             commands::guivault::guivault_totp_enable,
             commands::guivault::guivault_totp_disable,
             commands::guivault::guivault_logout,
-            commands::guivault::guivault_disconnect,
+            commands::guivault::guivault_forget,
             commands::guivault::guivault_set_preferences,
             commands::guivault::guivault_change_password,
             commands::guivault::guivault_sync,

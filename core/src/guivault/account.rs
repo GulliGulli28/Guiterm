@@ -88,13 +88,38 @@ pub struct LocalState {
     pub last_sync_at: Option<DateTime<Utc>>,
 }
 
-pub fn default_state_path() -> anyhow::Result<PathBuf> {
+/// Le dossier des comptes : `<config>/guivault/`, avec `accounts.json` (le
+/// registre) et un sous-dossier par compte (`<user_id>/state.json`,
+/// `<user_id>/workspace.json`).
+pub fn default_root() -> anyhow::Result<PathBuf> {
     let dirs = directories::ProjectDirs::from("dev", "gui-termius", "gui-termius")
         .ok_or_else(|| anyhow::anyhow!("impossible de déterminer le dossier de configuration"))?;
-    Ok(dirs.config_dir().join("guivault.json"))
+    Ok(dirs.config_dir().join("guivault"))
 }
 
-fn load_state(path: &std::path::Path) -> anyhow::Result<Option<LocalState>> {
+/// Un compte déjà utilisé sur cette machine : de quoi le proposer dans la
+/// liste et retrouver ses fichiers, jamais de quoi s'y connecter (ça, c'est
+/// le mot de passe maître, ou les jetons dans le coffre local).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct KnownAccount {
+    pub user_id: Uuid,
+    pub email: String,
+    pub server_url: String,
+    pub last_used_at: DateTime<Utc>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct Registry {
+    #[serde(default)]
+    pub accounts: Vec<KnownAccount>,
+    /// Le compte dont le workspace est chargé. `None` : profil local.
+    #[serde(default)]
+    pub active: Option<Uuid>,
+}
+
+fn read_json<T: serde::de::DeserializeOwned>(path: &std::path::Path) -> anyhow::Result<Option<T>> {
     if !path.exists() {
         return Ok(None);
     }
@@ -102,18 +127,19 @@ fn load_state(path: &std::path::Path) -> anyhow::Result<Option<LocalState>> {
     Ok(Some(serde_json::from_str(&text)?))
 }
 
-fn save_state(path: &std::path::Path, state: &LocalState) -> anyhow::Result<()> {
+fn write_json<T: Serialize>(path: &std::path::Path, value: &T) -> anyhow::Result<()> {
     if let Some(parent) = path.parent() {
         std::fs::create_dir_all(parent)?;
     }
-    Ok(crate::secure_file::write_private(path, serde_json::to_string_pretty(state)?.as_bytes())?)
+    Ok(crate::secure_file::write_private(path, serde_json::to_string_pretty(value)?.as_bytes())?)
 }
 
-fn delete_state(path: &std::path::Path) -> anyhow::Result<()> {
-    if path.exists() {
-        std::fs::remove_file(path)?;
-    }
-    Ok(())
+fn load_state(path: &std::path::Path) -> anyhow::Result<Option<LocalState>> {
+    read_json(path)
+}
+
+fn save_state(path: &std::path::Path, state: &LocalState) -> anyhow::Result<()> {
+    write_json(path, state)
 }
 
 // ─── Secrets dans le coffre local ───────────────────────────────────────────
@@ -161,30 +187,54 @@ impl SecretStore for MemoryStore {
     }
 }
 
-const K_ACCESS: &str = "guivault-access-token";
-const K_REFRESH: &str = "guivault-refresh-token";
-const K_USER_KEY: &str = "guivault-user-key";
-const K_PRIVATE_KEY: &str = "guivault-private-key";
-
-fn store_tokens(store: &dyn SecretStore, t: &Tokens) -> anyhow::Result<()> {
-    store.store(K_ACCESS, &t.access)?;
-    store.store(K_REFRESH, &t.refresh)
+/// Noms des secrets d'un compte dans le coffre local, préfixés par son id :
+/// plusieurs comptes sur une même machine, chacun ses jetons et ses clés.
+struct Keys {
+    access: String,
+    refresh: String,
+    user_key: String,
+    private_key: String,
 }
 
-fn load_tokens(store: &dyn SecretStore) -> Option<Tokens> {
-    let access = store.load(K_ACCESS)?;
-    let refresh = store.load(K_REFRESH)?;
+fn keys_for(user_id: Uuid) -> Keys {
+    Keys {
+        access: format!("guivault-{user_id}-access-token"),
+        refresh: format!("guivault-{user_id}-refresh-token"),
+        user_key: format!("guivault-{user_id}-user-key"),
+        private_key: format!("guivault-{user_id}-private-key"),
+    }
+}
+
+/// Les noms d'avant le multi-comptes (un seul compte, non préfixé) — lus
+/// une fois par la migration, puis effacés.
+fn legacy_keys() -> Keys {
+    Keys {
+        access: "guivault-access-token".into(),
+        refresh: "guivault-refresh-token".into(),
+        user_key: "guivault-user-key".into(),
+        private_key: "guivault-private-key".into(),
+    }
+}
+
+fn store_tokens(store: &dyn SecretStore, k: &Keys, t: &Tokens) -> anyhow::Result<()> {
+    store.store(&k.access, &t.access)?;
+    store.store(&k.refresh, &t.refresh)
+}
+
+fn load_tokens(store: &dyn SecretStore, k: &Keys) -> Option<Tokens> {
+    let access = store.load(&k.access)?;
+    let refresh = store.load(&k.refresh)?;
     Some(Tokens { access, refresh })
 }
 
-fn store_keys(store: &dyn SecretStore, account: &gc::UnlockedAccount) -> anyhow::Result<()> {
-    store.store(K_USER_KEY, &B64.encode(account.user_key.as_bytes()))?;
-    store.store(K_PRIVATE_KEY, &B64.encode(account.keypair.private.to_bytes()))
+fn store_keys(store: &dyn SecretStore, k: &Keys, account: &gc::UnlockedAccount) -> anyhow::Result<()> {
+    store.store(&k.user_key, &B64.encode(account.user_key.as_bytes()))?;
+    store.store(&k.private_key, &B64.encode(account.keypair.private.to_bytes()))
 }
 
-fn load_keys(store: &dyn SecretStore) -> Option<gc::UnlockedAccount> {
-    let uk = B64.decode(store.load(K_USER_KEY)?).ok()?;
-    let pk = B64.decode(store.load(K_PRIVATE_KEY)?).ok()?;
+fn load_keys(store: &dyn SecretStore, k: &Keys) -> Option<gc::UnlockedAccount> {
+    let uk = B64.decode(store.load(&k.user_key)?).ok()?;
+    let pk = B64.decode(store.load(&k.private_key)?).ok()?;
     let user_key = gc::SymmetricKey::from_slice(&uk).ok()?;
     let private = gc::PrivateKey::try_from(pk.as_slice()).ok()?;
     Some(gc::UnlockedAccount {
@@ -196,9 +246,9 @@ fn load_keys(store: &dyn SecretStore) -> Option<gc::UnlockedAccount> {
     })
 }
 
-fn clear_secrets(store: &dyn SecretStore) {
-    for k in [K_ACCESS, K_REFRESH, K_USER_KEY, K_PRIVATE_KEY] {
-        store.delete(k);
+fn clear_secrets(store: &dyn SecretStore, k: &Keys) {
+    for name in [&k.access, &k.refresh, &k.user_key, &k.private_key] {
+        store.delete(name);
     }
 }
 
@@ -313,11 +363,15 @@ pub struct Status {
     pub persist_unlock: bool,
     pub last_sync_at: Option<DateTime<Utc>>,
     pub vaults: Vec<VaultSummary>,
+    /// Les comptes déjà utilisés sur cette machine, le plus récent en tête —
+    /// ce que le panneau propose une fois déconnecté.
+    pub accounts: Vec<KnownAccount>,
 }
 
 pub struct Manager {
-    state_path: PathBuf,
+    root: PathBuf,
     secrets: Box<dyn SecretStore>,
+    registry: std::sync::Mutex<Registry>,
     state: std::sync::Mutex<Option<LocalState>>,
     session: std::sync::Mutex<Option<Session>>,
     /// Connexion arrêtée au second facteur (voir [`Manager::login`]).
@@ -361,46 +415,129 @@ impl Default for Manager {
     /// indéterminable, un chemin relatif — l'app est de toute façon
     /// inutilisable dans ce cas (le workspace non plus ne se charge pas).
     fn default() -> Self {
-        Self::new().unwrap_or_else(|_| Self::with(PathBuf::from("guivault.json"), Box::new(LocalVaultStore)))
+        Self::new().unwrap_or_else(|_| Self::with(PathBuf::from("guivault"), Box::new(LocalVaultStore)))
     }
 }
 
 impl Manager {
-    /// Le manager de l'application : `guivault.json` dans le dossier de
-    /// config, secrets dans le coffre local.
+    /// Le manager de l'application : `<config>/guivault/`, secrets dans le
+    /// coffre local.
     pub fn new() -> anyhow::Result<Self> {
-        Ok(Self::with(default_state_path()?, Box::new(LocalVaultStore)))
+        Ok(Self::with(default_root()?, Box::new(LocalVaultStore)))
     }
 
-    pub fn with(state_path: PathBuf, secrets: Box<dyn SecretStore>) -> Self {
+    pub fn with(root: PathBuf, secrets: Box<dyn SecretStore>) -> Self {
         Self {
-            state_path,
+            root,
             secrets,
+            registry: std::sync::Mutex::new(Registry::default()),
             state: std::sync::Mutex::new(None),
             session: std::sync::Mutex::new(None),
             pending: std::sync::Mutex::new(None),
         }
     }
 
-    /// Recharge l'état persistant et, si les secrets sont là, restaure la
-    /// session sans toucher au réseau. À appeler une fois au lancement — et
-    /// après le déverrouillage du coffre local (les secrets n'étaient pas
-    /// lisibles avant).
+    fn registry_path(&self) -> PathBuf {
+        self.root.join("accounts.json")
+    }
+
+    fn account_dir(&self, user_id: Uuid) -> PathBuf {
+        self.root.join(user_id.to_string())
+    }
+
+    fn state_path(&self, user_id: Uuid) -> PathBuf {
+        self.account_dir(user_id).join("state.json")
+    }
+
+    /// Le workspace d'un compte — c'est ce que `store::set_active_workspace`
+    /// reçoit quand ce compte devient actif.
+    pub fn workspace_path(&self, user_id: Uuid) -> PathBuf {
+        self.account_dir(user_id).join("workspace.json")
+    }
+
+    /// Le workspace du compte actif, s'il y en a un.
+    pub fn active_workspace_path(&self) -> Option<PathBuf> {
+        self.lock_registry().active.map(|id| self.workspace_path(id))
+    }
+
+    pub fn active_user_id(&self) -> Option<Uuid> {
+        self.lock_registry().active
+    }
+
+    fn lock_registry(&self) -> std::sync::MutexGuard<'_, Registry> {
+        self.registry.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    fn save_registry(&self, reg: &Registry) -> anyhow::Result<()> {
+        write_json(&self.registry_path(), reg)
+    }
+
+    /// Recharge le registre et, si un compte est actif et que ses secrets
+    /// sont lisibles, restaure sa session sans toucher au réseau. À appeler
+    /// une fois au lancement **avant de charger le workspace** (c'est lui qui
+    /// dit lequel), et après le déverrouillage du coffre local.
     pub fn restore(&self) -> anyhow::Result<Status> {
-        let state = load_state(&self.state_path)?;
+        self.migrate_legacy()?;
+        let reg: Registry = read_json(&self.registry_path())?.unwrap_or_default();
+        let state = match reg.active {
+            Some(id) => load_state(&self.state_path(id))?,
+            None => None,
+        };
         let session = state.as_ref().and_then(|st| {
-            let tokens = load_tokens(self.secrets.as_ref())?;
+            let k = keys_for(st.user_id);
+            let tokens = load_tokens(self.secrets.as_ref(), &k)?;
             let client = Client::new(&st.server_url, Some(tokens)).ok()?;
-            let account = if st.persist_unlock { load_keys(self.secrets.as_ref()).map(Arc::new) } else { None };
+            let account = if st.persist_unlock { load_keys(self.secrets.as_ref(), &k).map(Arc::new) } else { None };
             Some(Session {
                 client: Arc::new(client),
                 account,
                 vaults: HashMap::new(),
             })
         });
+        *self.lock_registry() = reg;
         *self.lock_state() = state;
         *self.lock_session() = session;
         Ok(self.status())
+    }
+
+    /// Le format d'avant le multi-comptes : un `guivault.json` à côté de
+    /// `workspace.json`, des secrets non préfixés, et le workspace local qui
+    /// servait au compte. Devient un compte enregistré (actif), dont le
+    /// workspace est une **copie** du local — le local est laissé tel quel,
+    /// on ne détruit rien pendant une migration.
+    fn migrate_legacy(&self) -> anyhow::Result<()> {
+        let Some(parent) = self.root.parent() else { return Ok(()) };
+        let legacy = parent.join("guivault.json");
+        if !legacy.exists() || self.registry_path().exists() {
+            return Ok(());
+        }
+        let Some(st) = load_state(&legacy)? else {
+            return Ok(());
+        };
+        let k = keys_for(st.user_id);
+        let old = legacy_keys();
+        for (from, to) in [(&old.access, &k.access), (&old.refresh, &k.refresh), (&old.user_key, &k.user_key), (&old.private_key, &k.private_key)] {
+            if let Some(v) = self.secrets.load(from) {
+                self.secrets.store(to, &v)?;
+                self.secrets.delete(from);
+            }
+        }
+        save_state(&self.state_path(st.user_id), &st)?;
+        let local_ws = parent.join("workspace.json");
+        if local_ws.exists() {
+            std::fs::copy(&local_ws, self.workspace_path(st.user_id))?;
+        }
+        self.save_registry(&Registry {
+            accounts: vec![KnownAccount {
+                user_id: st.user_id,
+                email: st.email.clone(),
+                server_url: st.server_url.clone(),
+                last_used_at: Utc::now(),
+            }],
+            active: Some(st.user_id),
+        })?;
+        std::fs::remove_file(&legacy)?;
+        Ok(())
     }
 
     fn lock_state(&self) -> std::sync::MutexGuard<'_, Option<LocalState>> {
@@ -435,6 +572,11 @@ impl Manager {
             persist_unlock: state.as_ref().map(|s| s.persist_unlock).unwrap_or(true),
             last_sync_at: state.as_ref().and_then(|s| s.last_sync_at),
             vaults,
+            accounts: {
+                let mut a = self.lock_registry().accounts.clone();
+                a.sort_by_key(|x| std::cmp::Reverse(x.last_used_at));
+                a
+            },
         }
     }
 
@@ -483,7 +625,7 @@ impl Manager {
             .as_mut()
             .ok_or_else(|| anyhow::anyhow!("aucun compte GuiVault configuré"))?;
         f(st);
-        save_state(&self.state_path, st)
+        save_state(&self.state_path(st.user_id), st)
     }
 
     pub fn update_session(&self, f: impl FnOnce(&mut Session) -> anyhow::Result<()>) -> anyhow::Result<()> {
@@ -497,8 +639,9 @@ impl Manager {
     /// À appeler après toute requête : si le client a tourné ses jetons, la
     /// nouvelle paire doit survivre au redémarrage.
     pub fn persist_tokens(&self) {
-        if let Some(t) = self.lock_session().as_ref().and_then(|s| s.client.tokens()) {
-            let _ = store_tokens(self.secrets.as_ref(), &t);
+        let user_id = self.lock_state().as_ref().map(|s| s.user_id);
+        if let (Some(id), Some(t)) = (user_id, self.lock_session().as_ref().and_then(|s| s.client.tokens())) {
+            let _ = store_tokens(self.secrets.as_ref(), &keys_for(id), &t);
         }
     }
 
@@ -655,12 +798,17 @@ impl Manager {
         account: gc::UnlockedAccount,
         device_name: Option<String>,
     ) -> anyhow::Result<Status> {
-        // Un compte différent de celui d'avant : son état de synchro ne
-        // veut plus rien dire.
-        let previous = load_state(&self.state_path)?;
+        if let Some(active) = self.active_user_id()
+            && active != resp.user.id
+        {
+            anyhow::bail!("un autre compte est actif sur cet appareil : se déconnecter d'abord");
+        }
+        // Un compte déjà connu ici retrouve son état de synchro et ses
+        // empreintes épinglées.
+        let previous = load_state(&self.state_path(resp.user.id))?;
         let keep_sync = previous
             .as_ref()
-            .filter(|p| p.user_id == resp.user.id && p.server_url.trim_end_matches('/') == server_url.trim_end_matches('/'));
+            .filter(|p| p.server_url.trim_end_matches('/') == server_url.trim_end_matches('/'));
         let state = LocalState {
             server_url: server_url.trim_end_matches('/').to_string(),
             email: resp.user.email.clone(),
@@ -673,15 +821,28 @@ impl Manager {
             pinned_fingerprints: keep_sync.map(|p| p.pinned_fingerprints.clone()).unwrap_or_default(),
             last_sync_at: None,
         };
-        save_state(&self.state_path, &state)?;
+        save_state(&self.state_path(state.user_id), &state)?;
+        let k = keys_for(state.user_id);
         if let Some(t) = client.tokens() {
-            store_tokens(self.secrets.as_ref(), &t)?;
+            store_tokens(self.secrets.as_ref(), &k, &t)?;
         }
         if state.persist_unlock {
-            store_keys(self.secrets.as_ref(), &account)?;
+            store_keys(self.secrets.as_ref(), &k, &account)?;
         } else {
-            self.secrets.delete(K_USER_KEY);
-            self.secrets.delete(K_PRIVATE_KEY);
+            self.secrets.delete(&k.user_key);
+            self.secrets.delete(&k.private_key);
+        }
+        {
+            let mut reg = self.lock_registry();
+            reg.accounts.retain(|a| a.user_id != state.user_id);
+            reg.accounts.push(KnownAccount {
+                user_id: state.user_id,
+                email: state.email.clone(),
+                server_url: state.server_url.clone(),
+                last_used_at: Utc::now(),
+            });
+            reg.active = Some(state.user_id);
+            self.save_registry(&reg)?;
         }
         *self.lock_state() = Some(state);
         *self.lock_session() = Some(Session {
@@ -699,24 +860,46 @@ impl Manager {
         self.login(&server_url, &email, password, None).await
     }
 
-    /// Oublie la session (serveur prévenu si possible) et les clés, garde
-    /// la configuration et l'état de synchro pour une reconnexion.
+    /// Ferme la session (serveur prévenu si possible), efface jetons et
+    /// clés, et rend la main au profil local : le compte reste connu, son
+    /// workspace et son état de synchro attendent la prochaine connexion.
+    /// L'appelant bascule le workspace (`store::set_active_workspace(None)`).
     pub async fn logout(&self) -> anyhow::Result<Status> {
         if let Ok(client) = self.client() {
             let _ = client.logout().await;
         }
-        clear_secrets(self.secrets.as_ref());
+        if let Some(id) = self.lock_state().as_ref().map(|s| s.user_id) {
+            clear_secrets(self.secrets.as_ref(), &keys_for(id));
+        }
         *self.lock_session() = None;
+        *self.lock_state() = None;
+        // Bloc : `status()` reprend ce verrou, et un `Mutex` std n'est pas
+        // réentrant.
+        {
+            let mut reg = self.lock_registry();
+            reg.active = None;
+            self.save_registry(&reg)?;
+        }
         Ok(self.status())
     }
 
-    /// Retire complètement le compte de cette machine. Les entités restent
-    /// dans le workspace local ; seules leurs affiliations aux vaults partagés
-    /// sont à nettoyer par l'appelant (voir `sync::detach_all`).
-    pub async fn disconnect(&self) -> anyhow::Result<Status> {
-        let _ = self.logout().await;
-        delete_state(&self.state_path)?;
-        *self.lock_state() = None;
+    /// Oublie un compte sur cette machine : session, secrets, état de
+    /// synchro **et son workspace local** (les données sont sur le serveur).
+    /// S'il était actif, l'appelant est déjà passé par [`Manager::logout`].
+    pub async fn forget(&self, user_id: Uuid) -> anyhow::Result<Status> {
+        if self.active_user_id() == Some(user_id) {
+            self.logout().await?;
+        }
+        clear_secrets(self.secrets.as_ref(), &keys_for(user_id));
+        let dir = self.account_dir(user_id);
+        if dir.exists() {
+            std::fs::remove_dir_all(&dir)?;
+        }
+        {
+            let mut reg = self.lock_registry();
+            reg.accounts.retain(|a| a.user_id != user_id);
+            self.save_registry(&reg)?;
+        }
         Ok(self.status())
     }
 
@@ -725,13 +908,14 @@ impl Manager {
             s.auto_sync_secs = auto_sync_secs;
             s.persist_unlock = persist_unlock;
         })?;
+        let k = keys_for(self.with_state(|s| s.user_id)?);
         if persist_unlock {
             if let Ok(account) = self.account() {
-                store_keys(self.secrets.as_ref(), &account)?;
+                store_keys(self.secrets.as_ref(), &k, &account)?;
             }
         } else {
-            self.secrets.delete(K_USER_KEY);
-            self.secrets.delete(K_PRIVATE_KEY);
+            self.secrets.delete(&k.user_key);
+            self.secrets.delete(&k.private_key);
         }
         Ok(self.status())
     }

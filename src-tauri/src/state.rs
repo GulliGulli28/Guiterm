@@ -151,6 +151,9 @@ pub struct AppState {
     /// « déjà en cours », pas « attendre » — deux synchros qui se suivent
     /// n'apportent rien de plus qu'une.
     pub guivault_sync_lock: tokio::sync::Mutex<()>,
+    /// « Transférer le profil local dans ce compte » demandé sur une
+    /// connexion arrêtée au second facteur — rejoué à `guivault_login_totp`.
+    pub guivault_pending_adopt: Mutex<bool>,
     pub terminals: Mutex<HashMap<String, TerminalSession>>,
     pub local_terminals: Mutex<HashMap<String, LocalTerminalSession>>,
     pub panes: Mutex<HashMap<String, Pane>>,

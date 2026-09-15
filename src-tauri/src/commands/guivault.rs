@@ -108,6 +108,62 @@ pub fn spawn_event_listener(app: AppHandle) {
     });
 }
 
+// ─── Un workspace par compte ─────────────────────────────────────────────────
+
+/// Rend le workspace du compte qui vient de se connecter le workspace
+/// courant. `adopt_local` : le compte n'avait pas encore de workspace sur
+/// cette machine et l'utilisateur veut y **transférer** ce qu'il y a dans le
+/// profil local — le local est alors vidé (les entités appartiennent
+/// désormais au compte ; elles reviendront à chaque connexion).
+fn activate_account_workspace(state: &AppState, status: &Status, adopt_local: bool) -> Result<(), String> {
+    let Some(user_id) = status.user_id else {
+        return Err("aucun compte actif après la connexion".into());
+    };
+    let account_path = state.guivault.workspace_path(user_id);
+    let adopt = adopt_local && !account_path.exists();
+    let mut ws = state.workspace.lock_recover();
+    // Ce qui était affiché était le profil local : le sauver là où il est.
+    store::save(&ws).map_err(err)?;
+    if adopt {
+        let adopted = std::mem::take(&mut *ws);
+        // Le compte reçoit sa copie avant que le local, vidé, soit écrit :
+        // si la suite échoue, rien n'est perdu.
+        store::save_at(&account_path, &adopted).map_err(err)?;
+        store::save(&ws).map_err(err)?;
+        store::set_active_workspace(Some(account_path));
+        *ws = adopted;
+    } else {
+        store::set_active_workspace(Some(account_path.clone()));
+        *ws = load_workspace_at(&account_path);
+    }
+    Ok(())
+}
+
+/// Retour au profil local : le workspace du compte est sauvé, celui du local
+/// rechargé.
+fn activate_local_workspace(state: &AppState) -> Result<(), String> {
+    let mut ws = state.workspace.lock_recover();
+    store::save(&ws).map_err(err)?;
+    store::set_active_workspace(None);
+    let local = store::local_workspace_path().map_err(err)?;
+    *ws = load_workspace_at(&local);
+    Ok(())
+}
+
+fn load_workspace_at(path: &std::path::Path) -> Workspace {
+    match store::load_resilient_at(path) {
+        Ok(store::LoadOutcome::Loaded(ws)) => ws,
+        Ok(store::LoadOutcome::Recovered { workspace, backup }) => {
+            tracing::error!("workspace illisible — préservé sous « {} »", backup.display());
+            workspace
+        }
+        Err(e) => {
+            tracing::error!("chargement du workspace : {e}");
+            Workspace::default()
+        }
+    }
+}
+
 // ─── Compte ──────────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -123,6 +179,10 @@ pub struct ConnectInput {
     pub password: String,
     #[serde(default)]
     pub device_name: Option<String>,
+    /// Transférer le profil local dans ce compte (première connexion de ce
+    /// compte sur cette machine seulement).
+    #[serde(default)]
+    pub adopt_local: bool,
 }
 
 #[tauri::command]
@@ -132,6 +192,7 @@ pub async fn guivault_register(app: AppHandle, state: State<'_, AppState>, input
         .register(&input.server_url, &input.email, &input.password, input.device_name)
         .await
         .map_err(err)?;
+    activate_account_workspace(&state, &status, input.adopt_local)?;
     let _ = run_sync(&app, &state).await;
     Ok(status)
 }
@@ -145,8 +206,14 @@ pub async fn guivault_login(app: AppHandle, state: State<'_, AppState>, input: C
         .login(&input.server_url, &input.email, &input.password, input.device_name)
         .await
         .map_err(err)?;
-    if matches!(step, LoginStep::Connected(_)) {
-        let _ = run_sync(&app, &state).await;
+    match &step {
+        LoginStep::Connected(status) => {
+            activate_account_workspace(&state, status, input.adopt_local)?;
+            let _ = run_sync(&app, &state).await;
+        }
+        LoginStep::TotpRequired => {
+            *state.guivault_pending_adopt.lock_recover() = input.adopt_local;
+        }
     }
     Ok(step)
 }
@@ -154,10 +221,14 @@ pub async fn guivault_login(app: AppHandle, state: State<'_, AppState>, input: C
 #[tauri::command]
 pub async fn guivault_login_totp(app: AppHandle, state: State<'_, AppState>, code: String) -> Result<Status, String> {
     let status = state.guivault.login_totp(&code).await.map_err(err)?;
+    let adopt = std::mem::take(&mut *state.guivault_pending_adopt.lock_recover());
+    activate_account_workspace(&state, &status, adopt)?;
     let _ = run_sync(&app, &state).await;
     Ok(status)
 }
 
+/// Le compte est actif (son workspace est chargé) mais ses clés ne sont pas
+/// en mémoire : même chemin qu'une connexion, sans changer de workspace.
 #[tauri::command]
 pub async fn guivault_unlock(app: AppHandle, state: State<'_, AppState>, password: String) -> Result<LoginStep, String> {
     let step = state.guivault.unlock(&password).await.map_err(err)?;
@@ -187,20 +258,27 @@ pub async fn guivault_totp_disable(state: State<'_, AppState>, code: String) -> 
     state.guivault.totp_disable(&code).await.map_err(err)
 }
 
+/// Ferme la session et revient au profil local. Le compte reste connu et
+/// son workspace l'attend.
 #[tauri::command]
 pub async fn guivault_logout(state: State<'_, AppState>) -> Result<Status, String> {
-    state.guivault.logout().await.map_err(err)
+    let was_active = state.guivault.active_user_id().is_some();
+    let status = state.guivault.logout().await.map_err(err)?;
+    if was_active {
+        activate_local_workspace(&state)?;
+    }
+    Ok(status)
 }
 
-/// Retire le compte de la machine. Les entités du vault personnel restent
-/// (locales) ; celles des vaults partagés partent, sauf `keep_shared`.
+/// Oublie un compte sur cette machine (session, clés, état de synchro et
+/// son workspace local — les données restent sur le serveur).
 #[tauri::command]
-pub async fn guivault_disconnect(state: State<'_, AppState>, keep_shared: bool) -> Result<Status, String> {
-    let status = state.guivault.disconnect().await.map_err(err)?;
-    let mut ws = state.workspace.lock_recover();
-    sync::detach_all(&mut ws, keep_shared);
-    persist(&ws)?;
-    Ok(status)
+pub async fn guivault_forget(state: State<'_, AppState>, user_id: uuid::Uuid) -> Result<Status, String> {
+    if state.guivault.active_user_id() == Some(user_id) {
+        state.guivault.logout().await.map_err(err)?;
+        activate_local_workspace(&state)?;
+    }
+    state.guivault.forget(user_id).await.map_err(err)
 }
 
 #[tauri::command]

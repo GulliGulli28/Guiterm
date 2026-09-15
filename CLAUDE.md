@@ -336,6 +336,17 @@ doivent rester identiques).
   part vers une empreinte non épinglée** (`Manager::require_pinned`) : c'est
   la seule défense contre un serveur qui substituerait une clé publique.
 
+**Un workspace par compte.** `store::workspace_path()` rend celui du compte
+actif (`<config>/guivault/<user_id>/workspace.json`) ou le local
+(`workspace.json`) — bascule par `store::set_active_workspace`, décidée par
+le registre `guivault/accounts.json` (`Manager::restore` **avant** le
+chargement du workspace dans `main.rs`). Déconnecté = profil local, le
+compte reste proposé dans le panneau ; « Oublier » supprime son dossier.
+À la première connexion d'un compte, le profil local peut être *transféré*
+(déplacé, pas copié) dans le compte. Secrets du compte préfixés par son id
+dans le coffre local. L'ancien `guivault.json` est migré au premier
+lancement (copie du workspace local vers le compte).
+
 L'affiliation entité → vault partagé vit dans `Workspace.vault_bindings`
 (map id → vault), pas sur les structs (`Host`, `Group`… sont construits
 littéralement à dix endroits). Absente = vault personnel. Les ids d'items

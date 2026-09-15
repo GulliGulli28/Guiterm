@@ -593,6 +593,15 @@ export interface GuiVaultStatus {
   persistUnlock: boolean;
   lastSyncAt: string | null;
   vaults: GuiVaultVault[];
+  /** Comptes déjà utilisés sur cet appareil, le plus récent en tête. */
+  accounts: GuiVaultKnownAccount[];
+}
+
+export interface GuiVaultKnownAccount {
+  userId: string;
+  email: string;
+  serverUrl: string;
+  lastUsedAt: string;
 }
 
 /** Résultat d'une connexion : ouverte, ou arrêtée au second facteur. */

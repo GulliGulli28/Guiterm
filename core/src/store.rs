@@ -8,9 +8,44 @@ fn project_dirs() -> anyhow::Result<ProjectDirs> {
         .ok_or_else(|| anyhow::anyhow!("impossible de déterminer le dossier de configuration"))
 }
 
-pub fn workspace_path() -> anyhow::Result<PathBuf> {
+/// Le workspace « sans compte » : celui d'avant GuiVault, et celui qu'on
+/// voit déconnecté.
+pub fn local_workspace_path() -> anyhow::Result<PathBuf> {
     let dirs = project_dirs()?;
     Ok(dirs.config_dir().join("workspace.json"))
+}
+
+/// Le fichier que [`load`]/[`save`] lisent et écrivent : celui du compte
+/// GuiVault actif s'il y en a un (voir [`set_active_workspace`]), sinon le
+/// local. Un seul point de bascule, pour que les dizaines de commandes qui
+/// appellent `store::save` n'aient pas à savoir qu'il existe des comptes.
+pub fn workspace_path() -> anyhow::Result<PathBuf> {
+    if let Some(p) = active_workspace().lock().unwrap_or_else(|e| e.into_inner()).clone() {
+        return Ok(p);
+    }
+    local_workspace_path()
+}
+
+fn active_workspace() -> &'static std::sync::Mutex<Option<PathBuf>> {
+    static ACTIVE: std::sync::OnceLock<std::sync::Mutex<Option<PathBuf>>> = std::sync::OnceLock::new();
+    ACTIVE.get_or_init(|| std::sync::Mutex::new(None))
+}
+
+/// `Some(chemin)` : un compte GuiVault est actif, son workspace est celui
+/// qu'on lit et écrit. `None` : retour au workspace local.
+pub fn set_active_workspace(path: Option<PathBuf>) {
+    *active_workspace().lock().unwrap_or_else(|e| e.into_inner()) = path;
+}
+
+/// Charge un workspace depuis un chemin explicite, avec la même résilience
+/// que [`load_resilient`] (un fichier corrompu est mis de côté, jamais
+/// écrasé).
+pub fn load_resilient_at(path: &Path) -> anyhow::Result<LoadOutcome> {
+    load_resilient_from(path)
+}
+
+pub fn save_at(path: &Path, workspace: &Workspace) -> anyhow::Result<()> {
+    save_to(path, workspace)
 }
 
 pub fn load() -> anyhow::Result<Workspace> {
