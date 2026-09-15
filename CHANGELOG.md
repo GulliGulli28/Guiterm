@@ -9,6 +9,8 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+## [3.5.0] - 2026-09-15
+
 ### Added
 
 - **Élever un panneau de transfert en root.** Un panneau SSH se heurtait à
