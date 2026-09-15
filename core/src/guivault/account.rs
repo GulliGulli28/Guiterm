@@ -10,7 +10,7 @@
 //! - sinon, seul le jeton de rafraîchissement est conservé : au lancement,
 //!   on peut parler au serveur mais rien déchiffrer tant que le mot de passe
 //!   maître GuiVault n'a pas été ressaisi (`unlock`).
-use crate::guivault::client::{Client, ClientError, ClientResult, Tokens};
+use crate::guivault::client::{Client, ClientError, ClientResult, LoginOutcome, Tokens};
 use crate::model::VaultId;
 use crate::vault as local_vault;
 use base64::Engine;
@@ -314,6 +314,25 @@ pub struct Manager {
     secrets: Box<dyn SecretStore>,
     state: std::sync::Mutex<Option<LocalState>>,
     session: std::sync::Mutex<Option<Session>>,
+    /// Connexion arrêtée au second facteur (voir [`Manager::login`]).
+    pending: std::sync::Mutex<Option<PendingLogin>>,
+}
+
+/// Où en est une connexion.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase", tag = "step")]
+pub enum LoginStep {
+    Connected(Status),
+    /// Mot de passe accepté, code TOTP attendu (`login_totp`).
+    TotpRequired,
+}
+
+struct PendingLogin {
+    server_url: String,
+    client: Client,
+    stretched_key: gc::SymmetricKey,
+    totp_token: String,
+    device_name: Option<String>,
 }
 
 fn device_name_default() -> String {
@@ -353,6 +372,7 @@ impl Manager {
             secrets,
             state: std::sync::Mutex::new(None),
             session: std::sync::Mutex::new(None),
+            pending: std::sync::Mutex::new(None),
         }
     }
 
@@ -507,13 +527,17 @@ impl Manager {
         self.install(server_url, resp, client, account, device_name).await
     }
 
-    /// Se connecte à un compte existant depuis cette machine.
-    pub async fn login(&self, server_url: &str, email: &str, password: &str, device_name: Option<String>) -> anyhow::Result<Status> {
+    /// Se connecte à un compte existant depuis cette machine. Si le compte a
+    /// un second facteur, s'arrête sur [`LoginStep::TotpRequired`] : la clé
+    /// dérivée du mot de passe reste en mémoire le temps que
+    /// [`Manager::login_totp`] fournisse le code — le mot de passe n'a pas à
+    /// être ressaisi.
+    pub async fn login(&self, server_url: &str, email: &str, password: &str, device_name: Option<String>) -> anyhow::Result<LoginStep> {
         let client = Client::new(server_url, None)?;
         let pre = client.prelogin(email).await?;
         let password = password.to_string();
         let lm = tokio::task::spawn_blocking(move || gc::prepare_login(&password, &pre.kdf_salt, pre.kdf)).await??;
-        let resp = client
+        let outcome = client
             .login(&proto::LoginRequest {
                 email: email.to_string(),
                 auth_key: lm.auth_key.as_bytes().to_vec(),
@@ -524,9 +548,97 @@ impl Manager {
                 Some("invalid_credentials") => anyhow::anyhow!("e-mail ou mot de passe maître incorrect"),
                 _ => anyhow::anyhow!(e),
             })?;
-        let account = gc::unlock_account(&lm.stretched_key, &resp.protected_user_key, &resp.protected_private_key)
+        match outcome {
+            LoginOutcome::Session(resp) => {
+                let status = self.finish_login(server_url, resp, client, lm.stretched_key, device_name).await?;
+                Ok(LoginStep::Connected(status))
+            }
+            LoginOutcome::TotpRequired(challenge) => {
+                *self.lock_pending() = Some(PendingLogin {
+                    server_url: server_url.to_string(),
+                    client,
+                    stretched_key: lm.stretched_key,
+                    totp_token: challenge.totp_token,
+                    device_name,
+                });
+                Ok(LoginStep::TotpRequired)
+            }
+        }
+    }
+
+    /// Deuxième temps de la connexion : le code TOTP (ou de récupération).
+    pub async fn login_totp(&self, code: &str) -> anyhow::Result<Status> {
+        let pending = self
+            .lock_pending()
+            .take()
+            .ok_or_else(|| anyhow::anyhow!("aucune connexion en attente de code : recommencer la connexion"))?;
+        let resp = match pending
+            .client
+            .totp_verify(&proto::TotpVerifyRequest {
+                totp_token: pending.totp_token.clone(),
+                code: code.trim().to_string(),
+            })
+            .await
+        {
+            Ok(r) => r,
+            Err(e) => {
+                let msg = match e.code() {
+                    Some("invalid_code") => "code incorrect",
+                    Some("challenge_expired") => "délai dépassé ou trop d'essais : recommencer la connexion",
+                    _ => "",
+                };
+                // Un mauvais code n'annule pas la tentative : le défi
+                // accepte encore quelques essais.
+                if e.code() == Some("invalid_code") {
+                    *self.lock_pending() = Some(pending);
+                }
+                return Err(if msg.is_empty() { anyhow::anyhow!(e) } else { anyhow::anyhow!(msg) });
+            }
+        };
+        self.finish_login(&pending.server_url, resp, pending.client, pending.stretched_key, pending.device_name)
+            .await
+    }
+
+    async fn finish_login(
+        &self,
+        server_url: &str,
+        resp: proto::LoginResponse,
+        client: Client,
+        stretched_key: gc::SymmetricKey,
+        device_name: Option<String>,
+    ) -> anyhow::Result<Status> {
+        let account = gc::unlock_account(&stretched_key, &resp.protected_user_key, &resp.protected_private_key)
             .map_err(|_| anyhow::anyhow!("le serveur a accepté la connexion mais les clés ne s'ouvrent pas — mot de passe ou compte incohérent"))?;
         self.install(server_url, resp, client, account, device_name).await
+    }
+
+    fn lock_pending(&self) -> std::sync::MutexGuard<'_, Option<PendingLogin>> {
+        self.pending.lock().unwrap_or_else(|p| p.into_inner())
+    }
+
+    // ─── Second facteur ──────────────────────────────────────────────────
+
+    pub async fn totp_status(&self) -> anyhow::Result<bool> {
+        Ok(to_user(self.client()?.totp_status().await)?.enabled)
+    }
+
+    pub async fn totp_setup(&self) -> anyhow::Result<proto::TotpSetupResponse> {
+        to_user(self.client()?.totp_setup().await)
+    }
+
+    pub async fn totp_enable(&self, code: &str) -> anyhow::Result<Vec<String>> {
+        let r = self.client()?.totp_enable(code.trim()).await.map_err(|e| match e.code() {
+            Some("invalid_code") => anyhow::anyhow!("code incorrect — vérifier l'heure de l'appareil"),
+            _ => user_error(e),
+        })?;
+        Ok(r.recovery_codes)
+    }
+
+    pub async fn totp_disable(&self, code: &str) -> anyhow::Result<()> {
+        self.client()?.totp_disable(code.trim()).await.map_err(|e| match e.code() {
+            Some("invalid_code") => anyhow::anyhow!("code incorrect"),
+            _ => user_error(e),
+        })
     }
 
     async fn install(
@@ -575,7 +687,8 @@ impl Manager {
     }
 
     /// Ressaisie du mot de passe maître quand les clés ne sont pas persistées.
-    pub async fn unlock(&self, password: &str) -> anyhow::Result<Status> {
+    /// Même chemin que la connexion, second facteur compris.
+    pub async fn unlock(&self, password: &str) -> anyhow::Result<LoginStep> {
         let (server_url, email) = self.with_state(|s| (s.server_url.clone(), s.email.clone()))?;
         self.login(&server_url, &email, password, None).await
     }

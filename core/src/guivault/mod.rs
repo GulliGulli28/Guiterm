@@ -13,5 +13,5 @@ pub mod entity;
 pub mod sharing;
 pub mod sync;
 
-pub use account::{FingerprintTrust, Manager, Status, VaultSummary};
+pub use account::{FingerprintTrust, LoginStep, Manager, Status, VaultSummary};
 pub use sync::Report;

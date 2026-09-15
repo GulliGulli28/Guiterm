@@ -24,7 +24,8 @@ serde_json = "1"
 uuid = { version = "1", features = ["v4", "serde"] }
 # `commands::guivault` : le type `Role` des rôles de vault traverse l'IPC tel
 # quel (même crate que `termius_core::guivault`, voir core/Cargo.toml).
-guivault-protocol = { git = "https://github.com/GulliGulli28/GuiVault.git", rev = "6ffafc4" }
+futures-util = "0.3"
+guivault-protocol = { git = "https://github.com/GulliGulli28/GuiVault.git", rev = "ab9025f" }
 anyhow = "1"
 base64 = "0.22"
 portable-pty = "0.8"

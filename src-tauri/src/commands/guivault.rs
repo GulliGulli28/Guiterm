@@ -5,7 +5,7 @@ use crate::state::AppState;
 use guivault_protocol::Role;
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager as _, State};
-use termius_core::guivault::{Report, Status, VaultSummary, sharing, sync};
+use termius_core::guivault::{LoginStep, Report, Status, VaultSummary, sharing, sync};
 use termius_core::model::{VaultId, Workspace};
 use termius_core::store;
 use termius_core::sync_ext::MutexExt;
@@ -66,6 +66,48 @@ pub fn spawn_auto_sync(app: AppHandle) {
     });
 }
 
+/// Écoute le flux d'événements du serveur et synchronise dès que quelque
+/// chose change — au lieu d'attendre le prochain tour de la boucle. Se
+/// reconnecte avec un délai croissant ; ne fait rien sans compte déverrouillé.
+pub fn spawn_event_listener(app: AppHandle) {
+    use futures_util::StreamExt;
+    tauri::async_runtime::spawn(async move {
+        let mut backoff = 5u64;
+        loop {
+            let state: State<'_, AppState> = app.state();
+            let status = state.guivault.status();
+            let client = match (status.configured && status.unlocked, state.guivault.client()) {
+                (true, Ok(c)) => c,
+                _ => {
+                    tokio::time::sleep(std::time::Duration::from_secs(10)).await;
+                    continue;
+                }
+            };
+            match client.events().await {
+                Ok(mut events) => {
+                    backoff = 5;
+                    while let Some(ev) = events.next().await {
+                        tracing::debug!(?ev, "événement GuiVault");
+                        // Plusieurs événements peuvent arriver d'un coup (une
+                        // rotation, un import) : on laisse passer une seconde
+                        // et une seule synchro les couvre tous.
+                        tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                        if let Err(e) = run_sync(&app, &state).await {
+                            tracing::warn!("synchronisation sur événement : {e}");
+                        }
+                    }
+                    tracing::info!("flux d'événements GuiVault fermé, reconnexion");
+                }
+                Err(e) => {
+                    tracing::warn!("flux d'événements GuiVault : {e} — nouvel essai dans {backoff}s");
+                    tokio::time::sleep(std::time::Duration::from_secs(backoff)).await;
+                    backoff = (backoff * 2).min(120);
+                }
+            }
+        }
+    });
+}
+
 // ─── Compte ──────────────────────────────────────────────────────────────────
 
 #[tauri::command]
@@ -94,22 +136,55 @@ pub async fn guivault_register(app: AppHandle, state: State<'_, AppState>, input
     Ok(status)
 }
 
+/// `connected` → synchro immédiate ; `totpRequired` → le frontend demande
+/// le code et appelle `guivault_login_totp`.
 #[tauri::command]
-pub async fn guivault_login(app: AppHandle, state: State<'_, AppState>, input: ConnectInput) -> Result<Status, String> {
-    let status = state
+pub async fn guivault_login(app: AppHandle, state: State<'_, AppState>, input: ConnectInput) -> Result<LoginStep, String> {
+    let step = state
         .guivault
         .login(&input.server_url, &input.email, &input.password, input.device_name)
         .await
         .map_err(err)?;
+    if matches!(step, LoginStep::Connected(_)) {
+        let _ = run_sync(&app, &state).await;
+    }
+    Ok(step)
+}
+
+#[tauri::command]
+pub async fn guivault_login_totp(app: AppHandle, state: State<'_, AppState>, code: String) -> Result<Status, String> {
+    let status = state.guivault.login_totp(&code).await.map_err(err)?;
     let _ = run_sync(&app, &state).await;
     Ok(status)
 }
 
 #[tauri::command]
-pub async fn guivault_unlock(app: AppHandle, state: State<'_, AppState>, password: String) -> Result<Status, String> {
-    let status = state.guivault.unlock(&password).await.map_err(err)?;
-    let _ = run_sync(&app, &state).await;
-    Ok(status)
+pub async fn guivault_unlock(app: AppHandle, state: State<'_, AppState>, password: String) -> Result<LoginStep, String> {
+    let step = state.guivault.unlock(&password).await.map_err(err)?;
+    if matches!(step, LoginStep::Connected(_)) {
+        let _ = run_sync(&app, &state).await;
+    }
+    Ok(step)
+}
+
+#[tauri::command]
+pub async fn guivault_totp_status(state: State<'_, AppState>) -> Result<bool, String> {
+    state.guivault.totp_status().await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn guivault_totp_setup(state: State<'_, AppState>) -> Result<guivault_protocol::TotpSetupResponse, String> {
+    state.guivault.totp_setup().await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn guivault_totp_enable(state: State<'_, AppState>, code: String) -> Result<Vec<String>, String> {
+    state.guivault.totp_enable(&code).await.map_err(err)
+}
+
+#[tauri::command]
+pub async fn guivault_totp_disable(state: State<'_, AppState>, code: String) -> Result<(), String> {
+    state.guivault.totp_disable(&code).await.map_err(err)
 }
 
 #[tauri::command]

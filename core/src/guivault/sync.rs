@@ -111,7 +111,12 @@ pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec
     }
 
     // ─── Pull ────────────────────────────────────────────────────────────
-    for v in vaults.values() {
+    // Ordre stable : une entité déplacée a une tombale dans un vault et une
+    // version vivante dans un autre, et l'ordre de traitement ne doit pas
+    // changer le résultat d'une exécution à l'autre.
+    let mut ordered: Vec<_> = vaults.values().collect();
+    ordered.sort_by_key(|v| v.id);
+    for v in ordered {
         let known = state.vault_revisions.get(&v.id).copied();
         if known.is_some_and(|k| k >= v.revision) {
             continue;
@@ -123,6 +128,12 @@ pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec
             let local_modified = local.is_some_and(|l| st.is_none_or(|s| s.hash != l.hash));
 
             if item.deleted {
+                // Une tombale ne concerne que l'entité qui vit dans *ce*
+                // vault : après un déplacement, l'ancien vault en garde une
+                // qui ne doit pas effacer la version reçue du nouveau.
+                if local.is_some_and(|l| l.vault_id != v.id) {
+                    continue;
+                }
                 if local_modified {
                     // Recréée par la phase de push (plus d'état → « nouvelle »).
                     state.items.remove(&item.id);

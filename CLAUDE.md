@@ -346,6 +346,13 @@ Frontend : module `modules/guivault.tsx` → `GuiVaultPanel.tsx` ; le statut
 vit dans `App` (le formulaire d'hôte en a besoin pour son champ « Vault »).
 L'événement `guivault-synced` fait recharger le workspace.
 
+Second facteur : `Manager::login` rend `LoginStep::TotpRequired` et garde
+la clé dérivée du mot de passe en mémoire jusqu'à `login_totp(code)` — le
+mot de passe n'est pas ressaisi. Temps réel : `commands::guivault::
+spawn_event_listener` tient le flux SSE `/events` ouvert et lance une
+synchro à chaque événement (une seconde de regroupement) ; la boucle
+périodique reste le filet de sécurité.
+
 ## RDP intégré (rendu réel) : architecture sidecar
 
 Le rendu RDP intégré (`RdpTab.tsx`, onglet « Aperçu intégré ») ne tourne

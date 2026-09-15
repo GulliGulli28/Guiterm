@@ -595,6 +595,17 @@ export interface GuiVaultStatus {
   vaults: GuiVaultVault[];
 }
 
+/** Résultat d'une connexion : ouverte, ou arrêtée au second facteur. */
+export type GuiVaultLoginStep =
+  | ({ step: "connected" } & GuiVaultStatus)
+  | { step: "totpRequired" };
+
+export interface GuiVaultTotpSetup {
+  /** Secret base32, à saisir à la main dans l'application d'authentification. */
+  secret: string;
+  otpauthUrl: string;
+}
+
 export interface GuiVaultReport {
   pulled: number;
   pushed: number;

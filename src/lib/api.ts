@@ -1,7 +1,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { RdpPointerUpdate } from "./rdpCursor";
-import type { GuiVaultAuditEntry, GuiVaultInvitation, GuiVaultMember, GuiVaultReport, GuiVaultSession, GuiVaultStatus, GuiVaultUserLookup, GuiVaultVault, VaultId, VaultRole } from "./types";
+import type { GuiVaultAuditEntry, GuiVaultInvitation, GuiVaultLoginStep, GuiVaultTotpSetup, GuiVaultMember, GuiVaultReport, GuiVaultSession, GuiVaultStatus, GuiVaultUserLookup, GuiVaultVault, VaultId, VaultRole } from "./types";
 import type { ActivityEvent, ActivityFilter, CommandEntry, AuthMethod, BulkEdit, DiagTool, NetdiagOutcome, AwsCallerIdentity, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSessionAlert, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, AwsSsoSessionStatus, CloudInstance, CloudScope, CloudSelection, ArchiveFormat, CollectionInfo, ConflictPolicy, CopyConflict, ColumnInfo, CollectFactsResult, ComposeResult, DbTunnel, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FileDiff, FleetOutcome, FleetRun, FleetTarget, GroupId, HostDrift, HostId, HostKind, ImportSelection, Inventory, InventoryDiff, InventorySelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneComparison, PaneDiskSpace, PaneFindOutcome, PaneListed, PaneOpened, PaneSource, PersistentShellMode, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, ReachabilityOutcome, RedisKeyDetail, RemoteSearchMode, RemoteSearchOutcome, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, RollbackPlan, Runbook, RunbookApprovalRequest, RunbookId, RunbookRun, RunbookRunStatus, ScanPage, SessionListing, SessionOptions, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SkippedTarget, SshAuthPrompt, SshConfigHost, SsmProbe, SyncItem, TableInfo, TerminalOpened, TransferProgressEvent, VaultStatus, Workspace } from "./types";
 
 /** Mirrors the 12-byte little-endian header `commands::rdp_view::connect_rdp_view`
@@ -299,8 +299,15 @@ export const api = {
   // GuiVault : compte, synchronisation, vaults partagés (voir `commands::guivault`).
   guivaultStatus: () => invoke<GuiVaultStatus>("guivault_status"),
   guivaultRegister: (input: { serverUrl: string; email: string; password: string; deviceName?: string | null }) => invoke<GuiVaultStatus>("guivault_register", { input }),
-  guivaultLogin: (input: { serverUrl: string; email: string; password: string; deviceName?: string | null }) => invoke<GuiVaultStatus>("guivault_login", { input }),
-  guivaultUnlock: (password: string) => invoke<GuiVaultStatus>("guivault_unlock", { password }),
+  guivaultLogin: (input: { serverUrl: string; email: string; password: string; deviceName?: string | null }) => invoke<GuiVaultLoginStep>("guivault_login", { input }),
+  /** Deuxième temps de la connexion : le code TOTP ou un code de récupération. */
+  guivaultLoginTotp: (code: string) => invoke<GuiVaultStatus>("guivault_login_totp", { code }),
+  guivaultUnlock: (password: string) => invoke<GuiVaultLoginStep>("guivault_unlock", { password }),
+  guivaultTotpStatus: () => invoke<boolean>("guivault_totp_status"),
+  guivaultTotpSetup: () => invoke<GuiVaultTotpSetup>("guivault_totp_setup"),
+  /** Rend les codes de récupération — montrés une seule fois. */
+  guivaultTotpEnable: (code: string) => invoke<string[]>("guivault_totp_enable", { code }),
+  guivaultTotpDisable: (code: string) => invoke<void>("guivault_totp_disable", { code }),
   guivaultLogout: () => invoke<GuiVaultStatus>("guivault_logout"),
   guivaultDisconnect: () => invoke<GuiVaultStatus>("guivault_disconnect"),
   guivaultSetPreferences: (autoSyncSecs: number, persistUnlock: boolean) => invoke<GuiVaultStatus>("guivault_set_preferences", { autoSyncSecs, persistUnlock }),

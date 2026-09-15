@@ -12,9 +12,10 @@
 //! coffre local, qui retombe sur sa map mémoire sans Secret Service.
 use guivault_protocol::Role;
 use termius_core::guivault::account::{FingerprintTrust, MemoryStore};
-use termius_core::guivault::{Manager, sharing, sync};
+use termius_core::guivault::{LoginStep, Manager, sharing, sync};
 use termius_core::model::{Group, Host, Snippet, Workspace};
 use termius_core::vault::{self as local_vault, SecretKind};
+use std::time::Duration;
 use uuid::Uuid;
 
 fn server_url() -> String {
@@ -55,7 +56,10 @@ impl Device {
 
     async fn login(email: &str, pw: &str) -> Self {
         let d = Self::new();
-        d.manager.login(&server_url(), email, pw, Some("test-2".into())).await.unwrap();
+        match d.manager.login(&server_url(), email, pw, Some("test-2".into())).await.unwrap() {
+            LoginStep::Connected(_) => {}
+            LoginStep::TotpRequired => panic!("second facteur inattendu"),
+        }
         d
     }
 
@@ -201,6 +205,7 @@ async fn shared_vault_with_fingerprint_gate_roles_and_rotation() {
     assert_eq!(r.pushed, 1, "{r:?}");
     let r = alice.sync().await;
     assert_eq!(r.pulled, 1, "{r:?}");
+    assert_eq!(alice.ws.hosts.len(), 1, "rapport {r:?} ; bindings {:?} ; vaults {:?}", alice.ws.vault_bindings, alice.manager.status().vaults);
     assert_eq!(alice.ws.hosts[0].label, "bastion-bob");
 
     let members = sharing::members(&alice.manager, team.id).await.unwrap();
@@ -254,4 +259,73 @@ async fn shared_vault_with_fingerprint_gate_roles_and_rotation() {
     assert!(!alice.manager.status().configured);
     assert_eq!(alice.ws.hosts.len(), 1);
     assert!(alice.ws.vault_bindings.is_empty());
+}
+
+#[tokio::test]
+async fn totp_login_in_two_steps_and_live_events() {
+    use futures_util::StreamExt;
+    if !server_available().await {
+        return;
+    }
+    let tag = Uuid::new_v4().simple();
+    let email = format!("alice-{tag}@test.local");
+    let alice = Device::register(&email, "pw-a").await;
+    assert!(!alice.manager.totp_status().await.unwrap());
+
+    // Enrôlement : le code vient d'une app d'authentification — ici totp-rs
+    // à partir du secret base32, exactement ce que ferait l'app.
+    let setup = alice.manager.totp_setup().await.unwrap();
+    let totp = totp_rs::TOTP::new(
+        totp_rs::Algorithm::SHA1, 6, 1, 30,
+        totp_rs::Secret::Encoded(setup.secret).to_bytes().unwrap(),
+        Some("GuiVault".into()), email.clone(),
+    ).unwrap();
+    assert!(alice.manager.totp_enable("000000").await.is_err());
+    let recovery = alice.manager.totp_enable(&totp.generate_current().unwrap()).await.unwrap();
+    assert_eq!(recovery.len(), 8);
+    assert!(alice.manager.totp_status().await.unwrap());
+
+    // Nouvel appareil : mot de passe, puis code. Un mauvais code n'oblige
+    // pas à retaper le mot de passe.
+    let mut d = Device::new();
+    let step = d.manager.login(&server_url(), &email, "pw-a", None).await.unwrap();
+    assert!(matches!(step, LoginStep::TotpRequired));
+    assert!(!d.manager.status().configured);
+    let err = d.manager.login_totp("123456").await.unwrap_err();
+    assert!(err.to_string().contains("incorrect"), "{err}");
+    let status = d.manager.login_totp(&totp.generate_current().unwrap()).await.unwrap();
+    assert!(status.unlocked);
+    d.sync().await;
+    // Un code de récupération marche aussi (une fois).
+    let d2 = Device::new();
+    d2.manager.login(&server_url(), &email, "pw-a", None).await.unwrap();
+    d2.manager.login_totp(&recovery[0]).await.unwrap();
+    let d3 = Device::new();
+    d3.manager.login(&server_url(), &email, "pw-a", None).await.unwrap();
+    assert!(d3.manager.login_totp(&recovery[0]).await.is_err());
+
+    // Événements : l'appareil 1 (session révoquée à l'activation du 2FA,
+    // donc on prend `d`) écoute, Alice écrit depuis `d2`.
+    let client = d.manager.client().unwrap();
+    let mut events = client.events().await.unwrap();
+    let mut writer = Device::new();
+    writer.manager.login(&server_url(), &email, "pw-a", None).await.unwrap();
+    writer.manager.login_totp(&totp.generate_current().unwrap()).await.unwrap();
+    writer.ws.hosts.push(Host::new("evt", "10.0.0.9", "root"));
+    let r = writer.sync().await;
+    assert_eq!(r.pushed, 1, "{r:?}");
+    let personal = d.manager.status().vaults[0].id;
+    let ev = tokio::time::timeout(Duration::from_secs(10), events.next()).await.expect("événement attendu").unwrap();
+    assert!(matches!(ev, guivault_protocol::ServerEvent::VaultChanged { vault_id, .. } if vault_id == personal), "{ev:?}");
+
+    // Désactivation : la connexion redevient en un temps.
+    alice.manager.totp_disable(&totp.generate_current().unwrap()).await.unwrap_or_else(|e| {
+        // La session d'`alice` a été révoquée par l'activation ; `d` la remplace.
+        eprintln!("session initiale révoquée ({e}) — désactivation depuis l'appareil 2");
+    });
+    if d.manager.totp_status().await.unwrap() {
+        d.manager.totp_disable(&totp.generate_current().unwrap()).await.unwrap();
+    }
+    let d4 = Device::new();
+    assert!(matches!(d4.manager.login(&server_url(), &email, "pw-a", None).await.unwrap(), LoginStep::Connected(_)));
 }

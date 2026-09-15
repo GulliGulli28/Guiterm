@@ -98,6 +98,7 @@ fn main() {
                 }
             }
             commands::guivault::spawn_auto_sync(app.handle().clone());
+            commands::guivault::spawn_event_listener(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -311,6 +312,11 @@ fn main() {
             commands::guivault::guivault_register,
             commands::guivault::guivault_login,
             commands::guivault::guivault_unlock,
+            commands::guivault::guivault_login_totp,
+            commands::guivault::guivault_totp_status,
+            commands::guivault::guivault_totp_setup,
+            commands::guivault::guivault_totp_enable,
+            commands::guivault::guivault_totp_disable,
             commands::guivault::guivault_logout,
             commands::guivault::guivault_disconnect,
             commands::guivault::guivault_set_preferences,

@@ -125,6 +125,14 @@ function ConnectForm({ onDone, onError }: { onDone: () => void; onError: (m: str
   const [show, setShow] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [totpCode, setTotpCode] = useState<string | null>(null);
+
+  const submitTotp = async () => {
+    if (!totpCode?.trim()) return;
+    setBusy(true);
+    setError(null);
+    try { await api.guivaultLoginTotp(totpCode); onDone(); } catch (e) { setError(String(e)); } finally { setBusy(false); }
+  };
 
   const submit = async () => {
     setError(null);
@@ -137,7 +145,9 @@ function ConnectForm({ onDone, onError }: { onDone: () => void; onError: (m: str
     setBusy(true);
     try {
       const input = { serverUrl: serverUrl.trim(), email: email.trim(), password };
-      if (mode === "register") await api.guivaultRegister(input); else await api.guivaultLogin(input);
+      if (mode === "register") { await api.guivaultRegister(input); onDone(); return; }
+      const step = await api.guivaultLogin(input);
+      if (step.step === "totpRequired") { setTotpCode(""); return; }
       onDone();
     } catch (e) {
       setError(String(e));
@@ -146,6 +156,12 @@ function ConnectForm({ onDone, onError }: { onDone: () => void; onError: (m: str
       setBusy(false);
     }
   };
+
+  if (totpCode !== null) {
+    return (
+      <TotpPrompt code={totpCode} onChange={setTotpCode} busy={busy} error={error} onSubmit={submitTotp} onCancel={() => { setTotpCode(null); setError(null); }} />
+    );
+  }
 
   return (
     <div className="card space-y-2 p-3">
@@ -196,14 +212,45 @@ function ConnectForm({ onDone, onError }: { onDone: () => void; onError: (m: str
   );
 }
 
+/** Deuxième temps d'une connexion : le code de l'application
+ * d'authentification, ou un code de récupération. */
+function TotpPrompt({ code, onChange, busy, error, onSubmit, onCancel }: { code: string; onChange: (c: string) => void; busy: boolean; error: string | null; onSubmit: () => void; onCancel: () => void }) {
+  return (
+    <div className="card space-y-2 p-3">
+      <p className="text-[12px] text-[var(--c-text-secondary)]">Mot de passe accepté. Saisissez le code de votre application d'authentification — ou un code de récupération.</p>
+      {error && <p className="callout callout-danger py-1">{error}</p>}
+      <input value={code} onChange={(e) => onChange(e.target.value)} placeholder="123 456" autoFocus inputMode="numeric" autoComplete="one-time-code" onKeyDown={(e) => { if (e.key === "Enter") onSubmit(); }} className={`${inputClass} input-mono w-full`} />
+      <div className="flex justify-end gap-1.5">
+        <button onClick={onCancel} className="btn btn-ghost">Annuler</button>
+        <button onClick={onSubmit} disabled={busy || !code.trim()} className="btn btn-primary">{busy ? "…" : "Valider"}</button>
+      </div>
+    </div>
+  );
+}
+
 function UnlockForm({ status, onDone, onError }: { status: GuiVaultStatus; onDone: () => void; onError: (m: string) => void }) {
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  const [totpCode, setTotpCode] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const submit = async () => {
     if (!password) return;
     setBusy(true);
-    try { await api.guivaultUnlock(password); onDone(); } catch (e) { onError(String(e)); } finally { setBusy(false); }
+    try {
+      const step = await api.guivaultUnlock(password);
+      if (step.step === "totpRequired") { setTotpCode(""); return; }
+      onDone();
+    } catch (e) { onError(String(e)); } finally { setBusy(false); }
   };
+  const submitTotp = async () => {
+    if (!totpCode?.trim()) return;
+    setBusy(true);
+    setError(null);
+    try { await api.guivaultLoginTotp(totpCode); onDone(); } catch (e) { setError(String(e)); } finally { setBusy(false); }
+  };
+  if (totpCode !== null) {
+    return <TotpPrompt code={totpCode} onChange={setTotpCode} busy={busy} error={error} onSubmit={submitTotp} onCancel={() => setTotpCode(null)} />;
+  }
   return (
     <div className="card space-y-2 p-3">
       <p className="text-[12px] text-[var(--c-text-secondary)]">
@@ -228,6 +275,29 @@ function AccountCard({ status, onStatusChange, onError, onNotify }: { status: Gu
   const [pwNext, setPwNext] = useState("");
   const [pwBusy, setPwBusy] = useState(false);
   const [confirmDisconnect, setConfirmDisconnect] = useState(false);
+  const [totpEnabled, setTotpEnabled] = useState<boolean | null>(null);
+  const [totpSetup, setTotpSetup] = useState<{ secret: string; otpauthUrl: string } | null>(null);
+  const [totpCode, setTotpCode] = useState("");
+  const [recoveryCodes, setRecoveryCodes] = useState<string[] | null>(null);
+  const [totpBusy, setTotpBusy] = useState(false);
+
+  const loadTotp = () => api.guivaultTotpStatus().then(setTotpEnabled).catch(() => setTotpEnabled(null));
+  const startTotp = async () => {
+    setTotpBusy(true);
+    try { setTotpSetup(await api.guivaultTotpSetup()); setTotpCode(""); } catch (e) { onError(String(e)); } finally { setTotpBusy(false); }
+  };
+  const confirmTotp = async () => {
+    setTotpBusy(true);
+    try {
+      const codes = await api.guivaultTotpEnable(totpCode);
+      setRecoveryCodes(codes); setTotpSetup(null); setTotpCode(""); setTotpEnabled(true);
+      onNotify("Second facteur activé — les autres appareils devront se reconnecter.");
+    } catch (e) { onError(String(e)); } finally { setTotpBusy(false); }
+  };
+  const disableTotp = async () => {
+    setTotpBusy(true);
+    try { await api.guivaultTotpDisable(totpCode); setTotpCode(""); setTotpEnabled(false); onNotify("Second facteur désactivé."); } catch (e) { onError(String(e)); } finally { setTotpBusy(false); }
+  };
 
   const syncNow = async () => {
     setSyncing(true);
@@ -285,8 +355,8 @@ function AccountCard({ status, onStatusChange, onError, onNotify }: { status: Gu
         <input type="checkbox" checked={status.persistUnlock} onChange={(e) => api.guivaultSetPreferences(status.autoSyncSecs, e.target.checked).then(onStatusChange).catch((err) => onError(String(err)))} className="h-3.5 w-3.5" />
       </label>
 
-      <button type="button" onClick={() => { setShowMore((v) => !v); if (!showMore) loadSessions(); }} className="btn btn-ghost btn-sm w-full">
-        {showMore ? "Masquer" : "Appareils, mot de passe, déconnexion…"}
+      <button type="button" onClick={() => { setShowMore((v) => !v); if (!showMore) { loadSessions(); loadTotp(); } }} className="btn btn-ghost btn-sm w-full">
+        {showMore ? "Masquer" : "Appareils, second facteur, mot de passe…"}
       </button>
       {showMore && (
         <div className="space-y-3 border-t border-[var(--c-border)] pt-2">
@@ -302,6 +372,48 @@ function AccountCard({ status, onStatusChange, onError, onNotify }: { status: Gu
                 )}
               </div>
             ))}
+          </div>
+          <div className="space-y-1.5">
+            <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">Second facteur (TOTP)</p>
+            {totpEnabled === null && <p className="text-[11.5px] text-[var(--c-text-muted)]">Chargement…</p>}
+            {totpEnabled === false && !totpSetup && (
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-[11.5px] text-[var(--c-text-muted)]">Désactivé. Un code d'application d'authentification sera demandé à chaque connexion — il protège la session, pas les données (le mot de passe maître reste seul à les chiffrer).</p>
+                <button onClick={startTotp} disabled={totpBusy} className="btn btn-secondary btn-sm shrink-0">Activer</button>
+              </div>
+            )}
+            {totpSetup && (
+              <div className="callout space-y-1.5">
+                <p>Ajoutez ce secret dans votre application (Aegis, Bitwarden, Google Authenticator…) puis saisissez le code qu'elle affiche :</p>
+                <div className="flex flex-wrap items-center gap-1.5">
+                  <code className="break-all font-mono text-[11px] text-[var(--c-text)]">{totpSetup.secret.replace(/(.{4})/g, "$1 ").trim()}</code>
+                  <button type="button" onClick={() => { writeText(totpSetup.otpauthUrl).catch(() => {}); }} className="btn btn-ghost btn-sm" title="Copier l'URL otpauth:// (importable par la plupart des applications)"><IconCopy size={11} /> URL</button>
+                </div>
+                <div className="flex gap-1.5">
+                  <input value={totpCode} onChange={(e) => setTotpCode(e.target.value)} placeholder="Code à 6 chiffres" inputMode="numeric" onKeyDown={(e) => { if (e.key === "Enter") confirmTotp(); }} className={`${inputClass} input-mono min-w-0 flex-1`} />
+                  <button onClick={() => setTotpSetup(null)} className="btn btn-ghost btn-sm">Annuler</button>
+                  <button onClick={confirmTotp} disabled={totpBusy || totpCode.trim().length < 6} className="btn btn-primary btn-sm">Confirmer</button>
+                </div>
+              </div>
+            )}
+            {recoveryCodes && (
+              <div className="callout callout-warn space-y-1">
+                <p className="font-medium">Codes de récupération — conservez-les, ils ne seront plus affichés.</p>
+                <p>Chacun remplace une fois le code de l'application si vous perdez votre téléphone.</p>
+                <code className="block whitespace-pre-wrap font-mono text-[11px] text-[var(--c-text)]">{recoveryCodes.join("\n")}</code>
+                <div className="flex justify-end gap-1.5">
+                  <button type="button" onClick={() => { writeText(recoveryCodes.join("\n")).catch(() => {}); }} className="btn btn-secondary btn-sm"><IconCopy size={11} /> Copier</button>
+                  <button type="button" onClick={() => setRecoveryCodes(null)} className="btn btn-ghost btn-sm">J'ai noté</button>
+                </div>
+              </div>
+            )}
+            {totpEnabled === true && !recoveryCodes && (
+              <div className="flex gap-1.5">
+                <span className="tag tag-accent self-center">actif</span>
+                <input value={totpCode} onChange={(e) => setTotpCode(e.target.value)} placeholder="Code pour désactiver" inputMode="numeric" className={`${inputClass} input-mono min-w-0 flex-1`} />
+                <button onClick={disableTotp} disabled={totpBusy || !totpCode.trim()} className="btn btn-secondary btn-sm">Désactiver</button>
+              </div>
+            )}
           </div>
           <div className="space-y-1.5">
             <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">Changer le mot de passe maître</p>

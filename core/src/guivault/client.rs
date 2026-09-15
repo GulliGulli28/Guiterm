@@ -44,6 +44,12 @@ impl ClientError {
 
 pub type ClientResult<T> = Result<T, ClientError>;
 
+/// Résultat d'une tentative de connexion.
+pub enum LoginOutcome {
+    Session(LoginResponse),
+    TotpRequired(TotpChallenge),
+}
+
 /// Jetons courants, partagés entre appels : le rafraîchissement remplace la
 /// paire en place, et [`Client::tokens`] permet de persister la nouvelle.
 #[derive(Debug, Clone)]
@@ -165,13 +171,91 @@ impl Client {
         Ok(resp)
     }
 
-    pub async fn login(&self, req: &LoginRequest) -> ClientResult<LoginResponse> {
-        let resp: LoginResponse = self.public(Method::POST, "/auth/login", Some(req)).await?;
+    /// `200` → session ; `202` → le mot de passe est bon mais un code TOTP
+    /// est attendu (voir [`Client::totp_verify`]).
+    pub async fn login(&self, req: &LoginRequest) -> ClientResult<LoginOutcome> {
+        let resp = self.http.post(format!("{}/auth/login", self.base)).json(req).send().await?;
+        if resp.status() == StatusCode::ACCEPTED {
+            let challenge: TotpChallenge = Self::decode(resp).await?;
+            return Ok(LoginOutcome::TotpRequired(challenge));
+        }
+        let resp: LoginResponse = Self::decode(resp).await?;
+        self.adopt(&resp);
+        Ok(LoginOutcome::Session(resp))
+    }
+
+    pub async fn totp_verify(&self, req: &TotpVerifyRequest) -> ClientResult<LoginResponse> {
+        let resp: LoginResponse = self.public(Method::POST, "/auth/totp/verify", Some(req)).await?;
+        self.adopt(&resp);
+        Ok(resp)
+    }
+
+    fn adopt(&self, resp: &LoginResponse) {
         self.set_tokens(Some(Tokens {
             access: resp.tokens.access_token.clone(),
             refresh: resp.tokens.refresh_token.clone(),
         }));
-        Ok(resp)
+    }
+
+    pub async fn totp_status(&self) -> ClientResult<TotpStatus> {
+        self.authed(Method::GET, "/auth/totp", Self::NO_BODY).await
+    }
+
+    pub async fn totp_setup(&self) -> ClientResult<TotpSetupResponse> {
+        self.authed(Method::POST, "/auth/totp/setup", Self::NO_BODY).await
+    }
+
+    pub async fn totp_enable(&self, code: &str) -> ClientResult<TotpEnableResponse> {
+        self.authed(Method::POST, "/auth/totp/enable", Some(&TotpCodeRequest { code: code.into() })).await
+    }
+
+    pub async fn totp_disable(&self, code: &str) -> ClientResult<()> {
+        self.authed(Method::POST, "/auth/totp/disable", Some(&TotpCodeRequest { code: code.into() })).await
+    }
+
+    /// Ouvre le flux SSE et rend les événements un par un. Se termine quand
+    /// le serveur ferme la connexion ; l'appelant se reconnecte.
+    pub async fn events(&self) -> ClientResult<futures_util::stream::BoxStream<'static, ServerEvent>> {
+        use futures_util::StreamExt;
+        let access = self.tokens().ok_or(ClientError::SessionExpired)?.access;
+        let resp = self
+            .http
+            .get(format!("{}/events", self.base))
+            .bearer_auth(access)
+            // Un flux n'a pas de fin : pas de délai global, seul le
+            // keep-alive du serveur (30 s) dit s'il est vivant.
+            .timeout(std::time::Duration::from_secs(3600 * 24))
+            .send()
+            .await?;
+        if resp.status() == StatusCode::UNAUTHORIZED {
+            self.refresh().await?;
+            return Err(ClientError::SessionExpired);
+        }
+        if !resp.status().is_success() {
+            return Err(Self::decode::<()>(resp).await.expect_err("statut non 2xx"));
+        }
+        let mut buf = String::new();
+        let stream = resp.bytes_stream().filter_map(move |chunk| {
+            let out: Option<Vec<ServerEvent>> = match chunk {
+                Ok(bytes) => {
+                    buf.push_str(&String::from_utf8_lossy(&bytes));
+                    let mut events = Vec::new();
+                    while let Some(pos) = buf.find("\n\n") {
+                        let block = buf[..pos].to_string();
+                        buf.replace_range(..pos + 2, "");
+                        if let Some(data) = block.lines().find_map(|l| l.strip_prefix("data:"))
+                            && let Ok(ev) = serde_json::from_str::<ServerEvent>(data.trim())
+                        {
+                            events.push(ev);
+                        }
+                    }
+                    Some(events)
+                }
+                Err(_) => None,
+            };
+            async move { out }
+        });
+        Ok(stream.flat_map(futures_util::stream::iter).boxed())
     }
 
     pub async fn logout(&self) -> ClientResult<()> {
