@@ -5,6 +5,7 @@ import type { AppPreferences } from "../lib/preferences";
 import type {
   AwsSessionAlert, AwsSsoSession, Group, GroupId, Host, HostId, KeyAlgorithm, KeyId,
   PaneSource, PortForwardId, PortForwardKind, RunbookId, SnippetId, SqlConnection, TabMeta, TransferPanes, VaultStatus, Workspace,
+  GuiVaultStatus,
 } from "../lib/types";
 import type { SidebarPanelKind } from "../lib/sidebarButtons";
 import type { AppObject } from "../lib/appObject";
@@ -237,6 +238,9 @@ export interface SidebarActions extends TabOpeners {
   awsAlerts: AwsSessionAlert[];
   vaultStatus: VaultStatus | null;
   onVaultStatusChange: () => void;
+  /** Compte GuiVault (`null` tant que non chargé). Voir `modules/guivault`. */
+  guivaultStatus: GuiVaultStatus | null;
+  onGuivaultStatusChange: () => void;
   updatePreferences: (p: AppPreferences) => void;
 
 }

@@ -22,6 +22,7 @@ pub mod facts;
 pub mod file_diff;
 pub mod fleet;
 pub mod fleet_history;
+pub mod guivault;
 pub mod gcp_inventory;
 pub mod interactive_auth;
 pub mod k8s;

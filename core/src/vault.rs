@@ -153,6 +153,21 @@ pub fn delete_anthropic_api_key() -> anyhow::Result<()> {
     delete_raw(&global_key(ANTHROPIC_API_KEY))
 }
 
+/// Secrets de l'app eux-mêmes non liés à un hôte, nommés (voir
+/// [`crate::guivault::account`] : jetons de session et clés du compte
+/// GuiVault). Même espace `global:` que la clé API Anthropic.
+pub fn store_global(name: &str, secret: &str) -> anyhow::Result<()> {
+    store_raw(&global_key(name), secret)
+}
+
+pub fn load_global(name: &str) -> anyhow::Result<Option<String>> {
+    load_raw(&global_key(name))
+}
+
+pub fn delete_global(name: &str) -> anyhow::Result<()> {
+    delete_raw(&global_key(name))
+}
+
 fn store_raw(key: &str, secret: &str) -> anyhow::Result<()> {
     let mut st = state().lock_recover();
     match &mut *st {

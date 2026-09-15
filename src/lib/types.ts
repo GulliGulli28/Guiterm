@@ -560,6 +560,106 @@ export interface Workspace {
   customIcons: CustomIcon[];
   sqlConnections: SqlConnection[];
   runbooks: Runbook[];
+  /** Entité (par id) → vault GuiVault partagé. Absente = vault personnel /
+   * local. Voir `termius_core::guivault`. */
+  vaultBindings: Record<string, VaultId>;
+}
+
+// ─── GuiVault ────────────────────────────────────────────────────────────────
+
+export type VaultId = string;
+export type VaultRole = "reader" | "writer" | "admin" | "owner";
+export type VaultKind = "personal" | "shared";
+
+export interface GuiVaultVault {
+  id: VaultId;
+  name: string;
+  kind: VaultKind;
+  role: VaultRole;
+  revision: number;
+}
+
+export interface GuiVaultStatus {
+  configured: boolean;
+  unlocked: boolean;
+  serverUrl: string | null;
+  email: string | null;
+  userId: string | null;
+  /** Empreinte de sa propre clé publique — celle que les autres doivent
+   * comparer avant de nous partager un vault. */
+  fingerprint: string | null;
+  deviceName: string | null;
+  autoSyncSecs: number;
+  persistUnlock: boolean;
+  lastSyncAt: string | null;
+  vaults: GuiVaultVault[];
+}
+
+export interface GuiVaultReport {
+  pulled: number;
+  pushed: number;
+  removedLocally: number;
+  deletedRemotely: number;
+  conflicts: string[];
+  warnings: string[];
+  pendingInvitations: number;
+}
+
+export type FingerprintTrust =
+  | { kind: "pinned" }
+  | { kind: "unknown" }
+  | { kind: "changed"; previous: string };
+
+export interface GuiVaultUserLookup {
+  id: string;
+  email: string;
+  fingerprint: string;
+  trust: FingerprintTrust;
+}
+
+export interface GuiVaultMember {
+  userId: string;
+  email: string;
+  fingerprint: string;
+  role: VaultRole;
+  trust: FingerprintTrust;
+  isMe: boolean;
+}
+
+export type InvitationStatus = "pending" | "awaiting_key" | "accepted" | "declined" | "expired" | "revoked";
+
+export interface GuiVaultInvitation {
+  id: string;
+  vaultId: VaultId;
+  vaultName: string | null;
+  inviterEmail: string;
+  inviteeEmail: string;
+  inviteeFingerprint: string | null;
+  inviteeTrust: FingerprintTrust | null;
+  role: VaultRole;
+  status: InvitationStatus;
+  hasKey: boolean;
+  createdAt: string;
+  expiresAt: string;
+}
+
+export interface GuiVaultAuditEntry {
+  id: number;
+  at: string;
+  actorId: string | null;
+  actorEmail: string | null;
+  vaultId: string | null;
+  action: string;
+  target: string | null;
+  metadata: Record<string, unknown> | null;
+}
+
+export interface GuiVaultSession {
+  id: string;
+  deviceName: string | null;
+  createdAt: string;
+  lastUsedAt: string;
+  current: boolean;
 }
 
 export interface KnownHostEntry {

@@ -14,6 +14,7 @@ import { snippetsModule } from "./snippets";
 import { tunnelsModule } from "./tunnels";
 import { localTerminalModule } from "./localTerminal";
 import { fleetModule } from "./fleet";
+import { guivaultModule } from "./guivault";
 import { runbookModule } from "./runbook";
 import { netdiagModule } from "./netdiag";
 import { rdpModule } from "./rdp";
@@ -53,6 +54,7 @@ export const MODULES = [
   tunnelsModule,
   keychainModule,
   awsModule,
+  guivaultModule,
   settingsModule,
 ] as const;
 

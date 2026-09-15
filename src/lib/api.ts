@@ -1,6 +1,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { RdpPointerUpdate } from "./rdpCursor";
+import type { GuiVaultAuditEntry, GuiVaultInvitation, GuiVaultMember, GuiVaultReport, GuiVaultSession, GuiVaultStatus, GuiVaultUserLookup, GuiVaultVault, VaultId, VaultRole } from "./types";
 import type { ActivityEvent, ActivityFilter, CommandEntry, AuthMethod, BulkEdit, DiagTool, NetdiagOutcome, AwsCallerIdentity, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSessionAlert, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, AwsSsoSessionStatus, CloudInstance, CloudScope, CloudSelection, ArchiveFormat, CollectionInfo, ConflictPolicy, CopyConflict, ColumnInfo, CollectFactsResult, ComposeResult, DbTunnel, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FileDiff, FleetOutcome, FleetRun, FleetTarget, GroupId, HostDrift, HostId, HostKind, ImportSelection, Inventory, InventoryDiff, InventorySelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneComparison, PaneDiskSpace, PaneFindOutcome, PaneListed, PaneOpened, PaneSource, PersistentShellMode, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, ReachabilityOutcome, RedisKeyDetail, RemoteSearchMode, RemoteSearchOutcome, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, RollbackPlan, Runbook, RunbookApprovalRequest, RunbookId, RunbookRun, RunbookRunStatus, ScanPage, SessionListing, SessionOptions, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SkippedTarget, SshAuthPrompt, SshConfigHost, SsmProbe, SyncItem, TableInfo, TerminalOpened, TransferProgressEvent, VaultStatus, Workspace } from "./types";
 
 /** Mirrors the 12-byte little-endian header `commands::rdp_view::connect_rdp_view`
@@ -294,6 +295,43 @@ export const api = {
   startForward: (forwardId: PortForwardId) => invoke<void>("start_forward", { forwardId }),
   stopForward: (forwardId: PortForwardId) => invoke<void>("stop_forward", { forwardId }),
   runningForwards: () => invoke<PortForwardId[]>("running_forwards"),
+
+  // GuiVault : compte, synchronisation, vaults partagés (voir `commands::guivault`).
+  guivaultStatus: () => invoke<GuiVaultStatus>("guivault_status"),
+  guivaultRegister: (input: { serverUrl: string; email: string; password: string; deviceName?: string | null }) => invoke<GuiVaultStatus>("guivault_register", { input }),
+  guivaultLogin: (input: { serverUrl: string; email: string; password: string; deviceName?: string | null }) => invoke<GuiVaultStatus>("guivault_login", { input }),
+  guivaultUnlock: (password: string) => invoke<GuiVaultStatus>("guivault_unlock", { password }),
+  guivaultLogout: () => invoke<GuiVaultStatus>("guivault_logout"),
+  guivaultDisconnect: () => invoke<GuiVaultStatus>("guivault_disconnect"),
+  guivaultSetPreferences: (autoSyncSecs: number, persistUnlock: boolean) => invoke<GuiVaultStatus>("guivault_set_preferences", { autoSyncSecs, persistUnlock }),
+  guivaultChangePassword: (current: string, next: string) => invoke<void>("guivault_change_password", { current, new: next }),
+  guivaultSync: () => invoke<GuiVaultReport>("guivault_sync"),
+  guivaultSessions: () => invoke<GuiVaultSession[]>("guivault_sessions"),
+  guivaultRevokeSession: (id: string) => invoke<void>("guivault_revoke_session", { id }),
+  guivaultCreateVault: (name: string) => invoke<GuiVaultVault>("guivault_create_vault", { name }),
+  guivaultRenameVault: (vaultId: VaultId, name: string) => invoke<GuiVaultStatus>("guivault_rename_vault", { vaultId, name }),
+  guivaultDeleteVault: (vaultId: VaultId, keepLocal: boolean) => invoke<GuiVaultStatus>("guivault_delete_vault", { vaultId, keepLocal }),
+  guivaultLeaveVault: (vaultId: VaultId, keepLocal: boolean) => invoke<GuiVaultStatus>("guivault_leave_vault", { vaultId, keepLocal }),
+  /** `vaultId: null` = retour au vault personnel. */
+  guivaultMoveEntity: (id: string, vaultId: VaultId | null) => invoke<Workspace>("guivault_move_entity", { id, vaultId }),
+  guivaultRotateVaultKey: (vaultId: VaultId) => invoke<void>("guivault_rotate_vault_key", { vaultId }),
+  guivaultVaultAudit: (vaultId: VaultId) => invoke<GuiVaultAuditEntry[]>("guivault_vault_audit", { vaultId }),
+  guivaultMembers: (vaultId: VaultId) => invoke<GuiVaultMember[]>("guivault_members", { vaultId }),
+  guivaultUpdateMember: (vaultId: VaultId, userId: string, role: VaultRole) => invoke<void>("guivault_update_member", { vaultId, userId, role }),
+  guivaultRemoveMember: (vaultId: VaultId, userId: string, rotate: boolean) => invoke<void>("guivault_remove_member", { vaultId, userId, rotate }),
+  guivaultTransferOwnership: (vaultId: VaultId, userId: string) => invoke<GuiVaultStatus>("guivault_transfer_ownership", { vaultId, userId }),
+  guivaultLookupUser: (email: string) => invoke<GuiVaultUserLookup | null>("guivault_lookup_user", { email }),
+  guivaultPinFingerprint: (email: string, fingerprint: string) => invoke<void>("guivault_pin_fingerprint", { email, fingerprint }),
+  guivaultInvite: (vaultId: VaultId, email: string, role: VaultRole) => invoke<GuiVaultInvitation>("guivault_invite", { vaultId, email, role }),
+  guivaultVaultInvitations: (vaultId: VaultId) => invoke<GuiVaultInvitation[]>("guivault_vault_invitations", { vaultId }),
+  guivaultMyInvitations: () => invoke<GuiVaultInvitation[]>("guivault_my_invitations"),
+  guivaultAcceptInvitation: (id: string) => invoke<GuiVaultInvitation>("guivault_accept_invitation", { id }),
+  guivaultDeclineInvitation: (id: string) => invoke<void>("guivault_decline_invitation", { id }),
+  guivaultRevokeInvitation: (id: string) => invoke<void>("guivault_revoke_invitation", { id }),
+  guivaultCompleteInvitation: (vaultId: VaultId, id: string) => invoke<GuiVaultInvitation>("guivault_complete_invitation", { vaultId, id }),
+  /** Fin de synchronisation (manuelle ou automatique) : recharger le workspace. */
+  onGuivaultSynced: (handler: (report: GuiVaultReport) => void): Promise<UnlistenFn> =>
+    listen<GuiVaultReport>("guivault-synced", (e) => handler(e.payload)),
 
   // Master-password vault (opt-in encrypted secret store).
   masterPasswordStatus: () => invoke<VaultStatus>("master_password_status"),

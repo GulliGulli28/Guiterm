@@ -138,6 +138,13 @@ as I can put it:
   locked at launch, configurable auto-lock.
 - SSH key generation (Ed25519 by default, RSA 4096 optional) and one-click
   deployment to a remote `authorized_keys` (an `ssh-copy-id` equivalent).
+- **Optional sync and team sharing through a self-hosted
+  [GuiVault](https://github.com/GulliGulli28/GuiVault) server** — end-to-end
+  encrypted: hosts, keys, passwords and snippets are encrypted in Guiterm
+  before leaving it, the server holds no key. Personal vault across your
+  devices, shared vaults with roles, invitations, key rotation when someone
+  leaves, and an out-of-band fingerprint check before any share. One Docker
+  image; still no cloud account required to use Guiterm without it.
 
 **Comfort**
 - Command palette (Ctrl+K), customizable keyboard shortcuts — with

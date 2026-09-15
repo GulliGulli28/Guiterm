@@ -10,6 +10,7 @@ pub mod drift;
 pub mod export;
 pub mod facts;
 pub mod fleet;
+pub mod guivault;
 pub mod forward;
 pub mod hosts;
 pub mod interactive_auth;

@@ -143,6 +143,14 @@ pub struct RdpViewSession {
 #[derive(Default)]
 pub struct AppState {
     pub workspace: Mutex<Workspace>,
+    /// Le compte GuiVault de cette machine et sa session (voir
+    /// `termius_core::guivault`). `Arc` : la boucle de synchronisation
+    /// automatique en garde une part hors de tout `State`.
+    pub guivault: Arc<termius_core::guivault::Manager>,
+    /// Une seule synchronisation à la fois : un `try_lock` raté veut dire
+    /// « déjà en cours », pas « attendre » — deux synchros qui se suivent
+    /// n'apportent rien de plus qu'une.
+    pub guivault_sync_lock: tokio::sync::Mutex<()>,
     pub terminals: Mutex<HashMap<String, TerminalSession>>,
     pub local_terminals: Mutex<HashMap<String, LocalTerminalSession>>,
     pub panes: Mutex<HashMap<String, Pane>>,

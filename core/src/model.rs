@@ -9,6 +9,8 @@ pub type KeyId = Uuid;
 pub type SqlConnectionId = Uuid;
 pub type RunbookId = Uuid;
 pub type RunbookStepId = Uuid;
+/// Un vault GuiVault (voir [`crate::guivault`]).
+pub type VaultId = Uuid;
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 #[serde(rename_all = "camelCase")]
@@ -1157,6 +1159,14 @@ pub struct Workspace {
     /// avant les runbooks deviendrait illisible — et ses hôtes disparaîtraient.
     #[serde(default)]
     pub runbooks: Vec<Runbook>,
+    /// Dans quel vault GuiVault partagé vit chaque entité (hôte, groupe,
+    /// snippet, clé, connexion SQL), par id. Absente de la map = vault
+    /// personnel. Une map à part plutôt qu'un champ sur chaque struct : les
+    /// entités sont construites littéralement à une dizaine d'endroits, et
+    /// l'affiliation à un vault n'est pas une propriété de l'hôte lui-même
+    /// mais de l'endroit où on le range — voir [`crate::guivault::sync`].
+    #[serde(default)]
+    pub vault_bindings: std::collections::BTreeMap<Uuid, VaultId>,
 }
 
 /// Which hosts depend on each keychain key, by label.

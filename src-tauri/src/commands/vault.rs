@@ -74,8 +74,14 @@ pub fn set_master_password(state: State<'_, AppState>, password: String) -> Resu
 }
 
 #[tauri::command]
-pub fn unlock_vault(password: String) -> Result<(), String> {
-    vault::unlock(&password).map_err(|e| e.to_string())
+pub fn unlock_vault(state: State<'_, AppState>, password: String) -> Result<(), String> {
+    vault::unlock(&password).map_err(|e| e.to_string())?;
+    // Les jetons et clés GuiVault vivent dans ce coffre : maintenant
+    // lisibles, la session peut être restaurée.
+    if let Err(e) = state.guivault.restore() {
+        tracing::warn!("compte GuiVault non restauré après déverrouillage : {e}");
+    }
+    Ok(())
 }
 
 #[tauri::command]

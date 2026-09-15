@@ -576,3 +576,15 @@ export function IconTable({ size = 16, className }: P) {
     </svg>
   );
 }
+
+/** GuiVault : un coffre — le cadenas de `IconLock` est déjà pris par le coffre
+ * local, celui-ci a une porte et une roue. */
+export function IconVault({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <rect x="1.5" y="2" width="13" height="11" rx="1.5" stroke="currentColor" strokeWidth="1.25" />
+      <circle cx="8" cy="7.5" r="2.5" stroke="currentColor" strokeWidth="1.25" />
+      <path d="M8 6v1.5l1 1M4 13v1.5M12 13v1.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+    </svg>
+  );
+}

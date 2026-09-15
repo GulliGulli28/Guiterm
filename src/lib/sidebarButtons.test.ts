@@ -24,6 +24,7 @@ const EVERY_BUTTON: Record<SidebarButtonId, true> = {
   fleet: true,
   runbook: true,
   netdiag: true,
+  guivault: true,
 };
 
 // Même chose côté panneaux : un `SidebarPanelKind` sans bouton serait un
@@ -41,6 +42,7 @@ const EVERY_PANEL: Record<Exclude<SidebarPanelKind, "settings">, true> = {
   fleet: true,
   runbook: true,
   netdiag: true,
+  guivault: true,
 };
 
 describe("catalogue des boutons de barre latérale", () => {

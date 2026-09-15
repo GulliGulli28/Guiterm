@@ -2,7 +2,7 @@ import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "../lib/api";
 import { IconTrash, IconClose, IconFolder, IconHosts, IconKeychain, IconLock, IconUnlock, IconPlus } from "./ui-icons";
-import type { AuthMethod, EnvVar, GroupId, Host, HostId, HostKind, KeyId, PersistentShellMode, ProxyProbe, SnippetId, Workspace } from "../lib/types";
+import type { AuthMethod, EnvVar, GroupId, GuiVaultVault, Host, HostId, HostKind, KeyId, PersistentShellMode, ProxyProbe, SnippetId, VaultId, Workspace } from "../lib/types";
 import { HostIcon } from "./icons";
 import { IconPicker } from "./IconPicker";
 import { GroupTreePicker } from "./GroupTreePicker";
@@ -14,9 +14,16 @@ interface HostFormProps {
   workspace: Workspace;
   host: Host | null;
   defaultGroupId?: GroupId | null;
+  /** Les vaults GuiVault du compte connecté — vide sans compte : le champ
+   * « Vault » n'apparaît alors pas. */
+  vaults?: GuiVaultVault[];
+  /** Affiliation actuelle de l'hôte (`null` = vault personnel). */
+  vaultId?: VaultId | null;
   onCancel: () => void;
   onSave: (input: {
     id: HostId | null;
+    /** `undefined` quand le champ n'était pas proposé ; `null` = personnel. */
+    vaultId?: VaultId | null;
     label: string;
     kind: HostKind;
     address: string;
@@ -152,7 +159,7 @@ function jumpChoices(workspace: Workspace, editingId: HostId | null, chain: Host
 }
 
 
-export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, onDeleteHost, onWorkspaceUpdate }: HostFormProps) {
+export function HostForm({ workspace, host, defaultGroupId, vaults = [], vaultId: initialVaultId = null, onCancel, onSave, onDeleteHost, onWorkspaceUpdate }: HostFormProps) {
   const [label, setLabel] = useState(host?.label ?? "");
   const [kind, setKind] = useState<HostKind>(host?.kind ?? "ssh");
   const [address, setAddress] = useState(host?.address ?? "");
@@ -188,6 +195,13 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
       .finally(() => setProxyProbing(false));
   };
   const [groupId, setGroupId] = useState<GroupId | "">(host?.groupId ?? defaultGroupId ?? "");
+  const [vaultId, setVaultId] = useState<VaultId | "">(initialVaultId ?? "");
+  const sharedVaults = vaults.filter((v) => v.kind === "shared");
+  // Sans droit d'écriture, l'hôte se voit mais ne se modifie pas — et il ne
+  // se déplace pas non plus vers un autre vault (ce serait une suppression).
+  const currentVault = vaults.find((v) => v.id === initialVaultId);
+  const vaultReadOnly = !!currentVault && (currentVault.role === "reader");
+  const vaultField = sharedVaults.length > 0 || vaultId !== "" ? { vaultId: vaultId || null } : {};
   const [tags, setTags] = useState<string[]>(host?.tags ?? []);
   const [tagInput, setTagInput] = useState("");
   const [startupSnippets, setStartupSnippets] = useState<SnippetId[]>(host?.startupSnippets ?? []);
@@ -324,6 +338,7 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
         jumpVia: [], proxyCommand: null, groupId: groupId || null,
         tags, startupSnippets, envVars: envVars.filter((v) => v.key.trim()), icon, secret: null,
         keepaliveIntervalSecs: null, agentForward: false, persistentShell: "off",
+        ...vaultField,
       });
       return;
     }
@@ -336,6 +351,7 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
         jumpVia: [], proxyCommand: null, groupId: groupId || null,
         tags, startupSnippets, envVars: envVars.filter((v) => v.key.trim()), icon, secret: null,
         keepaliveIntervalSecs: null, agentForward: false, persistentShell: "off",
+        ...vaultField,
       });
       return;
     }
@@ -393,6 +409,7 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
       keepaliveIntervalSecs: sshOnlyExtras && Number.isInteger(keepaliveNum) && keepaliveNum > 0 ? keepaliveNum : null,
       agentForward: sshOnlyExtras && authKind === "agent" && agentForward,
       persistentShell: sshOnlyExtras ? persistentShell : "off",
+      ...vaultField,
     });
   };
 
@@ -770,6 +787,26 @@ export function HostForm({ workspace, host, defaultGroupId, onCancel, onSave, on
             customIcons={workspace.customIcons}
           />
         </Field>
+
+        {(sharedVaults.length > 0 || vaultId !== "") && (
+        <Field label="Vault GuiVault">
+          <select
+            value={vaultId}
+            disabled={vaultReadOnly}
+            onChange={(e) => setVaultId(e.target.value)}
+            className={inputClass}
+            title={vaultReadOnly ? "Vault en lecture seule : cet hôte ne peut être ni modifié ni déplacé" : "Un hôte rangé dans un vault partagé est visible — identifiants compris — par tous ses membres. Sa clé du trousseau le suit."}
+          >
+            <option value="">Personnel (vous seul)</option>
+            {sharedVaults.map((v) => (
+              <option key={v.id} value={v.id} disabled={v.role === "reader"}>
+                {v.name}{v.role === "reader" ? " (lecture seule)" : ""}
+              </option>
+            ))}
+          </select>
+          {vaultReadOnly && <p className="mt-1 text-[11.5px] text-[var(--c-text-muted)]">Vous êtes lecteur de « {currentVault?.name} » : les modifications ne seront pas synchronisées.</p>}
+        </Field>
+        )}
 
         {shellExtras && (
         <Field label="Snippets au démarrage">

@@ -1,0 +1,257 @@
+//! Synchronisation et partage bout en bout contre un vrai serveur GuiVault.
+//!
+//! Demande un serveur joignable (par défaut `http://127.0.0.1:8080`, sinon
+//! `GUIVAULT_TEST_URL`) en mode d'inscription `open` — c'est ce que lance
+//! `docker compose up` dans le dépôt GuiVault avec `GUIVAULT_REGISTRATION=open`.
+//! Sans serveur, le test s'ignore avec un message plutôt que d'échouer : même
+//! politique que les tests `sshd` de ce crate.
+//!
+//! Les états locaux vont dans un dossier temporaire et les jetons/clés dans
+//! une map en mémoire : rien ne touche le `guivault.json` ni le trousseau de
+//! la machine. Les secrets d'entités (mots de passe d'hôtes) passent par le
+//! coffre local, qui retombe sur sa map mémoire sans Secret Service.
+use guivault_protocol::Role;
+use termius_core::guivault::account::{FingerprintTrust, MemoryStore};
+use termius_core::guivault::{Manager, sharing, sync};
+use termius_core::model::{Group, Host, Snippet, Workspace};
+use termius_core::vault::{self as local_vault, SecretKind};
+use uuid::Uuid;
+
+fn server_url() -> String {
+    std::env::var("GUIVAULT_TEST_URL").unwrap_or_else(|_| "http://127.0.0.1:8080".into())
+}
+
+async fn server_available() -> bool {
+    match reqwest::get(format!("{}/api/v1/health", server_url())).await {
+        Ok(r) if r.status().is_success() => true,
+        _ => {
+            eprintln!("⚠ pas de serveur GuiVault sur {} — test ignoré", server_url());
+            false
+        }
+    }
+}
+
+struct Device {
+    manager: Manager,
+    ws: Workspace,
+    _dir: tempfile::TempDir,
+}
+
+impl Device {
+    fn new() -> Self {
+        let dir = tempfile::tempdir().unwrap();
+        Device {
+            manager: Manager::with(dir.path().join("guivault.json"), Box::new(MemoryStore::default())),
+            ws: Workspace::default(),
+            _dir: dir,
+        }
+    }
+
+    async fn register(email: &str, pw: &str) -> Self {
+        let d = Self::new();
+        d.manager.register(&server_url(), email, pw, Some("test".into())).await.unwrap();
+        d
+    }
+
+    async fn login(email: &str, pw: &str) -> Self {
+        let d = Self::new();
+        d.manager.login(&server_url(), email, pw, Some("test-2".into())).await.unwrap();
+        d
+    }
+
+    async fn sync(&mut self) -> sync::Report {
+        let (changes, report) = sync::run(&self.manager, &self.ws).await.unwrap();
+        sync::apply_changes(&mut self.ws, changes);
+        report
+    }
+
+    fn host_mut(&mut self, id: Uuid) -> &mut Host {
+        self.ws.hosts.iter_mut().find(|h| h.id == id).unwrap()
+    }
+}
+
+#[tokio::test]
+async fn personal_vault_syncs_between_two_devices() {
+    if !server_available().await {
+        return;
+    }
+    let email = format!("alice-{}@test.local", Uuid::new_v4().simple());
+    let mut a1 = Device::register(&email, "alice-master").await;
+    assert!(a1.manager.status().unlocked);
+
+    // Un workspace avec un groupe, un hôte (et son mot de passe), un snippet.
+    let group = Group { id: Uuid::new_v4(), name: "prod".into(), parent_id: None, icon: None, color: None };
+    let mut host = Host::new("db-1", "10.0.0.1", "root");
+    host.group_id = Some(group.id);
+    local_vault::store(host.id, SecretKind::Password, "s3cret").unwrap();
+    let snippet = Snippet { id: Uuid::new_v4(), name: "disk".into(), command: "df -h".into(), tags: vec![], adaptive: false };
+    a1.ws.groups.push(group.clone());
+    a1.ws.hosts.push(host.clone());
+    a1.ws.snippets.push(snippet.clone());
+
+    let r = a1.sync().await;
+    assert_eq!((r.pushed, r.pulled), (3, 0), "{r:?}");
+    assert!(r.conflicts.is_empty() && r.warnings.is_empty(), "{r:?}");
+    let r = a1.sync().await;
+    assert_eq!((r.pushed, r.pulled), (0, 0), "une deuxième synchro sans changement ne fait rien : {r:?}");
+
+    // Deuxième appareil : tout arrive, mot de passe compris.
+    local_vault::delete(host.id, SecretKind::Password).unwrap();
+    let mut a2 = Device::login(&email, "alice-master").await;
+    let r = a2.sync().await;
+    assert_eq!((r.pushed, r.pulled), (0, 3), "{r:?}");
+    assert_eq!(a2.ws.hosts[0].label, "db-1");
+    assert_eq!(a2.ws.hosts[0].group_id, Some(group.id));
+    assert_eq!(local_vault::load(host.id, SecretKind::Password).unwrap().as_deref(), Some("s3cret"));
+    assert!(a2.ws.vault_bindings.is_empty(), "le vault personnel n'est pas une affiliation");
+
+    // Modification sur l'appareil 2 → visible sur le 1.
+    a2.host_mut(host.id).label = "db-primary".into();
+    let r = a2.sync().await;
+    assert_eq!(r.pushed, 1, "{r:?}");
+    let r = a1.sync().await;
+    assert_eq!(r.pulled, 1, "{r:?}");
+    assert_eq!(a1.ws.hosts[0].label, "db-primary");
+
+    // Suppression sur le 1 → tombale → retrait sur le 2.
+    a1.ws.snippets.clear();
+    let r = a1.sync().await;
+    assert_eq!(r.deleted_remotely, 1, "{r:?}");
+    let r = a2.sync().await;
+    assert_eq!(r.removed_locally, 1, "{r:?}");
+    assert!(a2.ws.snippets.is_empty());
+
+    // Conflit : les deux appareils modifient le même hôte. Le local gagne
+    // sur celui qui synchronise en second, et le rapport le dit.
+    a1.host_mut(host.id).label = "from-1".into();
+    a2.host_mut(host.id).label = "from-2".into();
+    a2.sync().await;
+    let r = a1.sync().await;
+    assert_eq!(r.conflicts.len(), 1, "{r:?}");
+    assert_eq!(a1.ws.hosts[0].label, "from-1");
+    let r = a2.sync().await;
+    assert_eq!(r.pulled, 1, "{r:?}");
+    assert_eq!(a2.ws.hosts[0].label, "from-1");
+
+    // Mauvais mot de passe : refusé proprement.
+    let d = Device::new();
+    let err = d.manager.login(&server_url(), &email, "wrong", None).await.unwrap_err();
+    assert!(err.to_string().contains("incorrect"), "{err}");
+}
+
+#[tokio::test]
+async fn shared_vault_with_fingerprint_gate_roles_and_rotation() {
+    if !server_available().await {
+        return;
+    }
+    let tag = Uuid::new_v4().simple();
+    let alice_email = format!("alice-{tag}@test.local");
+    let bob_email = format!("bob-{tag}@test.local");
+    let mut alice = Device::register(&alice_email, "pw-a").await;
+    let mut bob = Device::register(&bob_email, "pw-b").await;
+    alice.sync().await;
+    bob.sync().await;
+
+    let team = sharing::create_vault(&alice.manager, "Équipe infra").await.unwrap();
+    assert_eq!(team.role, Role::Owner);
+    assert!(alice.manager.status().vaults.iter().any(|v| v.id == team.id && v.name == "Équipe infra"));
+
+    // Pas d'empreinte épinglée → pas de partage.
+    let lookup = sharing::lookup_user(&alice.manager, &bob_email).await.unwrap().expect("Bob existe");
+    assert_eq!(lookup.trust, FingerprintTrust::Unknown);
+    let err = sharing::invite(&alice.manager, team.id, &bob_email, Role::Reader).await.unwrap_err();
+    assert!(err.to_string().contains("empreinte"), "{err}");
+    assert_eq!(lookup.fingerprint, bob.manager.status().fingerprint.unwrap(), "l'empreinte vue par Alice est celle de Bob");
+    alice.manager.pin_fingerprint(&bob_email, &lookup.fingerprint).unwrap();
+    let inv = sharing::invite(&alice.manager, team.id, &bob_email, Role::Reader).await.unwrap();
+    assert!(inv.has_key);
+
+    // Bob accepte, voit le vault.
+    let mine = sharing::my_invitations(&bob.manager).await.unwrap();
+    assert_eq!(mine.len(), 1);
+    assert_eq!(mine[0].inviter_email, alice_email);
+    sharing::accept_invitation(&bob.manager, mine[0].id).await.unwrap();
+    assert!(bob.manager.status().vaults.iter().any(|v| v.id == team.id && v.name == "Équipe infra" && v.role == Role::Reader));
+
+    // Alice range un hôte dans le vault partagé → Bob le reçoit, lié au vault.
+    let host = Host::new("bastion", "bastion.internal", "ops");
+    local_vault::store(host.id, SecretKind::Password, "ops-pw").unwrap();
+    alice.ws.hosts.push(host.clone());
+    let r = alice.sync().await;
+    assert_eq!(r.pushed, 1);
+    alice.ws.vault_bindings.insert(host.id, team.id);
+    let r = alice.sync().await;
+    assert_eq!(r.pushed, 1, "déplacé vers le vault partagé : {r:?}");
+    local_vault::delete(host.id, SecretKind::Password).unwrap();
+    let r = bob.sync().await;
+    assert_eq!(r.pulled, 1, "{r:?}");
+    assert_eq!(bob.ws.hosts[0].label, "bastion");
+    assert_eq!(bob.ws.vault_bindings.get(&host.id), Some(&team.id));
+    assert_eq!(local_vault::load(host.id, SecretKind::Password).unwrap().as_deref(), Some("ops-pw"));
+
+    // Lecteur : sa modification n'est pas envoyée, et le rapport le dit.
+    bob.host_mut(host.id).label = "bastion-bob".into();
+    let r = bob.sync().await;
+    assert_eq!(r.pushed, 0);
+    assert!(r.warnings.iter().any(|w| w.contains("lecture seule")), "{r:?}");
+    // Promu writer : ça part.
+    let bob_id = bob.manager.status().user_id.unwrap();
+    sharing::update_member(&alice.manager, team.id, bob_id, Role::Writer).await.unwrap();
+    let r = bob.sync().await;
+    assert_eq!(r.pushed, 1, "{r:?}");
+    let r = alice.sync().await;
+    assert_eq!(r.pulled, 1, "{r:?}");
+    assert_eq!(alice.ws.hosts[0].label, "bastion-bob");
+
+    let members = sharing::members(&alice.manager, team.id).await.unwrap();
+    assert_eq!(members.len(), 2);
+    assert!(members.iter().any(|m| m.email == bob_email && m.trust == FingerprintTrust::Pinned && m.role == Role::Writer));
+
+    // Retrait de Bob + rotation : Bob perd l'hôte, Alice relit tout avec la
+    // nouvelle clé sans rien re-pousser.
+    sharing::remove_member(&alice.manager, team.id, bob_id, true).await.unwrap();
+    let r = alice.sync().await;
+    assert_eq!((r.pushed, r.pulled), (0, 0), "relu sous la nouvelle clé, identique, rien à faire : {r:?}");
+    assert!(r.conflicts.is_empty(), "{r:?}");
+    assert_eq!(alice.ws.hosts[0].label, "bastion-bob");
+    // (Bob après Alice : dans ce test les « appareils » partagent le coffre
+    // local mémoire du processus, et le retrait chez Bob efface le mot de
+    // passe de l'hôte — qu'Alice aurait sinon vu comme une modification.)
+    let r = bob.sync().await;
+    assert_eq!(r.removed_locally, 1, "{r:?}");
+    assert!(bob.ws.hosts.is_empty());
+    assert!(!bob.manager.status().vaults.iter().any(|v| v.id == team.id));
+
+    // Invitation différée : Carol n'existe pas encore.
+    let carol_email = format!("carol-{tag}@test.local");
+    let inv = sharing::invite(&alice.manager, team.id, &carol_email, Role::Writer).await.unwrap();
+    assert!(!inv.has_key);
+    let mut carol = Device::register(&carol_email, "pw-c").await;
+    let mine = sharing::my_invitations(&carol.manager).await.unwrap();
+    let accepted = sharing::accept_invitation(&carol.manager, mine[0].id).await.unwrap();
+    assert_eq!(accepted.status, guivault_protocol::InvitationStatus::AwaitingKey);
+    // Alice voit maintenant l'empreinte de Carol sur l'invitation, l'épingle, complète.
+    let pending = sharing::vault_invitations(&alice.manager, team.id).await.unwrap();
+    let p = pending.iter().find(|i| i.id == inv.id).unwrap();
+    assert_eq!(p.invitee_trust, Some(FingerprintTrust::Unknown));
+    let err = sharing::complete_invitation(&alice.manager, team.id, inv.id).await.unwrap_err();
+    assert!(err.to_string().contains("empreinte"));
+    alice.manager.pin_fingerprint(&carol_email, p.invitee_fingerprint.as_deref().unwrap()).unwrap();
+    let done = sharing::complete_invitation(&alice.manager, team.id, inv.id).await.unwrap();
+    assert_eq!(done.status, guivault_protocol::InvitationStatus::Accepted);
+    let r = carol.sync().await;
+    assert_eq!(r.pulled, 1, "{r:?}");
+    assert_eq!(carol.ws.hosts[0].label, "bastion-bob");
+
+    // Une empreinte qui change est une alerte, pas un détail.
+    alice.manager.pin_fingerprint(&carol_email, "0000-0000-0000-0000-0000-0000-0000-0000").unwrap();
+    let lookup = sharing::lookup_user(&alice.manager, &carol_email).await.unwrap().unwrap();
+    assert!(matches!(lookup.trust, FingerprintTrust::Changed { .. }));
+
+    // Déconnexion d'Alice : le compte disparaît de la machine, les hôtes restent.
+    alice.manager.disconnect().await.unwrap();
+    sync::detach_all(&mut alice.ws);
+    assert!(!alice.manager.status().configured);
+    assert_eq!(alice.ws.hosts.len(), 1);
+    assert!(alice.ws.vault_bindings.is_empty());
+}

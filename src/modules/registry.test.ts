@@ -36,6 +36,7 @@ const EVERY_PANEL: Record<SidebarPanelKind, true> = {
   fleet: true,
   runbook: true,
   netdiag: true,
+  guivault: true,
   settings: true,
 };
 

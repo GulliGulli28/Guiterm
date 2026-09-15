@@ -304,6 +304,48 @@ Ne pas tester le flux complet activer→migrer→se-connecter en E2E automatique
 il faut un vrai `sshd` ET ça muterait le `secrets.enc` réel du profil. Le crypto
 est couvert par tests unitaires (`crypto.rs`, `master_vault.rs`).
 
+## GuiVault : synchronisation chiffrée et vaults partagés
+
+`core/src/guivault/` est le client du serveur GuiVault (dépôt frère
+`~/GuiVault`, https://github.com/GulliGulli28/GuiVault — son `CLAUDE.md`
+et ses `docs/{ARCHITECTURE,SECURITY,API}.md` décrivent le modèle). Règle
+absolue héritée de là-bas : **le serveur ne voit jamais un secret en clair**,
+tout se chiffre ici via `guivault-crypto` (dépendance git épinglée sur un
+commit dans `core/Cargo.toml` et `src-tauri/Cargo.toml` — les deux pins
+doivent rester identiques).
+
+- `client.rs` : HTTP, jetons, rafraîchissement transparent — zéro crypto.
+- `account.rs` : `Manager` = état persistant `guivault.json` (non secret) +
+  jetons/clés dans le coffre local (`vault::{store,load,delete}_global`) +
+  session en mémoire. **Injectable** (`Manager::with(chemin, store)`) pour
+  que les tests ne touchent ni au profil ni au trousseau.
+- `entity.rs` : entité du workspace (avec ses secrets) ↔ item chiffré. Le
+  changement local se détecte par **empreinte SHA-256 du JSON** comparée à
+  celle de la dernière synchro — pas d'instrumentation des chemins de
+  modification.
+- `sync.rs` : le moteur. Copie du workspace → réseau/crypto hors verrou →
+  liste de `Change` rejouée sous verrou par `commands::guivault::run_sync`.
+  Fusion : les deux côtés modifiés = le local gagne et le rapport le dit.
+- `sharing.rs` : vaults, membres, invitations. **Aucune enveloppe de clé ne
+  part vers une empreinte non épinglée** (`Manager::require_pinned`) : c'est
+  la seule défense contre un serveur qui substituerait une clé publique.
+
+L'affiliation entité → vault partagé vit dans `Workspace.vault_bindings`
+(map id → vault), pas sur les structs (`Host`, `Group`… sont construits
+littéralement à dix endroits). Absente = vault personnel. Les ids d'items
+sont ceux des entités ; un déplacement de vault = tombale + création sous
+le même id (clé primaire `(vault_id, id)` côté serveur).
+
+Tests : `core/tests/guivault_integration.rs` joue deux appareils et trois
+comptes contre un vrai serveur (`docker compose up` dans `~/GuiVault` avec
+`GUIVAULT_REGISTRATION=open`, sinon le test s'ignore). Les « appareils »
+d'un même processus partagent le coffre local mémoire — un retrait chez
+l'un efface les secrets de l'autre, d'où l'ordre de certaines assertions.
+
+Frontend : module `modules/guivault.tsx` → `GuiVaultPanel.tsx` ; le statut
+vit dans `App` (le formulaire d'hôte en a besoin pour son champ « Vault »).
+L'événement `guivault-synced` fait recharger le workspace.
+
 ## RDP intégré (rendu réel) : architecture sidecar
 
 Le rendu RDP intégré (`RdpTab.tsx`, onglet « Aperçu intégré ») ne tourne

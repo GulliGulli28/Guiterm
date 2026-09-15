@@ -87,6 +87,17 @@ fn main() {
             termius_core::interactive_auth::set_prompter(std::sync::Arc::new(
                 commands::interactive_auth::FrontendPrompter::new(app.handle().clone()),
             ));
+            // Compte GuiVault : restaure la session depuis le coffre local
+            // (sans réseau), puis la boucle de synchronisation automatique.
+            // Si le coffre local est verrouillé, `unlock_vault` refera la
+            // restauration une fois le mot de passe maître saisi.
+            {
+                let state: tauri::State<'_, AppState> = app.state();
+                if let Err(e) = state.guivault.restore() {
+                    tracing::warn!("compte GuiVault non restauré : {e}");
+                }
+            }
+            commands::guivault::spawn_auto_sync(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -295,6 +306,38 @@ fn main() {
             commands::export::diagnostics_directory,
 
             // ── noyau : transversal, aucun module ne le possède ──────
+            // ── module « guivault » ───────────────────────────────────────
+            commands::guivault::guivault_status,
+            commands::guivault::guivault_register,
+            commands::guivault::guivault_login,
+            commands::guivault::guivault_unlock,
+            commands::guivault::guivault_logout,
+            commands::guivault::guivault_disconnect,
+            commands::guivault::guivault_set_preferences,
+            commands::guivault::guivault_change_password,
+            commands::guivault::guivault_sync,
+            commands::guivault::guivault_sessions,
+            commands::guivault::guivault_revoke_session,
+            commands::guivault::guivault_create_vault,
+            commands::guivault::guivault_rename_vault,
+            commands::guivault::guivault_delete_vault,
+            commands::guivault::guivault_leave_vault,
+            commands::guivault::guivault_move_entity,
+            commands::guivault::guivault_rotate_vault_key,
+            commands::guivault::guivault_vault_audit,
+            commands::guivault::guivault_members,
+            commands::guivault::guivault_update_member,
+            commands::guivault::guivault_remove_member,
+            commands::guivault::guivault_transfer_ownership,
+            commands::guivault::guivault_lookup_user,
+            commands::guivault::guivault_pin_fingerprint,
+            commands::guivault::guivault_invite,
+            commands::guivault::guivault_vault_invitations,
+            commands::guivault::guivault_my_invitations,
+            commands::guivault::guivault_accept_invitation,
+            commands::guivault::guivault_decline_invitation,
+            commands::guivault::guivault_revoke_invitation,
+            commands::guivault::guivault_complete_invitation,
             commands::vault::master_password_status,
             commands::vault::set_master_password,
             commands::vault::unlock_vault,

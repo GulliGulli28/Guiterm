@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { check as checkForUpdate } from "@tauri-apps/plugin-updater";
 import { api, onSshAuthPrompt } from "./lib/api";
-import type { AwsSsoSession, GroupId, Host, HostId, PaneSource, SqlConnection, SshAuthPrompt, TabMeta, VaultStatus, Workspace } from "./lib/types";
+import type { AwsSsoSession, GroupId, GuiVaultStatus, Host, HostId, PaneSource, SqlConnection, SshAuthPrompt, TabMeta, VaultStatus, Workspace } from "./lib/types";
 import { isHostBoundTab } from "./lib/types";
 import { Sidebar } from "./components/Sidebar";
 import { HostForm } from "./components/HostForm";
@@ -148,6 +148,29 @@ export default function App() {
     (answers ? api.submitSshAuthPrompt(id, answers) : api.cancelSshAuthPrompt(id)).catch(() => {});
     setAuthPrompts((prev) => prev.filter((p) => p.id !== id));
   }, []);
+
+  // ── GuiVault ─────────────────────────────────────────────────────────────
+  // Chargé au lancement et rechargé après chaque action du panneau ou fin de
+  // synchronisation ; le formulaire d'hôte s'en sert pour lister les vaults.
+  const [guivaultStatus, setGuivaultStatus] = useState<GuiVaultStatus | null>(null);
+  const refreshGuivaultStatus = useCallback(() => {
+    api.guivaultStatus().then(setGuivaultStatus).catch(() => setGuivaultStatus(null));
+  }, []);
+  useEffect(() => { refreshGuivaultStatus(); }, [refreshGuivaultStatus]);
+  useEffect(() => {
+    // Une synchronisation (manuelle ou automatique) a pu changer le
+    // workspace sous nos pieds : on le recharge, et on dit ce qui s'est
+    // passé si quelque chose mérite un regard (conflit, lecture seule…).
+    let unlisten: (() => void) | undefined;
+    api.onGuivaultSynced((report) => {
+      api.getWorkspace().then(setWorkspace).catch(() => {});
+      refreshGuivaultStatus();
+      for (const c of report.conflicts) pushNotification("error", `GuiVault — ${c}`);
+      for (const w of report.warnings) pushNotification("info", `GuiVault — ${w}`);
+      if (report.pendingInvitations > 0) pushNotification("info", `GuiVault — ${report.pendingInvitations} invitation(s) en attente dans le panneau GuiVault.`);
+    }).then((u) => { unlisten = u; });
+    return () => { unlisten?.(); };
+  }, [refreshGuivaultStatus, pushNotification]);
 
   // ── Master-password vault ─────────────────────────────────────────────────
   const [vaultStatus, setVaultStatus] = useState<VaultStatus | null>(null);
@@ -758,6 +781,8 @@ export default function App() {
     awsAlerts,
     vaultStatus,
     onVaultStatusChange: refreshVaultStatus,
+    guivaultStatus,
+    onGuivaultStatusChange: refreshGuivaultStatus,
     updatePreferences,
 
   };
@@ -1061,9 +1086,23 @@ export default function App() {
               host={editingHost === "new" ? null : editingHost}
               defaultGroupId={editingHost === "new" ? newHostDefaultGroupId : null}
               onCancel={() => setEditingHost(null)}
+              vaults={guivaultStatus?.unlocked ? guivaultStatus.vaults : []}
+              vaultId={editingHost === "new" ? null : (workspace.vaultBindings?.[editingHost.id] ?? null)}
               onSave={(input) => {
+                const before = new Set(workspace.hosts.map((h) => h.id));
                 api.saveHost(input)
-                  .then((ws) => { refreshWorkspace(ws); setEditingHost(null); })
+                  .then(async (ws) => {
+                    // L'affiliation à un vault n'est pas un champ de l'hôte
+                    // (voir `Workspace.vaultBindings`) : elle se pose après,
+                    // une fois l'id connu pour un nouvel hôte.
+                    const id = input.id ?? ws.hosts.find((h) => !before.has(h.id))?.id ?? null;
+                    const current = id ? (ws.vaultBindings?.[id] ?? null) : null;
+                    if (id && input.vaultId !== undefined && input.vaultId !== current) {
+                      ws = await api.guivaultMoveEntity(id, input.vaultId);
+                    }
+                    refreshWorkspace(ws);
+                    setEditingHost(null);
+                  })
                   .catch((e) => reportError(String(e)));
               }}
               onDeleteHost={editingHost !== "new" ? (id) => {

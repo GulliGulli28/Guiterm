@@ -263,6 +263,7 @@ async function runScenarios(browser) {
   await runHostAttachmentsScenario(browser);
   await runObjectBusScenario(browser);
   await runPaneElevationScenario(browser);
+  await runGuiVaultPanelScenario(browser);
   await runTransferPanesPersistScenario(browser);
   await runObjectBusSelectionScenario(browser);
   await runAdaptiveComposerScenario(browser);
@@ -4811,4 +4812,43 @@ async function runResumeOnLaunchScenario(browser) {
     await setToggle(LABEL, before.resumePersistentTabsOnLaunch === true);
     if (!parentWasOn) await setToggle(PARENT, false);
   }
+}
+
+/**
+ * The GuiVault panel is reachable from the sidebar and its status command
+ * answers over IPC.
+ *
+ * Same MongoDB-class concern as the other panel scenarios: a registered
+ * backend with no way in from the UI. `guivault_status` is read-only (it
+ * reports what `guivault.json` and the local vault hold, creating nothing),
+ * so this is safe against the real profile. On a machine with no account the
+ * expected panel content is the connection form — that's the assertion, not
+ * a live server.
+ */
+async function runGuiVaultPanelScenario(browser) {
+  const status = await browser.execute(async () => {
+    try {
+      return await window.__TAURI_INTERNALS__.invoke("guivault_status");
+    } catch (e) {
+      return { __error: String(e) };
+    }
+  });
+  if (!status || typeof status.configured !== "boolean" || !Array.isArray(status.vaults)) {
+    throw new Error(`invoke("guivault_status") n'a pas répondu correctement via IPC : ${JSON.stringify(status)}`);
+  }
+
+  await browser.execute(() => {
+    const tab = Array.from(document.querySelectorAll("button"))
+      .find((b) => (b.getAttribute("title") || "").startsWith("GuiVault"));
+    if (tab instanceof HTMLElement) tab.click();
+  });
+  await browser.waitUntil(async () => await browser.execute(() => {
+    const panel = document.querySelector('[data-sidebar-panel="guivault"]');
+    if (!panel) return false;
+    const text = panel.textContent || "";
+    // Not configured: the connect form. Configured: the account card or the
+    // unlock form. Any of the three proves the panel mounted with content.
+    return text.includes("Se connecter") || text.includes("Synchroniser") || text.includes("Déverrouiller");
+  }), { timeout: 10_000, timeoutMsg: "le panneau GuiVault ne s est pas charge (ni formulaire de connexion, ni compte)" });
+  console.log(`GuiVault : OK (guivault_status répond — ${status.configured ? "compte configuré" : "aucun compte"}, panneau atteignable).`);
 }

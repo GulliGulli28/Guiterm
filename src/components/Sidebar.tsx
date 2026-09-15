@@ -4,7 +4,7 @@ import { SIDEBAR_BUTTONS, isSidebarButtonVisible, type SidebarButtonId, type Sid
 
 import { renderModulePanel } from "../modules/registry";
 import type { AppContext, SidebarActions } from "../modules/types";
-import { IconHosts, IconSnippets, IconTunnels, IconKeychain, IconSettings, IconTransfer, IconShield, IconDatabase, IconFleet, IconCloud, IconNetDiag, IconRunbook } from "./ui-icons";
+import { IconHosts, IconSnippets, IconTunnels, IconKeychain, IconSettings, IconTransfer, IconShield, IconDatabase, IconFleet, IconCloud, IconNetDiag, IconRunbook, IconVault } from "./ui-icons";
 import { TabLoadingFallback } from "./TabLoadingFallback";
 
 interface SidebarProps {
@@ -30,6 +30,7 @@ const BUTTON_ICONS: Record<SidebarButtonId, ComponentType<{ size?: number }>> = 
   fleet:      IconFleet,
   runbook:    IconRunbook,
   netdiag:    IconNetDiag,
+  guivault:   IconVault,
 };
 
 /**
