@@ -122,7 +122,8 @@ function ConnectForm({ accounts, localCount, onDone, onError, onNotify }: { acco
   const [email, setEmail] = useState("");
   /** Compte connu choisi dans la liste : serveur et e-mail figés. */
   const [known, setKnown] = useState<GuiVaultKnownAccount | null>(null);
-  const [adoptLocal, setAdoptLocal] = useState(true);
+  // Décoché par défaut : local et compte ne se mélangent pas, sauf demande.
+  const [adoptLocal, setAdoptLocal] = useState(false);
   const [forgetting, setForgetting] = useState<GuiVaultKnownAccount | null>(null);
   const isKnownEmail = accounts.some((a) => a.email === email.trim().toLowerCase() && a.serverUrl === serverUrl.trim().replace(/\/$/, ""));
   const offerAdopt = localCount > 0 && !known && !isKnownEmail;
@@ -380,7 +381,14 @@ function AccountCard({ status, onStatusChange, onError, onNotify }: { status: Gu
           <IconRefresh size={12} className={syncing ? "animate-spin" : ""} /> Synchroniser
         </button>
       </div>
-      <p className="text-[11.5px] text-[var(--c-text-muted)]">Dernière synchronisation : {formatWhen(status.lastSyncAt)}</p>
+      {status.viewLocal ? (
+        <div className="callout callout-warn flex items-center justify-between gap-2">
+          <span>Profil local affiché — la synchronisation est en pause.</span>
+          <button onClick={() => api.guivaultSwitchView(false).then(onStatusChange).catch((e) => onError(String(e)))} className="btn btn-primary btn-sm shrink-0">Afficher le compte</button>
+        </div>
+      ) : (
+        <p className="text-[11.5px] text-[var(--c-text-muted)]">Dernière synchronisation : {formatWhen(status.lastSyncAt)}</p>
+      )}
       <div className="space-y-0.5">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">Votre empreinte</p>
         <p className="text-[11.5px] text-[var(--c-text-muted)]">À communiquer à qui veut vous partager un vault, pour qu'il la compare à celle que le serveur lui montre.</p>

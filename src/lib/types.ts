@@ -595,6 +595,8 @@ export interface GuiVaultStatus {
   vaults: GuiVaultVault[];
   /** Comptes déjà utilisés sur cet appareil, le plus récent en tête. */
   accounts: GuiVaultKnownAccount[];
+  /** Compte connecté mais profil local affiché (synchro en pause). */
+  viewLocal: boolean;
 }
 
 export interface GuiVaultKnownAccount {

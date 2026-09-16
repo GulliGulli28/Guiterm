@@ -76,6 +76,9 @@ fn conflict_current(e: &ClientError) -> Option<Item> {
 pub const SYNC_FORMAT: u32 = 2;
 
 pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec<Change>, Report)> {
+    if manager.view_local() {
+        anyhow::bail!("profil local affiché : la synchronisation est en pause");
+    }
     let client = manager.client()?;
     let _account = manager.account()?;
     let mut report = Report::default();

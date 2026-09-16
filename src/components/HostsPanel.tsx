@@ -21,9 +21,24 @@ import {
   IconUpload, IconDownload, IconTransfer, IconTunnels, IconTerminal, IconChecklist,
 } from "./ui-icons";
 
+/** Le sélecteur de profil en tête du panneau : quel workspace est affiché. */
+export interface HostsProfile {
+  /** Compte connecté (e-mail), ou `null` sans compte. */
+  connectedEmail: string | null;
+  /** Vrai quand le profil local est affiché alors qu'un compte est connecté. */
+  viewLocal: boolean;
+  /** Comptes connus sur cet appareil mais pas connectés. */
+  otherAccounts: { userId: string; email: string }[];
+}
+
 interface HostsPanelProps {
   workspace: Workspace;
   activeHostId?: HostId | null;
+  /** Absent : pas de compte GuiVault ici, pas de sélecteur. */
+  profile?: HostsProfile | null;
+  /** `"local"` / `"account"` basculent l'affichage ; un autre compte ouvre
+   * le panneau GuiVault pour s'y connecter. */
+  onSwitchProfile?: (target: "local" | "account" | { userId: string }) => void;
   onConnect: (host: Host) => void;
   onConnectDocker: (host: Host, containerId: string) => void;
   onConnectK8s: (host: Host, podName: string, containerName: string | null) => void;
@@ -120,7 +135,7 @@ export function HostsPanel({
   workspace, activeHostId, onConnect, onConnectDocker, onConnectK8s, onConnectRdpView, onOpenTransfer, onConnectSql,
   onProbeReachability, onSearchFiles, onResumeSession, onOpenLocalTerminal,
   onNewHost, onEditHost, onNewGroup, onImportCloud, onImportAnsible, onNewHostInGroup, onNewGroupUnder,
-  onEditGroup, onQuickSSH, onWorkspaceUpdate, onError, onNotify,
+  onEditGroup, onQuickSSH, onWorkspaceUpdate, onError, onNotify, profile, onSwitchProfile,
 }: HostsPanelProps) {
   const [search, setSearch] = useState("");
   /** Selection mode, and what is ticked in it.
@@ -467,8 +482,32 @@ export function HostsPanel({
 
   const addMenuItem = "menu-item";
 
+  const showProfile = !!profile && (profile.connectedEmail !== null || profile.otherAccounts.length > 0);
+  const profileValue = profile?.connectedEmail && !profile.viewLocal ? "account" : "local";
+
   return (
     <div className="flex h-full min-w-0 flex-col">
+      {showProfile && profile && (
+        // Quel workspace on regarde : cet appareil, ou un compte GuiVault.
+        // Un `<select>` natif, pas un `HostTreePicker` : ce sont des profils,
+        // pas des hôtes.
+        <select
+          value={profileValue}
+          onChange={(e) => {
+            const v = e.target.value;
+            if (v === "local" || v === "account") onSwitchProfile?.(v);
+            else onSwitchProfile?.({ userId: v });
+          }}
+          title={profile.viewLocal ? "Profil local affiché — la synchronisation GuiVault est en pause" : "Profil affiché"}
+          className={`input mb-2 w-full ${profile.viewLocal && profile.connectedEmail ? "border-[var(--c-warn)]" : ""}`}
+        >
+          <option value="local">Cet appareil (local)</option>
+          {profile.connectedEmail && <option value="account">{profile.connectedEmail}</option>}
+          {profile.otherAccounts.map((a) => (
+            <option key={a.userId} value={a.userId}>{a.email} — se connecter…</option>
+          ))}
+        </select>
+      )}
       {/* Search — first for discoverability */}
       <div className="relative shrink-0">
         <div className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center">

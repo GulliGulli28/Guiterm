@@ -33,12 +33,15 @@ This changelog starts 2026-07-21 — for earlier versions, see
   serveur qui substituerait sa propre clé, et une empreinte qui change est
   affichée comme une alerte, jamais acceptée en silence.
 
-  **Un workspace par compte.** Connecté, on voit les hôtes du compte —
-  vault personnel et vaults partagés ; déconnecté, le profil local de
-  l'appareil, et le panneau propose les comptes déjà utilisés ici pour se
-  reconnecter. À la première connexion d'un compte, le profil local peut
-  être transféré dans son vault personnel. Un hôte se range dans un vault
-  depuis son formulaire (champ « Vault ») ; sa clé du trousseau le suit.
+  **Un workspace par compte, jamais mélangé au local.** Un sélecteur en tête
+  du panneau Hôtes affiche soit « Cet appareil (local) », soit le compte
+  connecté — vault personnel et vaults partagés — sans fermer la session
+  (côté local, la synchronisation est en pause). Déconnecté, le panneau
+  GuiVault propose les comptes déjà utilisés ici pour se reconnecter. À la
+  première connexion d'un compte, le profil local peut, sur demande, être
+  transféré dans son vault personnel. Un hôte se range dans un vault depuis
+  son formulaire (champ « Vault ») ; sa clé du trousseau et son dossier le
+  suivent.
 
   **Le reste** : second facteur TOTP avec codes de récupération, liste des
   appareils connectés et déconnexion à distance, changement de mot de passe

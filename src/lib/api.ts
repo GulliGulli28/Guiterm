@@ -311,6 +311,8 @@ export const api = {
   guivaultTotpEnable: (code: string) => invoke<string[]>("guivault_totp_enable", { code }),
   guivaultTotpDisable: (code: string) => invoke<void>("guivault_totp_disable", { code }),
   guivaultLogout: () => invoke<GuiVaultStatus>("guivault_logout"),
+  /** Affiche le profil local (`true`) ou le compte connecté, sans fermer la session. */
+  guivaultSwitchView: (viewLocal: boolean) => invoke<GuiVaultStatus>("guivault_switch_view", { viewLocal }),
   /** Oublie un compte sur cet appareil (son workspace local compris). */
   guivaultForget: (userId: string) => invoke<GuiVaultStatus>("guivault_forget", { userId }),
   guivaultSetPreferences: (autoSyncSecs: number, persistUnlock: boolean) => invoke<GuiVaultStatus>("guivault_set_preferences", { autoSyncSecs, persistUnlock }),

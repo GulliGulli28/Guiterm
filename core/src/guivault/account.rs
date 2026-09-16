@@ -114,9 +114,15 @@ pub struct KnownAccount {
 pub struct Registry {
     #[serde(default)]
     pub accounts: Vec<KnownAccount>,
-    /// Le compte dont le workspace est chargé. `None` : profil local.
+    /// Le compte connecté. `None` : aucun.
     #[serde(default)]
     pub active: Option<Uuid>,
+    /// Compte connecté mais **profil local affiché** : le workspace chargé
+    /// est le local, la synchronisation est en pause. Permet de consulter
+    /// ses hôtes locaux sans fermer la session (et sans ressaisir le mot de
+    /// passe ni le code TOTP pour revenir).
+    #[serde(default)]
+    pub view_local: bool,
 }
 
 fn read_json<T: serde::de::DeserializeOwned>(path: &std::path::Path) -> anyhow::Result<Option<T>> {
@@ -366,6 +372,8 @@ pub struct Status {
     /// Les comptes déjà utilisés sur cette machine, le plus récent en tête —
     /// ce que le panneau propose une fois déconnecté.
     pub accounts: Vec<KnownAccount>,
+    /// Compte connecté mais profil local affiché (synchro en pause).
+    pub view_local: bool,
 }
 
 pub struct Manager {
@@ -455,9 +463,34 @@ impl Manager {
         self.account_dir(user_id).join("workspace.json")
     }
 
-    /// Le workspace du compte actif, s'il y en a un.
+    /// Le workspace à charger : celui du compte connecté, sauf si le profil
+    /// local est affiché (`None`).
     pub fn active_workspace_path(&self) -> Option<PathBuf> {
-        self.lock_registry().active.map(|id| self.workspace_path(id))
+        let reg = self.lock_registry();
+        if reg.view_local {
+            return None;
+        }
+        reg.active.map(|id| self.workspace_path(id))
+    }
+
+    pub fn view_local(&self) -> bool {
+        self.lock_registry().view_local
+    }
+
+    /// Bascule entre le profil local et le compte connecté ; l'appelant
+    /// change le workspace chargé (voir `store::set_active_workspace`).
+    pub fn set_view_local(&self, view_local: bool) -> anyhow::Result<Status> {
+        {
+            let mut reg = self.lock_registry();
+            if reg.active.is_none() && view_local {
+                // Sans compte, le local est déjà ce qu'on voit.
+                reg.view_local = false;
+            } else {
+                reg.view_local = view_local;
+            }
+            self.save_registry(&reg)?;
+        }
+        Ok(self.status())
     }
 
     pub fn active_user_id(&self) -> Option<Uuid> {
@@ -535,6 +568,7 @@ impl Manager {
                 last_used_at: Utc::now(),
             }],
             active: Some(st.user_id),
+            view_local: false,
         })?;
         std::fs::remove_file(&legacy)?;
         Ok(())
@@ -577,6 +611,7 @@ impl Manager {
                 a.sort_by_key(|x| std::cmp::Reverse(x.last_used_at));
                 a
             },
+            view_local: self.lock_registry().view_local,
         }
     }
 
@@ -842,6 +877,7 @@ impl Manager {
                 last_used_at: Utc::now(),
             });
             reg.active = Some(state.user_id);
+            reg.view_local = false;
             self.save_registry(&reg)?;
         }
         *self.lock_state() = Some(state);
@@ -878,6 +914,7 @@ impl Manager {
         {
             let mut reg = self.lock_registry();
             reg.active = None;
+            reg.view_local = false;
             self.save_registry(&reg)?;
         }
         Ok(self.status())

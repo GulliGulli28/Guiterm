@@ -139,6 +139,34 @@ fn activate_account_workspace(state: &AppState, status: &Status, adopt_local: bo
     Ok(())
 }
 
+/// Bascule ce qui est affiché entre le profil local et le compte connecté,
+/// sans toucher à la session. Côté local, la synchronisation est en pause
+/// (`sync::run` refuse) — rien du local ne part jamais vers le serveur.
+#[tauri::command]
+pub async fn guivault_switch_view(app: AppHandle, state: State<'_, AppState>, view_local: bool) -> Result<Status, String> {
+    let Some(user_id) = state.guivault.active_user_id() else {
+        return Err("aucun compte connecté".into());
+    };
+    if state.guivault.view_local() == view_local {
+        return Ok(state.guivault.status());
+    }
+    let status = state.guivault.set_view_local(view_local).map_err(err)?;
+    if view_local {
+        activate_local_workspace(&state)?;
+    } else {
+        // Bloc : le verrou du workspace ne doit pas traverser l'`await`.
+        {
+            let path = state.guivault.workspace_path(user_id);
+            let mut ws = state.workspace.lock_recover();
+            store::save(&ws).map_err(err)?;
+            store::set_active_workspace(Some(path.clone()));
+            *ws = load_workspace_at(&path);
+        }
+        let _ = run_sync(&app, &state).await;
+    }
+    Ok(status)
+}
+
 /// Retour au profil local : le workspace du compte est sauvé, celui du local
 /// rechargé.
 fn activate_local_workspace(state: &AppState) -> Result<(), String> {
@@ -354,10 +382,11 @@ pub async fn guivault_leave_vault(app: AppHandle, state: State<'_, AppState>, va
 }
 
 /// Déplace une entité (hôte, groupe, snippet, clé, connexion SQL) vers un
-/// vault partagé, ou vers le personnel (`None`). Un hôte emmène la clé du
-/// trousseau qu'il référence, si elle n'est pas déjà partagée : sans elle,
-/// les autres membres verraient un hôte qui pointe vers une clé qu'ils
-/// n'ont pas.
+/// vault partagé, ou vers le personnel (`None`). Un hôte emmène ce qu'il
+/// référence et qui n'est pas déjà partagé : la clé du trousseau, et son
+/// dossier avec toute la chaîne de dossiers parents — sans eux, les autres
+/// membres verraient un hôte qui pointe vers une clé qu'ils n'ont pas, ou
+/// rangé dans un dossier qui n'existe pas chez eux (donc invisible).
 #[tauri::command]
 pub fn guivault_move_entity(state: State<'_, AppState>, id: Uuid, vault_id: Option<VaultId>) -> Result<Workspace, String> {
     let mut ws = state.workspace.lock_recover();
@@ -365,13 +394,20 @@ pub fn guivault_move_entity(state: State<'_, AppState>, id: Uuid, vault_id: Opti
         termius_core::model::AuthMethod::PrivateKey { key_id: Some(k), .. } => Some(*k),
         _ => None,
     });
+    let mut groups_to_follow = Vec::new();
+    let mut next = ws.host(id).and_then(|h| h.group_id);
+    while let Some(g) = next {
+        if groups_to_follow.contains(&g) {
+            break;
+        }
+        groups_to_follow.push(g);
+        next = ws.groups.iter().find(|x| x.id == g).and_then(|x| x.parent_id);
+    }
     match vault_id {
         Some(v) => {
             ws.vault_bindings.insert(id, v);
-            if let Some(k) = key_to_follow
-                && !ws.vault_bindings.contains_key(&k)
-            {
-                ws.vault_bindings.insert(k, v);
+            for follower in key_to_follow.into_iter().chain(groups_to_follow) {
+                ws.vault_bindings.entry(follower).or_insert(v);
             }
         }
         None => {

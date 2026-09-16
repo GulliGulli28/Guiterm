@@ -322,6 +322,7 @@ fn main() {
             commands::guivault::guivault_totp_disable,
             commands::guivault::guivault_logout,
             commands::guivault::guivault_forget,
+            commands::guivault::guivault_switch_view,
             commands::guivault::guivault_set_preferences,
             commands::guivault::guivault_change_password,
             commands::guivault::guivault_sync,

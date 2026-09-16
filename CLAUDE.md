@@ -336,6 +336,14 @@ doivent rester identiques).
   part vers une empreinte non épinglée** (`Manager::require_pinned`) : c'est
   la seule défense contre un serveur qui substituerait une clé publique.
 
+**Un workspace par compte, et un sélecteur de profil** (tête du panneau
+Hôtes) : « Cet appareil (local) » ou le compte connecté, bascule sans
+fermer la session (`guivault_switch_view` ; `view_local` dans le registre,
+`sync::run` refuse tant que le local est affiché — rien du local ne part
+jamais). Un hôte déplacé dans un vault emmène sa clé **et sa chaîne de
+dossiers** ; un hôte dont le dossier manque s'affiche à la racine
+(`buildHostTree`) plutôt que de disparaître.
+
 **Un workspace par compte.** `store::workspace_path()` rend celui du compte
 actif (`<config>/guivault/<user_id>/workspace.json`) ou le local
 (`workspace.json`) — bascule par `store::set_active_workspace`, décidée par

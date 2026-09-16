@@ -1,4 +1,5 @@
 import { HostsPanel } from "../components/HostsPanel";
+import { api } from "../lib/api";
 import { defineModule } from "./types";
 
 // Eager, comme dans `Sidebar.tsx` : c'est le panneau affiché au lancement.
@@ -34,6 +35,22 @@ export const hostsModule = defineModule({
         onEditGroup={a.editGroup}
         onWorkspaceUpdate={ctx.refreshWorkspace}
         onError={ctx.reportError}
+        profile={a.guivaultStatus ? {
+          connectedEmail: a.guivaultStatus.configured ? a.guivaultStatus.email : null,
+          viewLocal: a.guivaultStatus.viewLocal,
+          otherAccounts: a.guivaultStatus.accounts
+            .filter((acc) => acc.userId !== a.guivaultStatus?.userId)
+            .map((acc) => ({ userId: acc.userId, email: acc.email })),
+        } : null}
+        onSwitchProfile={(target) => {
+          if (target === "local" || target === "account") {
+            api.guivaultSwitchView(target === "local").then(a.onGuivaultStatusChange).catch((e) => ctx.reportError(String(e)));
+          } else {
+            // Un autre compte : il faut s'y connecter, c'est le panneau
+            // GuiVault qui le propose (déconnexion du courant comprise).
+            ctx.showSidebarPanel("guivault");
+          }
+        }}
       />
     ),
   },

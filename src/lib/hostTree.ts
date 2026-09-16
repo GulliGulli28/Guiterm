@@ -42,10 +42,14 @@ function hostMatches(host: Host, query: string): boolean {
  * barre de recherche produit, et le refaire ici le referait à chaque hôte.
  */
 export function buildHostTree(hosts: Host[], groups: Group[], query: string): HostTree {
+  // Un hôte dont le dossier n'existe pas ici (dossier resté dans un autre
+  // vault GuiVault, import partiel) se range à la racine plutôt que de
+  // disparaître : un hôte invisible est un hôte qu'on croit perdu.
+  const knownGroups = new Set(groups.map((g) => g.id));
   const hostsByGroup = new Map<GroupId | null, Host[]>();
   for (const host of hosts) {
     if (!hostMatches(host, query)) continue;
-    const key = host.groupId ?? null;
+    const key = host.groupId && knownGroups.has(host.groupId) ? host.groupId : null;
     const bucket = hostsByGroup.get(key);
     if (bucket) bucket.push(host);
     else hostsByGroup.set(key, [host]);

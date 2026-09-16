@@ -1089,7 +1089,7 @@ export default function App() {
               host={editingHost === "new" ? null : editingHost}
               defaultGroupId={editingHost === "new" ? newHostDefaultGroupId : null}
               onCancel={() => setEditingHost(null)}
-              vaults={guivaultStatus?.unlocked ? guivaultStatus.vaults : []}
+              vaults={guivaultStatus?.unlocked && !guivaultStatus.viewLocal ? guivaultStatus.vaults : []}
               vaultId={editingHost === "new" ? null : (workspace.vaultBindings?.[editingHost.id] ?? null)}
               onSave={(input) => {
                 const before = new Set(workspace.hosts.map((h) => h.id));
