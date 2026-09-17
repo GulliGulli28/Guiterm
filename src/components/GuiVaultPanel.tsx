@@ -564,12 +564,20 @@ function samePlace(a: VaultPlace, b: VaultPlace): boolean {
 function DestinationMenu({ label, icon, destinations, disabled, onPick }: {
   label: string; icon: ReactNode; destinations: Destination[]; disabled: boolean; onPick: (d: Destination) => void;
 }) {
-  const [open, setOpen] = useState(false);
+  // Ancré en `fixed` sur le bouton, comme le menu « … » d'un hôte : le
+  // conteneur défile (`overflow-y-auto`) et couperait un menu `absolute`.
+  const [anchor, setAnchor] = useState<{ top: number; right: number } | null>(null);
+  const open = anchor !== null;
+  const setOpen = (v: boolean) => { if (!v) setAnchor(null); };
   return (
     <div className="relative">
       <button
         type="button"
-        onClick={() => setOpen((v) => !v)}
+        onClick={(e) => {
+          if (open) { setAnchor(null); return; }
+          const rect = e.currentTarget.getBoundingClientRect();
+          setAnchor({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+        }}
         disabled={disabled || destinations.length === 0}
         aria-haspopup="menu"
         aria-expanded={open}
@@ -581,7 +589,7 @@ function DestinationMenu({ label, icon, destinations, disabled, onPick }: {
       {open && (
         <>
           <div className="fixed inset-0 z-30" onMouseDown={() => setOpen(false)} />
-          <div className="popover absolute right-0 top-full z-40 mt-1 min-w-[12rem] py-1" role="menu">
+          <div className="popover fixed z-40 min-w-[12rem] py-1" style={{ top: anchor.top, right: anchor.right }} role="menu">
             <p className="eyebrow px-2.5 pb-1 pt-1.5">{label}</p>
             {destinations.map((d) => (
               <button key={d.key} type="button" onClick={() => { setOpen(false); onPick(d); }} className="menu-item" role="menuitem">
