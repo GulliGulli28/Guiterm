@@ -47,9 +47,24 @@ This changelog starts 2026-07-21 — for earlier versions, see
   vers**, **Copier vers** un autre vault ou cet appareil, ou **Supprimer**.
   « Ajouter… » ouvre la même arborescence avec un dossier par origine — cet
   appareil, le vault personnel, chaque autre vault — pour déplacer ou copier
-  ici (un vault en lecture seule se copie, ne se déplace pas). Un hôte se
-  range aussi dans un vault depuis son formulaire (champ « Vault ») ; sa clé
-  du trousseau et ses dossiers le suivent, un dossier emmène son sous-arbre.
+  ici (un vault en lecture seule se copie, ne se déplace pas). Avant d'agir,
+  **« Ces entités suivront »** liste ce que la sélection emmène : les
+  dossiers, obligatoires ; la clé, l'icône, les bastions, le relais Docker
+  ou l'hôte d'un tunnel, proposés cochés et décochables. Les icônes
+  personnalisées voyagent aussi, et un hôte dont l'icône manque retombe sur
+  celle de son type au lieu d'une case vide. Le menu « … » d'un hôte propose
+  **Déplacer vers** un autre vault ; le champ « Vault GuiVault » est sur les
+  formulaires d'hôte, de dossier et de connexion, et une entité d'un vault
+  en lecture seule a son formulaire grisé, avec la raison.
+
+  **La barre de profil**, en tête de la barre latérale sur tous les
+  panneaux, dit quel workspace est affiché — cet appareil ou le compte — et
+  l'état de la synchronisation (en cours, dernière, profil local avec le
+  compte en arrière-plan), avec un bouton pour synchroniser maintenant. Une
+  synchronisation qui reçoit des changements le dit, par vault. Un vault que
+  le compte ne liste plus apparaît en « Vault inaccessible » avec un bouton
+  **Rapatrier** dans le personnel. La flotte et le diagnostic réseau
+  montrent aussi les hôtes dont le dossier n'est pas ici.
 
   **Le reste** : second facteur TOTP avec codes de récupération, liste des
   appareils connectés et déconnexion à distance, changement de mot de passe

@@ -344,13 +344,24 @@ alors le workspace du compte *sur le disque* (`load_workspace_at` /
 `store::save_at`), jamais celui en mémoire — rien du local ne part jamais.
 `guivault::transfer` déplace ou copie des entités entre **emplacements**
 (`transfer::Place` : `local`, ou `account { vault_id }` — personnel si
-`None`) : **une seule fonction, `transfer::apply(local, account, ids, from,
-to, copy, can_write)`**, testée sens par sens dans `core`, derrière l'unique
-commande `guivault_transfer_entities(ids, from, to, copy)`. Elle ferme la
-sélection (un hôte emmène sa clé et sa chaîne de dossiers, un dossier son
-sous-arbre) et vérifie les droits à l'arrivée *et* au départ (retirer d'un
-vault en lecture seule ferait juste revenir l'entité à la synchro suivante ;
-une copie ne retire rien). `copy_between` duplique sous de **nouveaux ids**
+`None`) : **une seule fonction, `transfer::apply(local, account, Move,
+can_write)`**, testée sens par sens dans `core`, derrière l'unique commande
+`guivault_transfer_entities(ids, from, to, copy, exact)`. Ce qui suit une
+sélection est à deux niveaux (`transfer::plan`, commande
+`guivault_transfer_plan`) : l'**obligatoire** (chaîne de dossiers, contenu
+d'un dossier *choisi* — un dossier atteint en chaîne ne prend pas son
+contenu) et le **proposé** (clé, icône, bastions `jump_via`, relais Docker,
+hôte d'un tunnel SQL), de proche en proche, chacun avec sa raison. Le
+panneau montre la liste (`TransferConfirmDialog`), l'utilisateur décoche,
+et renvoie `exact = true` avec ce qu'il garde ; `exact = false` (le champ
+Vault d'un formulaire) = obligatoire + clé + icône, jamais un bastion.
+Droits vérifiés à l'arrivée *et* au départ (retirer d'un vault en lecture
+seule ferait juste revenir l'entité à la synchro suivante ; une copie ne
+retire rien ; un vault que le compte ne liste plus n'est pas « lu », on
+peut en sortir — c'est `guivault_repatriate_vault`). Les **icônes
+personnalisées** sont un item synchronisé (`icon`, id = uuid), copiées et
+jamais retirées de l'origine ; côté frontend `hasIcon` retombe sur l'icône
+du genre quand l'id est inconnu. `copy_between` duplique sous de **nouveaux ids**
 (réécriture textuelle des uuid dans le JSON des charges utiles, secrets
 dupliqués par `entity::apply`) — deux exemplaires ne doivent jamais partager
 un id, le coffre local indexe les secrets par id. Le panneau compte les
@@ -363,13 +374,23 @@ celui qui est en mémoire — un `state.workspace` nu pointerait sur le local
 en vue locale (bug du 2026-09-17), et c'est la seule raison pour laquelle
 rien d'autre ne touche au compte.
 
-UI (2026-09-17) : compte affiché ⇒ **chaque vault est un dossier de premier
-niveau** des panneaux Hôtes, Clés, Snippets et Bases (`lib/vaultSections.ts`
-: Personnel, puis les partagés, « Vault inaccessible » pour une affiliation
-que le compte ne liste plus ; `VaultSectionList` pour les listes plates, un
-`buildHostTree` par section dans `HostsPanel`), avec un menu « … » (Nouvel
-hôte ici, Ouvrir le vault → `openVault`/`guivaultFocus`). Plus d'étiquette
-ni de mode « trier par vault ». Le contenu d'un vault et le dialogue
+UI (2026-09-17) : **la barre de profil** (`ProfileBar`, en tête de la barre
+latérale, sur tous les panneaux) dit quel workspace est affiché et l'état
+du compte (synchro en cours via l'événement `guivault-sync-started`,
+dernière synchro, profil local, verrouillé) ; une synchro qui reçoit le dit
+par vault (`Report.pulled_by_vault`). Compte affiché ⇒ **chaque vault est
+un dossier de premier niveau** des panneaux Hôtes, Clés, Snippets et Bases
+(`lib/vaultSections.ts` : Personnel, puis les partagés, « Vault
+inaccessible » + bouton Rapatrier pour une affiliation que le compte ne
+liste plus ; `VaultSectionList` pour les listes plates, un `buildHostTree`
+par section dans `HostsPanel` — et `buildTargetTree` range aussi à la
+racine un hôte dont le dossier manque, sinon la flotte le perdait), avec un
+menu « … » (Nouvel hôte ici, Ouvrir le vault → `openVault`/`guivaultFocus`).
+Le menu « … » d'un hôte propose « Déplacer vers » ; le champ « Vault
+GuiVault » (`VaultField`) est sur l'hôte, le dossier et la connexion, et une
+entité d'un vault lu a son formulaire grisé (`fieldset disabled` +
+`ReadOnlyVaultNotice`). Plus d'étiquette ni de mode « trier par vault ». Le
+contenu d'un vault et le dialogue
 « Ajouter… » (cet appareil, personnel et les autres vaults comme origines)
 sont **la même arborescence à cocher** (`lib/vaultTree.ts` →
 `VaultEntityTree`, mêmes `GroupRow`/`EntityRow`/`BulkCheckbox` que le menu
