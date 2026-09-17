@@ -58,6 +58,16 @@ const scenes = [
     await page.waitForSelector("text=docker-compose", { timeout: 10_000 });
     await settle(page, 600);
   }],
+  // Le panneau Transfert range aussi ses hôtes par vault : un hôte partagé
+  // y est, sous son vault — il n'y était pas quand son dossier manquait.
+  ["04b-transfert-vaults", async (page) => {
+    const sections = await page.evaluate(() => Array.from(document.querySelectorAll('[data-sidebar-panel="sftp"] [data-vault-section]')).map((e) => ({
+      name: e.getAttribute("data-vault-section"),
+      hosts: Array.from(e.querySelectorAll("button")).map((b) => b.textContent ?? "").filter((t) => /pg-primary|bastion|web-01/.test(t)).length,
+    })));
+    const infra = sections.find((s) => s.name === "Équipe infra");
+    if (sections[0]?.name !== "Personnel" || !infra || infra.hosts === 0) throw new Error(`panneau Transfert par vault : ${JSON.stringify(sections)}`);
+  }],
   ["05-snippets", async (page) => { await clickNav(page, "Snippets"); }],
   ["06-tunnels", async (page) => { await clickNav(page, "Tunnels"); }],
   ["07-cles", async (page) => { await clickNav(page, "Clés"); }],

@@ -1,9 +1,11 @@
-import { useRef, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { api } from "../lib/api";
 import type { Group, GroupId, Host, Workspace } from "../lib/types";
 import { HostIcon, hasIcon } from "./icons";
 import { hostKindMeta } from "../lib/hostKinds";
-import { IconSearch, IconFolder, IconTransfer } from "./ui-icons";
+import { buildHostTree } from "../lib/hostTree";
+import { sectionRoleLabel, splitTreeByVault, type VaultSection } from "../lib/vaultSections";
+import { IconSearch, IconFolder, IconTransfer, IconVault } from "./ui-icons";
 import { EntityRow, EntityMono, EntityTags, GroupRow } from "./EntityRow";
 import { usePolledHostStat } from "../hooks/usePolledHostStat";
 import { useContainerPicker } from "../hooks/useContainerPicker";
@@ -11,11 +13,15 @@ import { useHostTreeMemory } from "../hooks/useHostTreeMemory";
 
 interface SftpPanelProps {
   workspace: Workspace;
+  /** Les vaults du compte affiché : chacun est un dossier de premier niveau,
+   * comme dans le panneau Hôtes. Absent = arbre à plat. */
+  vaultSections?: VaultSection[] | null;
   onOpenTransfer: (host: Host, dockerContainerId?: string, k8sPodName?: string, k8sContainerName?: string | null) => void;
 }
 
-export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
+export function SftpPanel({ workspace, vaultSections: sections, onOpenTransfer }: SftpPanelProps) {
   const [search, setSearch] = useState("");
+  const [collapsedVaults, setCollapsedVaults] = useState<Set<string>>(new Set());
   const listRef = useRef<HTMLDivElement>(null);
   const { collapsed, toggle: toggleGroup, onScroll: onListScroll } = useHostTreeMemory("sftp", workspace.groups, listRef);
   // Unlike HostsPanel's equivalent poll, this one isn't filtered to SSH
@@ -39,21 +45,24 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
     const kind = host.kind ?? "ssh";
     return kind === "ssh" || kind === "dockerExec" || kind === "k8sExec";
   };
-  const matches = (host: Host) =>
-    supportsTransfer(host) &&
-    (!query || host.label.toLowerCase().includes(query) || host.address.toLowerCase().includes(query) ||
-    host.username.toLowerCase().includes(query) || host.tags.some((t) => t.toLowerCase().includes(query)));
+  const transferable = useMemo(() => workspace.hosts.filter(supportsTransfer), [workspace.hosts]);
 
-  const childGroups = (parentId: GroupId | null) =>
-    workspace.groups.filter((g) => g.parentId === parentId).sort((a, b) => a.name.localeCompare(b.name));
-  const hostsIn = (groupId: GroupId | null) =>
-    workspace.hosts.filter((h) => h.groupId === groupId && matches(h)).sort((a, b) => a.label.localeCompare(b.label));
+  // Le même arbre que le panneau Hôtes (`buildHostTree`) : un hôte dont le
+  // dossier n'est pas ici — reçu d'un vault partagé sans son dossier — se
+  // range à la racine au lieu de disparaître (ce panneau filtrait sur
+  // `groupId === …` et perdait ces hôtes, bug du 2026-09-18), et un compte
+  // affiché découpe l'arbre par vault.
+  type Tree = ReturnType<typeof buildHostTree>;
+  const flat = useMemo(() => buildHostTree(transferable, workspace.groups, query), [transferable, workspace.groups, query]);
+  const byVault = useMemo(() => {
+    if (!sections) return null;
+    return splitTreeByVault(transferable, workspace.groups, workspace.vaultBindings, sections).map(({ section, hosts, groups }) => (
+      { section, tree: buildHostTree(hosts, groups, query), total: hosts.length }
+    ));
+  }, [sections, transferable, workspace.groups, workspace.vaultBindings, query]);
+  const childGroups = (parentId: GroupId | null, tree: Tree = flat) => tree.groupsByParent.get(parentId) ?? [];
+  const hostsIn = (groupId: GroupId | null, tree: Tree = flat) => tree.hostsByGroup.get(groupId) ?? [];
   const isExpanded = (id: GroupId) => (query ? true : !collapsed.has(id));
-
-  function groupHasMatches(groupId: GroupId): boolean {
-    if (hostsIn(groupId).length > 0) return true;
-    return childGroups(groupId).some((g) => groupHasMatches(g.id));
-  }
 
 
   const renderHost = (host: Host, depth: number) => {
@@ -89,8 +98,8 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
     );
   };
 
-  const renderGroup = (group: Group, depth: number) => {
-    if (query && !groupHasMatches(group.id)) return null;
+  const renderGroup = (group: Group, depth: number, tree: Tree = flat) => {
+    if (query && !tree.matchingGroups.has(group.id)) return null;
     const expanded = isExpanded(group.id);
     return (
       <div key={group.id}>
@@ -102,12 +111,12 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
             ? <HostIcon iconId={group.icon} customIcons={workspace.customIcons} size={15} />
             : <IconFolder size={14} />}
           name={group.name}
-          count={hostsIn(group.id).length}
+          count={hostsIn(group.id, tree).length}
         />
         {expanded && (
           <div>
-            {hostsIn(group.id).map((h) => renderHost(h, depth + 1))}
-            {childGroups(group.id).map((g) => renderGroup(g, depth + 1))}
+            {hostsIn(group.id, tree).map((h) => renderHost(h, depth + 1))}
+            {childGroups(group.id, tree).map((g) => renderGroup(g, depth + 1, tree))}
           </div>
         )}
       </div>
@@ -129,8 +138,37 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
       </div>
       <p className="eyebrow mt-3.5 pl-1">Ouvrir un transfert vers</p>
       <div ref={listRef} onScroll={onListScroll} className="sidebar-scroll -mx-1 mt-1 min-h-0 min-w-0 flex-1 overflow-y-auto px-1 pb-2">
-        {hostsIn(null).map((h) => renderHost(h, 0))}
-        {childGroups(null).map((g) => renderGroup(g, 0))}
+        {byVault ? byVault.map(({ section: sec, tree, total }) => {
+          const key = sec.id ?? "personal";
+          const expanded = query ? true : !collapsedVaults.has(key);
+          if (query && hostsIn(null, tree).length === 0 && childGroups(null, tree).every((g) => !tree.matchingGroups.has(g.id))) return null;
+          const roleLabel = sectionRoleLabel(sec);
+          return (
+            <div key={key} data-vault-section={sec.name}>
+              <GroupRow
+                depth={0}
+                expanded={expanded}
+                onToggle={() => setCollapsedVaults((c) => { const n = new Set(c); if (n.has(key)) n.delete(key); else n.add(key); return n; })}
+                icon={<IconVault size={14} />}
+                name={sec.name}
+                count={total}
+                badge={roleLabel ? <span className="tag" title="Vous ne faites que lire ce vault">{roleLabel}</span> : undefined}
+              />
+              {expanded && (
+                <div className="pl-2">
+                  {total === 0 && childGroups(null, tree).length === 0 && <p className="px-2 py-1.5 text-[11.5px] text-[var(--c-text-muted)]">Vide.</p>}
+                  {hostsIn(null, tree).map((h) => renderHost(h, 1))}
+                  {childGroups(null, tree).map((g) => renderGroup(g, 1, tree))}
+                </div>
+              )}
+            </div>
+          );
+        }) : (
+          <>
+            {hostsIn(null).map((h) => renderHost(h, 0))}
+            {childGroups(null).map((g) => renderGroup(g, 0))}
+          </>
+        )}
         {workspace.hosts.length === 0 && (
           <div className="px-2 py-8 text-center">
             <p className="text-[12.5px] font-medium text-[var(--c-text-secondary)]">Aucun hôte enregistré</p>

@@ -1,4 +1,5 @@
 import { lazy } from "react";
+import { vaultSections } from "../lib/vaultSections";
 import { defineModule } from "./types";
 
 const SftpPanel = lazy(() => import("../components/SftpPanel").then((m) => ({ default: m.SftpPanel })));
@@ -8,6 +9,6 @@ export const sftpModule = defineModule({
   label: "SFTP",
   panel: {
     kind: "sftp",
-    render: (ctx, a) => <SftpPanel workspace={ctx.workspace} onOpenTransfer={a.openTransfer} />,
+    render: (ctx, a) => <SftpPanel workspace={ctx.workspace} vaultSections={vaultSections(a.guivaultStatus)} onOpenTransfer={a.openTransfer} />,
   },
 });

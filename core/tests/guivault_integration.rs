@@ -12,7 +12,7 @@
 //! coffre local, qui retombe sur sa map mémoire sans Secret Service.
 use guivault_protocol::Role;
 use termius_core::guivault::account::{FingerprintTrust, MemoryStore};
-use termius_core::guivault::transfer::{self, Move, Place};
+use termius_core::guivault::transfer::{self, Followers, Move, Place};
 use termius_core::guivault::{LoginStep, Manager, sharing, sync};
 use termius_core::model::{Group, Host, Snippet, VaultId, Workspace};
 use termius_core::vault::{self as local_vault, SecretKind};
@@ -357,7 +357,7 @@ async fn moving_and_copying_between_places_reaches_the_other_member() {
 
     // « Ajouter… » depuis cet appareil, en déplaçant : l'hôte et son dossier
     // partent dans le vault partagé, et Bob les reçoit avec le secret.
-    let n = transfer::apply(&mut local, &mut alice.ws, Move { ids: &[host.id], from: Place::Local, to: Place::Account { vault_id: Some(team.id) }, copy: false, exact: false }, can_write(&alice.manager)).unwrap();
+    let n = transfer::apply(&mut local, &mut alice.ws, Move { ids: &[host.id], from: Place::Local, to: Place::Account { vault_id: Some(team.id) }, copy: false, followers: Followers::Quiet }, can_write(&alice.manager)).unwrap();
     assert_eq!(n, 2);
     assert!(local.hosts.is_empty() && local.groups.is_empty());
     let r = alice.sync().await;
@@ -373,11 +373,11 @@ async fn moving_and_copying_between_places_reaches_the_other_member() {
     // son personnel — mais peut copier chez lui, sous un nouvel id, sans
     // rien changer sur le serveur.
     let mut bob_local = Workspace::default();
-    let err = transfer::apply(&mut bob_local, &mut bob.ws, Move { ids: &[host.id], from: Place::Account { vault_id: Some(team.id) }, to: Place::Local, copy: false, exact: false }, can_write(&bob.manager)).unwrap_err();
+    let err = transfer::apply(&mut bob_local, &mut bob.ws, Move { ids: &[host.id], from: Place::Account { vault_id: Some(team.id) }, to: Place::Local, copy: false, followers: Followers::Quiet }, can_write(&bob.manager)).unwrap_err();
     assert!(err.to_string().contains("lecture seule"), "{err}");
-    let err = transfer::apply(&mut bob_local, &mut bob.ws, Move { ids: &[host.id], from: Place::Account { vault_id: Some(team.id) }, to: Place::Account { vault_id: None }, copy: false, exact: false }, can_write(&bob.manager)).unwrap_err();
+    let err = transfer::apply(&mut bob_local, &mut bob.ws, Move { ids: &[host.id], from: Place::Account { vault_id: Some(team.id) }, to: Place::Account { vault_id: None }, copy: false, followers: Followers::Quiet }, can_write(&bob.manager)).unwrap_err();
     assert!(err.to_string().contains("lecture seule"), "{err}");
-    let n = transfer::apply(&mut bob_local, &mut bob.ws, Move { ids: &[host.id], from: Place::Account { vault_id: Some(team.id) }, to: Place::Local, copy: true, exact: false }, can_write(&bob.manager)).unwrap();
+    let n = transfer::apply(&mut bob_local, &mut bob.ws, Move { ids: &[host.id], from: Place::Account { vault_id: Some(team.id) }, to: Place::Local, copy: true, followers: Followers::Quiet }, can_write(&bob.manager)).unwrap();
     assert_eq!(n, 2);
     let copy = bob_local.hosts.iter().find(|h| h.label == "db-1").unwrap();
     assert_ne!(copy.id, host.id);
@@ -387,7 +387,7 @@ async fn moving_and_copying_between_places_reaches_the_other_member() {
 
     // Alice copie l'hôte dans son vault personnel : un deuxième exemplaire,
     // poussé sous un nouvel id ; l'original reste partagé, Bob ne voit rien.
-    let n = transfer::apply(&mut local, &mut alice.ws, Move { ids: &[host.id], from: Place::Account { vault_id: Some(team.id) }, to: Place::Account { vault_id: None }, copy: true, exact: false }, can_write(&alice.manager)).unwrap();
+    let n = transfer::apply(&mut local, &mut alice.ws, Move { ids: &[host.id], from: Place::Account { vault_id: Some(team.id) }, to: Place::Account { vault_id: None }, copy: true, followers: Followers::Quiet }, can_write(&alice.manager)).unwrap();
     assert_eq!(n, 2);
     assert_eq!(alice.ws.hosts.len(), 2);
     let r = alice.sync().await;
@@ -397,7 +397,7 @@ async fn moving_and_copying_between_places_reaches_the_other_member() {
 
     // Puis retire l'original vers son appareil : tombale côté serveur, Bob
     // perd l'hôte et le dossier.
-    let n = transfer::apply(&mut local, &mut alice.ws, Move { ids: &[host.id], from: Place::Account { vault_id: Some(team.id) }, to: Place::Local, copy: false, exact: false }, can_write(&alice.manager)).unwrap();
+    let n = transfer::apply(&mut local, &mut alice.ws, Move { ids: &[host.id], from: Place::Account { vault_id: Some(team.id) }, to: Place::Local, copy: false, followers: Followers::Quiet }, can_write(&alice.manager)).unwrap();
     assert_eq!(n, 2);
     assert_eq!(local.hosts[0].id, host.id, "déplacé, même id");
     let r = alice.sync().await;
@@ -410,6 +410,72 @@ async fn moving_and_copying_between_places_reaches_the_other_member() {
     assert!(alice.ws.vault_bindings.is_empty());
     let r = alice.sync().await;
     assert_eq!((r.pushed, r.pulled, r.deleted_remotely), (0, 0, 0), "{r:?}");
+}
+
+/// Le bug du 2026-09-18, joué contre le serveur : copier un sous-dossier
+/// dans un vault partagé y copiait aussi les autres dossiers de son parent.
+/// Bob ne doit recevoir que le sous-dossier, son contenu et la chaîne de
+/// dossiers qui y mène — pas les frères.
+#[tokio::test]
+async fn copying_a_subfolder_to_a_shared_vault_sends_no_sibling() {
+    if !server_available().await {
+        return;
+    }
+    let tag = Uuid::new_v4().simple();
+    let (alice_email, bob_email) = (format!("alice-{tag}@test.local"), format!("bob-{tag}@test.local"));
+    let mut alice = Device::register(&alice_email, "pw-a").await;
+    let mut bob = Device::register(&bob_email, "pw-b").await;
+    let team = sharing::create_vault(&alice.manager, "infra").await.unwrap();
+    let lookup = sharing::lookup_user(&alice.manager, &bob_email).await.unwrap().unwrap();
+    alice.manager.pin_fingerprint(&bob_email, &lookup.fingerprint).unwrap();
+    sharing::invite(&alice.manager, team.id, &bob_email, Role::Writer).await.unwrap();
+    let mine = sharing::my_invitations(&bob.manager).await.unwrap();
+    sharing::accept_invitation(&bob.manager, mine[0].id).await.unwrap();
+
+    // Prod/ { Bases/ { pg }, Web/ { web }, loose } — personnel d'Alice.
+    let parent = Group { id: Uuid::new_v4(), name: "Prod".into(), parent_id: None, icon: None, color: None };
+    let sub = Group { id: Uuid::new_v4(), name: "Bases".into(), parent_id: Some(parent.id), icon: None, color: None };
+    let sibling = Group { id: Uuid::new_v4(), name: "Web".into(), parent_id: Some(parent.id), icon: None, color: None };
+    let mut pg = Host::new("pg", "10.0.0.1", "root");
+    pg.group_id = Some(sub.id);
+    let mut web = Host::new("web", "10.0.0.2", "root");
+    web.group_id = Some(sibling.id);
+    let mut loose = Host::new("loose", "10.0.0.3", "root");
+    loose.group_id = Some(parent.id);
+    alice.ws.groups.extend([parent.clone(), sub.clone(), sibling.clone()]);
+    alice.ws.hosts.extend([pg.clone(), web.clone(), loose.clone()]);
+    assert_eq!(alice.sync().await.pushed, 6);
+
+    // Le panneau : la case du dossier « Bases » (lui et son sous-arbre), le
+    // plan, rien de décoché, copier vers « infra ».
+    let checked = [sub.id, pg.id];
+    let plan = transfer::plan(&alice.ws, &checked);
+    assert!(plan.followers.iter().all(|f| f.entity.id != sibling.id && f.entity.id != web.id && f.entity.id != loose.id));
+    let mut local = Workspace::default();
+    let n = transfer::apply(&mut local, &mut alice.ws, Move { ids: &checked, from: Place::Account { vault_id: None }, to: Place::Account { vault_id: Some(team.id) }, copy: true, followers: Followers::Chosen { dropped: &[] } }, can_write_in(&alice.manager)).unwrap();
+    assert_eq!(n, 3, "Bases, pg, Prod (en chaîne)");
+    let r = alice.sync().await;
+    assert_eq!(r.pushed, 3, "{r:?}");
+
+    let r = bob.sync().await;
+    assert_eq!(r.pulled, 3, "{r:?}");
+    let names: Vec<&str> = bob.ws.groups.iter().map(|g| g.name.as_str()).collect();
+    assert!(names.contains(&"Prod") && names.contains(&"Bases") && !names.contains(&"Web"), "{names:?}");
+    assert_eq!(bob.ws.hosts.len(), 1, "seul pg : {:?}", bob.ws.hosts.iter().map(|h| &h.label).collect::<Vec<_>>());
+    assert_eq!(bob.ws.hosts[0].label, "pg");
+    // Et la copie est rangée à sa place : Bases sous Prod, pg dans Bases.
+    let bases = bob.ws.groups.iter().find(|g| g.name == "Bases").unwrap();
+    let prod = bob.ws.groups.iter().find(|g| g.name == "Prod").unwrap();
+    assert_eq!(bases.parent_id, Some(prod.id));
+    assert_eq!(bob.ws.hosts[0].group_id, Some(bases.id));
+    // Les originaux d'Alice sont intacts et toujours personnels.
+    assert_eq!(alice.ws.hosts.len(), 4);
+    assert!(alice.ws.hosts.iter().filter(|h| h.id == pg.id || h.id == web.id || h.id == loose.id).all(|h| !alice.ws.vault_bindings.contains_key(&h.id)));
+}
+
+fn can_write_in(m: &Manager) -> impl Fn(VaultId) -> bool {
+    let vaults = m.status().vaults;
+    move |v: VaultId| vaults.iter().any(|x| x.id == v && x.role.can_write_items())
 }
 
 #[tokio::test]

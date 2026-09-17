@@ -624,6 +624,9 @@ export interface GuiVaultFollower {
   entity: GuiVaultEntity;
   reason: string;
   required: boolean;
+  /** Ce qu'un suiveur facultatif emmène à son tour s'il est gardé (le
+   * dossier et la clé d'un bastion) — affiché dans sa ligne, une seule case. */
+  brings?: GuiVaultEntity[];
 }
 
 export interface GuiVaultTransferPlan {

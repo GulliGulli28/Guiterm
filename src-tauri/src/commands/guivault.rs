@@ -130,9 +130,10 @@ pub fn guivault_transfer_plan(state: State<'_, AppState>, ids: Vec<Uuid>, from: 
 /// le vault personnel, un vault partagé — dans n'importe quel sens. Ce qui
 /// doit les accompagner (dossiers, clé, sous-arbre) suit ; les droits sont
 /// vérifiés au départ et à l'arrivée par `transfer::apply` (testé sens par
-/// sens dans `core`). `exact` : `ids` contient déjà les facultatifs gardés
-/// après `guivault_transfer_plan` ; sinon clé et icône suivent d'office.
-/// Rend le nombre d'entités concernées.
+/// sens dans `core`). `dropped` : après `guivault_transfer_plan`, les
+/// facultatifs que l'utilisateur a décochés (tout le reste suit) ; absent,
+/// clé et icône suivent d'office et rien d'autre. Rend le nombre d'entités
+/// concernées.
 #[tauri::command]
 pub async fn guivault_transfer_entities(
     app: AppHandle,
@@ -141,7 +142,7 @@ pub async fn guivault_transfer_entities(
     from: transfer::Place,
     to: transfer::Place,
     copy: bool,
-    exact: bool,
+    dropped: Option<Vec<Uuid>>,
 ) -> Result<usize, String> {
     let status = state.guivault.status();
     if let Some(v) = to.shared_vault()
@@ -154,7 +155,11 @@ pub async fn guivault_transfer_entities(
     // possible).
     let can_write = |v: VaultId| status.vaults.iter().find(|x| x.id == v).is_none_or(|x| x.role.can_write_items());
     let (moved, _) = with_both_workspaces(&state, |local, account| {
-        transfer::apply(local, account, transfer::Move { ids: &ids, from, to, copy, exact }, can_write).map_err(err)
+        let followers = match &dropped {
+            Some(d) => transfer::Followers::Chosen { dropped: d },
+            None => transfer::Followers::Quiet,
+        };
+        transfer::apply(local, account, transfer::Move { ids: &ids, from, to, copy, followers }, can_write).map_err(err)
     })?;
     // Le compte a changé : pousser (ou tombaliser) tout de suite.
     let _ = run_sync(&app, &state).await;

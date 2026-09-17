@@ -319,12 +319,13 @@ export const api = {
    * local, vault personnel, vault partagé — dans n'importe quel sens, avec ce
    * qui doit les suivre (dossiers, clé, sous-arbre). Rend le nombre d'entités
    * concernées. Les droits sont vérifiés au départ et à l'arrivée côté Rust. */
-  guivaultTransferEntities: (ids: string[], from: VaultPlace, to: VaultPlace, copy = false, exact = false) => invoke<number>("guivault_transfer_entities", { ids, from, to, copy, exact }),
+  guivaultTransferEntities: (ids: string[], from: VaultPlace, to: VaultPlace, copy = false, dropped?: string[]) => invoke<number>("guivault_transfer_entities", { ids, from, to, copy, dropped: dropped ?? null }),
   /** Ce qu'une sélection emmènerait depuis `from`, avec la raison de chaque
-   * suiveur — à montrer avant d'agir ; ce que l'utilisateur garde repart
-   * dans `ids` avec `exact = true`. Sans étape de confirmation
-   * (`exact = false`), la clé et l'icône d'un hôte suivent d'office, jamais
-   * un bastion ni un hôte de tunnel. */
+   * suiveur — à montrer avant d'agir. On renvoie ensuite `ids` tels quels et
+   * `dropped` = les facultatifs décochés : tout le reste (obligatoires, et
+   * ce que les gardés emmènent) est recalculé côté Rust — jamais renvoyé,
+   * un dossier renvoyé comme choisi emmènerait son contenu. Sans `dropped`,
+   * la clé et l'icône d'un hôte suivent d'office, jamais un bastion. */
   guivaultTransferPlan: (ids: string[], from: VaultPlace) => invoke<GuiVaultTransferPlan>("guivault_transfer_plan", { ids, from }),
   /** Rapatrie dans le personnel tout ce qui est affilié à un vault que le
    * compte ne liste plus (section « Vault inaccessible »). Rend le nombre. */

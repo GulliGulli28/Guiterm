@@ -105,6 +105,12 @@ pub struct Follower {
     /// « dossier de « web-01 » », « bastion de « db-1 » »…
     pub reason: String,
     pub required: bool,
+    /// Ce que ce suiveur facultatif emmène à son tour s'il est gardé (le
+    /// dossier et la clé d'un bastion) — une seule case pour tout ça, plutôt
+    /// qu'une ligne « obligatoire » qui ne l'est que si on garde le bastion.
+    /// Le panneau renvoie ces ids avec celui du suiveur gardé.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub brings: Vec<EntitySummary>,
 }
 
 /// Ce qu'une sélection emmène, pour que le panneau le montre avant d'agir.
@@ -211,14 +217,18 @@ fn dependencies(ws: &Workspace, id: Uuid, reach: Reach) -> Vec<(Uuid, String, bo
 fn walk(ws: &Workspace, ids: &[Uuid], follow: impl Fn(&EntitySummary, bool) -> bool) -> (BTreeSet<Uuid>, Vec<Follower>) {
     let mut set: BTreeSet<Uuid> = ids.iter().copied().collect();
     let mut full: BTreeSet<Uuid> = ids.iter().copied().collect();
-    let mut followers = Vec::new();
-    let mut queue: Vec<(Uuid, Reach)> = ids.iter().map(|id| (*id, Reach::Full)).collect();
-    while let Some((id, reach)) = queue.pop() {
+    let mut followers: Vec<Follower> = Vec::new();
+    // `via` : le suiveur facultatif de premier niveau par lequel on est
+    // arrivé — ce qui en dépend se range dans son `brings` au lieu d'être
+    // une ligne à part.
+    let mut queue: Vec<(Uuid, Reach, Option<Uuid>)> = ids.iter().map(|id| (*id, Reach::Full, None)).collect();
+    while let Some((id, reach, via)) = queue.pop() {
         for (dep, reason, required, dep_reach) in dependencies(ws, id, reach) {
             let upgrade = dep_reach == Reach::Full && set.contains(&dep) && full.insert(dep);
             if set.contains(&dep) && !upgrade {
                 continue;
             }
+            let mut next_via = via;
             if !upgrade {
                 let Some(entity) = summary_of(ws, dep) else { continue };
                 if !follow(&entity, required) {
@@ -228,9 +238,21 @@ fn walk(ws: &Workspace, ids: &[Uuid], follow: impl Fn(&EntitySummary, bool) -> b
                 if dep_reach == Reach::Full {
                     full.insert(dep);
                 }
-                followers.push(Follower { entity, reason, required });
+                match via {
+                    Some(top) => {
+                        if let Some(f) = followers.iter_mut().find(|f| f.entity.id == top) {
+                            f.brings.push(entity);
+                        }
+                    }
+                    None => {
+                        if !required {
+                            next_via = Some(dep);
+                        }
+                        followers.push(Follower { entity, reason, required, brings: Vec::new() });
+                    }
+                }
             }
-            queue.push((dep, dep_reach));
+            queue.push((dep, dep_reach, next_via));
         }
     }
     (set, followers)
@@ -247,10 +269,20 @@ pub fn plan(ws: &Workspace, ids: &[Uuid]) -> Plan {
 }
 
 /// La fermeture **minimale** : la sélection et ce qui doit la suivre
-/// (chaînes de dossiers, contenu d'un dossier) — rien d'autre. C'est ce
-/// qu'on applique après que l'utilisateur a décidé des facultatifs.
+/// (chaînes de dossiers, contenu d'un dossier) — rien d'autre.
 pub fn required_closure(ws: &Workspace, ids: &[Uuid]) -> BTreeSet<Uuid> {
     walk(ws, ids, |_, required| required).0
+}
+
+/// La fermeture après le [`plan`] : tout ce qui suit, sauf les facultatifs
+/// que l'utilisateur a décochés — et ce qui n'était atteint qu'à travers eux
+/// (décocher le bastion, c'est aussi ne pas emmener son dossier ni sa clé).
+/// Le panneau ne renvoie que les ids décochés : les obligatoires et ce que
+/// les gardés emmènent sont recalculés ici, jamais renvoyés — renvoyer un
+/// dossier atteint en chaîne comme s'il était choisi emmenait son contenu
+/// (bug du 2026-09-18).
+pub fn chosen_closure(ws: &Workspace, ids: &[Uuid], dropped: &[Uuid]) -> BTreeSet<Uuid> {
+    walk(ws, ids, |e, required| required || !dropped.contains(&e.id)).0
 }
 
 /// La fermeture **sans question** : l'obligatoire, plus la clé et l'icône de
@@ -386,6 +418,16 @@ fn source_vaults(ws: &Workspace, set: &BTreeSet<Uuid>) -> BTreeSet<VaultId> {
     set.iter().filter_map(|id| ws.vault_bindings.get(id).copied()).collect()
 }
 
+/// Ce qui accompagne la sélection d'un [`Move`].
+#[derive(Debug, Clone, Copy)]
+pub enum Followers<'a> {
+    /// Sans question : l'obligatoire, la clé et l'icône ([`closure`]).
+    Quiet,
+    /// Après le [`plan`] : tout, sauf ces facultatifs décochés
+    /// ([`chosen_closure`]).
+    Chosen { dropped: &'a [Uuid] },
+}
+
 /// Une demande de déplacement ou de copie, telle que le panneau la formule.
 #[derive(Debug, Clone, Copy)]
 pub struct Move<'a> {
@@ -393,9 +435,7 @@ pub struct Move<'a> {
     pub from: Place,
     pub to: Place,
     pub copy: bool,
-    /// `ids` contient déjà les facultatifs gardés après le [`plan`] — seul
-    /// l'obligatoire s'y ajoute. Sinon, la fermeture sans question.
-    pub exact: bool,
+    pub followers: Followers<'a>,
 }
 
 /// **Le seul point d'entrée** pour déplacer ou copier une sélection entre
@@ -409,7 +449,7 @@ pub struct Move<'a> {
 /// ne retire rien, donc ne demande rien au départ. Rend le nombre d'entités
 /// déplacées ou copiées.
 pub fn apply(local: &mut Workspace, account: &mut Workspace, mv: Move<'_>, can_write: impl Fn(VaultId) -> bool) -> anyhow::Result<usize> {
-    let Move { ids, from, to, copy, exact } = mv;
+    let Move { ids, from, to, copy, followers } = mv;
     if ids.is_empty() {
         return Ok(0);
     }
@@ -422,7 +462,10 @@ pub fn apply(local: &mut Workspace, account: &mut Workspace, mv: Move<'_>, can_w
         Place::Local => &*local,
         Place::Account { .. } => &*account,
     };
-    let set = if exact { required_closure(source, ids) } else { closure(source, ids) };
+    let set = match followers {
+        Followers::Quiet => closure(source, ids),
+        Followers::Chosen { dropped } => chosen_closure(source, ids, dropped),
+    };
     if !copy
         && matches!(from, Place::Account { .. })
         && source_vaults(account, &set).into_iter().any(|v| !can_write(v))
@@ -579,7 +622,7 @@ mod tests {
     #[test]
     fn local_to_shared_vault_moves_and_binds() {
         let mut f = fixture();
-        let n = apply(&mut f.local, &mut f.account, Move { ids: &[f.local_host], from: Place::Local, to: Place::Account { vault_id: Some(f.infra) }, copy: false, exact: false }, can_write(f.infra)).unwrap();
+        let n = apply(&mut f.local, &mut f.account, Move { ids: &[f.local_host], from: Place::Local, to: Place::Account { vault_id: Some(f.infra) }, copy: false, followers: Followers::Quiet }, can_write(f.infra)).unwrap();
         assert_eq!(n, 1);
         assert!(f.local.hosts.is_empty(), "déplacé, pas copié");
         assert_eq!(f.account.vault_bindings.get(&f.local_host), Some(&f.infra));
@@ -588,7 +631,7 @@ mod tests {
     #[test]
     fn local_to_read_only_vault_is_refused() {
         let mut f = fixture();
-        let err = apply(&mut f.local, &mut f.account, Move { ids: &[f.local_host], from: Place::Local, to: Place::Account { vault_id: Some(f.lecture) }, copy: false, exact: false }, can_write(f.infra)).unwrap_err();
+        let err = apply(&mut f.local, &mut f.account, Move { ids: &[f.local_host], from: Place::Local, to: Place::Account { vault_id: Some(f.lecture) }, copy: false, followers: Followers::Quiet }, can_write(f.infra)).unwrap_err();
         assert!(err.to_string().contains("destination"), "{err}");
         assert_eq!(f.local.hosts.len(), 1, "rien n'a bougé");
     }
@@ -596,7 +639,7 @@ mod tests {
     #[test]
     fn personal_to_shared_takes_the_folder_along() {
         let mut f = fixture();
-        let n = apply(&mut f.local, &mut f.account, Move { ids: &[f.host], from: Place::Account { vault_id: None }, to: Place::Account { vault_id: Some(f.infra) }, copy: false, exact: false }, can_write(f.infra)).unwrap();
+        let n = apply(&mut f.local, &mut f.account, Move { ids: &[f.host], from: Place::Account { vault_id: None }, to: Place::Account { vault_id: Some(f.infra) }, copy: false, followers: Followers::Quiet }, can_write(f.infra)).unwrap();
         assert_eq!(n, 2, "l'hôte et son dossier");
         assert_eq!(f.account.vault_bindings.get(&f.host), Some(&f.infra));
         assert_eq!(f.account.vault_bindings.get(&f.folder), Some(&f.infra));
@@ -608,7 +651,7 @@ mod tests {
         let mut f = fixture();
         f.account.vault_bindings.insert(f.host, f.infra);
         f.account.vault_bindings.insert(f.folder, f.infra);
-        apply(&mut f.local, &mut f.account, Move { ids: &[f.folder], from: Place::Account { vault_id: Some(f.infra) }, to: Place::Account { vault_id: None }, copy: false, exact: false }, can_write(f.infra)).unwrap();
+        apply(&mut f.local, &mut f.account, Move { ids: &[f.folder], from: Place::Account { vault_id: Some(f.infra) }, to: Place::Account { vault_id: None }, copy: false, followers: Followers::Quiet }, can_write(f.infra)).unwrap();
         assert!(!f.account.vault_bindings.contains_key(&f.folder));
         assert!(!f.account.vault_bindings.contains_key(&f.host), "l'hôte du dossier suit");
     }
@@ -616,18 +659,18 @@ mod tests {
     #[test]
     fn same_vault_is_refused() {
         let mut f = fixture();
-        let err = apply(&mut f.local, &mut f.account, Move { ids: &[f.host], from: Place::Account { vault_id: None }, to: Place::Account { vault_id: None }, copy: false, exact: false }, can_write(f.infra)).unwrap_err();
+        let err = apply(&mut f.local, &mut f.account, Move { ids: &[f.host], from: Place::Account { vault_id: None }, to: Place::Account { vault_id: None }, copy: false, followers: Followers::Quiet }, can_write(f.infra)).unwrap_err();
         assert!(err.to_string().contains("même vault"), "{err}");
     }
 
     #[test]
     fn moving_out_of_read_only_vault_is_refused_but_copying_is_allowed() {
         let mut f = fixture();
-        let err = apply(&mut f.local, &mut f.account, Move { ids: &[f.read_only_host], from: Place::Account { vault_id: Some(f.lecture) }, to: Place::Local, copy: false, exact: false }, can_write(f.infra)).unwrap_err();
+        let err = apply(&mut f.local, &mut f.account, Move { ids: &[f.read_only_host], from: Place::Account { vault_id: Some(f.lecture) }, to: Place::Local, copy: false, followers: Followers::Quiet }, can_write(f.infra)).unwrap_err();
         assert!(err.to_string().contains("lecture seule"), "{err}");
         assert_eq!(f.account.hosts.len(), 2);
 
-        let n = apply(&mut f.local, &mut f.account, Move { ids: &[f.read_only_host], from: Place::Account { vault_id: Some(f.lecture) }, to: Place::Local, copy: true, exact: false }, can_write(f.infra)).unwrap();
+        let n = apply(&mut f.local, &mut f.account, Move { ids: &[f.read_only_host], from: Place::Account { vault_id: Some(f.lecture) }, to: Place::Local, copy: true, followers: Followers::Quiet }, can_write(f.infra)).unwrap();
         assert_eq!(n, 1);
         assert_eq!(f.account.hosts.len(), 2, "la copie ne retire rien");
         let copied = f.local.hosts.iter().find(|h| h.label == "banque").expect("copié en local");
@@ -638,7 +681,7 @@ mod tests {
     #[test]
     fn copy_between_two_vaults_of_the_account_duplicates_under_new_ids() {
         let mut f = fixture();
-        let n = apply(&mut f.local, &mut f.account, Move { ids: &[f.host], from: Place::Account { vault_id: None }, to: Place::Account { vault_id: Some(f.infra) }, copy: true, exact: false }, can_write(f.infra)).unwrap();
+        let n = apply(&mut f.local, &mut f.account, Move { ids: &[f.host], from: Place::Account { vault_id: None }, to: Place::Account { vault_id: Some(f.infra) }, copy: true, followers: Followers::Quiet }, can_write(f.infra)).unwrap();
         assert_eq!(n, 2, "l'hôte et son dossier, copiés");
         assert_eq!(f.account.hosts.len(), 3);
         assert_eq!(f.account.groups.len(), 2);
@@ -653,7 +696,7 @@ mod tests {
     #[test]
     fn account_to_local_moves_the_host_with_its_folder() {
         let mut f = fixture();
-        let n = apply(&mut f.local, &mut f.account, Move { ids: &[f.host], from: Place::Account { vault_id: None }, to: Place::Local, copy: false, exact: false }, can_write(f.infra)).unwrap();
+        let n = apply(&mut f.local, &mut f.account, Move { ids: &[f.host], from: Place::Account { vault_id: None }, to: Place::Local, copy: false, followers: Followers::Quiet }, can_write(f.infra)).unwrap();
         assert_eq!(n, 2);
         assert_eq!(f.local.hosts.len(), 2);
         assert_eq!(f.local.groups.len(), 1);
@@ -663,8 +706,8 @@ mod tests {
     #[test]
     fn local_to_local_and_empty_selection() {
         let mut f = fixture();
-        assert!(apply(&mut f.local, &mut f.account, Move { ids: &[f.local_host], from: Place::Local, to: Place::Local, copy: false, exact: false }, can_write(f.infra)).is_err());
-        assert_eq!(apply(&mut f.local, &mut f.account, Move { ids: &[], from: Place::Local, to: Place::Account { vault_id: None }, copy: false, exact: false }, can_write(f.infra)).unwrap(), 0);
+        assert!(apply(&mut f.local, &mut f.account, Move { ids: &[f.local_host], from: Place::Local, to: Place::Local, copy: false, followers: Followers::Quiet }, can_write(f.infra)).is_err());
+        assert_eq!(apply(&mut f.local, &mut f.account, Move { ids: &[], from: Place::Local, to: Place::Account { vault_id: None }, copy: false, followers: Followers::Quiet }, can_write(f.infra)).unwrap(), 0);
     }
 
     #[test]
@@ -738,9 +781,10 @@ mod tests {
         assert_eq!(by_id[&g.icon].kind_of(), "icon");
         assert_eq!(by_id[&g.icon].reason, "icône de « db1 »");
         assert_eq!(by_id[&g.jump].reason, "bastion de « db1 »");
-        // Le bastion emmène son dossier, en chaîne (obligatoire pour lui).
-        assert_eq!(by_id[&g.acces].reason, "dossier de « jump »");
-        assert!(by_id[&g.acces].required);
+        // Le bastion emmène son dossier — dans sa propre ligne, pas comme un
+        // obligatoire à part (il ne l'est que si on garde le bastion).
+        assert!(!by_id.contains_key(&g.acces));
+        assert_eq!(by_id[&g.jump].brings.iter().map(|e| e.name.as_str()).collect::<Vec<_>>(), ["Accès"]);
         // Le dossier Prod suit en chaîne : web1, qui y est aussi, ne suit pas.
         assert!(!by_id.contains_key(&g.web1), "{:?}", plan.followers.iter().map(|f| &f.entity.name).collect::<Vec<_>>());
         // Les obligatoires viennent en tête.
@@ -761,8 +805,13 @@ mod tests {
         let tunnel = plan.followers.iter().find(|f| f.entity.id == g.db1).expect("hôte du tunnel");
         assert_eq!(tunnel.reason, "hôte du tunnel de « Catalogue »");
         assert!(!tunnel.required);
-        // Et de proche en proche : la clé de cet hôte est proposée aussi.
-        assert!(plan.followers.iter().any(|f| f.entity.id == g.key));
+        // Et de proche en proche : ce que cet hôte emmène (dossier, clé,
+        // icône, bastion et son dossier) vient avec lui, dans sa ligne.
+        let brings: Vec<&str> = tunnel.brings.iter().map(|e| e.name.as_str()).collect();
+        for expected in ["Prod", "deploy", "logo", "jump", "Accès"] {
+            assert!(brings.contains(&expected), "{expected} manque dans {brings:?}");
+        }
+        assert!(!plan.followers.iter().any(|f| f.entity.id == g.key), "pas de ligne à part");
     }
 
     #[test]
@@ -788,16 +837,18 @@ mod tests {
         let mut local = Workspace::default();
         let v = Uuid::new_v4();
         // L'utilisateur a gardé l'icône et décoché la clé et le bastion.
-        let n = apply(&mut local, &mut g.ws, Move { ids: &[g.db1, g.icon], from: Place::Account { vault_id: None }, to: Place::Account { vault_id: Some(v) }, copy: false, exact: true }, |x| x == v).unwrap();
+        let dropped = [g.key, g.jump];
+        let n = apply(&mut local, &mut g.ws, Move { ids: &[g.db1], from: Place::Account { vault_id: None }, to: Place::Account { vault_id: Some(v) }, copy: false, followers: Followers::Chosen { dropped: &dropped } }, |x| x == v).unwrap();
         assert_eq!(n, 3, "db1, Prod, l'icône");
         assert_eq!(g.ws.vault_bindings.get(&g.db1), Some(&v));
         assert_eq!(g.ws.vault_bindings.get(&g.icon), Some(&v));
         assert!(!g.ws.vault_bindings.contains_key(&g.key), "décochée");
         assert!(!g.ws.vault_bindings.contains_key(&g.jump), "décoché");
+        assert!(!g.ws.vault_bindings.contains_key(&g.acces), "le dossier du bastion décoché ne suit pas non plus");
 
         // Vers l'appareil : l'icône est copiée, l'origine la garde (web1
         // pourrait encore la porter).
-        let n = apply(&mut local, &mut g.ws, Move { ids: &[g.db1, g.icon], from: Place::Account { vault_id: Some(v) }, to: Place::Local, copy: false, exact: true }, |x| x == v).unwrap();
+        let n = apply(&mut local, &mut g.ws, Move { ids: &[g.db1], from: Place::Account { vault_id: Some(v) }, to: Place::Local, copy: false, followers: Followers::Chosen { dropped: &dropped } }, |x| x == v).unwrap();
         assert_eq!(n, 3);
         assert_eq!(local.custom_icons.len(), 1);
         assert_eq!(g.ws.custom_icons.len(), 1, "l'icône reste aussi à l'origine");
@@ -815,5 +866,69 @@ mod tests {
         assert_eq!(repatriate(&mut ws, gone), 2);
         assert_eq!(ws.vault_bindings.len(), 1);
         assert_eq!(ws.vault_bindings.get(&c), Some(&kept));
+    }
+
+    // Le bug du 2026-09-18 : copier un sous-dossier copiait aussi les autres
+    // dossiers de son parent. Le panneau renvoyait les suiveurs *obligatoires*
+    // (le dossier parent, atteint en chaîne) dans `ids`, et `apply` les
+    // prenait pour une sélection pleine — avec leur contenu. Ce test joue le
+    // flux tel que le panneau le joue : cocher le dossier (lui et son
+    // sous-arbre), demander le plan, garder tout ce qui est proposé, appliquer.
+    #[test]
+    fn copying_a_subfolder_never_takes_its_siblings() {
+        let mut ws = Workspace::default();
+        let parent = Group { id: Uuid::new_v4(), name: "Prod".into(), parent_id: None, icon: None, color: None };
+        let sub = Group { id: Uuid::new_v4(), name: "Bases".into(), parent_id: Some(parent.id), icon: None, color: None };
+        let sibling = Group { id: Uuid::new_v4(), name: "Web".into(), parent_id: Some(parent.id), icon: None, color: None };
+        let mut pg = Host::new("pg", "10.0.0.1", "root");
+        pg.group_id = Some(sub.id);
+        let mut web = Host::new("web", "10.0.0.2", "root");
+        web.group_id = Some(sibling.id);
+        let mut loose = Host::new("loose", "10.0.0.3", "root");
+        loose.group_id = Some(parent.id);
+        ws.groups.extend([parent.clone(), sub.clone(), sibling.clone()]);
+        ws.hosts.extend([pg.clone(), web.clone(), loose.clone()]);
+
+        // La case du dossier « Bases » : lui et son sous-arbre.
+        let checked = [sub.id, pg.id];
+        let plan = plan(&ws, &checked);
+        assert!(plan.followers.iter().any(|f| f.entity.id == parent.id && f.required), "le parent suit en chaîne");
+        assert!(!plan.followers.iter().any(|f| f.entity.id == sibling.id || f.entity.id == web.id || f.entity.id == loose.id), "{:?}", plan.followers.iter().map(|f| &f.entity.name).collect::<Vec<_>>());
+        // Le panneau ne renvoie que ce qui a été décoché (rien ici) ; tout
+        // le reste est recalculé.
+        let ids = checked.to_vec();
+        let v = Uuid::new_v4();
+        let mut local = Workspace::default();
+        let n = apply(&mut local, &mut ws, Move { ids: &ids, from: Place::Account { vault_id: None }, to: Place::Account { vault_id: Some(v) }, copy: true, followers: Followers::Chosen { dropped: &[] } }, |x| x == v).unwrap();
+        assert_eq!(n, 3, "Bases, pg et Prod (en chaîne) — rien d'autre");
+        let copied: Vec<&str> = ws.groups.iter().chain([].iter()).filter(|g| ws.vault_bindings.get(&g.id) == Some(&v)).map(|g| g.name.as_str()).collect();
+        assert_eq!(copied, ["Prod", "Bases"], "{copied:?}");
+        assert_eq!(ws.hosts.iter().filter(|h| ws.vault_bindings.get(&h.id) == Some(&v)).count(), 1);
+        // Et un déplacement, même règle.
+        let n = apply(&mut local, &mut ws, Move { ids: &ids, from: Place::Account { vault_id: None }, to: Place::Local, copy: false, followers: Followers::Chosen { dropped: &[] } }, |x| x == v).unwrap();
+        assert_eq!(n, 3);
+        assert!(ws.groups.iter().any(|g| g.id == sibling.id) && ws.hosts.iter().any(|h| h.id == web.id || h.id == loose.id), "les frères restent");
+    }
+
+    /// Tout suiveur obligatoire du plan est retrouvé par la fermeture
+    /// obligatoire — c'est ce qui autorise le panneau à ne renvoyer que les
+    /// facultatifs gardés (avec ce qu'ils emmènent) ; et tout garder
+    /// redonne exactement la fermeture complète.
+    #[test]
+    fn required_followers_are_recomputed_by_required_closure() {
+        let g = graph();
+        for ids in [vec![g.db1], vec![g.prod], vec![g.catalogue], vec![g.db1, g.catalogue]] {
+            let plan = plan(&g.ws, &ids);
+            let closure = required_closure(&g.ws, &ids);
+            for f in plan.followers.iter().filter(|f| f.required) {
+                assert!(closure.contains(&f.entity.id), "{} manque pour {ids:?}", f.entity.name);
+            }
+            // Rien décoché = tout ce que le plan a listé, `brings` compris.
+            let (everything, _) = walk(&g.ws, &ids, |_, _| true);
+            assert_eq!(chosen_closure(&g.ws, &ids, &[]), everything, "pour {ids:?}");
+            // Tout décoché = l'obligatoire seul.
+            let optional: Vec<Uuid> = plan.followers.iter().filter(|f| !f.required).map(|f| f.entity.id).collect();
+            assert_eq!(chosen_closure(&g.ws, &ids, &optional), closure, "pour {ids:?}");
+        }
     }
 }

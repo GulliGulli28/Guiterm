@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { api } from "../lib/api";
 import type { Group, GroupId, GuiVaultFollower, Host, HostId, SqlConnection, VaultId, VaultPlace, Workspace } from "../lib/types";
-import { inaccessibleSection, sectionRoleLabel, type VaultSection } from "../lib/vaultSections";
+import { sectionRoleLabel, splitTreeByVault, type VaultSection } from "../lib/vaultSections";
 import { attachmentCount, hasAttachments, hostAttachments } from "../lib/hostGraph";
 import { HostIcon, hasIcon } from "./icons";
 import { hostKindMeta } from "../lib/hostKinds";
@@ -157,10 +157,10 @@ export function HostsPanel({
       else setPendingMove({ host, to, followers: plan.followers });
     } catch (e) { onError?.(String(e)); }
   };
-  const doMoveHost = async (host: Host, to: VaultSection, kept: string[]) => {
+  const doMoveHost = async (host: Host, to: VaultSection, dropped: string[]) => {
     setMoving(true);
     try {
-      await api.guivaultTransferEntities([host.id, ...kept], placeOf(workspace.vaultBindings?.[host.id] ?? null), placeOf(to.id), false, true);
+      await api.guivaultTransferEntities([host.id], placeOf(workspace.vaultBindings?.[host.id] ?? null), placeOf(to.id), false, dropped);
       onWorkspaceUpdate?.(await api.getWorkspace());
       onNotify?.(`« ${host.label} » déplacé vers ${to.name}.`);
       setPendingMove(null);
@@ -277,18 +277,9 @@ export function HostsPanel({
   type Tree = ReturnType<typeof buildHostTree>;
   const vaultSections = useMemo(() => {
     if (!sections) return null;
-    const bindings = workspace.vaultBindings ?? {};
-    const known = new Set(sections.map((s) => s.id));
-    const stray = new Map<string, VaultSection>();
-    for (const e of [...workspace.hosts, ...workspace.groups]) {
-      const v = bindings[e.id];
-      if (v && !known.has(v) && !stray.has(v)) stray.set(v, inaccessibleSection(v));
-    }
-    return [...sections, ...stray.values()].map((sec) => {
-      const hosts = workspace.hosts.filter((h) => (bindings[h.id] ?? null) === sec.id);
-      const groups = workspace.groups.filter((g) => (bindings[g.id] ?? null) === sec.id);
-      return { section: sec, tree: buildHostTree(hosts, groups, query, vaultNameOf), total: hosts.length };
-    });
+    return splitTreeByVault(workspace.hosts, workspace.groups, workspace.vaultBindings, sections).map(({ section, hosts, groups }) => (
+      { section, tree: buildHostTree(hosts, groups, query, vaultNameOf), total: hosts.length }
+    ));
   }, [sections, workspace.hosts, workspace.groups, workspace.vaultBindings, query, vaultNameOf]);
 
   const childGroups = (parentId: GroupId | null, tree?: Tree) => (tree ?? { groupsByParent }).groupsByParent.get(parentId) ?? [];
@@ -735,7 +726,7 @@ export function HostsPanel({
           confirmLabel="Déplacer"
           followers={pendingMove.followers}
           busy={moving}
-          onConfirm={(kept) => doMoveHost(pendingMove.host, pendingMove.to, kept)}
+          onConfirm={(dropped) => doMoveHost(pendingMove.host, pendingMove.to, dropped)}
           onCancel={() => setPendingMove(null)}
         />
       )}

@@ -1,4 +1,4 @@
-import type { GuiVaultStatus, VaultId, VaultKind, VaultRole } from "./types";
+import type { Group, GuiVaultStatus, Host, VaultId, VaultKind, VaultRole } from "./types";
 
 /**
  * Les vaults d'un compte affiché, comme dossiers de premier niveau des
@@ -78,4 +78,29 @@ export function splitByVault<T extends { id: string }>(
     bucket.items.push(item);
   }
   return [...buckets.values()];
+}
+
+/**
+ * Les hôtes et dossiers d'un workspace, par vault — ce que les arbres
+ * (Hôtes, Transfert) découpent en un `buildHostTree` par section. Un hôte
+ * ou un dossier affilié à un vault que le compte ne liste plus va dans une
+ * section « inaccessible » (une par vault), jamais perdu.
+ */
+export function splitTreeByVault(
+  hosts: readonly Host[],
+  groups: readonly Group[],
+  bindings: Record<string, VaultId> | undefined,
+  sections: readonly VaultSection[],
+): { section: VaultSection; hosts: Host[]; groups: Group[] }[] {
+  const known = new Set(sections.map((s) => s.id));
+  const all: VaultSection[] = [...sections];
+  for (const e of [...hosts, ...groups]) {
+    const v = bindings?.[e.id];
+    if (v && !known.has(v)) { known.add(v); all.push(inaccessibleSection(v)); }
+  }
+  return all.map((section) => ({
+    section,
+    hosts: hosts.filter((h) => (bindings?.[h.id] ?? null) === section.id),
+    groups: groups.filter((g) => (bindings?.[g.id] ?? null) === section.id),
+  }));
 }

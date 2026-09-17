@@ -353,8 +353,16 @@ d'un dossier *choisi* — un dossier atteint en chaîne ne prend pas son
 contenu) et le **proposé** (clé, icône, bastions `jump_via`, relais Docker,
 hôte d'un tunnel SQL), de proche en proche, chacun avec sa raison. Le
 panneau montre la liste (`TransferConfirmDialog`), l'utilisateur décoche,
-et renvoie `exact = true` avec ce qu'il garde ; `exact = false` (le champ
-Vault d'un formulaire) = obligatoire + clé + icône, jamais un bastion.
+et renvoie **seulement les facultatifs décochés** (`dropped`) : Rust
+recalcule tout le reste (`chosen_closure`) — renvoyer un dossier atteint
+en chaîne comme s'il était choisi emmenait son contenu (bug du
+2026-09-18). Ce qu'un facultatif gardé emmène (`Follower.brings` : le
+dossier et la clé d'un bastion) est dans sa ligne, une seule case. Sans
+`dropped` (le champ Vault d'un formulaire) = obligatoire + clé + icône,
+jamais un bastion. **Chaque arbre d'hôtes passe par `buildHostTree` ou
+`buildTargetTree`** (Hôtes, Transfert, sélecteurs, flotte) — un filtre
+`groupId === …` à la main perd les hôtes dont le dossier n'est pas ici ;
+`hostTree.test.ts` le vérifie sur les sources.
 Droits vérifiés à l'arrivée *et* au départ (retirer d'un vault en lecture
 seule ferait juste revenir l'entité à la synchro suivante ; une copie ne
 retire rien ; un vault que le compte ne liste plus n'est pas « lu », on

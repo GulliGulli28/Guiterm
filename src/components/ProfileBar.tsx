@@ -10,8 +10,9 @@ import { IconMonitor, IconRefresh, IconVault } from "./ui-icons";
  * la flotte ou un transfert montrent le même workspace, et rien n'y disait
  * lequel. Un compte affiché est un état global de l'app, il se lit et se
  * change au même endroit partout. La ligne dit aussi ce que le compte fait :
- * synchronisation en cours, dernière synchro, ou « profil local » avec le
- * compte qui continue en arrière-plan.
+ * synchronisation en cours, dernière synchro — le compte se synchronise
+ * même quand c'est le profil local qui est affiché, le sélecteur suffit à
+ * le dire.
  *
  * Un `<select>` natif, pas un `HostTreePicker` : ce sont des profils, pas
  * des hôtes.
@@ -46,9 +47,6 @@ export function ProfileBar({ status, syncing, onSwitch, onSyncNow, onOpenGuiVaul
     tone = "text-[var(--c-warn)]";
   } else if (syncing) {
     state = "Synchronisation…";
-  } else if (status.viewLocal) {
-    state = `Profil local affiché — ${connected} continue en arrière-plan`;
-    tone = "text-[var(--c-warn)]";
   } else if (lastSync != null) {
     state = `Synchronisé ${formatRelativeTime(lastSync)}`;
   } else {
@@ -58,7 +56,7 @@ export function ProfileBar({ status, syncing, onSwitch, onSyncNow, onOpenGuiVaul
   return (
     <div
       data-profile-bar=""
-      className={`flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b px-3 py-1.5 ${status.viewLocal && connected ? "border-[var(--c-warn)]" : "border-[var(--c-border)]"}`}
+      className="flex shrink-0 flex-wrap items-center gap-x-2 gap-y-1 border-b border-[var(--c-border)] px-3 py-1.5"
     >
       <span className="flex shrink-0 items-center text-[var(--c-text-muted)]">
         {value === "account" ? <IconVault size={13} /> : <IconMonitor size={13} />}

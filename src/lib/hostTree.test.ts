@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
 import { buildHostTree, groupPath } from "./hostTree";
 import type { Group, GroupId, Host, HostId } from "./types";
@@ -117,5 +119,24 @@ describe("groupPath", () => {
   it("termine même si les parents forment un cycle", () => {
     const cyclic = [group("a", "A", "b"), group("b", "B", "a")];
     expect(groupPath(cyclic, "a" as GroupId)).toEqual(["B", "A"]);
+  });
+});
+
+// Un hôte dont le dossier n'est pas dans le workspace (reçu d'un vault
+// GuiVault partagé sans son dossier) doit s'afficher à la racine — c'est
+// `buildHostTree`/`buildTargetTree` qui le garantissent. Le panneau Transfert
+// filtrait lui-même sur `groupId === …` et perdait ces hôtes (2026-09-18) ;
+// chaque arbre d'hôtes passe donc par l'une des deux fonctions, et aucun
+// composant ne refait ce filtre à la main.
+describe("chaque arbre d'hôtes passe par buildHostTree ou buildTargetTree", () => {
+  const src = (f: string) => readFileSync(fileURLToPath(new URL(`../components/${f}`, import.meta.url)), "utf8");
+  it.each(["HostsPanel.tsx", "SftpPanel.tsx", "HostTreePicker.tsx"])("%s importe buildHostTree", (f) => {
+    expect(src(f)).toMatch(/import \{[^}]*\bbuildHostTree\b[^}]*\} from "\.\.\/lib\/hostTree"/);
+  });
+  it("TargetTreeList est nourri par buildTargetTree", () => {
+    expect(src("TargetTreeList.tsx")).toMatch(/lib\/targetTree/);
+  });
+  it.each(["HostsPanel.tsx", "SftpPanel.tsx", "HostTreePicker.tsx", "TargetTreeList.tsx"])("%s ne filtre pas les hôtes par groupId à la main", (f) => {
+    expect(src(f)).not.toMatch(/\.groupId === groupId/);
   });
 });

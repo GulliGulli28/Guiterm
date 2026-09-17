@@ -388,14 +388,7 @@ function AccountCard({ status, onStatusChange, onError, onNotify }: { status: Gu
           <IconRefresh size={12} className={syncing ? "animate-spin" : ""} /> Synchroniser
         </button>
       </div>
-      {status.viewLocal ? (
-        <div className="callout callout-warn flex flex-wrap items-center justify-between gap-2">
-          <span>Profil local affiché. Le compte continue de se synchroniser en arrière-plan.</span>
-          <button onClick={() => api.guivaultSwitchView(false).then(onStatusChange).catch((e) => onError(String(e)))} className="btn btn-primary btn-sm shrink-0">Afficher le compte</button>
-        </div>
-      ) : (
-        <p className="text-[11.5px] text-[var(--c-text-muted)]">Dernière synchronisation : {formatWhen(status.lastSyncAt)}</p>
-      )}
+      <p className="text-[11.5px] text-[var(--c-text-muted)]">Dernière synchronisation : {formatWhen(status.lastSyncAt)}</p>
       <div className="space-y-0.5">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">Votre empreinte</p>
         <p className="text-[11.5px] text-[var(--c-text-muted)]">À communiquer à qui veut vous partager un vault, pour qu'il la compare à celle que le serveur lui montre.</p>
@@ -654,10 +647,10 @@ function VaultContents({ vault, vaults, onChanged, onError, onNotify }: {
   /** Un transfert en attente de confirmation : ce qui suivrait. */
   const [pending, setPending] = useState<{ to: Destination; copy: boolean; followers: GuiVaultFollower[] } | null>(null);
 
-  const doSend = async (ids: string[], to: Destination, copy: boolean) => {
+  const doSend = async (dropped: string[], to: Destination, copy: boolean) => {
     setBusy(true);
     try {
-      const n = await api.guivaultTransferEntities(ids, place, to.place, copy, true);
+      const n = await api.guivaultTransferEntities([...selected], place, to.place, copy, dropped);
       onNotify(`${n} entité(s) ${copy ? "copiée(s)" : "déplacée(s)"} vers ${to.label}.`);
       setPending(null); clear(); load(); onChanged();
     } catch (err) { onError(String(err)); } finally { setBusy(false); }
@@ -668,7 +661,7 @@ function VaultContents({ vault, vaults, onChanged, onError, onNotify }: {
     const ids = [...selected];
     try {
       const plan = await api.guivaultTransferPlan(ids, place);
-      if (plan.followers.length === 0) await doSend(ids, to, copy);
+      if (plan.followers.length === 0) await doSend([], to, copy);
       else setPending({ to, copy, followers: plan.followers });
     } catch (err) { onError(String(err)); }
   };
@@ -747,7 +740,7 @@ function VaultContents({ vault, vaults, onChanged, onError, onNotify }: {
           confirmLabel={pending.copy ? "Copier" : "Déplacer"}
           followers={pending.followers}
           busy={busy}
-          onConfirm={(kept) => doSend([...selected, ...kept], pending.to, pending.copy)}
+          onConfirm={(dropped) => doSend(dropped, pending.to, pending.copy)}
           onCancel={() => setPending(null)}
         />
       )}
@@ -818,7 +811,7 @@ function AddToVaultDialog({ vault, vaults, onClose, onDone, onError }: {
 
   const selectedIn = (source: NonNullable<typeof sources>[number]) => source.entities.filter((e) => selected.has(e.id)).map((e) => e.id);
 
-  const doSubmit = async (copy: boolean, kept: Set<string>) => {
+  const doSubmit = async (copy: boolean, dropped: Set<string>) => {
     if (!sources) return;
     setBusy(true);
     try {
@@ -826,10 +819,10 @@ function AddToVaultDialog({ vault, vaults, onClose, onDone, onError }: {
       for (const source of sources) {
         const own = selectedIn(source);
         if (own.length === 0) continue;
-        // Un suiveur vit dans le même workspace que ce qu'il suit : ceux de
-        // cette origine sont ceux que son plan a listés.
-        const followers = (pending?.bySource.get(source.key) ?? []).filter((id) => kept.has(id));
-        n += await api.guivaultTransferEntities([...own, ...followers], source.place, target, copy, true);
+        // Un suiveur vit dans le même workspace que ce qu'il suit : les
+        // décochés de cette origine sont parmi ceux que son plan a listés.
+        const droppedHere = (pending?.bySource.get(source.key) ?? []).filter((id) => dropped.has(id));
+        n += await api.guivaultTransferEntities(own, source.place, target, copy, droppedHere);
       }
       setPending(null); clear();
       onDone(`${n} entité(s) ${copy ? "copiée(s)" : "déplacée(s)"} dans « ${vault.name} ».`);
@@ -870,7 +863,7 @@ function AddToVaultDialog({ vault, vaults, onClose, onDone, onError }: {
           confirmLabel={pending.copy ? "Copier ici" : "Déplacer ici"}
           followers={pending.followers}
           busy={busy}
-          onConfirm={(kept) => doSubmit(pending.copy, new Set(kept))}
+          onConfirm={(dropped) => doSubmit(pending.copy, new Set(dropped))}
           onCancel={() => setPending(null)}
         />
       )}
