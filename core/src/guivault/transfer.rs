@@ -92,55 +92,180 @@ pub fn list(ws: &Workspace) -> Vec<EntitySummary> {
     out
 }
 
-/// Ferme une sélection : ce qui doit accompagner chaque entité choisie.
-pub fn closure(ws: &Workspace, ids: &[Uuid]) -> BTreeSet<Uuid> {
-    let mut set: BTreeSet<Uuid> = ids.iter().copied().collect();
-    let mut queue: Vec<Uuid> = ids.to_vec();
-    while let Some(id) = queue.pop() {
-        if let Some(h) = ws.host(id) {
-            let mut g = h.group_id;
-            while let Some(gid) = g {
-                if !set.insert(gid) {
-                    break;
-                }
-                g = ws.groups.iter().find(|x| x.id == gid).and_then(|x| x.parent_id);
-            }
-            if let crate::model::AuthMethod::PrivateKey { key_id: Some(k), .. } = &h.auth {
-                set.insert(*k);
-            }
-        } else if ws.groups.iter().any(|g| g.id == id) {
-            // Sous-arbre : dossiers enfants et hôtes/connexions rangés dedans.
-            for child in ws.groups.iter().filter(|g| g.parent_id == Some(id)) {
-                if set.insert(child.id) {
-                    queue.push(child.id);
-                }
-            }
-            for h in ws.hosts.iter().filter(|h| h.group_id == Some(id)) {
-                if set.insert(h.id) {
-                    queue.push(h.id);
-                }
-            }
-            for c in ws.sql_connections.iter().filter(|c| c.group_id == Some(id)) {
-                set.insert(c.id);
-            }
-            // Et la chaîne des parents, pour que le dossier arrive à sa place.
-            let mut g = ws.groups.iter().find(|x| x.id == id).and_then(|x| x.parent_id);
-            while let Some(gid) = g {
-                if !set.insert(gid) {
-                    break;
-                }
-                g = ws.groups.iter().find(|x| x.id == gid).and_then(|x| x.parent_id);
-            }
-        }
-    }
-    set
+/// Une entité qui en accompagne une autre, et pourquoi. `required` : sans
+/// elle l'arrivée serait incohérente (un hôte rangé dans un dossier qui
+/// n'existe pas là-bas, un dossier vidé de son contenu) — elle suit sans
+/// qu'on demande. Le reste (clé, icône, bastion, relais Docker, hôte d'un
+/// tunnel) est proposé coché, et se décoche : on peut vouloir partager un
+/// hôte sans partager son bastion.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Follower {
+    pub entity: EntitySummary,
+    /// « dossier de « web-01 » », « bastion de « db-1 » »…
+    pub reason: String,
+    pub required: bool,
 }
 
-/// Déplace `ids` (fermés par [`closure`]) de `from` vers `to`. Dans `to`,
-/// l'affiliation est `vault` (un vault partagé) ou aucune (personnel /
-/// local). Rend le nombre d'entités déplacées.
-pub fn transfer(from: &mut Workspace, to: &mut Workspace, ids: &[Uuid], vault: Option<VaultId>) -> usize {
-    let set = closure(from, ids);
+/// Ce qu'une sélection emmène, pour que le panneau le montre avant d'agir.
+#[derive(Debug, Clone, Default, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Plan {
+    pub followers: Vec<Follower>,
+}
+
+fn summary_of(ws: &Workspace, id: Uuid) -> Option<EntitySummary> {
+    if let Some(e) = list(ws).into_iter().find(|e| e.id == id) {
+        return Some(e);
+    }
+    ws.custom_icons
+        .iter()
+        .find(|i| entity::icon_uuid(i) == Some(id))
+        .map(|i| EntitySummary { id, kind: "icon", name: i.name.clone(), path: String::new(), parent_id: None, vault_id: ws.vault_bindings.get(&id).copied() })
+}
+
+fn folder_chain(ws: &Workspace, mut group_id: Option<Uuid>) -> Vec<Uuid> {
+    let mut out = Vec::new();
+    let mut seen = BTreeSet::new();
+    while let Some(gid) = group_id {
+        if !seen.insert(gid) {
+            break;
+        }
+        out.push(gid);
+        group_id = ws.groups.iter().find(|x| x.id == gid).and_then(|x| x.parent_id);
+    }
+    out
+}
+
+fn icon_dep(ws: &Workspace, icon: &Option<String>, owner: &str) -> Option<(Uuid, String, bool, Reach)> {
+    let id = icon.as_deref()?;
+    let icon = ws.custom_icons.iter().find(|i| i.id == id)?;
+    Some((entity::icon_uuid(icon)?, format!("icône de « {owner} »"), false, Reach::Full))
+}
+
+/// Un dossier suit de deux façons : **plein** (choisi, ou contenu d'un
+/// dossier choisi — son contenu vient avec lui) ou **en chaîne** (ancêtre
+/// d'une entité choisie : il vient pour qu'elle soit rangée à sa place, mais
+/// ce qu'il contient d'autre reste où il est).
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum Reach {
+    Full,
+    Chain,
+}
+
+/// Les dépendances directes d'une entité : `(id, raison, obligatoire, portée)`.
+fn dependencies(ws: &Workspace, id: Uuid, reach: Reach) -> Vec<(Uuid, String, bool, Reach)> {
+    let mut out = Vec::new();
+    if let Some(h) = ws.host(id) {
+        let name = &h.label;
+        for g in folder_chain(ws, h.group_id) {
+            out.push((g, format!("dossier de « {name} »"), true, Reach::Chain));
+        }
+        if let crate::model::AuthMethod::PrivateKey { key_id: Some(k), .. } = &h.auth
+            && ws.keychain.iter().any(|x| x.id == *k)
+        {
+            out.push((*k, format!("clé de « {name} »"), false, Reach::Full));
+        }
+        out.extend(icon_dep(ws, &h.icon, name));
+        for j in h.jump_via.iter().filter(|j| ws.host(**j).is_some()) {
+            out.push((*j, format!("bastion de « {name} »"), false, Reach::Full));
+        }
+        if let Some(d) = h.docker_via_host_id.filter(|d| ws.host(*d).is_some()) {
+            out.push((d, format!("relais Docker de « {name} »"), false, Reach::Full));
+        }
+    } else if let Some(g) = ws.groups.iter().find(|g| g.id == id) {
+        let name = &g.name;
+        for p in folder_chain(ws, g.parent_id) {
+            out.push((p, format!("dossier parent de « {name} »"), true, Reach::Chain));
+        }
+        if reach == Reach::Full {
+            for child in ws.groups.iter().filter(|x| x.parent_id == Some(id)) {
+                out.push((child.id, format!("contenu du dossier « {name} »"), true, Reach::Full));
+            }
+            for h in ws.hosts.iter().filter(|h| h.group_id == Some(id)) {
+                out.push((h.id, format!("contenu du dossier « {name} »"), true, Reach::Full));
+            }
+            for c in ws.sql_connections.iter().filter(|c| c.group_id == Some(id)) {
+                out.push((c.id, format!("contenu du dossier « {name} »"), true, Reach::Full));
+            }
+        }
+        out.extend(icon_dep(ws, &g.icon, name));
+    } else if let Some(c) = ws.sql_connections.iter().find(|c| c.id == id) {
+        let name = &c.label;
+        for g in folder_chain(ws, c.group_id) {
+            out.push((g, format!("dossier de « {name} »"), true, Reach::Chain));
+        }
+        if let Some(crate::model::DbTunnel::SshHost { host_id }) = c.config.tunnel()
+            && ws.host(*host_id).is_some()
+        {
+            out.push((*host_id, format!("hôte du tunnel de « {name} »"), false, Reach::Full));
+        }
+    }
+    out
+}
+
+/// Parcourt les dépendances depuis `ids`, en ne suivant que celles que
+/// `follow` accepte ; rend l'ensemble (sélection comprise) et, pour chaque
+/// suiveur, la première raison rencontrée. Un dossier atteint en chaîne
+/// puis en plein est revisité en plein (son contenu suit alors).
+fn walk(ws: &Workspace, ids: &[Uuid], follow: impl Fn(&EntitySummary, bool) -> bool) -> (BTreeSet<Uuid>, Vec<Follower>) {
+    let mut set: BTreeSet<Uuid> = ids.iter().copied().collect();
+    let mut full: BTreeSet<Uuid> = ids.iter().copied().collect();
+    let mut followers = Vec::new();
+    let mut queue: Vec<(Uuid, Reach)> = ids.iter().map(|id| (*id, Reach::Full)).collect();
+    while let Some((id, reach)) = queue.pop() {
+        for (dep, reason, required, dep_reach) in dependencies(ws, id, reach) {
+            let upgrade = dep_reach == Reach::Full && set.contains(&dep) && full.insert(dep);
+            if set.contains(&dep) && !upgrade {
+                continue;
+            }
+            if !upgrade {
+                let Some(entity) = summary_of(ws, dep) else { continue };
+                if !follow(&entity, required) {
+                    continue;
+                }
+                set.insert(dep);
+                if dep_reach == Reach::Full {
+                    full.insert(dep);
+                }
+                followers.push(Follower { entity, reason, required });
+            }
+            queue.push((dep, dep_reach));
+        }
+    }
+    (set, followers)
+}
+
+/// Tout ce que `ids` emmènerait, obligatoire et facultatif — de proche en
+/// proche (le bastion d'un hôte emmène son propre dossier et sa clé). C'est
+/// ce que le panneau montre à confirmer.
+pub fn plan(ws: &Workspace, ids: &[Uuid]) -> Plan {
+    let (_, mut followers) = walk(ws, ids, |_, _| true);
+    // Obligatoires d'abord, puis par raison : lisible tel quel.
+    followers.sort_by(|a, b| b.required.cmp(&a.required).then_with(|| a.reason.cmp(&b.reason)).then_with(|| a.entity.name.cmp(&b.entity.name)));
+    Plan { followers }
+}
+
+/// La fermeture **minimale** : la sélection et ce qui doit la suivre
+/// (chaînes de dossiers, contenu d'un dossier) — rien d'autre. C'est ce
+/// qu'on applique après que l'utilisateur a décidé des facultatifs.
+pub fn required_closure(ws: &Workspace, ids: &[Uuid]) -> BTreeSet<Uuid> {
+    walk(ws, ids, |_, required| required).0
+}
+
+/// La fermeture **sans question** : l'obligatoire, plus la clé et l'icône de
+/// chaque hôte — ce que le formulaire d'hôte applique quand il change de
+/// vault, sans étape de confirmation. Jamais un bastion, un relais ou un
+/// hôte de tunnel : ceux-là se demandent.
+pub fn closure(ws: &Workspace, ids: &[Uuid]) -> BTreeSet<Uuid> {
+    walk(ws, ids, |e, required| required || e.kind == "key" || e.kind == "icon").0
+}
+
+/// Déplace `set` (une sélection déjà fermée par [`closure`] ou
+/// [`required_closure`]) de `from` vers `to`. Dans `to`, l'affiliation est
+/// `vault` (un vault partagé) ou aucune (personnel / local). Rend le nombre
+/// d'entités déplacées.
+pub fn transfer(from: &mut Workspace, to: &mut Workspace, set: &BTreeSet<Uuid>, vault: Option<VaultId>) -> usize {
     let mut moved = 0;
     macro_rules! move_list {
         ($field:ident, $id:ident) => {{
@@ -158,7 +283,15 @@ pub fn transfer(from: &mut Workspace, to: &mut Workspace, ids: &[Uuid], vault: O
     move_list!(keychain, id);
     move_list!(snippets, id);
     move_list!(sql_connections, id);
-    for id in &set {
+    // Les icônes : par id textuel, et jamais retirées de l'origine — une
+    // icône est un décor partagé par tout ce qui la référence.
+    for icon in from.custom_icons.iter().filter(|i| entity::icon_uuid(i).is_some_and(|u| set.contains(&u))) {
+        if !to.custom_icons.iter().any(|i| i.id == icon.id) {
+            to.custom_icons.push(icon.clone());
+            moved += 1;
+        }
+    }
+    for id in set {
         from.vault_bindings.remove(id);
         match vault {
             Some(v) => {
@@ -180,8 +313,7 @@ pub fn transfer(from: &mut Workspace, to: &mut Workspace, ids: &[Uuid], vault: O
 /// nouveaux ids ; une référence vers une entité non copiée est laissée
 /// telle quelle. Les secrets sont dupliqués via les charges utiles de
 /// [`entity`], qui les lisent et les réécrivent dans le coffre local.
-pub fn copy_between(from: &Workspace, to: &mut Workspace, ids: &[Uuid], vault: Option<VaultId>) -> anyhow::Result<usize> {
-    let set = closure(from, ids);
+pub fn copy_between(from: &Workspace, to: &mut Workspace, set: &BTreeSet<Uuid>, vault: Option<VaultId>) -> anyhow::Result<usize> {
     // `collect` veut un vault « personnel » pour les entités sans
     // affiliation : sans importance ici, seul le JSON compte.
     let payloads: Vec<String> = entity::collect(from, Uuid::nil())?
@@ -221,9 +353,8 @@ pub fn copy_between(from: &Workspace, to: &mut Workspace, ids: &[Uuid], vault: O
 /// n'ont pas, ou rangé dans un dossier qui n'existe pas chez eux. Vers le
 /// personnel, le sous-arbre suit aussi : un dossier ne reste pas partagé avec
 /// un hôte personnel dedans. Rend le nombre d'entités concernées.
-pub fn move_within(ws: &mut Workspace, ids: &[Uuid], vault: Option<VaultId>) -> usize {
-    let set = closure(ws, ids);
-    for id in &set {
+pub fn move_within(ws: &mut Workspace, ids: &[Uuid], set: &BTreeSet<Uuid>, vault: Option<VaultId>) -> usize {
+    for id in set {
         match vault {
             Some(v) => {
                 if ids.contains(id) {
@@ -240,9 +371,21 @@ pub fn move_within(ws: &mut Workspace, ids: &[Uuid], vault: Option<VaultId>) -> 
     set.len()
 }
 
-/// Les vaults partagés d'où `ids` (fermés) sortiraient, dans `ws`.
-fn source_vaults(ws: &Workspace, ids: &[Uuid]) -> BTreeSet<VaultId> {
-    closure(ws, ids).iter().filter_map(|id| ws.vault_bindings.get(id).copied()).collect()
+/// Les vaults partagés d'où `set` sortirait, dans `ws`.
+fn source_vaults(ws: &Workspace, set: &BTreeSet<Uuid>) -> BTreeSet<VaultId> {
+    set.iter().filter_map(|id| ws.vault_bindings.get(id).copied()).collect()
+}
+
+/// Une demande de déplacement ou de copie, telle que le panneau la formule.
+#[derive(Debug, Clone, Copy)]
+pub struct Move<'a> {
+    pub ids: &'a [Uuid],
+    pub from: Place,
+    pub to: Place,
+    pub copy: bool,
+    /// `ids` contient déjà les facultatifs gardés après le [`plan`] — seul
+    /// l'obligatoire s'y ajoute. Sinon, la fermeture sans question.
+    pub exact: bool,
 }
 
 /// **Le seul point d'entrée** pour déplacer ou copier une sélection entre
@@ -255,15 +398,8 @@ fn source_vaults(ws: &Workspace, ids: &[Uuid]) -> BTreeSet<VaultId> {
 /// lecture seule la ferait juste revenir à la synchro suivante). Une copie
 /// ne retire rien, donc ne demande rien au départ. Rend le nombre d'entités
 /// déplacées ou copiées.
-pub fn apply(
-    local: &mut Workspace,
-    account: &mut Workspace,
-    ids: &[Uuid],
-    from: Place,
-    to: Place,
-    copy: bool,
-    can_write: impl Fn(VaultId) -> bool,
-) -> anyhow::Result<usize> {
+pub fn apply(local: &mut Workspace, account: &mut Workspace, mv: Move<'_>, can_write: impl Fn(VaultId) -> bool) -> anyhow::Result<usize> {
+    let Move { ids, from, to, copy, exact } = mv;
     if ids.is_empty() {
         return Ok(0);
     }
@@ -272,9 +408,14 @@ pub fn apply(
     {
         anyhow::bail!("pas de droit d'écriture dans le vault de destination");
     }
+    let source = match from {
+        Place::Local => &*local,
+        Place::Account { .. } => &*account,
+    };
+    let set = if exact { required_closure(source, ids) } else { closure(source, ids) };
     if !copy
         && matches!(from, Place::Account { .. })
-        && source_vaults(account, ids).into_iter().any(|v| !can_write(v))
+        && source_vaults(account, &set).into_iter().any(|v| !can_write(v))
     {
         anyhow::bail!("une des entités vient d'un vault en lecture seule : impossible de l'en retirer");
     }
@@ -282,16 +423,16 @@ pub fn apply(
         (Place::Local, Place::Local) => anyhow::bail!("l'origine et la destination sont toutes deux le profil local"),
         (Place::Local, Place::Account { vault_id }) => {
             if copy {
-                copy_between(local, account, ids, vault_id)
+                copy_between(local, account, &set, vault_id)
             } else {
-                Ok(transfer(local, account, ids, vault_id))
+                Ok(transfer(local, account, &set, vault_id))
             }
         }
         (Place::Account { .. }, Place::Local) => {
             if copy {
-                copy_between(account, local, ids, None)
+                copy_between(account, local, &set, None)
             } else {
-                Ok(transfer(account, local, ids, None))
+                Ok(transfer(account, local, &set, None))
             }
         }
         (Place::Account { vault_id: src }, Place::Account { vault_id }) => {
@@ -302,9 +443,9 @@ pub fn apply(
                 // Copier dans le même workspace : la source est figée le temps
                 // de la copie (les nouveaux ids n'entrent pas en collision).
                 let snapshot = account.clone();
-                copy_between(&snapshot, account, ids, vault_id)
+                copy_between(&snapshot, account, &set, vault_id)
             } else {
-                Ok(move_within(account, ids, vault_id))
+                Ok(move_within(account, ids, &set, vault_id))
             }
         }
     }
@@ -330,7 +471,7 @@ mod tests {
         let mut to = Workspace::default();
         // Copier db1 seul : son dossier suit, son bastion (référencé mais
         // hors fermeture) ne suit pas et garde son id d'origine.
-        assert_eq!(copy_between(&ws, &mut to, &[h.id], None).unwrap(), 2);
+        assert_eq!(copy_between(&ws, &mut to, &closure(&ws, &[h.id]), None).unwrap(), 2);
         assert_eq!(ws.hosts.len(), 2, "l'original reste");
         let copied = to.hosts.iter().find(|x| x.label == "db1").unwrap();
         assert_ne!(copied.id, h.id);
@@ -358,7 +499,8 @@ mod tests {
 
         let mut to = Workspace::default();
         let v = Uuid::new_v4();
-        assert_eq!(transfer(&mut ws, &mut to, &[h.id], Some(v)), 3);
+        let set = closure(&ws, &[h.id]);
+        assert_eq!(transfer(&mut ws, &mut to, &set, Some(v)), 3);
         assert_eq!(ws.hosts.len(), 1);
         assert_eq!(ws.hosts[0].id, lone.id);
         assert!(ws.groups.is_empty());
@@ -427,7 +569,7 @@ mod tests {
     #[test]
     fn local_to_shared_vault_moves_and_binds() {
         let mut f = fixture();
-        let n = apply(&mut f.local, &mut f.account, &[f.local_host], Place::Local, Place::Account { vault_id: Some(f.infra) }, false, can_write(f.infra)).unwrap();
+        let n = apply(&mut f.local, &mut f.account, Move { ids: &[f.local_host], from: Place::Local, to: Place::Account { vault_id: Some(f.infra) }, copy: false, exact: false }, can_write(f.infra)).unwrap();
         assert_eq!(n, 1);
         assert!(f.local.hosts.is_empty(), "déplacé, pas copié");
         assert_eq!(f.account.vault_bindings.get(&f.local_host), Some(&f.infra));
@@ -436,7 +578,7 @@ mod tests {
     #[test]
     fn local_to_read_only_vault_is_refused() {
         let mut f = fixture();
-        let err = apply(&mut f.local, &mut f.account, &[f.local_host], Place::Local, Place::Account { vault_id: Some(f.lecture) }, false, can_write(f.infra)).unwrap_err();
+        let err = apply(&mut f.local, &mut f.account, Move { ids: &[f.local_host], from: Place::Local, to: Place::Account { vault_id: Some(f.lecture) }, copy: false, exact: false }, can_write(f.infra)).unwrap_err();
         assert!(err.to_string().contains("destination"), "{err}");
         assert_eq!(f.local.hosts.len(), 1, "rien n'a bougé");
     }
@@ -444,7 +586,7 @@ mod tests {
     #[test]
     fn personal_to_shared_takes_the_folder_along() {
         let mut f = fixture();
-        let n = apply(&mut f.local, &mut f.account, &[f.host], Place::Account { vault_id: None }, Place::Account { vault_id: Some(f.infra) }, false, can_write(f.infra)).unwrap();
+        let n = apply(&mut f.local, &mut f.account, Move { ids: &[f.host], from: Place::Account { vault_id: None }, to: Place::Account { vault_id: Some(f.infra) }, copy: false, exact: false }, can_write(f.infra)).unwrap();
         assert_eq!(n, 2, "l'hôte et son dossier");
         assert_eq!(f.account.vault_bindings.get(&f.host), Some(&f.infra));
         assert_eq!(f.account.vault_bindings.get(&f.folder), Some(&f.infra));
@@ -456,7 +598,7 @@ mod tests {
         let mut f = fixture();
         f.account.vault_bindings.insert(f.host, f.infra);
         f.account.vault_bindings.insert(f.folder, f.infra);
-        apply(&mut f.local, &mut f.account, &[f.folder], Place::Account { vault_id: Some(f.infra) }, Place::Account { vault_id: None }, false, can_write(f.infra)).unwrap();
+        apply(&mut f.local, &mut f.account, Move { ids: &[f.folder], from: Place::Account { vault_id: Some(f.infra) }, to: Place::Account { vault_id: None }, copy: false, exact: false }, can_write(f.infra)).unwrap();
         assert!(!f.account.vault_bindings.contains_key(&f.folder));
         assert!(!f.account.vault_bindings.contains_key(&f.host), "l'hôte du dossier suit");
     }
@@ -464,18 +606,18 @@ mod tests {
     #[test]
     fn same_vault_is_refused() {
         let mut f = fixture();
-        let err = apply(&mut f.local, &mut f.account, &[f.host], Place::Account { vault_id: None }, Place::Account { vault_id: None }, false, can_write(f.infra)).unwrap_err();
+        let err = apply(&mut f.local, &mut f.account, Move { ids: &[f.host], from: Place::Account { vault_id: None }, to: Place::Account { vault_id: None }, copy: false, exact: false }, can_write(f.infra)).unwrap_err();
         assert!(err.to_string().contains("même vault"), "{err}");
     }
 
     #[test]
     fn moving_out_of_read_only_vault_is_refused_but_copying_is_allowed() {
         let mut f = fixture();
-        let err = apply(&mut f.local, &mut f.account, &[f.read_only_host], Place::Account { vault_id: Some(f.lecture) }, Place::Local, false, can_write(f.infra)).unwrap_err();
+        let err = apply(&mut f.local, &mut f.account, Move { ids: &[f.read_only_host], from: Place::Account { vault_id: Some(f.lecture) }, to: Place::Local, copy: false, exact: false }, can_write(f.infra)).unwrap_err();
         assert!(err.to_string().contains("lecture seule"), "{err}");
         assert_eq!(f.account.hosts.len(), 2);
 
-        let n = apply(&mut f.local, &mut f.account, &[f.read_only_host], Place::Account { vault_id: Some(f.lecture) }, Place::Local, true, can_write(f.infra)).unwrap();
+        let n = apply(&mut f.local, &mut f.account, Move { ids: &[f.read_only_host], from: Place::Account { vault_id: Some(f.lecture) }, to: Place::Local, copy: true, exact: false }, can_write(f.infra)).unwrap();
         assert_eq!(n, 1);
         assert_eq!(f.account.hosts.len(), 2, "la copie ne retire rien");
         let copied = f.local.hosts.iter().find(|h| h.label == "banque").expect("copié en local");
@@ -486,7 +628,7 @@ mod tests {
     #[test]
     fn copy_between_two_vaults_of_the_account_duplicates_under_new_ids() {
         let mut f = fixture();
-        let n = apply(&mut f.local, &mut f.account, &[f.host], Place::Account { vault_id: None }, Place::Account { vault_id: Some(f.infra) }, true, can_write(f.infra)).unwrap();
+        let n = apply(&mut f.local, &mut f.account, Move { ids: &[f.host], from: Place::Account { vault_id: None }, to: Place::Account { vault_id: Some(f.infra) }, copy: true, exact: false }, can_write(f.infra)).unwrap();
         assert_eq!(n, 2, "l'hôte et son dossier, copiés");
         assert_eq!(f.account.hosts.len(), 3);
         assert_eq!(f.account.groups.len(), 2);
@@ -501,7 +643,7 @@ mod tests {
     #[test]
     fn account_to_local_moves_the_host_with_its_folder() {
         let mut f = fixture();
-        let n = apply(&mut f.local, &mut f.account, &[f.host], Place::Account { vault_id: None }, Place::Local, false, can_write(f.infra)).unwrap();
+        let n = apply(&mut f.local, &mut f.account, Move { ids: &[f.host], from: Place::Account { vault_id: None }, to: Place::Local, copy: false, exact: false }, can_write(f.infra)).unwrap();
         assert_eq!(n, 2);
         assert_eq!(f.local.hosts.len(), 2);
         assert_eq!(f.local.groups.len(), 1);
@@ -511,8 +653,8 @@ mod tests {
     #[test]
     fn local_to_local_and_empty_selection() {
         let mut f = fixture();
-        assert!(apply(&mut f.local, &mut f.account, &[f.local_host], Place::Local, Place::Local, false, can_write(f.infra)).is_err());
-        assert_eq!(apply(&mut f.local, &mut f.account, &[], Place::Local, Place::Account { vault_id: None }, false, can_write(f.infra)).unwrap(), 0);
+        assert!(apply(&mut f.local, &mut f.account, Move { ids: &[f.local_host], from: Place::Local, to: Place::Local, copy: false, exact: false }, can_write(f.infra)).is_err());
+        assert_eq!(apply(&mut f.local, &mut f.account, Move { ids: &[], from: Place::Local, to: Place::Account { vault_id: None }, copy: false, exact: false }, can_write(f.infra)).unwrap(), 0);
     }
 
     #[test]
@@ -525,5 +667,130 @@ mod tests {
         let folder = entries.iter().find(|e| e.id == f.folder).unwrap();
         assert_eq!(folder.parent_id, None);
         assert_eq!(folder.kind, "group");
+    }
+
+    // ── `plan` : ce qui suit, obligatoire ou proposé ──────────────────────
+    //
+    // Prod/ contient db1 (clé « deploy », icône « logo », bastion « jump »
+    // rangé dans Accès/) et web1 ; Bases/Catalogue passe par un tunnel sur
+    // db1.
+    struct Graph {
+        ws: Workspace,
+        prod: Uuid,
+        acces: Uuid,
+        db1: Uuid,
+        web1: Uuid,
+        jump: Uuid,
+        key: Uuid,
+        icon: Uuid,
+        catalogue: Uuid,
+    }
+
+    fn graph() -> Graph {
+        use crate::model::{AuthMethod, CustomIcon, DbTunnel, EngineConfig, PrivateKey, SqlConnection, SqlEngine};
+        let mut ws = Workspace::default();
+        let prod = Group { id: Uuid::new_v4(), name: "Prod".into(), parent_id: None, icon: None, color: None };
+        let acces = Group { id: Uuid::new_v4(), name: "Accès".into(), parent_id: None, icon: None, color: None };
+        let bases = Group { id: Uuid::new_v4(), name: "Bases".into(), parent_id: None, icon: None, color: None };
+        let key = PrivateKey { id: Uuid::new_v4(), name: "deploy".into(), path: "~/.ssh/deploy".into(), content: None };
+        let icon_id = Uuid::new_v4();
+        ws.custom_icons.push(CustomIcon { id: icon_id.to_string(), name: "logo".into(), data_url: "data:,x".into() });
+        let mut jump = Host::new("jump", "10.0.0.1", "ops");
+        jump.group_id = Some(acces.id);
+        let mut db1 = Host::new("db1", "10.0.0.2", "root");
+        db1.group_id = Some(prod.id);
+        db1.auth = AuthMethod::PrivateKey { path: String::new(), key_id: Some(key.id), cert_path: None };
+        db1.icon = Some(icon_id.to_string());
+        db1.jump_via = vec![jump.id];
+        let mut web1 = Host::new("web1", "10.0.0.3", "root");
+        web1.group_id = Some(prod.id);
+        let mut catalogue = SqlConnection::new_server("Catalogue", SqlEngine::Postgres, "127.0.0.1", "app");
+        catalogue.group_id = Some(bases.id);
+        if let EngineConfig::Postgres(c) = &mut catalogue.config {
+            c.tunnel = DbTunnel::SshHost { host_id: db1.id };
+        }
+        ws.groups.extend([prod.clone(), acces.clone(), bases]);
+        ws.keychain.push(key.clone());
+        ws.hosts.extend([jump.clone(), db1.clone(), web1.clone()]);
+        ws.sql_connections.push(catalogue.clone());
+        Graph { ws, prod: prod.id, acces: acces.id, db1: db1.id, web1: web1.id, jump: jump.id, key: key.id, icon: icon_id, catalogue: catalogue.id }
+    }
+
+    #[test]
+    fn plan_lists_required_and_optional_followers_with_reasons() {
+        let g = graph();
+        let plan = plan(&g.ws, &[g.db1]);
+        let by_id: std::collections::BTreeMap<Uuid, &Follower> = plan.followers.iter().map(|f| (f.entity.id, f)).collect();
+        assert_eq!(by_id[&g.prod].reason, "dossier de « db1 »");
+        assert!(by_id[&g.prod].required);
+        assert!(!by_id[&g.key].required);
+        assert_eq!(by_id[&g.key].reason, "clé de « db1 »");
+        assert_eq!(by_id[&g.icon].kind_of(), "icon");
+        assert_eq!(by_id[&g.icon].reason, "icône de « db1 »");
+        assert_eq!(by_id[&g.jump].reason, "bastion de « db1 »");
+        // Le bastion emmène son dossier, en chaîne (obligatoire pour lui).
+        assert_eq!(by_id[&g.acces].reason, "dossier de « jump »");
+        assert!(by_id[&g.acces].required);
+        // Le dossier Prod suit en chaîne : web1, qui y est aussi, ne suit pas.
+        assert!(!by_id.contains_key(&g.web1), "{:?}", plan.followers.iter().map(|f| &f.entity.name).collect::<Vec<_>>());
+        // Les obligatoires viennent en tête.
+        let first_optional = plan.followers.iter().position(|f| !f.required).unwrap();
+        assert!(plan.followers[..first_optional].iter().all(|f| f.required));
+    }
+
+    impl Follower {
+        fn kind_of(&self) -> &'static str {
+            self.entity.kind
+        }
+    }
+
+    #[test]
+    fn a_connection_proposes_its_tunnel_host() {
+        let g = graph();
+        let plan = plan(&g.ws, &[g.catalogue]);
+        let tunnel = plan.followers.iter().find(|f| f.entity.id == g.db1).expect("hôte du tunnel");
+        assert_eq!(tunnel.reason, "hôte du tunnel de « Catalogue »");
+        assert!(!tunnel.required);
+        // Et de proche en proche : la clé de cet hôte est proposée aussi.
+        assert!(plan.followers.iter().any(|f| f.entity.id == g.key));
+    }
+
+    #[test]
+    fn a_chosen_folder_takes_its_content_but_a_chained_one_does_not() {
+        let g = graph();
+        let chosen = required_closure(&g.ws, &[g.prod]);
+        assert!(chosen.contains(&g.db1) && chosen.contains(&g.web1), "contenu du dossier choisi");
+        assert!(!chosen.contains(&g.jump) && !chosen.contains(&g.key), "l'obligatoire seul");
+        let chained = required_closure(&g.ws, &[g.db1]);
+        assert_eq!(chained, [g.db1, g.prod].into_iter().collect());
+    }
+
+    #[test]
+    fn closure_without_question_takes_key_and_icon_but_never_a_bastion() {
+        let g = graph();
+        let set = closure(&g.ws, &[g.db1]);
+        assert_eq!(set, [g.db1, g.prod, g.key, g.icon].into_iter().collect());
+    }
+
+    #[test]
+    fn exact_apply_moves_only_what_was_kept_and_icons_are_copied_not_removed() {
+        let mut g = graph();
+        let mut local = Workspace::default();
+        let v = Uuid::new_v4();
+        // L'utilisateur a gardé l'icône et décoché la clé et le bastion.
+        let n = apply(&mut local, &mut g.ws, Move { ids: &[g.db1, g.icon], from: Place::Account { vault_id: None }, to: Place::Account { vault_id: Some(v) }, copy: false, exact: true }, |x| x == v).unwrap();
+        assert_eq!(n, 3, "db1, Prod, l'icône");
+        assert_eq!(g.ws.vault_bindings.get(&g.db1), Some(&v));
+        assert_eq!(g.ws.vault_bindings.get(&g.icon), Some(&v));
+        assert!(!g.ws.vault_bindings.contains_key(&g.key), "décochée");
+        assert!(!g.ws.vault_bindings.contains_key(&g.jump), "décoché");
+
+        // Vers l'appareil : l'icône est copiée, l'origine la garde (web1
+        // pourrait encore la porter).
+        let n = apply(&mut local, &mut g.ws, Move { ids: &[g.db1, g.icon], from: Place::Account { vault_id: Some(v) }, to: Place::Local, copy: false, exact: true }, |x| x == v).unwrap();
+        assert_eq!(n, 3);
+        assert_eq!(local.custom_icons.len(), 1);
+        assert_eq!(g.ws.custom_icons.len(), 1, "l'icône reste aussi à l'origine");
+        assert!(local.hosts.iter().any(|h| h.id == g.db1));
     }
 }

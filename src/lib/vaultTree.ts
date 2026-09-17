@@ -34,7 +34,7 @@ import type { GuiVaultEntity, GuiVaultEntityKind } from "./types";
  */
 
 export const KIND_LABELS: Record<GuiVaultEntityKind, string> = {
-  host: "hôte", group: "dossier", snippet: "snippet", key: "clé", "sql-connection": "connexion",
+  host: "hôte", group: "dossier", snippet: "snippet", key: "clé", "sql-connection": "connexion", icon: "icône",
 };
 
 /** Un emplacement à afficher comme un dossier de premier niveau. */

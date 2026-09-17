@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { CustomIcon, Group, GroupId, Host, HostId } from "../lib/types";
 import { buildHostTree } from "../lib/hostTree";
 import { hostKindMeta } from "../lib/hostKinds";
-import { HostIcon } from "./icons";
+import { HostIcon, hasIcon } from "./icons";
 import { IconChevronDown, IconChevronRight, IconFolder, IconHosts, IconSearch, IconCheck } from "./ui-icons";
 import { useModalSurface } from "../hooks/useModalSurface";
 
@@ -161,7 +161,7 @@ export function HostTreeList({
             className="flex min-w-0 flex-1 items-start gap-2 py-1.5 text-left"
           >
             <span className="mt-0.5 flex h-4 w-4 shrink-0 items-center justify-center">
-              {host.icon
+              {hasIcon(host.icon, customIcons)
                 ? <HostIcon iconId={host.icon} customIcons={customIcons} size={14} />
                 : <IconHosts size={12} className="text-[var(--c-text-muted)]" />}
             </span>
@@ -210,7 +210,7 @@ export function HostTreeList({
             <span className="shrink-0 text-[var(--c-text-faint)]">
               {expanded ? <IconChevronDown size={11} /> : <IconChevronRight size={11} />}
             </span>
-            {group.icon
+            {hasIcon(group.icon, customIcons)
               ? <HostIcon iconId={group.icon} customIcons={customIcons} size={13} />
               : <IconFolder size={12} className="shrink-0 text-[var(--c-text-muted)]" />}
             <span className="truncate text-[11.5px] font-medium uppercase tracking-wide text-[var(--c-text-secondary)]">
@@ -353,7 +353,7 @@ export function HostTreePicker({
         <span className="flex min-w-0 items-center gap-1.5 truncate">
           {selectedHost ? (
             <>
-              {selectedHost.icon
+              {hasIcon(selectedHost.icon, customIcons)
                 ? <HostIcon iconId={selectedHost.icon} customIcons={customIcons} size={13} />
                 : <IconHosts size={12} className="shrink-0 text-[var(--c-text-muted)]" />}
               <span className="truncate">{selectedHost.label}</span>

@@ -210,6 +210,16 @@ const responses: Record<string, Invoke> = {
     ];
   },
   guivault_transfer_entities: async (_cmd, args) => ((args as { ids?: string[] })?.ids ?? []).length,
+  // Ce qui suivrait un transfert : un dossier obligatoire, une clé, une
+  // icône et un bastion proposés — de quoi voir les deux niveaux.
+  guivault_transfer_plan: async () => ({
+    followers: [
+      { entity: { id: "e-1", kind: "group", name: "Production", path: "", parentId: null, vaultId: "v-infra" }, reason: "dossier de « web-01 »", required: true },
+      { entity: { id: "e-4", kind: "key", name: "deploy-ed25519", path: "", parentId: null, vaultId: "v-infra" }, reason: "clé de « web-01 »", required: false },
+      { entity: { id: "i-1", kind: "icon", name: "logo-nginx", path: "", parentId: null, vaultId: "v-infra" }, reason: "icône de « web-01 »", required: false },
+      { entity: { id: "e-11", kind: "host", name: "bastion-infra", path: "Accès", parentId: null, vaultId: "v-infra" }, reason: "bastion de « web-01 »", required: false },
+    ],
+  }),
   guivault_delete_entities: async () => workspace,
   guivault_sessions: async () => [
     { id: "s-1", deviceName: "Guiterm sur poste-alice", createdAt: new Date().toISOString(), lastUsedAt: new Date().toISOString(), current: true },

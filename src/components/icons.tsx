@@ -126,6 +126,16 @@ const CATEGORY_LABELS: Record<BuiltinIconDef["category"], string> = {
 
 export { CATEGORY_LABELS };
 
+/** Est-ce que cet id désigne une icône qu'on sait dessiner ici ? `false`
+ * pour une icône personnalisée absente de ce workspace — un hôte arrivé
+ * d'un autre profil ou d'un vault GuiVault sans son icône. Les listes s'en
+ * servent pour retomber sur l'icône du genre d'hôte plutôt que de laisser
+ * une case vide (bug du 2026-09-17). */
+export function hasIcon(iconId: string | null | undefined, customIcons: CustomIcon[]): boolean {
+  if (!iconId) return false;
+  return BUILTIN_ICONS.some((i) => i.id === iconId) || customIcons.some((i) => i.id === iconId);
+}
+
 // Renders any icon by ID (builtin or custom)
 export function HostIcon({
   iconId,

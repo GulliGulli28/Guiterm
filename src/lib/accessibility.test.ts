@@ -78,6 +78,8 @@ describe("sémantique des fenêtres modales", () => {
     // sont les mêmes, c'est le parent DOM qui diffère.
     "components/RunbookApprovalModal.tsx",
     "components/SshAuthPromptModal.tsx",
+    // « Ces entités suivront » — la confirmation d'un transfert de vault.
+    "components/TransferConfirmDialog.tsx",
     // Pas un fichier « Modal » : l'onglet de transfert porte la boîte qui
     // demande quoi faire d'un nom déjà pris à destination. Listé ici pour la
     // même raison que les autres — la liste s'appuie sur le hook, pas sur le

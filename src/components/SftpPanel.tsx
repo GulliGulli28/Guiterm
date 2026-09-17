@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
 import { api } from "../lib/api";
 import type { Group, GroupId, Host, Workspace } from "../lib/types";
-import { HostIcon } from "./icons";
+import { HostIcon, hasIcon } from "./icons";
 import { hostKindMeta } from "../lib/hostKinds";
 import { IconSearch, IconFolder, IconTransfer } from "./ui-icons";
 import { EntityRow, EntityMono, EntityTags, GroupRow } from "./EntityRow";
@@ -69,7 +69,7 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
         depth={depth}
         icon={
           <>
-            {host.icon
+            {hasIcon(host.icon, workspace.customIcons)
               ? <span className="host-icon flex"><HostIcon iconId={host.icon} customIcons={workspace.customIcons} size={16} /></span>
               : <KindIcon size={13} />}
             {online !== undefined && (
@@ -98,7 +98,7 @@ export function SftpPanel({ workspace, onOpenTransfer }: SftpPanelProps) {
           depth={depth}
           expanded={expanded}
           onToggle={() => toggleGroup(group.id)}
-          icon={group.icon
+          icon={hasIcon(group.icon, workspace.customIcons)
             ? <HostIcon iconId={group.icon} customIcons={workspace.customIcons} size={15} />
             : <IconFolder size={14} />}
           name={group.name}

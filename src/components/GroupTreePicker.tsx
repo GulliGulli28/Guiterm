@@ -1,7 +1,7 @@
 import { IconFolder, IconCheck, IconChevronDown, IconHosts } from "./ui-icons";
 import { useRef, useState } from "react";
 import type { CustomIcon, Group, GroupId } from "../lib/types";
-import { HostIcon } from "./icons";
+import { HostIcon, hasIcon } from "./icons";
 
 interface GroupTreePickerProps {
   groups: Group[];
@@ -73,7 +73,7 @@ export function GroupTreePicker({
           style={{ paddingLeft: `${8 + depth * 16}px` }}
           className={`flex w-full items-center gap-1.5 py-1.5 pr-3 text-left text-[12.5px] transition-colors hover:bg-[var(--c-hover)] ${isSelected ? "bg-[var(--c-accent-dim)] text-[var(--c-text)]" : "text-[var(--c-text-secondary)]"}`}
         >
-          {group.icon ? (
+          {hasIcon(group.icon, customIcons) ? (
             <HostIcon iconId={group.icon} customIcons={customIcons} size={13} />
           ) : (
             <IconFolder size={13} className="shrink-0 text-[var(--c-text-muted)]" />
@@ -97,7 +97,7 @@ export function GroupTreePicker({
         <span className="flex min-w-0 items-center gap-1.5 truncate">
           {selected ? (
             <>
-              {selected.icon ? (
+              {hasIcon(selected.icon, customIcons) ? (
                 <HostIcon iconId={selected.icon} customIcons={customIcons} size={13} />
               ) : (
                 <IconFolder size={13} className="shrink-0 text-[var(--c-text-muted)]" />

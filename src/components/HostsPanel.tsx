@@ -4,7 +4,7 @@ import { api } from "../lib/api";
 import type { Group, GroupId, Host, HostId, SqlConnection, VaultId, Workspace } from "../lib/types";
 import { sectionRoleLabel, type VaultSection } from "../lib/vaultSections";
 import { attachmentCount, hasAttachments, hostAttachments } from "../lib/hostGraph";
-import { HostIcon } from "./icons";
+import { HostIcon, hasIcon } from "./icons";
 import { hostKindMeta } from "../lib/hostKinds";
 import { ramColor } from "../lib/facts";
 import { formatRelativeTime } from "../lib/format";
@@ -357,7 +357,7 @@ export function HostsPanel({
         ) : undefined}
         icon={
           <>
-            {host.icon
+            {hasIcon(host.icon, workspace.customIcons)
               ? <span className="host-icon flex"><HostIcon iconId={host.icon} customIcons={workspace.customIcons} size={16} /></span>
               : <KindIcon size={13} />}
             {online !== undefined && (
@@ -509,7 +509,7 @@ export function HostsPanel({
           depth={depth}
           expanded={expanded}
           onToggle={() => toggleGroup(group.id)}
-          icon={group.icon
+          icon={hasIcon(group.icon, workspace.customIcons)
             ? <HostIcon iconId={group.icon} customIcons={workspace.customIcons} size={15} />
             : <IconFolder size={14} />}
           name={group.name}

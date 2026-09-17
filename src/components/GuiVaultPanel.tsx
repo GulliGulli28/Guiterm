@@ -3,13 +3,14 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { api } from "../lib/api";
 import type {
   FingerprintTrust, GuiVaultAuditEntry, GuiVaultEntity, GuiVaultInvitation, GuiVaultKnownAccount, GuiVaultMember,
-  GuiVaultReport, GuiVaultSession, GuiVaultStatus, GuiVaultUserLookup, GuiVaultVault, VaultId, VaultPlace, VaultRole, Workspace,
+  GuiVaultFollower, GuiVaultReport, GuiVaultSession, GuiVaultStatus, GuiVaultUserLookup, GuiVaultVault, VaultId, VaultPlace, VaultRole, Workspace,
 } from "../lib/types";
 import { buildVaultTree, buildVaultTreeSections } from "../lib/vaultTree";
 import { useModalSurface } from "../hooks/useModalSurface";
 import { IconCheck, IconChevronDown, IconCopy, IconEye, IconEyeOff, IconMonitor, IconPlus, IconRefresh, IconSearch, IconTransfer, IconTrash, IconVault } from "./ui-icons";
 import { ConfirmDialog } from "./ConfirmDialog";
 import { VaultEntityTree } from "./VaultEntityTree";
+import { TransferConfirmDialog } from "./TransferConfirmDialog";
 
 interface GuiVaultPanelProps {
   workspace: Workspace;
@@ -650,13 +651,26 @@ function VaultContents({ vault, vaults, onChanged, onError, onNotify }: {
     if ([...selected].some((id) => !ids.has(id))) setAll([...selected].filter((id) => ids.has(id)));
   }, [here]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const send = async (to: Destination, copy: boolean) => {
+  /** Un transfert en attente de confirmation : ce qui suivrait. */
+  const [pending, setPending] = useState<{ to: Destination; copy: boolean; followers: GuiVaultFollower[] } | null>(null);
+
+  const doSend = async (ids: string[], to: Destination, copy: boolean) => {
     setBusy(true);
     try {
-      const n = await api.guivaultTransferEntities([...selected], place, to.place, copy);
+      const n = await api.guivaultTransferEntities(ids, place, to.place, copy, true);
       onNotify(`${n} entité(s) ${copy ? "copiée(s)" : "déplacée(s)"} vers ${to.label}.`);
-      clear(); load(); onChanged();
+      setPending(null); clear(); load(); onChanged();
     } catch (err) { onError(String(err)); } finally { setBusy(false); }
+  };
+
+  // D'abord ce qui suivrait : rien ⇒ on agit ; sinon la liste à confirmer.
+  const send = async (to: Destination, copy: boolean) => {
+    const ids = [...selected];
+    try {
+      const plan = await api.guivaultTransferPlan(ids, place);
+      if (plan.followers.length === 0) await doSend(ids, to, copy);
+      else setPending({ to, copy, followers: plan.followers });
+    } catch (err) { onError(String(err)); }
   };
 
   const remove = async () => {
@@ -727,6 +741,16 @@ function VaultContents({ vault, vaults, onChanged, onError, onNotify }: {
           onCancel={() => setConfirmDelete(false)}
         />
       )}
+      {pending && (
+        <TransferConfirmDialog
+          title={`${pending.copy ? "Copier" : "Déplacer"} ${count} entité${count > 1 ? "s" : ""} vers ${pending.to.label}`}
+          confirmLabel={pending.copy ? "Copier" : "Déplacer"}
+          followers={pending.followers}
+          busy={busy}
+          onConfirm={(kept) => doSend([...selected, ...kept], pending.to, pending.copy)}
+          onCancel={() => setPending(null)}
+        />
+      )}
       {adding && (
         <AddToVaultDialog
           vault={vault}
@@ -789,19 +813,44 @@ function AddToVaultDialog({ vault, vaults, onClose, onDone, onError }: {
   const moveBlocked = [...selected].some((id) => readOnlyIds.has(id));
   const count = selected.size;
 
-  const submit = async (copy: boolean) => {
+  /** Ce qui suivrait, par origine, en attente de confirmation. */
+  const [pending, setPending] = useState<{ copy: boolean; followers: GuiVaultFollower[]; bySource: Map<string, string[]> } | null>(null);
+
+  const selectedIn = (source: NonNullable<typeof sources>[number]) => source.entities.filter((e) => selected.has(e.id)).map((e) => e.id);
+
+  const doSubmit = async (copy: boolean, kept: Set<string>) => {
     if (!sources) return;
     setBusy(true);
     try {
       let n = 0;
       for (const source of sources) {
-        const ids = source.entities.filter((e) => selected.has(e.id)).map((e) => e.id);
-        if (ids.length === 0) continue;
-        n += await api.guivaultTransferEntities(ids, source.place, target, copy);
+        const own = selectedIn(source);
+        if (own.length === 0) continue;
+        // Un suiveur vit dans le même workspace que ce qu'il suit : ceux de
+        // cette origine sont ceux que son plan a listés.
+        const followers = (pending?.bySource.get(source.key) ?? []).filter((id) => kept.has(id));
+        n += await api.guivaultTransferEntities([...own, ...followers], source.place, target, copy, true);
       }
-      clear();
+      setPending(null); clear();
       onDone(`${n} entité(s) ${copy ? "copiée(s)" : "déplacée(s)"} dans « ${vault.name} ».`);
     } catch (err) { onError(String(err)); } finally { setBusy(false); }
+  };
+
+  const submit = async (copy: boolean) => {
+    if (!sources) return;
+    try {
+      const followers: GuiVaultFollower[] = [];
+      const bySource = new Map<string, string[]>();
+      for (const source of sources) {
+        const own = selectedIn(source);
+        if (own.length === 0) continue;
+        const plan = await api.guivaultTransferPlan(own, source.place);
+        followers.push(...plan.followers);
+        bySource.set(source.key, plan.followers.map((f) => f.entity.id));
+      }
+      if (followers.length === 0) { await doSubmit(copy, new Set()); return; }
+      setPending({ copy, followers, bySource });
+    } catch (err) { onError(String(err)); }
   };
 
   const sectionMeta = (key: string) => {
@@ -815,6 +864,16 @@ function AddToVaultDialog({ vault, vaults, onClose, onDone, onError }: {
 
   return (
     <>
+      {pending && (
+        <TransferConfirmDialog
+          title={`${pending.copy ? "Copier" : "Déplacer"} ${count} entité${count > 1 ? "s" : ""} dans « ${vault.name} »`}
+          confirmLabel={pending.copy ? "Copier ici" : "Déplacer ici"}
+          followers={pending.followers}
+          busy={busy}
+          onConfirm={(kept) => doSubmit(pending.copy, new Set(kept))}
+          onCancel={() => setPending(null)}
+        />
+      )}
       <div className="fixed inset-0 z-40 bg-black/50" onClick={onClose} />
       <div ref={ref} {...dialogProps} className="modal fixed left-1/2 top-1/2 z-50 flex max-h-[80vh] w-[520px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden" data-vault-add-dialog="">
         <div className="px-4 pt-4">

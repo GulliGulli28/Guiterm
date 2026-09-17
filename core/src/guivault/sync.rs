@@ -59,6 +59,7 @@ fn label_of(json: &str) -> String {
             Payload::Snippet { snippet } => format!("snippet « {} »", snippet.name),
             Payload::Key { key, .. } => format!("clé « {} »", key.name),
             Payload::SqlConnection { connection, .. } => format!("connexion « {} »", connection.label),
+            Payload::Icon { icon } => format!("icône « {} »", icon.name),
         })
         .unwrap_or_else(|_| "entité".to_string())
 }

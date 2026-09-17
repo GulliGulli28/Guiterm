@@ -599,7 +599,9 @@ export interface GuiVaultStatus {
   viewLocal: boolean;
 }
 
-export type GuiVaultEntityKind = "host" | "group" | "snippet" | "key" | "sql-connection";
+/** `icon` n'apparaît jamais dans la liste d'un vault — seulement comme
+ * suiveur d'un hôte ou d'un dossier dans un plan de transfert. */
+export type GuiVaultEntityKind = "host" | "group" | "snippet" | "key" | "sql-connection" | "icon";
 
 /** Une entité telle que le menu des vaults la liste. */
 export interface GuiVaultEntity {
@@ -613,6 +615,19 @@ export interface GuiVaultEntity {
    * pour une clé ou un snippet. */
   parentId: string | null;
   vaultId: VaultId | null;
+}
+
+/** Une entité qui en accompagne une autre dans un transfert, et pourquoi.
+ * `required` : elle suit sans qu'on demande (dossier, contenu d'un dossier) ;
+ * sinon elle est proposée cochée. */
+export interface GuiVaultFollower {
+  entity: GuiVaultEntity;
+  reason: string;
+  required: boolean;
+}
+
+export interface GuiVaultTransferPlan {
+  followers: GuiVaultFollower[];
 }
 
 /** D'où vient, ou où va, une sélection d'entités : le profil local de cet

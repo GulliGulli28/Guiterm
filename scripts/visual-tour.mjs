@@ -222,11 +222,35 @@ const scenes = [
     // Un vault en lecture seule n'est pas une destination.
     if (menu.some((m) => /bancaire/i.test(m ?? ""))) throw new Error("un vault en lecture seule est proposé comme destination");
   }],
+  // Choisir une destination ouvre « Ces entités suivront » : dossier
+  // verrouillé, clé / icône / bastion cochés et décochables.
+  ["33a-guivault-suiveurs", async (page) => {
+    await page.locator('[role="menu"] [role="menuitem"]', { hasText: "Vault personnel" }).click();
+    await settle(page, 500);
+    const state = await page.evaluate(() => {
+      const d = document.querySelector("[data-transfer-confirm]");
+      return {
+        present: !!d,
+        names: Array.from(d?.querySelectorAll("[data-transfer-follower]") ?? []).map((e) => e.getAttribute("data-transfer-follower")),
+        boxes: d?.querySelectorAll('input[type="checkbox"]').length ?? 0,
+        text: d?.textContent ?? "",
+      };
+    });
+    if (!state.present) throw new Error("dialogue « Ces entités suivront » absent");
+    if (state.names[0] !== "Production") throw new Error(`l'obligatoire n'est pas en tête : ${JSON.stringify(state.names)}`);
+    if (state.boxes !== 3) throw new Error(`3 cases attendues pour les facultatifs, ${state.boxes} trouvées`);
+    if (!/bastion de « web-01 »/.test(state.text)) throw new Error("la raison du bastion manque");
+    await page.locator('[data-transfer-confirm] input[aria-label="Emmener bastion-infra"]').click();
+    await settle(page, 200);
+    const kept = await page.evaluate(() => document.querySelector("[data-transfer-confirm]")?.textContent ?? "");
+    if (!/3 suiveurs/.test(kept)) throw new Error(`décocher le bastion : « ${kept.match(/\d+ suiveurs?/)?.[0]} »`);
+  }],
   // « Ajouter… » : le même arbre, un dossier par origine — cet appareil, le
   // vault personnel, les autres vaults (« copie seulement » en lecteur).
   ["33b-guivault-ajouter", async (page) => {
     await page.keyboard.press("Escape");
-    await settle(page, 200);
+    await settle(page, 300);
+    if (await page.locator("[data-transfer-confirm]").count()) throw new Error("Échap n'a pas fermé la confirmation");
     await page.getByRole("button", { name: /Ajouter…/ }).first().click();
     await settle(page, 600);
     const dialog = await page.evaluate(() => {

@@ -12,7 +12,7 @@
 //! coffre local, qui retombe sur sa map mémoire sans Secret Service.
 use guivault_protocol::Role;
 use termius_core::guivault::account::{FingerprintTrust, MemoryStore};
-use termius_core::guivault::transfer::{self, Place};
+use termius_core::guivault::transfer::{self, Move, Place};
 use termius_core::guivault::{LoginStep, Manager, sharing, sync};
 use termius_core::model::{Group, Host, Snippet, VaultId, Workspace};
 use termius_core::vault::{self as local_vault, SecretKind};
@@ -357,7 +357,7 @@ async fn moving_and_copying_between_places_reaches_the_other_member() {
 
     // « Ajouter… » depuis cet appareil, en déplaçant : l'hôte et son dossier
     // partent dans le vault partagé, et Bob les reçoit avec le secret.
-    let n = transfer::apply(&mut local, &mut alice.ws, &[host.id], Place::Local, Place::Account { vault_id: Some(team.id) }, false, can_write(&alice.manager)).unwrap();
+    let n = transfer::apply(&mut local, &mut alice.ws, Move { ids: &[host.id], from: Place::Local, to: Place::Account { vault_id: Some(team.id) }, copy: false, exact: false }, can_write(&alice.manager)).unwrap();
     assert_eq!(n, 2);
     assert!(local.hosts.is_empty() && local.groups.is_empty());
     let r = alice.sync().await;
@@ -373,11 +373,11 @@ async fn moving_and_copying_between_places_reaches_the_other_member() {
     // son personnel — mais peut copier chez lui, sous un nouvel id, sans
     // rien changer sur le serveur.
     let mut bob_local = Workspace::default();
-    let err = transfer::apply(&mut bob_local, &mut bob.ws, &[host.id], Place::Account { vault_id: Some(team.id) }, Place::Local, false, can_write(&bob.manager)).unwrap_err();
+    let err = transfer::apply(&mut bob_local, &mut bob.ws, Move { ids: &[host.id], from: Place::Account { vault_id: Some(team.id) }, to: Place::Local, copy: false, exact: false }, can_write(&bob.manager)).unwrap_err();
     assert!(err.to_string().contains("lecture seule"), "{err}");
-    let err = transfer::apply(&mut bob_local, &mut bob.ws, &[host.id], Place::Account { vault_id: Some(team.id) }, Place::Account { vault_id: None }, false, can_write(&bob.manager)).unwrap_err();
+    let err = transfer::apply(&mut bob_local, &mut bob.ws, Move { ids: &[host.id], from: Place::Account { vault_id: Some(team.id) }, to: Place::Account { vault_id: None }, copy: false, exact: false }, can_write(&bob.manager)).unwrap_err();
     assert!(err.to_string().contains("lecture seule"), "{err}");
-    let n = transfer::apply(&mut bob_local, &mut bob.ws, &[host.id], Place::Account { vault_id: Some(team.id) }, Place::Local, true, can_write(&bob.manager)).unwrap();
+    let n = transfer::apply(&mut bob_local, &mut bob.ws, Move { ids: &[host.id], from: Place::Account { vault_id: Some(team.id) }, to: Place::Local, copy: true, exact: false }, can_write(&bob.manager)).unwrap();
     assert_eq!(n, 2);
     let copy = bob_local.hosts.iter().find(|h| h.label == "db-1").unwrap();
     assert_ne!(copy.id, host.id);
@@ -387,7 +387,7 @@ async fn moving_and_copying_between_places_reaches_the_other_member() {
 
     // Alice copie l'hôte dans son vault personnel : un deuxième exemplaire,
     // poussé sous un nouvel id ; l'original reste partagé, Bob ne voit rien.
-    let n = transfer::apply(&mut local, &mut alice.ws, &[host.id], Place::Account { vault_id: Some(team.id) }, Place::Account { vault_id: None }, true, can_write(&alice.manager)).unwrap();
+    let n = transfer::apply(&mut local, &mut alice.ws, Move { ids: &[host.id], from: Place::Account { vault_id: Some(team.id) }, to: Place::Account { vault_id: None }, copy: true, exact: false }, can_write(&alice.manager)).unwrap();
     assert_eq!(n, 2);
     assert_eq!(alice.ws.hosts.len(), 2);
     let r = alice.sync().await;
@@ -397,7 +397,7 @@ async fn moving_and_copying_between_places_reaches_the_other_member() {
 
     // Puis retire l'original vers son appareil : tombale côté serveur, Bob
     // perd l'hôte et le dossier.
-    let n = transfer::apply(&mut local, &mut alice.ws, &[host.id], Place::Account { vault_id: Some(team.id) }, Place::Local, false, can_write(&alice.manager)).unwrap();
+    let n = transfer::apply(&mut local, &mut alice.ws, Move { ids: &[host.id], from: Place::Account { vault_id: Some(team.id) }, to: Place::Local, copy: false, exact: false }, can_write(&alice.manager)).unwrap();
     assert_eq!(n, 2);
     assert_eq!(local.hosts[0].id, host.id, "déplacé, même id");
     let r = alice.sync().await;

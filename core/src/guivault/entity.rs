@@ -7,7 +7,7 @@
 //! L'empreinte SHA-256 de ce JSON est ce qui dit « a changé depuis la dernière
 //! synchronisation » — calculée à la volée, elle évite d'instrumenter les
 //! dizaines de chemins qui modifient le workspace.
-use crate::model::{Group, Host, PrivateKey, Snippet, SqlConnection, VaultId, Workspace};
+use crate::model::{CustomIcon, Group, Host, PrivateKey, Snippet, SqlConnection, VaultId, Workspace};
 use crate::vault::{self as local_vault, SecretKind};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -19,6 +19,17 @@ pub const TYPE_GROUP: &str = "group";
 pub const TYPE_SNIPPET: &str = "snippet";
 pub const TYPE_KEY: &str = "key";
 pub const TYPE_SQL: &str = "sql-connection";
+/// Une icône personnalisée (`Workspace.custom_icons`) : pas une entité aux
+/// yeux de l'utilisateur, mais ce qu'un hôte ou un dossier référence par
+/// id — sans elle, les autres membres verraient une case vide. Synchronisée
+/// comme le reste, opaque pour le serveur.
+pub const TYPE_ICON: &str = "icon";
+
+/// L'id d'une icône personnalisée, s'il est un uuid (ils le sont tous depuis
+/// leur création ; une icône qui n'en aurait pas ne peut pas être un item).
+pub fn icon_uuid(icon: &CustomIcon) -> Option<Uuid> {
+    Uuid::parse_str(&icon.id).ok()
+}
 
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -64,6 +75,9 @@ pub enum Payload {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         password: Option<String>,
     },
+    Icon {
+        icon: CustomIcon,
+    },
 }
 
 impl Payload {
@@ -74,6 +88,7 @@ impl Payload {
             Payload::Snippet { .. } => TYPE_SNIPPET,
             Payload::Key { .. } => TYPE_KEY,
             Payload::SqlConnection { .. } => TYPE_SQL,
+            Payload::Icon { .. } => TYPE_ICON,
         }
     }
 
@@ -84,6 +99,8 @@ impl Payload {
             Payload::Snippet { snippet } => snippet.id,
             Payload::Key { key, .. } => key.id,
             Payload::SqlConnection { connection, .. } => connection.id,
+            // `collect` n'émet une icône que si son id est un uuid.
+            Payload::Icon { icon } => icon_uuid(icon).unwrap_or(Uuid::nil()),
         }
     }
 
@@ -193,6 +210,9 @@ pub fn collect(workspace: &Workspace, personal: VaultId) -> anyhow::Result<Vec<L
             password: local_vault::load(c.id, SecretKind::SqlPassword).ok().flatten(),
         })?;
     }
+    for i in workspace.custom_icons.iter().filter(|i| icon_uuid(i).is_some()) {
+        push(Payload::Icon { icon: i.clone() })?;
+    }
     Ok(out)
 }
 
@@ -263,6 +283,13 @@ pub fn apply(workspace: &mut Workspace, payload: Payload) {
             set_secret(connection.id, SecretKind::SqlPassword, &password);
             upsert(&mut workspace.sql_connections, connection.id, |c| c.id, connection);
         }
+        Payload::Icon { icon } => {
+            let id = icon.id.clone();
+            match workspace.custom_icons.iter_mut().find(|i| i.id == id) {
+                Some(slot) => *slot = icon,
+                None => workspace.custom_icons.push(icon),
+            }
+        }
     }
 }
 
@@ -298,6 +325,9 @@ pub fn remove(workspace: &mut Workspace, item_type: &str, id: Uuid) {
             workspace.sql_connections.retain(|c| c.id != id);
             let _ = local_vault::delete(id, SecretKind::SqlPassword);
         }
+        // Les hôtes et dossiers gardent leur référence : ils retombent sur
+        // l'icône par défaut à l'affichage (`hasIcon` côté frontend).
+        TYPE_ICON => workspace.custom_icons.retain(|i| icon_uuid(i) != Some(id)),
         _ => {}
     }
     workspace.vault_bindings.remove(&id);
@@ -337,5 +367,24 @@ mod tests {
         assert_eq!(h.id, host.id);
         remove(&mut ws, TYPE_HOST, host.id);
         assert!(ws.hosts.is_empty());
+    }
+
+    #[test]
+    fn custom_icons_travel_as_items_when_their_id_is_a_uuid() {
+        let mut ws = Workspace::default();
+        let id = Uuid::new_v4();
+        ws.custom_icons.push(CustomIcon { id: id.to_string(), name: "logo".into(), data_url: "data:image/png;base64,AA==".into() });
+        ws.custom_icons.push(CustomIcon { id: "legacy".into(), name: "vieille".into(), data_url: String::new() });
+        let all = collect(&ws, Uuid::new_v4()).unwrap();
+        let icons: Vec<_> = all.iter().filter(|e| e.item_type == TYPE_ICON).collect();
+        assert_eq!(icons.len(), 1, "une icône sans uuid ne voyage pas");
+        assert_eq!(icons[0].id, id);
+
+        let mut other = Workspace::default();
+        apply(&mut other, Payload::from_json(icons[0].json.as_bytes()).unwrap());
+        assert_eq!(other.custom_icons.len(), 1);
+        assert_eq!(other.custom_icons[0].name, "logo");
+        remove(&mut other, TYPE_ICON, id);
+        assert!(other.custom_icons.is_empty());
     }
 }

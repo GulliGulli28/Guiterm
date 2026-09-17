@@ -2,7 +2,7 @@ import { useMemo, useState, type ReactNode } from "react";
 import type { GuiVaultEntityKind } from "../lib/types";
 import { KIND_LABELS, visibleRows, type VaultTreeRow } from "../lib/vaultTree";
 import { BulkCheckbox, EntityRow, GroupRow } from "./EntityRow";
-import { IconDatabase, IconFolder, IconHosts, IconKeychain, IconSnippets, IconVault } from "./ui-icons";
+import { IconDatabase, IconFolder, IconHosts, IconKeychain, IconPalette, IconSnippets, IconVault } from "./ui-icons";
 
 /**
  * L'arborescence à cocher du contenu des vaults — le contenu d'un vault dans
@@ -32,12 +32,13 @@ interface VaultEntityTreeProps {
   emptyMessage?: string;
 }
 
-const KIND_ICONS: Record<GuiVaultEntityKind, (p: { size?: number }) => ReactNode> = {
+export const KIND_ICONS: Record<GuiVaultEntityKind, (p: { size?: number }) => ReactNode> = {
   host: IconHosts,
   group: IconFolder,
   key: IconKeychain,
   snippet: IconSnippets,
   "sql-connection": IconDatabase,
+  icon: IconPalette,
 };
 
 const BUCKET_ICONS: Record<string, (p: { size?: number }) => ReactNode> = {

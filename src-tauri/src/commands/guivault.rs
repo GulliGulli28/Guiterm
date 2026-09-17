@@ -87,6 +87,22 @@ fn with_both_workspaces<T>(
     Ok((out, shown.clone()))
 }
 
+/// Lit (sans le modifier) le workspace local ou celui du compte, où qu'il
+/// soit : en mémoire s'il est affiché, sur le disque sinon.
+fn read_workspace<T>(state: &AppState, want_local: bool, f: impl FnOnce(&Workspace) -> T) -> Result<T, String> {
+    let shown_is_local = state.guivault.view_local() || state.guivault.active_user_id().is_none();
+    if want_local == shown_is_local {
+        return Ok(f(&state.workspace.lock_recover()));
+    }
+    let path = if want_local {
+        store::local_workspace_path().map_err(err)?
+    } else {
+        let id = state.guivault.active_user_id().ok_or("aucun compte connecté")?;
+        state.guivault.workspace_path(id)
+    };
+    Ok(f(&load_workspace_at(&path)))
+}
+
 /// Les entités du profil local ou du compte, pour le menu des vaults.
 #[tauri::command]
 pub fn guivault_list_entities(state: State<'_, AppState>, scope: String) -> Result<Vec<transfer::EntitySummary>, String> {
@@ -95,24 +111,23 @@ pub fn guivault_list_entities(state: State<'_, AppState>, scope: String) -> Resu
         "account" => false,
         _ => return Err("scope : local | account".into()),
     };
-    let shown_is_local = state.guivault.view_local() || state.guivault.active_user_id().is_none();
-    if want_local == shown_is_local {
-        return Ok(transfer::list(&state.workspace.lock_recover()));
-    }
-    let path = if want_local {
-        store::local_workspace_path().map_err(err)?
-    } else {
-        let id = state.guivault.active_user_id().ok_or("aucun compte connecté")?;
-        state.guivault.workspace_path(id)
-    };
-    Ok(transfer::list(&load_workspace_at(&path)))
+    read_workspace(&state, want_local, transfer::list)
+}
+
+/// Ce qu'une sélection emmènerait depuis `from` — obligatoire et facultatif,
+/// avec la raison de chacun — pour que le panneau le montre avant d'agir.
+#[tauri::command]
+pub fn guivault_transfer_plan(state: State<'_, AppState>, ids: Vec<Uuid>, from: transfer::Place) -> Result<transfer::Plan, String> {
+    read_workspace(&state, from == transfer::Place::Local, |ws| transfer::plan(ws, &ids))
 }
 
 /// Déplace ou copie des entités entre deux emplacements — le profil local,
 /// le vault personnel, un vault partagé — dans n'importe quel sens. Ce qui
 /// doit les accompagner (dossiers, clé, sous-arbre) suit ; les droits sont
 /// vérifiés au départ et à l'arrivée par `transfer::apply` (testé sens par
-/// sens dans `core`). Rend le nombre d'entités concernées.
+/// sens dans `core`). `exact` : `ids` contient déjà les facultatifs gardés
+/// après `guivault_transfer_plan` ; sinon clé et icône suivent d'office.
+/// Rend le nombre d'entités concernées.
 #[tauri::command]
 pub async fn guivault_transfer_entities(
     app: AppHandle,
@@ -121,11 +136,12 @@ pub async fn guivault_transfer_entities(
     from: transfer::Place,
     to: transfer::Place,
     copy: bool,
+    exact: bool,
 ) -> Result<usize, String> {
     let status = state.guivault.status();
     let can_write = |v: VaultId| status.vaults.iter().any(|x| x.id == v && x.role.can_write_items());
     let (moved, _) = with_both_workspaces(&state, |local, account| {
-        transfer::apply(local, account, &ids, from, to, copy, can_write).map_err(err)
+        transfer::apply(local, account, transfer::Move { ids: &ids, from, to, copy, exact }, can_write).map_err(err)
     })?;
     // Le compte a changé : pousser (ou tombaliser) tout de suite.
     let _ = run_sync(&app, &state).await;

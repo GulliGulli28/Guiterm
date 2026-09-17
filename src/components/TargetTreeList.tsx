@@ -2,7 +2,7 @@ import { useMemo, useState } from "react";
 import type { CustomIcon, Host } from "../lib/types";
 import type { TargetLike, TargetRow } from "../lib/targetTree";
 import { hostKindMeta } from "../lib/hostKinds";
-import { HostIcon } from "./icons";
+import { HostIcon, hasIcon } from "./icons";
 import { IconChevronDown, IconChevronRight, IconFolder, IconTerminal } from "./ui-icons";
 import { BulkCheckbox, EntityRow, EntityMono, EntityTags, GroupRow } from "./EntityRow";
 
@@ -60,7 +60,7 @@ interface TargetTreeListProps<T extends TargetLike> {
 function RowIcon({ host, customIcons, fallback }: { host: Host | undefined; customIcons: CustomIcon[]; fallback?: "terminal" }) {
   const kind = host?.kind ?? "ssh";
   const { label: kindLabel, Icon: KindIcon } = hostKindMeta(kind);
-  if (host?.icon) {
+  if (host && hasIcon(host.icon, customIcons)) {
     return <span className="host-icon flex" title={kindLabel}><HostIcon iconId={host.icon} customIcons={customIcons} size={16} /></span>;
   }
   return fallback === "terminal" && !host ? <IconTerminal size={13} /> : <KindIcon size={13} />;
@@ -118,7 +118,7 @@ export function TargetTreeList<T extends TargetLike>({
               depth={row.depth}
               expanded={expanded}
               onToggle={() => toggleCollapsed(row.id)}
-              icon={row.group.icon
+              icon={hasIcon(row.group.icon, customIcons)
                 ? <HostIcon iconId={row.group.icon} customIcons={customIcons} size={15} />
                 : <IconFolder size={14} />}
               name={row.group.name}
