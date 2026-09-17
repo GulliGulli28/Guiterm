@@ -497,27 +497,75 @@ pub async fn guivault_leave_vault(app: AppHandle, state: State<'_, AppState>, va
 /// dossier avec toute la chaîne de dossiers parents — sans eux, les autres
 /// membres verraient un hôte qui pointe vers une clé qu'ils n'ont pas, ou
 /// rangé dans un dossier qui n'existe pas chez eux (donc invisible).
-#[tauri::command]
-pub fn guivault_move_entity(state: State<'_, AppState>, id: Uuid, vault_id: Option<VaultId>) -> Result<Workspace, String> {
-    let mut ws = state.workspace.lock_recover();
-    let followers = transfer::closure(&ws, &[id]);
-    match vault_id {
-        Some(v) => {
-            ws.vault_bindings.insert(id, v);
-            for follower in followers {
-                ws.vault_bindings.entry(follower).or_insert(v);
-            }
-        }
-        None => {
-            // Vers le personnel : le sous-arbre / la chaîne suit aussi, sinon
-            // un dossier resterait partagé avec un hôte personnel dedans.
-            for follower in followers {
-                ws.vault_bindings.remove(&follower);
-            }
-        }
+/// Le workspace du **compte**, où qu'il soit : en mémoire s'il est affiché,
+/// sur le disque si c'est le profil local qui l'est. `f` le modifie ; il est
+/// sauvé au bon endroit. Rend le workspace *affiché* (celui que le frontend
+/// recharge), qui peut donc être le local, inchangé.
+fn with_account_workspace<T>(state: &AppState, f: impl FnOnce(&mut Workspace) -> Result<T, String>) -> Result<(T, Workspace), String> {
+    let user_id = state.guivault.active_user_id().ok_or("aucun compte connecté")?;
+    let mut shown = state.workspace.lock_recover();
+    if state.guivault.view_local() {
+        let path = state.guivault.workspace_path(user_id);
+        let mut account = load_workspace_at(&path);
+        let out = f(&mut account)?;
+        store::save_at(&path, &account).map_err(err)?;
+        Ok((out, shown.clone()))
+    } else {
+        let out = f(&mut shown)?;
+        persist(&shown)?;
+        Ok((out, shown.clone()))
     }
-    persist(&ws)?;
-    Ok(ws.clone())
+}
+
+#[tauri::command]
+pub async fn guivault_move_entity(app: AppHandle, state: State<'_, AppState>, id: Uuid, vault_id: Option<VaultId>) -> Result<Workspace, String> {
+    let ((), shown) = with_account_workspace(&state, |ws| {
+        let followers = transfer::closure(ws, &[id]);
+        match vault_id {
+            Some(v) => {
+                ws.vault_bindings.insert(id, v);
+                for follower in followers {
+                    ws.vault_bindings.entry(follower).or_insert(v);
+                }
+            }
+            None => {
+                // Vers le personnel : le sous-arbre / la chaîne suit aussi, sinon
+                // un dossier resterait partagé avec un hôte personnel dedans.
+                for follower in followers {
+                    ws.vault_bindings.remove(&follower);
+                }
+            }
+        }
+        Ok(())
+    })?;
+    let _ = run_sync(&app, &state).await;
+    Ok(shown)
+}
+
+/// Supprime des entités du compte (avec leurs secrets) depuis le menu des
+/// vaults. Un dossier supprimé rend ses hôtes à la racine, comme depuis le
+/// panneau Hôtes. La synchro qui suit pose les tombales.
+#[tauri::command]
+pub async fn guivault_delete_entities(app: AppHandle, state: State<'_, AppState>, ids: Vec<Uuid>) -> Result<Workspace, String> {
+    let status = state.guivault.status();
+    let ((), shown) = with_account_workspace(&state, |ws| {
+        for id in &ids {
+            if let Some(v) = ws.vault_bindings.get(id)
+                && !status.vaults.iter().any(|x| x.id == *v && x.role.can_write_items())
+            {
+                return Err("une des entités est dans un vault en lecture seule".into());
+            }
+        }
+        for id in &ids {
+            let kind = transfer::list(ws).into_iter().find(|e| e.id == *id).map(|e| e.kind);
+            if let Some(kind) = kind {
+                termius_core::guivault::entity::remove(ws, kind, *id);
+            }
+        }
+        Ok(())
+    })?;
+    let _ = run_sync(&app, &state).await;
+    Ok(shown)
 }
 
 #[tauri::command]

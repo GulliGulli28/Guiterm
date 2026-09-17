@@ -64,7 +64,9 @@ export function buildHostTree(hosts: Host[], groups: Group[], query: string, ext
   const groupsByParent = new Map<GroupId | null, Group[]>();
   const parentOf = new Map<GroupId, GroupId | null>();
   for (const group of groups) {
-    const key = group.parentId ?? null;
+    // Même règle que pour les hôtes : un dossier dont le parent n'est pas
+    // ici (resté dans un autre vault) monte à la racine au lieu de disparaître.
+    const key = group.parentId && knownGroups.has(group.parentId) ? group.parentId : null;
     parentOf.set(group.id, key);
     const bucket = groupsByParent.get(key);
     if (bucket) bucket.push(group);

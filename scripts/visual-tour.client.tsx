@@ -96,7 +96,7 @@ const workspace: Workspace = {
     { id: "rb-1", name: "Déploiement web", description: "Bascule des frontaux un par un.", steps: [] },
   ],
   // Deux hôtes rangés dans un vault GuiVault partagé : l'étiquette doit se voir.
-  vaultBindings: { "h-web-01": "v-infra", "h-db-01": "v-infra", "g-web": "v-infra" },
+  vaultBindings: { "h-web-01": "v-infra", "h-db-01": "v-infra", "g-web": "v-infra", "s-2": "v-infra", "k-2": "v-lect" },
 };
 
 const entries = (names: [string, boolean, number][]): Entry[] =>

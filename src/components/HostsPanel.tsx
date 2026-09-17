@@ -13,12 +13,13 @@ import { useContainerPicker } from "../hooks/useContainerPicker";
 import { useHostTreeMemory } from "../hooks/useHostTreeMemory";
 import { BulkEditPanel } from "./BulkEditPanel";
 import { EntityRow, EntityMono, EntityTags, GroupRow } from "./EntityRow";
+import { VaultChip } from "./VaultChip";
 import { PersistentSessionsModal } from "./PersistentSessionsModal";
 import {
   IconHosts, IconSearch, IconPlus, IconKeyboard, IconFlash,
   IconFolder, IconChevronDown,
   IconDotsVertical, IconEdit,
-  IconUpload, IconDownload, IconTransfer, IconTunnels, IconTerminal, IconChecklist,
+  IconUpload, IconDownload, IconTransfer, IconTunnels, IconTerminal, IconChecklist, IconVault,
 } from "./ui-icons";
 
 /** Le sélecteur de profil en tête du panneau : quel workspace est affiché. */
@@ -141,6 +142,14 @@ export function HostsPanel({
   onEditGroup, onQuickSSH, onWorkspaceUpdate, onError, onNotify, profile, onSwitchProfile,
 }: HostsPanelProps) {
   const [search, setSearch] = useState("");
+  // « Trier par vault » : l'arbre est découpé par vault du compte (personnel,
+  // puis chaque vault partagé), chacun avec ses dossiers. Réglage de
+  // l'appareil, pas du workspace.
+  const [byVault, setByVault] = useState<boolean>(() => {
+    try { return localStorage.getItem("guiterm.hosts.byVault") === "1"; } catch { return false; }
+  });
+  const toggleByVault = () => setByVault((v) => { try { localStorage.setItem("guiterm.hosts.byVault", v ? "0" : "1"); } catch { /* sans stockage, réglage de session */ } return !v; });
+  const [collapsedVaults, setCollapsedVaults] = useState<Set<string>>(new Set());
   /** Selection mode, and what is ticked in it.
    *
    * A mode rather than always-on checkboxes: the ordinary case is connecting
@@ -238,8 +247,21 @@ export function HostsPanel({
     [workspace.hosts, workspace.groups, query, vaultNameOf],
   );
 
-  const childGroups = (parentId: GroupId | null) => groupsByParent.get(parentId) ?? [];
-  const hostsIn = (groupId: GroupId | null) => hostsByGroup.get(groupId) ?? [];
+  // Un arbre par vault quand le mode est actif et qu'un compte est affiché.
+  type Tree = ReturnType<typeof buildHostTree>;
+  const vaultSections = useMemo(() => {
+    if (!byVault || !profile || profile.viewLocal || !profile.connectedEmail) return null;
+    const bindings = workspace.vaultBindings ?? {};
+    const sections: { id: string | null; name: string }[] = [{ id: null, name: "Personnel" }, ...profile.vaults];
+    return sections.map((sec) => {
+      const hosts = workspace.hosts.filter((h) => (bindings[h.id] ?? null) === sec.id);
+      const groups = workspace.groups.filter((g) => (bindings[g.id] ?? null) === sec.id);
+      return { ...sec, tree: buildHostTree(hosts, groups, query, vaultNameOf), total: hosts.length };
+    });
+  }, [byVault, profile, workspace.hosts, workspace.groups, workspace.vaultBindings, query, vaultNameOf]);
+
+  const childGroups = (parentId: GroupId | null, tree?: Tree) => (tree ?? { groupsByParent }).groupsByParent.get(parentId) ?? [];
+  const hostsIn = (groupId: GroupId | null, tree?: Tree) => (tree ?? { hostsByGroup }).hostsByGroup.get(groupId) ?? [];
   const isExpanded = (id: GroupId) => (query ? true : !collapsed.has(id));
 
   const fileFilters = [{ name: "JSON", extensions: ["json"] }];
@@ -335,7 +357,7 @@ export function HostsPanel({
         title_={tooltip}
         badges={
           <>
-            {vaultNameOf.get(host.id) && <span className="tag tag-accent" title={`Vault partagé « ${vaultNameOf.get(host.id)} »`}>{vaultNameOf.get(host.id)}</span>}
+            {!vaultSections && <VaultChip name={vaultNameOf.get(host.id)} />}
             {runningCount != null && <span className="tag tag-accent">{runningCount} actif{runningCount === 1 ? "" : "s"}</span>}
           </>
         }
@@ -468,8 +490,8 @@ export function HostsPanel({
   };
 
   // ── Group row ────────────────────────────────────────────────────────────
-  const renderGroup = (group: Group, depth: number) => {
-    if (query && !matchingGroups.has(group.id)) return null;
+  const renderGroup = (group: Group, depth: number, tree?: Tree) => {
+    if (query && !(tree ?? { matchingGroups }).matchingGroups.has(group.id)) return null;
     const expanded = isExpanded(group.id);
     return (
       <div key={group.id}>
@@ -481,7 +503,8 @@ export function HostsPanel({
             ? <HostIcon iconId={group.icon} customIcons={workspace.customIcons} size={15} />
             : <IconFolder size={14} />}
           name={group.name}
-          count={hostsIn(group.id).length}
+          badge={!tree && vaultNameOf.get(group.id) ? <VaultChip name={vaultNameOf.get(group.id)} /> : undefined}
+          count={hostsIn(group.id, tree).length}
           actions={
             <>
               <button onClick={() => onNewHostInGroup(group.id)} title="Nouvel hôte dans ce dossier" className="btn btn-ghost btn-sm btn-icon"><IconPlus size={12} /></button>
@@ -492,8 +515,8 @@ export function HostsPanel({
         />
         {expanded && (
           <div>
-            {hostsIn(group.id).map((h) => renderHost(h, depth + 1))}
-            {childGroups(group.id).map((g) => renderGroup(g, depth + 1))}
+            {hostsIn(group.id, tree).map((h) => renderHost(h, depth + 1))}
+            {childGroups(group.id, tree).map((g) => renderGroup(g, depth + 1, tree))}
           </div>
         )}
       </div>
@@ -569,6 +592,16 @@ export function HostsPanel({
           </button>
         </div>
         <LocalTerminalButton onOpen={onOpenLocalTerminal} />
+        {profile?.connectedEmail && !profile.viewLocal && (
+          <button
+            onClick={toggleByVault}
+            title={byVault ? "Trier par dossier" : "Trier par vault : personnel, puis chaque vault partagé"}
+            aria-pressed={byVault}
+            className={`btn btn-icon ${byVault ? "btn-toggled" : "btn-secondary text-[var(--c-text-muted)]"}`}
+          >
+            <IconVault size={14} />
+          </button>
+        )}
         {/* Selection mode: entering it, and acting on what's ticked. Offered
             only once there is more than one host — below that it is a mode with
             nothing to gain. */}
@@ -612,8 +645,37 @@ export function HostsPanel({
             <span className="kbd ml-auto shrink-0">Entrée</span>
           </button>
         )}
-        {hostsIn(null).map((h) => renderHost(h, 0))}
-        {childGroups(null).map((g) => renderGroup(g, 0))}
+        {vaultSections ? vaultSections.map((sec) => {
+          const key = sec.id ?? "personal";
+          const expanded = query ? true : !collapsedVaults.has(key);
+          const empty = sec.total === 0 && childGroups(null, sec.tree).length === 0;
+          if (query && hostsIn(null, sec.tree).length === 0 && childGroups(null, sec.tree).every((g) => !sec.tree.matchingGroups.has(g.id))) return null;
+          return (
+            <div key={key} data-vault-section={sec.name}>
+              <GroupRow
+                depth={0}
+                expanded={expanded}
+                onToggle={() => setCollapsedVaults((c) => { const n = new Set(c); if (n.has(key)) n.delete(key); else n.add(key); return n; })}
+                icon={<IconVault size={14} />}
+                name={sec.name}
+                count={sec.total}
+                badge={sec.id === null ? <span className="tag">personnel</span> : <span className="tag tag-accent">partagé</span>}
+              />
+              {expanded && (
+                <div className="pl-2">
+                  {empty && <p className="px-2 py-1.5 text-[11.5px] text-[var(--c-text-muted)]">Vide — rangez-y un hôte depuis son formulaire, ou depuis le menu du vault.</p>}
+                  {hostsIn(null, sec.tree).map((h) => renderHost(h, 1))}
+                  {childGroups(null, sec.tree).map((g) => renderGroup(g, 1, sec.tree))}
+                </div>
+              )}
+            </div>
+          );
+        }) : (
+          <>
+            {hostsIn(null).map((h) => renderHost(h, 0))}
+            {childGroups(null).map((g) => renderGroup(g, 0))}
+          </>
+        )}
         {!quickSSH && workspace.hosts.length === 0 && workspace.groups.length === 0 && (
           <div className="px-2 py-8 text-center">
             <p className="text-[12.5px] font-medium text-[var(--c-text-secondary)]">Aucun hôte enregistré</p>

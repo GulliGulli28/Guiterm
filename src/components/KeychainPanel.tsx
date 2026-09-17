@@ -5,18 +5,20 @@ import { api } from "../lib/api";
 import type { HostId, KeyAlgorithm, KeyId, PrivateKey, Workspace } from "../lib/types";
 import { IconPlus, IconTrash, IconEdit, IconKeychain, IconFolder, IconCopy, IconUpload, IconEye, IconEyeOff, IconCheck } from "./ui-icons";
 import { EntityRow, EntityMono } from "./EntityRow";
+import { VaultChip } from "./VaultChip";
 import { HostTreePicker } from "./HostTreePicker";
 import { ConfirmDialog } from "./ConfirmDialog";
 
 interface KeychainPanelProps {
   workspace: Workspace;
+  vaultNameOf?: Map<string, string>;
   onAddKey: (name: string, path: string, passphrase: string | null) => void;
   onGenerateKey: (name: string, algorithm: KeyAlgorithm, passphrase: string | null) => void;
   onDeleteKey: (id: KeyId) => void;
   onRenameKey: (id: KeyId, name: string) => void;
 }
 
-export function KeychainPanel({ workspace, onAddKey, onGenerateKey, onDeleteKey, onRenameKey }: KeychainPanelProps) {
+export function KeychainPanel({ workspace, vaultNameOf, onAddKey, onGenerateKey, onDeleteKey, onRenameKey }: KeychainPanelProps) {
   const [mode, setMode] = useState<"import" | "generate">("import");
   const [algorithm, setAlgorithm] = useState<KeyAlgorithm>("ed25519");
   const [name, setName] = useState("");
@@ -228,11 +230,16 @@ export function KeychainPanel({ workspace, onAddKey, onGenerateKey, onDeleteKey,
             ) : key.name}
             // Says what depends on this key *before* anyone reaches for the
             // bin, not only in the confirmation.
-            badges={(keyUsage[key.id]?.length ?? 0) > 0 && (
-              <span title={`Utilisée par : ${keyUsage[key.id].join(", ")}`} className="tag">
-                {keyUsage[key.id].length} hôte{keyUsage[key.id].length > 1 ? "s" : ""}
-              </span>
-            )}
+            badges={
+              <>
+                <VaultChip name={vaultNameOf?.get(key.id)} />
+                {(keyUsage[key.id]?.length ?? 0) > 0 && (
+                  <span title={`Utilisée par : ${keyUsage[key.id].join(", ")}`} className="tag">
+                    {keyUsage[key.id].length} hôte{keyUsage[key.id].length > 1 ? "s" : ""}
+                  </span>
+                )}
+              </>
+            }
             secondary={key.content
               ? <span className="flex items-center gap-1 text-[var(--c-ok)]"><IconCheck size={10} /> Contenu intégré</span>
               : <EntityMono title={key.path}>{key.path}</EntityMono>}

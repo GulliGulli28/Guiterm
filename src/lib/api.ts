@@ -318,6 +318,8 @@ export const api = {
   /** Déplace des entités (avec ce qui doit les suivre) entre le profil local
    * et le compte ; `vaultId` = vault partagé de destination, `null` = personnel. */
   guivaultTransferEntities: (ids: string[], toAccount: boolean, vaultId: VaultId | null, copy = false) => invoke<number>("guivault_transfer_entities", { ids, toAccount, vaultId, copy }),
+  /** Supprime des entités du compte (secrets compris) ; la synchro pose les tombales. */
+  guivaultDeleteEntities: (ids: string[]) => invoke<Workspace>("guivault_delete_entities", { ids }),
   /** Oublie un compte sur cet appareil (son workspace local compris). */
   guivaultForget: (userId: string) => invoke<GuiVaultStatus>("guivault_forget", { userId }),
   guivaultSetPreferences: (autoSyncSecs: number, persistUnlock: boolean) => invoke<GuiVaultStatus>("guivault_set_preferences", { autoSyncSecs, persistUnlock }),

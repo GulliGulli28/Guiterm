@@ -350,7 +350,14 @@ dossier son sous-arbre. `transfer::copy` duplique sous de **nouveaux ids**
 dupliqués par `entity::apply`) — deux exemplaires ne doivent jamais partager
 un id, le coffre local indexe les secrets par id. Le panneau compte les
 entités du **compte** via `guivault_list_entities("account")`, jamais celles
-du workspace affiché (qui peut être le local). Un hôte dont le dossier manque s'affiche à la
+du workspace affiché (qui peut être le local). Même règle pour **toute
+modification du compte** depuis le menu des vaults (`with_account_workspace`
+dans `commands/guivault.rs`) : le workspace du compte est en mémoire s'il est
+affiché, sur le disque sinon — un `state.workspace` nu pointerait sur le
+local en vue locale (bug du 2026-09-17). Étiquettes de vault :
+`lib/vaultLabels.ts` + `VaultChip`, mode « trier par vault » du panneau
+Hôtes (`byVault`, un `buildHostTree` par section ; un dossier dont le parent
+est dans un autre vault monte à la racine). Un hôte dont le dossier manque s'affiche à la
 racine (`buildHostTree`) plutôt que de disparaître. La scène
 `32-35-guivault*` de `visual-tour` rend le panneau avec un compte factice.
 

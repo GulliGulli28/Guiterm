@@ -558,6 +558,7 @@ function VaultContents({ vault, vaults, onChanged, onError, onNotify }: {
   const [local, setLocal] = useState<GuiVaultEntity[] | null>(null);
   const [picked, setPicked] = useState<Set<string>>(new Set());
   const [busy, setBusy] = useState(false);
+  const [deleting, setDeleting] = useState<GuiVaultEntity | null>(null);
   const isPersonal = vault.kind === "personal";
   const here = (entities ?? []).filter((e) => (isPersonal ? e.vaultId === null : e.vaultId === vault.id));
   const targets = vaults.filter((v) => v.id !== vault.id && (v.kind === "personal" || v.role !== "reader"));
@@ -569,6 +570,7 @@ function VaultContents({ vault, vaults, onChanged, onError, onNotify }: {
   useEffect(() => { load(); }, [load, vault.id]);
 
   const moveTo = async (e: GuiVaultEntity, target: string) => {
+    if (target === "delete") { setDeleting(e); return; }
     setBusy(true);
     try {
       if (target === "local" || target === "local-copy") {
@@ -621,6 +623,26 @@ function VaultContents({ vault, vaults, onChanged, onError, onNotify }: {
           </div>
         </div>
       )}
+      {deleting && (
+        <ConfirmDialog
+          title={`Supprimer ${KIND_LABELS[deleting.kind]} « ${deleting.name} » ?`}
+          message={
+            (deleting.kind === "group"
+              ? "Les hôtes qu'il contient reviennent à la racine. "
+              : deleting.kind === "key"
+                ? "Les hôtes qui s'authentifient avec cette clé ne pourront plus se connecter. "
+                : "") +
+            (isPersonal ? "Supprimé de votre compte et de tous vos appareils à la prochaine synchronisation." : "Supprimé du vault pour tous ses membres à la prochaine synchronisation.")
+          }
+          confirmLabel="Supprimer"
+          danger
+          onConfirm={() => {
+            const e = deleting; setDeleting(null); setBusy(true);
+            api.guivaultDeleteEntities([e.id]).then(() => { onNotify(`${KIND_LABELS[e.kind]} « ${e.name} » supprimé.`); load(); onChanged(); }).catch((err) => onError(String(err))).finally(() => setBusy(false));
+          }}
+          onCancel={() => setDeleting(null)}
+        />
+      )}
       {entities === null && <p className="text-[11.5px] text-[var(--c-text-muted)]">Chargement…</p>}
       {entities && here.length === 0 && <p className="text-[11.5px] text-[var(--c-text-muted)]">Rien ici pour l'instant.</p>}
       {here.map((e) => (
@@ -631,6 +653,7 @@ function VaultContents({ vault, vaults, onChanged, onError, onNotify }: {
               {targets.map((t) => <option key={t.id} value={t.kind === "personal" ? "personal" : t.id}>{t.kind === "personal" ? "Personnel" : t.name}</option>)}
               <option value="local">Cet appareil (local)</option>
               <option value="local-copy">Copier vers cet appareil</option>
+              <option value="delete">Supprimer…</option>
             </select>
           )}
         </EntityRow>

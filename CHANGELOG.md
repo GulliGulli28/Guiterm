@@ -40,9 +40,12 @@ This changelog starts 2026-07-21 — for earlier versions, see
   GuiVault propose les comptes déjà utilisés ici pour se reconnecter. Le
   menu de chaque vault — personnel compris — liste son contenu : y déplacer
   ou copier une entité vers un autre vault ou vers l'appareil, ou en ajouter
-  depuis le profil local (transfert ou copie), à tout moment. Dans la liste
-  des hôtes, ceux d'un vault partagé portent son nom en étiquette, et ce nom
-  se cherche comme un tag. Un hôte se range aussi dans un vault depuis
+  depuis le profil local (transfert ou copie), à tout moment. Partout —
+  hôtes, dossiers, clés, snippets, connexions — une entité d'un vault
+  partagé porte son nom en étiquette, cherchable comme un tag ; et le
+  panneau Hôtes a un mode **« trier par vault »** : une section par vault
+  (personnel, puis chaque vault partagé), avec ses dossiers dedans. Depuis
+  le menu d'un vault on peut aussi supprimer une entité. Un hôte se range aussi dans un vault depuis
   son formulaire (champ « Vault ») ; sa clé du trousseau et ses dossiers le
   suivent, un dossier emmène son sous-arbre.
 

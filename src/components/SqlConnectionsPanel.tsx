@@ -1,9 +1,11 @@
 import { sqlConnectionTarget, sqlConnectionVia, sqlConnectionViaHostId, sqlEngineLabel, type Host, type SqlConnection, type Workspace } from "../lib/types";
 import { IconDatabase, IconPlus, IconEdit, IconDownload, IconTunnels } from "./ui-icons";
 import { EntityRow, EntityMono } from "./EntityRow";
+import { VaultChip } from "./VaultChip";
 
 interface SqlConnectionsPanelProps {
   workspace: Workspace;
+  vaultNameOf?: Map<string, string>;
   onConnect: (conn: SqlConnection) => void;
   onNewConnection: () => void;
   onEditConnection: (conn: SqlConnection) => void;
@@ -17,7 +19,7 @@ interface SqlConnectionsPanelProps {
 /** List-only — creating/editing (and deleting, from inside that form) goes
  * through `SqlConnectionForm` in the app's right panel, same as hosts/groups
  * (`App.tsx`'s `showRightPanel`), not an inline expansion in this list. */
-export function SqlConnectionsPanel({ workspace, onConnect, onNewConnection, onEditConnection, onImportAws, onConnectHost }: SqlConnectionsPanelProps) {
+export function SqlConnectionsPanel({ workspace, vaultNameOf, onConnect, onNewConnection, onEditConnection, onImportAws, onConnectHost }: SqlConnectionsPanelProps) {
   return (
     <div className="flex h-full min-w-0 flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -45,7 +47,7 @@ export function SqlConnectionsPanel({ workspace, onConnect, onNewConnection, onE
               icon={<IconDatabase size={13} />}
               title={conn.label}
               title_={`Se connecter — ${sqlConnectionTarget(conn)}`}
-              badges={<span className="tag">{sqlEngineLabel(conn.engine)}</span>}
+              badges={<><VaultChip name={vaultNameOf?.get(conn.id)} /><span className="tag">{sqlEngineLabel(conn.engine)}</span></>}
               secondary={
                 <>
                   <EntityMono>{sqlConnectionTarget(conn)}</EntityMono>

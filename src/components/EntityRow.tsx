@@ -138,7 +138,7 @@ export function EntityMono({ children, title }: { children: ReactNode; title?: s
 /** L'en-tête repliable d'un dossier dans un arbre. La taille suit
  * `--group-row-font`/`--group-row-h`, réglables dans les préférences. */
 export function GroupRow({
-  depth, expanded, onToggle, icon, name, count, actions, leading,
+  depth, expanded, onToggle, icon, name, count, actions, leading, badge,
 }: {
   depth: number;
   expanded: boolean;
@@ -148,6 +148,8 @@ export function GroupRow({
   count?: number;
   actions?: ReactNode;
   leading?: ReactNode;
+  /** Une étiquette après le nom (le vault du dossier). */
+  badge?: ReactNode;
 }) {
   return (
     <div
@@ -180,6 +182,7 @@ export function GroupRow({
         </span>
         <span className="truncate">{name}</span>
         {count != null && count > 0 && <span className="text-[10.5px] font-normal text-[var(--c-text-faint)]">{count}</span>}
+        {badge}
       </button>
       {actions && (
         <span className="flex shrink-0 items-center opacity-0 focus-within:opacity-100 group-hover/folder:opacity-100">

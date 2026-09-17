@@ -239,6 +239,25 @@ const scenes = [
     await clickNav(page, "Hôtes");
     await settle(page, 400);
   }],
+  // Mode « trier par vault » : une section par vault, dossiers dedans.
+  ["39-hotes-par-vault", async (page) => {
+    await page.evaluate(() => {
+      const handle = document.querySelector(".cursor-col-resize");
+      if (!handle) return;
+      const rect = handle.getBoundingClientRect();
+      handle.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, clientX: rect.left + 2, clientY: 300 }));
+      window.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: rect.left + 120, clientY: 300 }));
+      window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, clientX: rect.left + 120, clientY: 300 }));
+    });
+    await page.locator('button[title^="Trier par vault"]').click();
+    await settle(page, 500);
+    const sections = await page.evaluate(() => Array.from(document.querySelectorAll("[data-vault-section]")).map((e) => e.getAttribute("data-vault-section")));
+    if (sections.length < 2) throw new Error(`sections de vault absentes : ${JSON.stringify(sections)}`);
+  }],
+  ["40-snippets-vaults", async (page) => {
+    await page.locator('button[title^="Trier par dossier"]').click();
+    await clickNav(page, "Snippets");
+  }],
 ];
 
 try {

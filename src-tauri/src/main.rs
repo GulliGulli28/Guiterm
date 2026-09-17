@@ -325,6 +325,7 @@ fn main() {
             commands::guivault::guivault_switch_view,
             commands::guivault::guivault_list_entities,
             commands::guivault::guivault_transfer_entities,
+            commands::guivault::guivault_delete_entities,
             commands::guivault::guivault_set_preferences,
             commands::guivault::guivault_change_password,
             commands::guivault::guivault_sync,
