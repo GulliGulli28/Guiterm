@@ -129,8 +129,24 @@ describe("buildTargetTree", () => {
       groups: cyclic,
       query: "",
     });
-    // Le dossier n'est atteignable depuis aucune racine : sa cible n'apparaît
-    // pas, mais la construction se termine.
-    expect(tree.rows).toEqual([]);
+    // Un dossier qui est son propre parent monte à la racine : sa cible
+    // reste atteignable, et la construction se termine.
+    expect(tree.rows.map((r) => r.kind)).toEqual(["group", "target"]);
+  });
+
+  // Le bug du 2026-09-17 : un hôte reçu d'un vault GuiVault partagé dont le
+  // dossier n'a pas suivi n'apparaissait ni dans la flotte ni dans le
+  // diagnostic — `buildHostTree` (panneau Hôtes) le montrait à la racine,
+  // pas celui-ci.
+  it("range à la racine un hôte dont le dossier n'existe pas ici", () => {
+    const tree = buildTargetTree({
+      targets: [target("ssh:h-orph", "orphelin", "h-orph"), target("ssh:h-api", "api", "h-api")],
+      hosts: [host("h-orph", "orphelin", "g-ailleurs"), ...HOSTS],
+      groups: GROUPS,
+      query: "",
+    });
+    expect(tree.visibleKeys).toEqual(["ssh:h-api", "ssh:h-orph"]);
+    const orphan = tree.rows.find((r) => r.kind === "target" && r.target.key === "ssh:h-orph");
+    expect(orphan?.depth).toBe(0);
   });
 });

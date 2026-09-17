@@ -99,9 +99,14 @@ export function buildTargetTree<T extends TargetLike>({
     else byHost.set(host.id, [target]);
   }
 
+  // Un hôte dont le dossier n'existe pas ici (dossier resté dans un autre
+  // vault GuiVault, import partiel) se range à la racine plutôt que de
+  // disparaître de la flotte et du diagnostic — même règle que
+  // `buildHostTree` ; et un dossier dont le parent manque monte de même.
+  const knownGroups = new Set(groups.map((g) => g.id));
   const groupsByParent = new Map<GroupId | null, Group[]>();
   for (const group of groups) {
-    const key = group.parentId ?? null;
+    const key = group.parentId && knownGroups.has(group.parentId) && group.parentId !== group.id ? group.parentId : null;
     const bucket = groupsByParent.get(key);
     if (bucket) bucket.push(group);
     else groupsByParent.set(key, [group]);
@@ -112,7 +117,7 @@ export function buildTargetTree<T extends TargetLike>({
   const hostsByGroup = new Map<GroupId | null, Host[]>();
   for (const host of hosts) {
     if (!byHost.has(host.id)) continue;
-    const key = host.groupId ?? null;
+    const key = host.groupId && knownGroups.has(host.groupId) ? host.groupId : null;
     const bucket = hostsByGroup.get(key);
     if (bucket) bucket.push(host);
     else hostsByGroup.set(key, [host]);
