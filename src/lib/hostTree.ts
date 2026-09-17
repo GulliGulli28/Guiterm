@@ -27,13 +27,14 @@ export interface HostTree {
 }
 
 /** Ce qu'une recherche compare — libellé, adresse, utilisateur, tags. */
-function hostMatches(host: Host, query: string): boolean {
+function hostMatches(host: Host, query: string, extra?: string): boolean {
   if (!query) return true;
   return (
     host.label.toLowerCase().includes(query) ||
     host.address.toLowerCase().includes(query) ||
     host.username.toLowerCase().includes(query) ||
-    host.tags.some((t) => t.toLowerCase().includes(query))
+    host.tags.some((t) => t.toLowerCase().includes(query)) ||
+    (extra !== undefined && extra.toLowerCase().includes(query))
   );
 }
 
@@ -41,14 +42,16 @@ function hostMatches(host: Host, query: string): boolean {
  * `query` est attendu déjà normalisé (trim + minuscules) : c'est ce que la
  * barre de recherche produit, et le refaire ici le referait à chaque hôte.
  */
-export function buildHostTree(hosts: Host[], groups: Group[], query: string): HostTree {
+/** `extraTerms` : un critère de recherche de plus par hôte (le nom de son
+ * vault GuiVault), sans que l'arbre sache ce que c'est. */
+export function buildHostTree(hosts: Host[], groups: Group[], query: string, extraTerms?: Map<string, string>): HostTree {
   // Un hôte dont le dossier n'existe pas ici (dossier resté dans un autre
   // vault GuiVault, import partiel) se range à la racine plutôt que de
   // disparaître : un hôte invisible est un hôte qu'on croit perdu.
   const knownGroups = new Set(groups.map((g) => g.id));
   const hostsByGroup = new Map<GroupId | null, Host[]>();
   for (const host of hosts) {
-    if (!hostMatches(host, query)) continue;
+    if (!hostMatches(host, query, extraTerms?.get(host.id))) continue;
     const key = host.groupId && knownGroups.has(host.groupId) ? host.groupId : null;
     const bucket = hostsByGroup.get(key);
     if (bucket) bucket.push(host);

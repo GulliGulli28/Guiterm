@@ -383,7 +383,7 @@ function AccountCard({ status, onStatusChange, onError, onNotify }: { status: Gu
       </div>
       {status.viewLocal ? (
         <div className="callout callout-warn flex flex-wrap items-center justify-between gap-2">
-          <span>Profil local affiché — la synchronisation est en pause.</span>
+          <span>Profil local affiché. Le compte continue de se synchroniser en arrière-plan.</span>
           <button onClick={() => api.guivaultSwitchView(false).then(onStatusChange).catch((e) => onError(String(e)))} className="btn btn-primary btn-sm shrink-0">Afficher le compte</button>
         </div>
       ) : (
@@ -414,7 +414,7 @@ function AccountCard({ status, onStatusChange, onError, onNotify }: { status: Gu
       </label>
 
       <button type="button" onClick={() => { setShowMore((v) => !v); if (!showMore) { loadSessions(); loadTotp(); } }} className="btn btn-ghost btn-sm w-full">
-        {showMore ? "Masquer" : "Appareils, second facteur, mot de passe…"}
+        {showMore ? "Masquer" : "Plus d'options…"}
       </button>
       {showMore && (
         <div className="space-y-3 border-t border-[var(--c-border)] pt-2">
@@ -535,9 +535,9 @@ const KIND_LABELS: Record<GuiVaultEntity["kind"], string> = {
 
 function EntityRow({ e, children }: { e: GuiVaultEntity; children?: ReactNode }) {
   return (
-    <div className="flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 hover:bg-[var(--c-hover)]">
+    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-md px-1.5 py-1 hover:bg-[var(--c-hover)]">
       <span className="tag shrink-0">{KIND_LABELS[e.kind]}</span>
-      <span className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--c-text)]" title={e.path ? `${e.path} / ${e.name}` : e.name}>
+      <span className="min-w-[7rem] flex-1 truncate text-[12.5px] text-[var(--c-text)]" title={e.path ? `${e.path} / ${e.name}` : e.name}>
         {e.name}{e.path && <span className="text-[var(--c-text-muted)]"> — {e.path}</span>}
       </span>
       {children}
@@ -571,9 +571,10 @@ function VaultContents({ vault, vaults, onChanged, onError, onNotify }: {
   const moveTo = async (e: GuiVaultEntity, target: string) => {
     setBusy(true);
     try {
-      if (target === "local") {
-        const n = await api.guivaultTransferEntities([e.id], false, null);
-        onNotify(`${n} entité(s) déplacée(s) vers cet appareil.`);
+      if (target === "local" || target === "local-copy") {
+        const copy = target === "local-copy";
+        const n = await api.guivaultTransferEntities([e.id], false, null, copy);
+        onNotify(`${n} entité(s) ${copy ? "copiée(s)" : "déplacée(s)"} vers cet appareil.`);
       } else {
         await api.guivaultMoveEntity(e.id, target === "personal" ? null : target);
       }
@@ -582,11 +583,11 @@ function VaultContents({ vault, vaults, onChanged, onError, onNotify }: {
   };
 
   const openLocal = () => api.guivaultListEntities("local").then((l) => { setLocal(l); setPicked(new Set()); }).catch((e) => onError(String(e)));
-  const importPicked = async () => {
+  const importPicked = async (copy: boolean) => {
     setBusy(true);
     try {
-      const n = await api.guivaultTransferEntities([...picked], true, isPersonal ? null : vault.id);
-      onNotify(`${n} entité(s) transférée(s) dans « ${vault.name} ».`);
+      const n = await api.guivaultTransferEntities([...picked], true, isPersonal ? null : vault.id, copy);
+      onNotify(`${n} entité(s) ${copy ? "copiée(s)" : "transférée(s)"} dans « ${vault.name} ».`);
       setLocal(null); load(); onChanged();
     } catch (err) { onError(String(err)); } finally { setBusy(false); }
   };
@@ -600,7 +601,7 @@ function VaultContents({ vault, vaults, onChanged, onError, onNotify }: {
       {local !== null && (
         <div className="card space-y-1.5 p-2">
           <p className="text-[11.5px] text-[var(--c-text-muted)]">
-            Entités du profil local de cet appareil. Cochées, elles sont <strong>déplacées</strong> dans ce vault (dossiers et clés nécessaires compris) et quittent le profil local.
+            Entités du profil local de cet appareil. <strong>Transférer</strong> les déplace dans ce vault (dossiers et clés nécessaires compris) ; <strong>Copier</strong> en met un exemplaire indépendant ici et les laisse en local.
           </p>
           {local.length === 0 && <p className="text-[12px] text-[var(--c-text-muted)]">Le profil local est vide.</p>}
           <div className="max-h-64 space-y-0.5 overflow-y-auto">
@@ -615,7 +616,8 @@ function VaultContents({ vault, vaults, onChanged, onError, onNotify }: {
           <div className="flex flex-wrap justify-end gap-1.5">
             <button onClick={() => setPicked(new Set(local.map((e) => e.id)))} disabled={local.length === 0} className="btn btn-ghost btn-sm">Tout</button>
             <button onClick={() => setLocal(null)} className="btn btn-ghost btn-sm">Annuler</button>
-            <button onClick={importPicked} disabled={busy || picked.size === 0} className="btn btn-primary btn-sm">Transférer ({picked.size})</button>
+            <button onClick={() => importPicked(true)} disabled={busy || picked.size === 0} className="btn btn-secondary btn-sm">Copier ({picked.size})</button>
+            <button onClick={() => importPicked(false)} disabled={busy || picked.size === 0} className="btn btn-primary btn-sm">Transférer ({picked.size})</button>
           </div>
         </div>
       )}
@@ -624,10 +626,11 @@ function VaultContents({ vault, vaults, onChanged, onError, onNotify }: {
       {here.map((e) => (
         <EntityRow key={e.id} e={e}>
           {canWrite && (
-            <select value="" disabled={busy} onChange={(ev) => { if (ev.target.value) moveTo(e, ev.target.value); }} className="input w-[110px] shrink-0" title="Déplacer vers…">
+            <select value="" disabled={busy} onChange={(ev) => { if (ev.target.value) moveTo(e, ev.target.value); }} className="input ml-auto w-[110px] shrink-0" title="Déplacer vers…">
               <option value="">Déplacer…</option>
               {targets.map((t) => <option key={t.id} value={t.kind === "personal" ? "personal" : t.id}>{t.kind === "personal" ? "Personnel" : t.name}</option>)}
               <option value="local">Cet appareil (local)</option>
+              <option value="local-copy">Copier vers cet appareil</option>
             </select>
           )}
         </EntityRow>
@@ -654,7 +657,10 @@ function VaultDetail({ vault, vaults, workspace, onBack, onStatusChange, onError
   const [keepLocal, setKeepLocal] = useState(true);
   const [audit, setAudit] = useState<GuiVaultAuditEntry[] | null>(null);
 
-  const bound = Object.values(workspace.vaultBindings ?? {}).filter((v) => v === vault.id).length;
+  const [bound, setBound] = useState(0);
+  useEffect(() => {
+    api.guivaultListEntities("account").then((l) => setBound(l.filter((e) => e.vaultId === vault.id).length)).catch(() => {});
+  }, [vault.id, workspace]);
 
   const reload = useCallback(() => {
     if (isPersonal) return;
@@ -690,7 +696,7 @@ function VaultDetail({ vault, vaults, workspace, onBack, onStatusChange, onError
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <button onClick={onBack} className="btn btn-ghost btn-sm">← Vaults</button>
         {renaming === null ? (
-          <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--c-text)]" onDoubleClick={() => manage && setRenaming(vault.name)} title={manage ? "Double-clic pour renommer" : undefined}>{vault.name}</p>
+          <p className="min-w-[6rem] flex-1 truncate text-[13px] font-medium text-[var(--c-text)]" onDoubleClick={() => manage && setRenaming(vault.name)} title={manage ? "Double-clic pour renommer" : vault.name}>{vault.name}</p>
         ) : (
           <input
             value={renaming}
@@ -748,7 +754,7 @@ function VaultDetail({ vault, vaults, workspace, onBack, onStatusChange, onError
         <div className="space-y-1.5">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">Inviter</p>
           <div className="flex flex-wrap gap-1.5">
-            <input value={inviteEmail} onChange={(e) => { setInviteEmail(e.target.value); setLookup(null); }} onKeyDown={(e) => { if (e.key === "Enter") doLookup(); }} placeholder="E-mail" type="email" className={`${inputClass} min-w-0 flex-1`} />
+            <input value={inviteEmail} onChange={(e) => { setInviteEmail(e.target.value); setLookup(null); }} onKeyDown={(e) => { if (e.key === "Enter") doLookup(); }} placeholder="E-mail" type="email" className={`${inputClass} min-w-[9rem] flex-1`} />
             <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value as VaultRole)} className={`${inputClass} w-auto`} title={ROLE_HINTS[inviteRole]}>
               {(["reader", "writer", "admin"] as VaultRole[]).map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
             </select>
@@ -884,6 +890,10 @@ function VaultDetail({ vault, vaults, workspace, onBack, onStatusChange, onError
 
 export function GuiVaultPanel({ workspace, status, onStatusChange, onError, onNotify }: GuiVaultPanelProps) {
   const [received, setReceived] = useState<GuiVaultInvitation[]>([]);
+  // Les entités du **compte** — pas celles affichées : quand le profil local
+  // est à l'écran, `workspace` est le local, et le compter au vault personnel
+  // serait faux.
+  const [accountEntities, setAccountEntities] = useState<GuiVaultEntity[]>([]);
   const [selected, setSelected] = useState<VaultId | null>(null);
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState("");
@@ -894,6 +904,10 @@ export function GuiVaultPanel({ workspace, status, onStatusChange, onError, onNo
     api.guivaultMyInvitations().then(setReceived).catch(() => setReceived([]));
   }, [unlocked]);
   useEffect(() => { loadReceived(); }, [loadReceived, status?.lastSyncAt]);
+  useEffect(() => {
+    if (!unlocked) { setAccountEntities([]); return; }
+    api.guivaultListEntities("account").then(setAccountEntities).catch(() => setAccountEntities([]));
+  }, [unlocked, status?.lastSyncAt, workspace]);
 
   const createVault = async () => {
     const name = newName.trim();
@@ -943,21 +957,18 @@ export function GuiVaultPanel({ workspace, status, onStatusChange, onError, onNo
               )}
               <p className="text-[11.5px] text-[var(--c-text-muted)]">Ouvrir un vault pour voir son contenu, y déplacer des entités ou en ajouter depuis cet appareil.</p>
               {status.vaults.map((v) => {
-                const bindings = workspace.vaultBindings ?? {};
-                const count = v.kind === "personal"
-                  ? workspace.hosts.length + workspace.groups.length + workspace.snippets.length + workspace.keychain.length + workspace.sqlConnections.length - Object.keys(bindings).length
-                  : Object.values(bindings).filter((b) => b === v.id).length;
+                const count = accountEntities.filter((e) => (v.kind === "personal" ? e.vaultId === null : e.vaultId === v.id)).length;
                 return (
                   <button
                     key={v.id}
                     type="button"
                     onClick={() => setSelected(v.id)}
-                    className="card flex w-full min-w-0 items-center gap-2 p-2 text-left hover:bg-[var(--c-hover)]"
+                    className="card flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1 p-2 text-left hover:bg-[var(--c-hover)]"
                   >
                     <IconVault size={14} className="shrink-0 text-[var(--c-text-muted)]" />
-                    <span className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--c-text)]">{v.name}</span>
-                    <span className="text-[11px] text-[var(--c-text-muted)]">{count}</span>
-                    <span className="tag" title={ROLE_HINTS[v.role]}>{v.kind === "personal" ? "personnel" : ROLE_LABELS[v.role]}</span>
+                    <span className="min-w-[6rem] flex-1 truncate text-[12.5px] text-[var(--c-text)]" title={v.name}>{v.name}</span>
+                    <span className="text-[11px] tabular-nums text-[var(--c-text-muted)]" title="Entités dans ce vault">{count}</span>
+                    {v.kind === "shared" && <span className="tag" title={ROLE_HINTS[v.role]}>{ROLE_LABELS[v.role]}</span>}
                   </button>
                 );
               })}

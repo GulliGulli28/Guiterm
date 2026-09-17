@@ -41,6 +41,7 @@ export const hostsModule = defineModule({
           otherAccounts: a.guivaultStatus.accounts
             .filter((acc) => acc.userId !== a.guivaultStatus?.userId)
             .map((acc) => ({ userId: acc.userId, email: acc.email })),
+          vaults: a.guivaultStatus.vaults.filter((v) => v.kind === "shared").map((v) => ({ id: v.id, name: v.name })),
         } : null}
         onSwitchProfile={(target) => {
           if (target === "local" || target === "account") {

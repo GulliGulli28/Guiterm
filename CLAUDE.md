@@ -345,7 +345,12 @@ alors le workspace du compte *sur le disque* (`load_workspace_at` /
 `guivault::transfer` déplace des entités entre local, personnel et vaults
 partagés (`guivault_transfer_entities`, menu des vaults → « Contenu ») en
 fermant la sélection : un hôte emmène sa clé et sa chaîne de dossiers, un
-dossier son sous-arbre. Un hôte dont le dossier manque s'affiche à la
+dossier son sous-arbre. `transfer::copy` duplique sous de **nouveaux ids**
+(réécriture textuelle des uuid dans le JSON des charges utiles, secrets
+dupliqués par `entity::apply`) — deux exemplaires ne doivent jamais partager
+un id, le coffre local indexe les secrets par id. Le panneau compte les
+entités du **compte** via `guivault_list_entities("account")`, jamais celles
+du workspace affiché (qui peut être le local). Un hôte dont le dossier manque s'affiche à la
 racine (`buildHostTree`) plutôt que de disparaître. La scène
 `32-35-guivault*` de `visual-tour` rend le panneau avec un compte factice.
 

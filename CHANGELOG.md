@@ -39,8 +39,10 @@ This changelog starts 2026-07-21 — for earlier versions, see
   synchronisation continue pendant ce temps). Déconnecté, le panneau
   GuiVault propose les comptes déjà utilisés ici pour se reconnecter. Le
   menu de chaque vault — personnel compris — liste son contenu : y déplacer
-  une entité vers un autre vault ou vers l'appareil, ou en ajouter depuis le
-  profil local, à tout moment. Un hôte se range aussi dans un vault depuis
+  ou copier une entité vers un autre vault ou vers l'appareil, ou en ajouter
+  depuis le profil local (transfert ou copie), à tout moment. Dans la liste
+  des hôtes, ceux d'un vault partagé portent son nom en étiquette, et ce nom
+  se cherche comme un tag. Un hôte se range aussi dans un vault depuis
   son formulaire (champ « Vault ») ; sa clé du trousseau et ses dossiers le
   suivent, un dossier emmène son sous-arbre.
 

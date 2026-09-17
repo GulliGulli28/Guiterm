@@ -113,6 +113,7 @@ pub async fn guivault_transfer_entities(
     ids: Vec<Uuid>,
     to_account: bool,
     vault_id: Option<VaultId>,
+    copy: bool,
 ) -> Result<usize, String> {
     let status = state.guivault.status();
     if let Some(v) = vault_id
@@ -121,6 +122,15 @@ pub async fn guivault_transfer_entities(
         return Err("pas de droit d'écriture dans ce vault".into());
     }
     let moved = with_both_workspaces(&state, |local, account| {
+        if copy {
+            // Une copie ne retire rien : le droit d'écriture ne compte que
+            // du côté où elle arrive (vérifié plus haut pour un vault).
+            return if to_account {
+                transfer::copy(local, account, &ids, vault_id).map_err(err)
+            } else {
+                transfer::copy(account, local, &ids, None).map_err(err)
+            };
+        }
         if to_account {
             Ok(transfer::transfer(local, account, &ids, vault_id))
         } else {

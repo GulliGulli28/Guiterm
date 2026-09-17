@@ -29,6 +29,9 @@ export interface HostsProfile {
   viewLocal: boolean;
   /** Comptes connus sur cet appareil mais pas connectés. */
   otherAccounts: { userId: string; email: string }[];
+  /** Les vaults partagés du compte, pour étiqueter les hôtes qui y sont
+   * rangés (et les retrouver par ce nom dans la recherche). */
+  vaults: { id: string; name: string }[];
 }
 
 interface HostsPanelProps {
@@ -218,9 +221,21 @@ export function HostsPanel({
 
   // Indexé une fois par changement d'hôtes/dossiers/recherche, au lieu d'être
   // refiltré et retrié à chaque dossier affiché — voir `buildHostTree`.
+  // Nom du vault partagé de chaque hôte (profil du compte seulement) : une
+  // étiquette sur la ligne, et un critère de recherche (« testing »).
+  const vaultNameOf = useMemo(() => {
+    const names = new Map<string, string>();
+    if (!profile || profile.viewLocal || !profile.connectedEmail) return names;
+    const byId = new Map(profile.vaults.map((v) => [v.id, v.name]));
+    for (const [id, vaultId] of Object.entries(workspace.vaultBindings ?? {})) {
+      const name = byId.get(vaultId);
+      if (name) names.set(id, name);
+    }
+    return names;
+  }, [profile, workspace.vaultBindings]);
   const { hostsByGroup, groupsByParent, matchingGroups } = useMemo(
-    () => buildHostTree(workspace.hosts, workspace.groups, query),
-    [workspace.hosts, workspace.groups, query],
+    () => buildHostTree(workspace.hosts, workspace.groups, query, vaultNameOf),
+    [workspace.hosts, workspace.groups, query, vaultNameOf],
   );
 
   const childGroups = (parentId: GroupId | null) => groupsByParent.get(parentId) ?? [];
@@ -318,7 +333,12 @@ export function HostsPanel({
         }
         title={host.label}
         title_={tooltip}
-        badges={runningCount != null && <span className="tag tag-accent">{runningCount} actif{runningCount === 1 ? "" : "s"}</span>}
+        badges={
+          <>
+            {vaultNameOf.get(host.id) && <span className="tag tag-accent" title={`Vault partagé « ${vaultNameOf.get(host.id)} »`}>{vaultNameOf.get(host.id)}</span>}
+            {runningCount != null && <span className="tag tag-accent">{runningCount} actif{runningCount === 1 ? "" : "s"}</span>}
+          </>
+        }
         meta={facts?.memUsedPct != null && (
           <span className="font-mono text-[10.5px] font-medium tabular-nums" style={{ color: ramColor(facts.memUsedPct) }}>
             {Math.round(facts.memUsedPct)}%
@@ -498,7 +518,7 @@ export function HostsPanel({
             if (v === "local" || v === "account") onSwitchProfile?.(v);
             else onSwitchProfile?.({ userId: v });
           }}
-          title={profile.viewLocal ? "Profil local affiché — la synchronisation GuiVault est en pause" : "Profil affiché"}
+          title={profile.viewLocal ? "Profil local affiché — le compte continue de se synchroniser en arrière-plan" : "Profil affiché"}
           className={`input mb-2 w-full ${profile.viewLocal && profile.connectedEmail ? "border-[var(--c-warn)]" : ""}`}
         >
           <option value="local">Cet appareil (local)</option>

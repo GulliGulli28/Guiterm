@@ -7,6 +7,7 @@
 //! hôtes). Sans ça, l'arrivée serait un hôte rangé « nulle part » ou une
 //! clé qui manque. Les secrets ne bougent pas : ils sont dans le coffre
 //! local, indexés par l'id de l'entité, qui ne change pas.
+use super::entity;
 use crate::model::{VaultId, Workspace};
 use serde::Serialize;
 use std::collections::BTreeSet;
@@ -146,10 +147,77 @@ pub fn transfer(from: &mut Workspace, to: &mut Workspace, ids: &[Uuid], vault: O
     moved
 }
 
+/// Copie `ids` (fermés) de `from` dans `to`, sous de **nouveaux ids** : les
+/// deux exemplaires vivent ensuite leur vie — l'un peut être supprimé, ou
+/// recevoir une tombale du serveur, sans emporter les secrets de l'autre
+/// (le coffre local les indexe par id). Les références entre entités
+/// copiées (dossier d'un hôte, clé, bastions…) sont réécrites vers les
+/// nouveaux ids ; une référence vers une entité non copiée est laissée
+/// telle quelle. Les secrets sont dupliqués via les charges utiles de
+/// [`entity`], qui les lisent et les réécrivent dans le coffre local.
+pub fn copy(from: &Workspace, to: &mut Workspace, ids: &[Uuid], vault: Option<VaultId>) -> anyhow::Result<usize> {
+    let set = closure(from, ids);
+    // `collect` veut un vault « personnel » pour les entités sans
+    // affiliation : sans importance ici, seul le JSON compte.
+    let payloads: Vec<String> = entity::collect(from, Uuid::nil())?
+        .into_iter()
+        .filter(|e| set.contains(&e.id))
+        .map(|e| e.json)
+        .collect();
+    let mapping: Vec<(String, String)> = set.iter().map(|id| (id.to_string(), Uuid::new_v4().to_string())).collect();
+    let mut copied = 0;
+    for json in payloads {
+        // Réécriture textuelle : un uuid v4 est une chaîne unique, elle ne
+        // peut apparaître qu'en tant que référence à cette entité.
+        let mut text = json;
+        for (old, new) in &mapping {
+            text = text.replace(old, new);
+        }
+        let payload = entity::Payload::from_json(text.as_bytes())?;
+        let new_id = payload.id();
+        entity::apply(to, payload);
+        match vault {
+            Some(v) => {
+                to.vault_bindings.insert(new_id, v);
+            }
+            None => {
+                to.vault_bindings.remove(&new_id);
+            }
+        }
+        copied += 1;
+    }
+    Ok(copied)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::model::{Group, Host};
+
+    #[test]
+    fn copy_gives_new_ids_and_rewrites_references() {
+        let mut ws = Workspace::default();
+        let g = Group { id: Uuid::new_v4(), name: "Prod".into(), parent_id: None, icon: None, color: None };
+        let mut bastion = Host::new("bastion", "10.0.0.1", "root");
+        bastion.group_id = Some(g.id);
+        let mut h = Host::new("db1", "10.0.0.2", "root");
+        h.group_id = Some(g.id);
+        h.jump_via = vec![bastion.id];
+        ws.groups.push(g.clone());
+        ws.hosts.extend([bastion.clone(), h.clone()]);
+
+        let mut to = Workspace::default();
+        // Copier db1 seul : son dossier suit, son bastion (référencé mais
+        // hors fermeture) ne suit pas et garde son id d'origine.
+        assert_eq!(copy(&ws, &mut to, &[h.id], None).unwrap(), 2);
+        assert_eq!(ws.hosts.len(), 2, "l'original reste");
+        let copied = to.hosts.iter().find(|x| x.label == "db1").unwrap();
+        assert_ne!(copied.id, h.id);
+        let copied_group = to.groups.iter().find(|x| x.name == "Prod").unwrap();
+        assert_ne!(copied_group.id, g.id);
+        assert_eq!(copied.group_id, Some(copied_group.id), "référence réécrite");
+        assert_eq!(copied.jump_via, vec![bastion.id], "référence hors copie inchangée");
+    }
 
     #[test]
     fn host_takes_its_folder_chain_and_group_takes_its_subtree() {

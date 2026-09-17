@@ -317,7 +317,7 @@ export const api = {
   guivaultListEntities: (scope: "local" | "account") => invoke<GuiVaultEntity[]>("guivault_list_entities", { scope }),
   /** Déplace des entités (avec ce qui doit les suivre) entre le profil local
    * et le compte ; `vaultId` = vault partagé de destination, `null` = personnel. */
-  guivaultTransferEntities: (ids: string[], toAccount: boolean, vaultId: VaultId | null) => invoke<number>("guivault_transfer_entities", { ids, toAccount, vaultId }),
+  guivaultTransferEntities: (ids: string[], toAccount: boolean, vaultId: VaultId | null, copy = false) => invoke<number>("guivault_transfer_entities", { ids, toAccount, vaultId, copy }),
   /** Oublie un compte sur cet appareil (son workspace local compris). */
   guivaultForget: (userId: string) => invoke<GuiVaultStatus>("guivault_forget", { userId }),
   guivaultSetPreferences: (autoSyncSecs: number, persistUnlock: boolean) => invoke<GuiVaultStatus>("guivault_set_preferences", { autoSyncSecs, persistUnlock }),

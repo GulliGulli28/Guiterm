@@ -211,9 +211,33 @@ const scenes = [
   ["35-guivault-etroit-compte", async (page) => {
     await page.getByRole("button", { name: /Vaults/ }).first().click();
     await settle(page, 300);
-    await page.getByRole("button", { name: /Appareils, second facteur/ }).first().click();
+    await page.getByRole("button", { name: /Plus d'options/ }).first().click();
     await settle(page, 500);
     await page.setViewportSize({ width: 1440, height: 900 });
+  }],
+  // Barre latérale à sa largeur minimale (260 px) : liste des vaults, détail
+  // d'un vault, puis le panneau Hôtes avec le sélecteur de profil et les
+  // étiquettes de vault.
+  ["36-guivault-minimal", async (page) => {
+    await page.evaluate(() => {
+      const handle = document.querySelector(".cursor-col-resize");
+      if (!handle) return;
+      const rect = handle.getBoundingClientRect();
+      handle.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, clientX: rect.left + 2, clientY: 300 }));
+      window.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: rect.left - 400, clientY: 300 }));
+      window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, clientX: rect.left - 400, clientY: 300 }));
+    });
+    await settle(page, 300);
+    await page.getByRole("button", { name: /Masquer/ }).first().click();
+    await settle(page, 400);
+  }],
+  ["37-guivault-minimal-vault", async (page) => {
+    await page.locator("[data-sidebar-panel] button", { hasText: "Équipe infra" }).first().click();
+    await settle(page, 600);
+  }],
+  ["38-hotes-minimal-vaults", async (page) => {
+    await clickNav(page, "Hôtes");
+    await settle(page, 400);
   }],
 ];
 
