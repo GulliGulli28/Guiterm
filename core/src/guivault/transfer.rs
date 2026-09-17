@@ -371,6 +371,16 @@ pub fn move_within(ws: &mut Workspace, ids: &[Uuid], set: &BTreeSet<Uuid>, vault
     set.len()
 }
 
+/// Rapatrie dans le personnel tout ce qui est affilié à `vault` — un vault
+/// que le compte ne liste plus (accès retiré, vault supprimé) : la synchro
+/// suivante retirerait ces entités ; ici on les garde, à soi. Rend le nombre
+/// d'entités rapatriées.
+pub fn repatriate(ws: &mut Workspace, vault: VaultId) -> usize {
+    let before = ws.vault_bindings.len();
+    ws.vault_bindings.retain(|_, v| *v != vault);
+    before - ws.vault_bindings.len()
+}
+
 /// Les vaults partagés d'où `set` sortirait, dans `ws`.
 fn source_vaults(ws: &Workspace, set: &BTreeSet<Uuid>) -> BTreeSet<VaultId> {
     set.iter().filter_map(|id| ws.vault_bindings.get(id).copied()).collect()
@@ -792,5 +802,18 @@ mod tests {
         assert_eq!(local.custom_icons.len(), 1);
         assert_eq!(g.ws.custom_icons.len(), 1, "l'icône reste aussi à l'origine");
         assert!(local.hosts.iter().any(|h| h.id == g.db1));
+    }
+
+    #[test]
+    fn repatriate_unbinds_only_that_vault() {
+        let mut ws = Workspace::default();
+        let (gone, kept) = (Uuid::new_v4(), Uuid::new_v4());
+        let (a, b, c) = (Uuid::new_v4(), Uuid::new_v4(), Uuid::new_v4());
+        ws.vault_bindings.insert(a, gone);
+        ws.vault_bindings.insert(b, gone);
+        ws.vault_bindings.insert(c, kept);
+        assert_eq!(repatriate(&mut ws, gone), 2);
+        assert_eq!(ws.vault_bindings.len(), 1);
+        assert_eq!(ws.vault_bindings.get(&c), Some(&kept));
     }
 }

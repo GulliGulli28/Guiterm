@@ -19,9 +19,13 @@ interface KeychainPanelProps {
   onGenerateKey: (name: string, algorithm: KeyAlgorithm, passphrase: string | null) => void;
   onDeleteKey: (id: KeyId) => void;
   onRenameKey: (id: KeyId, name: string) => void;
+  /** Pour « Rapatrier » une section de vault inaccessible. */
+  onWorkspaceUpdate?: (ws: Workspace) => void;
+  onNotify?: (message: string) => void;
+  onError?: (message: string) => void;
 }
 
-export function KeychainPanel({ workspace, vaultSections, onAddKey, onGenerateKey, onDeleteKey, onRenameKey }: KeychainPanelProps) {
+export function KeychainPanel({ workspace, vaultSections, onAddKey, onGenerateKey, onDeleteKey, onRenameKey, onWorkspaceUpdate, onNotify, onError }: KeychainPanelProps) {
   const [mode, setMode] = useState<"import" | "generate">("import");
   const [algorithm, setAlgorithm] = useState<KeyAlgorithm>("ed25519");
   const [name, setName] = useState("");
@@ -213,7 +217,7 @@ export function KeychainPanel({ workspace, vaultSections, onAddKey, onGenerateKe
             <p className="help-text mt-1">Importez une clé privée existante ou générez-en une, puis déployez sa clé publique sur vos hôtes d'ici.</p>
           </div>
         )}
-        <VaultSectionList items={workspace.keychain} bindings={workspace.vaultBindings} sections={vaultSections} emptyMessage="Aucune clé dans ce vault." render={(key: PrivateKey) => (
+        <VaultSectionList items={workspace.keychain} onWorkspaceUpdate={onWorkspaceUpdate} onNotify={onNotify} onError={onError} bindings={workspace.vaultBindings} sections={vaultSections} emptyMessage="Aucune clé dans ce vault." render={(key: PrivateKey) => (
           <EntityRow
             key={key.id}
             variant="card"

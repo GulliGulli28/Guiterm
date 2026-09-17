@@ -1,10 +1,11 @@
 import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { DbTunnel, HostId, SqlConnection, SqlConnectionId, SqlEngine, SqlEngineConfig, Workspace } from "../lib/types";
+import type { DbTunnel, GuiVaultVault, HostId, SqlConnection, SqlConnectionId, SqlEngine, SqlEngineConfig, VaultId, Workspace } from "../lib/types";
 import { DIRECT_TUNNEL, sqlConnectionTunnel } from "../lib/types";
 import { IconTrash } from "./ui-icons";
 import { DbTunnelPicker, type ProbeTarget } from "./DbTunnelPicker";
 import { RemoteFilePicker } from "./RemoteFilePicker";
+import { ReadOnlyVaultNotice, VaultField, readOnlyVault } from "./VaultField";
 
 /** What the form submits: the identity/grouping fields plus exactly the
  * engine-specific config that engine actually has (see `SqlEngineConfig`),
@@ -23,8 +24,14 @@ interface SqlConnectionFormProps {
   workspace: Workspace;
   /** `null` — a new connection. */
   connection: SqlConnection | null;
+  /** Les vaults du compte connecté — vide sans compte : pas de champ. */
+  vaults?: GuiVaultVault[];
+  /** Affiliation actuelle (`null` = personnel). */
+  vaultId?: VaultId | null;
   onCancel: () => void;
-  onSave: (input: SqlConnectionFormData) => void;
+  /** `vaultId` en plus des données : le vault choisi (`null` = personnel),
+   * absent quand le champ n'est pas affiché. */
+  onSave: (input: SqlConnectionFormData, vaultId?: VaultId | null) => void;
   onDeleteConnection?: (id: SqlConnectionId) => void;
 }
 
@@ -61,7 +68,13 @@ function mongoProbeTarget(uri: string): ProbeTarget | null {
 /** Right-panel form for creating/editing a SQL connection — same slot and
  * layout as `HostForm`/`GroupForm` (see `App.tsx`'s `showRightPanel`), rather
  * than an inline expansion in `SqlConnectionsPanel`'s list. */
-export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onDeleteConnection }: SqlConnectionFormProps) {
+export function SqlConnectionForm({ workspace, connection, vaults = [], vaultId: initialVaultId = null, onCancel, onSave: onSaveProp, onDeleteConnection }: SqlConnectionFormProps) {
+  const [vaultId, setVaultId] = useState<VaultId | "">(initialVaultId ?? "");
+  const readOnlyIn = readOnlyVault(vaults, initialVaultId);
+  // Le vault n'est transmis que si le champ est affiché : sans compte, rien
+  // à changer.
+  const onSave = (input: SqlConnectionFormData) =>
+    onSaveProp(input, vaults.some((v) => v.kind === "shared") || vaultId !== "" ? vaultId || null : undefined);
   // The form keeps one flat field per input regardless of engine (so switching
   // engine mid-edit doesn't discard what's already typed); these narrow the
   // incoming connection once so each `useState` below can seed from it.
@@ -192,16 +205,20 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
         </h2>
         <div className="flex items-center gap-1.5">
           <button onClick={onCancel} className="btn btn-ghost">Annuler</button>
-          <button onClick={submit} className="btn btn-primary">{connection ? "Enregistrer" : "Ajouter"}</button>
+          <button onClick={submit} disabled={readOnlyIn !== null} className="btn btn-primary">{connection ? "Enregistrer" : "Ajouter"}</button>
         </div>
       </div>
+      <fieldset disabled={readOnlyIn !== null} className="contents min-w-0">
       <div className="sidebar-scroll min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+        {readOnlyIn && <ReadOnlyVaultNotice vault={readOnlyIn} what="cette connexion" />}
         {error && <p className="callout callout-danger">{error}</p>}
 
         <div>
           <span className="field-label">Nom</span>
           <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Nom" autoFocus className={inputFullClass} />
         </div>
+
+        <VaultField vaults={vaults} value={vaultId} onChange={setVaultId} readOnly={readOnlyIn !== null} hint="L'hôte de son tunnel, s'il y en a un, est proposé." />
 
         <div>
           <span className="field-label">Moteur</span>
@@ -429,6 +446,7 @@ export function SqlConnectionForm({ workspace, connection, onCancel, onSave, onD
           </div>
         )}
       </div>
+      </fieldset>
 
       {showRemotePicker && (
         <RemoteFilePicker workspace={workspace} onCancel={() => setShowRemotePicker(false)} onSelect={onRemoteFilePicked} />

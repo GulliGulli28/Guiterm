@@ -32,6 +32,9 @@ export const sqlModule = defineModule({
       <SqlConnectionsPanel
         workspace={ctx.workspace}
         vaultSections={vaultSections(a.guivaultStatus)}
+        onWorkspaceUpdate={ctx.refreshWorkspace}
+        onNotify={(m) => ctx.pushNotification("info", m)}
+        onError={ctx.reportError}
         onConnect={a.connectSql}
         onNewConnection={a.newSqlConnection}
         onEditConnection={a.editSqlConnection}

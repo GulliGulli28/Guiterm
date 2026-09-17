@@ -34,6 +34,9 @@ interface SnippetsPanelProps {
   /** Une génération qui échoue (pas de clé API, modèle injoignable) doit se
    * dire ici, pas dans la console. */
   onError: (message: string) => void;
+  /** Pour « Rapatrier » une section de vault inaccessible. */
+  onWorkspaceUpdate?: (ws: Workspace) => void;
+  onNotify?: (message: string) => void;
 }
 
 type Mode = "snippet" | "script" | "adaptive";
@@ -335,7 +338,7 @@ function SnippetCard({
   );
 }
 
-export function SnippetsPanel({ workspace, vaultSections, onAddSnippet, onUpdateSnippet, onDeleteSnippet, onRunSnippet, onRunAdaptiveSnippet, onSaveAdaptiveSnippet, openTerminals, onError }: SnippetsPanelProps) {
+export function SnippetsPanel({ workspace, vaultSections, onAddSnippet, onUpdateSnippet, onDeleteSnippet, onRunSnippet, onRunAdaptiveSnippet, onSaveAdaptiveSnippet, openTerminals, onError, onWorkspaceUpdate, onNotify }: SnippetsPanelProps) {
   const [showForm, setShowForm] = useState(false);
 
   return (
@@ -360,7 +363,7 @@ export function SnippetsPanel({ workspace, vaultSections, onAddSnippet, onUpdate
           )}
         </div>
 
-        <VaultSectionList items={workspace.snippets} bindings={workspace.vaultBindings} sections={vaultSections} emptyMessage="Aucun snippet dans ce vault." render={(snippet) => (
+        <VaultSectionList items={workspace.snippets} onWorkspaceUpdate={onWorkspaceUpdate} onNotify={onNotify} onError={onError} bindings={workspace.vaultBindings} sections={vaultSections} emptyMessage="Aucun snippet dans ce vault." render={(snippet) => (
           <SnippetCard
             key={snippet.id}
             snippet={snippet}

@@ -326,6 +326,7 @@ fn main() {
             commands::guivault::guivault_list_entities,
             commands::guivault::guivault_transfer_entities,
             commands::guivault::guivault_transfer_plan,
+            commands::guivault::guivault_repatriate_vault,
             commands::guivault::guivault_delete_entities,
             commands::guivault::guivault_set_preferences,
             commands::guivault::guivault_change_password,

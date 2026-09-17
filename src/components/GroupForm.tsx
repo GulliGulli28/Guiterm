@@ -1,10 +1,11 @@
 import { useState } from "react";
-import type { GroupId, Workspace } from "../lib/types";
+import type { GroupId, GuiVaultVault, VaultId, Workspace } from "../lib/types";
 import { ACCENT_COLORS, type UiAccent } from "../lib/preferences";
 import { IconTrash, IconFolder, IconClose } from "./ui-icons";
 import { HostIcon } from "./icons";
 import { IconPicker } from "./IconPicker";
 import { GroupTreePicker } from "./GroupTreePicker";
+import { ReadOnlyVaultNotice, VaultField, readOnlyVault } from "./VaultField";
 
 export interface GroupFormData {
   id: GroupId | null;
@@ -12,19 +13,26 @@ export interface GroupFormData {
   parentId: GroupId | null;
   icon: string | null;
   color: string | null;
+  /** Le vault GuiVault (`null` = personnel) — absent sans compte affiché. */
+  vaultId?: VaultId | null;
 }
 
 interface GroupFormProps {
   workspace: Workspace;
   group: GroupFormData;
+  /** Les vaults du compte connecté — vide sans compte : pas de champ. */
+  vaults?: GuiVaultVault[];
   onCancel: () => void;
   onSave: (input: GroupFormData) => void;
   onDeleteGroup?: (id: GroupId) => void;
   onWorkspaceUpdate?: (ws: Workspace) => void;
 }
 
-export function GroupForm({ workspace, group, onCancel, onSave, onDeleteGroup, onWorkspaceUpdate }: GroupFormProps) {
+export function GroupForm({ workspace, group, vaults = [], onCancel, onSave, onDeleteGroup, onWorkspaceUpdate }: GroupFormProps) {
   const [name, setName] = useState(group.name);
+  const [vaultId, setVaultId] = useState<VaultId | "">(group.vaultId ?? "");
+  const readOnlyIn = readOnlyVault(vaults, group.vaultId);
+  const vaultField = vaults.some((v) => v.kind === "shared") || vaultId !== "" ? { vaultId: vaultId || null } : {};
   const [parentId, setParentId] = useState<GroupId | null>(group.parentId);
   const [icon, setIcon] = useState<string | null>(group.icon);
   const [color, setColor] = useState<string | null>(group.color);
@@ -42,7 +50,7 @@ export function GroupForm({ workspace, group, onCancel, onSave, onDeleteGroup, o
       setError(`Un dossier "${trimmed}" existe déjà à ce niveau`);
       return;
     }
-    onSave({ id: group.id, name: trimmed, parentId, icon, color });
+    onSave({ id: group.id, name: trimmed, parentId, icon, color, ...vaultField });
   };
 
   return (
@@ -53,10 +61,12 @@ export function GroupForm({ workspace, group, onCancel, onSave, onDeleteGroup, o
         </h2>
         <div className="flex items-center gap-1.5">
           <button onClick={onCancel} className="btn btn-ghost">Annuler</button>
-          <button onClick={submit} className="btn btn-primary">Enregistrer</button>
+          <button onClick={submit} disabled={readOnlyIn !== null} className="btn btn-primary">Enregistrer</button>
         </div>
       </div>
+      <fieldset disabled={readOnlyIn !== null} className="contents min-w-0">
       <div className="sidebar-scroll min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+        {readOnlyIn && <ReadOnlyVaultNotice vault={readOnlyIn} what="ce dossier" />}
         {error && <p className="callout callout-danger">{error}</p>}
 
         {/* Icon */}
@@ -151,6 +161,8 @@ export function GroupForm({ workspace, group, onCancel, onSave, onDeleteGroup, o
           />
         </div>
 
+        <VaultField vaults={vaults} value={vaultId} onChange={setVaultId} readOnly={readOnlyIn !== null} hint="Tout ce que le dossier contient le suit." />
+
         {group.id && onDeleteGroup && (
           <div className="border-t border-[var(--c-border)] pt-3">
             {confirmDelete ? (
@@ -173,6 +185,7 @@ export function GroupForm({ workspace, group, onCancel, onSave, onDeleteGroup, o
           </div>
         )}
       </div>
+      </fieldset>
     </div>
   );
 }

@@ -341,8 +341,72 @@ const scenes = [
     const menu = await page.evaluate(() => Array.from(document.querySelectorAll('[role="menu"] [role="menuitem"]')).map((e) => e.textContent?.trim()));
     if (!menu.some((m) => /Nouvel hôte ici/.test(m ?? "")) || !menu.some((m) => /Ouvrir le vault/.test(m ?? ""))) throw new Error(`menu du vault : ${JSON.stringify(menu)}`);
   }],
+  // Le menu « … » d'un hôte propose « Déplacer vers » les autres vaults où
+  // l'on écrit — pas le vault lu, pas celui où il est déjà.
+  ["39a-menu-hote-deplacer", async (page) => {
+    await page.keyboard.press("Escape");
+    await page.mouse.click(700, 500);
+    await settle(page, 200);
+    await page.locator("[data-host-row='web-01']").hover();
+    await page.locator("[data-host-row='web-01'] button[title='Options']").click();
+    await settle(page, 300);
+    const targets = await page.evaluate(() => Array.from(document.querySelectorAll("[data-move-to-vault]")).map((e) => e.getAttribute("data-move-to-vault")));
+    if (targets.join() !== "Personnel") throw new Error(`destinations du menu de l'hôte : ${JSON.stringify(targets)}`);
+    await page.locator("[data-move-to-vault='Personnel']").click();
+    await settle(page, 500);
+    if (!(await page.locator("[data-transfer-confirm]").count())) throw new Error("« Ces entités suivront » ne s'est pas ouvert depuis le menu de l'hôte");
+    await page.keyboard.press("Escape");
+    await settle(page, 200);
+    // Un vault que le compte ne liste plus : sa section, et « Rapatrier ».
+    const stray = await page.evaluate(() => {
+      const sec = Array.from(document.querySelectorAll('[data-sidebar-panel="hosts"] [data-vault-section]')).find((e) => e.getAttribute("data-vault-section") === "Vault inaccessible");
+      return { present: !!sec, hosts: Array.from(sec?.querySelectorAll("[data-host-row]") ?? []).map((e) => e.getAttribute("data-host-row")) };
+    });
+    if (!stray.present || !stray.hosts.includes("prod-cluster")) throw new Error(`section inaccessible : ${JSON.stringify(stray)}`);
+    await page.locator('[data-vault-section="Vault inaccessible"] button', { hasText: "Rapatrier" }).click({ force: true });
+    await settle(page, 500);
+    const after = await page.evaluate(() => Array.from(document.querySelectorAll('[data-sidebar-panel="hosts"] [data-vault-section]')).map((e) => e.getAttribute("data-vault-section")));
+    if (after.includes("Vault inaccessible")) throw new Error("la section inaccessible est toujours là après Rapatrier");
+  }],
+  // Un hôte d'un vault lu : formulaire grisé, et un bandeau qui dit pourquoi.
+  ["39a2-formulaire-lecture-seule", async (page) => {
+    await page.locator("[data-host-row='workstation-win']").hover();
+    await page.locator("[data-host-row='workstation-win'] button[title='Options']").click();
+    await settle(page, 200);
+    await page.locator('[role="menu"] button', { hasText: "Modifier" }).click();
+    await settle(page, 500);
+    const form = await page.evaluate(() => {
+      const f = document.querySelector("[data-form]");
+      return {
+        notice: !!f?.querySelector("[data-vault-read-only]"),
+        nameDisabled: f?.querySelector("input")?.matches(":disabled") ?? false,
+        vaultDisabled: (f?.querySelector("[data-vault-field]") ?? null)?.disabled ?? false,
+      };
+    });
+    if (!form.notice || !form.nameDisabled || !form.vaultDisabled) throw new Error(`formulaire lecture seule : ${JSON.stringify(form)}`);
+  }],
+  // Et un hôte d'un vault où l'on écrit : le champ Vault, modifiable.
+  ["39a3-formulaire-champ-vault", async (page) => {
+    await page.locator("[data-form] button", { hasText: "Annuler" }).click();
+    await settle(page, 200);
+    await page.locator("[data-host-row='web-01']").hover();
+    await page.locator("[data-host-row='web-01'] button[title='Options']").click();
+    await settle(page, 200);
+    await page.locator('[role="menu"] button', { hasText: "Modifier" }).click();
+    await settle(page, 400);
+    const editable = await page.evaluate(() => {
+      const f = document.querySelector("[data-form]");
+      const sel = f?.querySelector("[data-vault-field]");
+      return { notice: !!f?.querySelector("[data-vault-read-only]"), vault: sel?.value, disabled: sel?.disabled };
+    });
+    if (editable.notice || editable.vault !== "v-infra" || editable.disabled) throw new Error(`formulaire d'un hôte partagé : ${JSON.stringify(editable)}`);
+  }],
   // « Ouvrir le vault » mène au détail de ce vault dans le panneau GuiVault.
   ["39b-ouvrir-le-vault", async (page) => {
+    await page.locator("[data-form] button", { hasText: "Annuler" }).click();
+    await settle(page, 200);
+    await page.locator('button[aria-label="Options de Équipe infra"]').click({ force: true });
+    await settle(page, 300);
     await page.locator('[role="menu"] [role="menuitem"]', { hasText: "Ouvrir le vault" }).click();
     await settle(page, 600);
     const title = await page.evaluate(() => document.querySelector('[data-sidebar-panel="guivault"]')?.textContent ?? "");

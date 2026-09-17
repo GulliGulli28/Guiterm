@@ -326,6 +326,9 @@ export const api = {
    * (`exact = false`), la clé et l'icône d'un hôte suivent d'office, jamais
    * un bastion ni un hôte de tunnel. */
   guivaultTransferPlan: (ids: string[], from: VaultPlace) => invoke<GuiVaultTransferPlan>("guivault_transfer_plan", { ids, from }),
+  /** Rapatrie dans le personnel tout ce qui est affilié à un vault que le
+   * compte ne liste plus (section « Vault inaccessible »). Rend le nombre. */
+  guivaultRepatriateVault: (vaultId: VaultId) => invoke<number>("guivault_repatriate_vault", { vaultId }),
   /** Supprime des entités du compte (secrets compris) ; la synchro pose les tombales. */
   guivaultDeleteEntities: (ids: string[]) => invoke<Workspace>("guivault_delete_entities", { ids }),
   /** Oublie un compte sur cet appareil (son workspace local compris). */

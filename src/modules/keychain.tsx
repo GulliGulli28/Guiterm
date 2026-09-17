@@ -14,6 +14,9 @@ export const keychainModule = defineModule({
       <KeychainPanel
         workspace={ctx.workspace}
         vaultSections={vaultSections(a.guivaultStatus)}
+        onWorkspaceUpdate={ctx.refreshWorkspace}
+        onNotify={(m) => ctx.pushNotification("info", m)}
+        onError={ctx.reportError}
         onAddKey={a.addKey}
         onGenerateKey={a.generateKey}
         onDeleteKey={a.deleteKey}

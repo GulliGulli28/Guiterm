@@ -144,7 +144,15 @@ pub async fn guivault_transfer_entities(
     exact: bool,
 ) -> Result<usize, String> {
     let status = state.guivault.status();
-    let can_write = |v: VaultId| status.vaults.iter().any(|x| x.id == v && x.role.can_write_items());
+    if let Some(v) = to.shared_vault()
+        && !status.vaults.iter().any(|x| x.id == v)
+    {
+        return Err("vault de destination inconnu".into());
+    }
+    // Un vault que le compte ne liste plus n'est pas « en lecture seule » :
+    // l'affiliation est périmée, on peut en sortir (c'est même le seul geste
+    // possible).
+    let can_write = |v: VaultId| status.vaults.iter().find(|x| x.id == v).is_none_or(|x| x.role.can_write_items());
     let (moved, _) = with_both_workspaces(&state, |local, account| {
         transfer::apply(local, account, transfer::Move { ids: &ids, from, to, copy, exact }, can_write).map_err(err)
     })?;
@@ -492,6 +500,19 @@ pub async fn guivault_leave_vault(app: AppHandle, state: State<'_, AppState>, va
     sharing::leave_vault(&state.guivault, vault_id).await.map_err(err)?;
     let _ = run_sync(&app, &state).await;
     Ok(state.guivault.status())
+}
+
+/// Rapatrie dans le vault personnel tout ce qui est affilié à un vault que
+/// le compte ne liste plus — plutôt que de laisser la synchro suivante le
+/// retirer. Rend le nombre d'entités rapatriées.
+#[tauri::command]
+pub async fn guivault_repatriate_vault(app: AppHandle, state: State<'_, AppState>, vault_id: VaultId) -> Result<usize, String> {
+    if state.guivault.status().vaults.iter().any(|x| x.id == vault_id) {
+        return Err("ce vault est toujours accessible : déplacez ses entités depuis son contenu".into());
+    }
+    let (n, _) = with_both_workspaces(&state, |_local, account| Ok(transfer::repatriate(account, vault_id)))?;
+    let _ = run_sync(&app, &state).await;
+    Ok(n)
 }
 
 /// Supprime des entités du compte (avec leurs secrets) depuis le menu des

@@ -1,8 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { api } from "../lib/api";
-import type { Group, GroupId, Host, HostId, SqlConnection, VaultId, Workspace } from "../lib/types";
-import { sectionRoleLabel, type VaultSection } from "../lib/vaultSections";
+import type { Group, GroupId, GuiVaultFollower, Host, HostId, SqlConnection, VaultId, VaultPlace, Workspace } from "../lib/types";
+import { inaccessibleSection, sectionRoleLabel, type VaultSection } from "../lib/vaultSections";
 import { attachmentCount, hasAttachments, hostAttachments } from "../lib/hostGraph";
 import { HostIcon, hasIcon } from "./icons";
 import { hostKindMeta } from "../lib/hostKinds";
@@ -15,6 +15,7 @@ import { useHostTreeMemory } from "../hooks/useHostTreeMemory";
 import { BulkEditPanel } from "./BulkEditPanel";
 import { EntityRow, EntityMono, EntityTags, GroupRow } from "./EntityRow";
 import { PersistentSessionsModal } from "./PersistentSessionsModal";
+import { TransferConfirmDialog } from "./TransferConfirmDialog";
 import {
   IconHosts, IconSearch, IconPlus, IconKeyboard, IconFlash,
   IconFolder, IconChevronDown,
@@ -139,6 +140,32 @@ export function HostsPanel({
   const [collapsedVaults, setCollapsedVaults] = useState<Set<string>>(new Set());
   /** Le menu « … » d'un en-tête de vault, et où l'accrocher. */
   const [vaultMenu, setVaultMenu] = useState<{ section: VaultSection; top: number; right: number } | null>(null);
+  /** « Déplacer vers un vault » depuis le menu d'un hôte : ce qui suivrait,
+   * à confirmer. */
+  const [pendingMove, setPendingMove] = useState<{ host: Host; to: VaultSection; followers: GuiVaultFollower[] } | null>(null);
+  const [moving, setMoving] = useState(false);
+  const placeOf = (vaultId: VaultId | null): VaultPlace => ({ kind: "account", vaultId });
+  const repatriate = (vaultId: VaultId) =>
+    api.guivaultRepatriateVault(vaultId)
+      .then(async (n) => { onWorkspaceUpdate?.(await api.getWorkspace()); onNotify?.(`${n} entité(s) rapatriée(s) dans votre vault personnel.`); })
+      .catch((e) => onError?.(String(e)));
+  const moveHostTo = async (host: Host, to: VaultSection) => {
+    const from = placeOf(workspace.vaultBindings?.[host.id] ?? null);
+    try {
+      const plan = await api.guivaultTransferPlan([host.id], from);
+      if (plan.followers.length === 0) await doMoveHost(host, to, []);
+      else setPendingMove({ host, to, followers: plan.followers });
+    } catch (e) { onError?.(String(e)); }
+  };
+  const doMoveHost = async (host: Host, to: VaultSection, kept: string[]) => {
+    setMoving(true);
+    try {
+      await api.guivaultTransferEntities([host.id, ...kept], placeOf(workspace.vaultBindings?.[host.id] ?? null), placeOf(to.id), false, true);
+      onWorkspaceUpdate?.(await api.getWorkspace());
+      onNotify?.(`« ${host.label} » déplacé vers ${to.name}.`);
+      setPendingMove(null);
+    } catch (e) { onError?.(String(e)); } finally { setMoving(false); }
+  };
   /** Selection mode, and what is ticked in it.
    *
    * A mode rather than always-on checkboxes: the ordinary case is connecting
@@ -159,8 +186,14 @@ export function HostsPanel({
   const listRef = useRef<HTMLDivElement>(null);
   const { collapsed, toggle: toggleGroup, onScroll: onListScroll } = useHostTreeMemory("hosts", workspace.groups, listRef);
   const [openMenuHostId, setOpenMenuHostId] = useState<HostId | null>(null);
-  /** Où accrocher le menu « … » : sous son bouton, aligné à droite. */
-  const [menuAnchor, setMenuAnchor] = useState<{ top: number; right: number } | null>(null);
+  /** Où accrocher le menu « … » : sous son bouton, aligné à droite — ou
+   * au-dessus quand il n'y a plus la place dessous (une ligne en bas de
+   * fenêtre ouvrait un menu à moitié hors écran). */
+  const [menuAnchor, setMenuAnchor] = useState<{ top?: number; bottom?: number; right: number } | null>(null);
+  const anchorFor = (rect: DOMRect) =>
+    window.innerHeight - rect.bottom < 360
+      ? { bottom: window.innerHeight - rect.top + 4, right: window.innerWidth - rect.right }
+      : { top: rect.bottom + 4, right: window.innerWidth - rect.right };
   const [showAddMenu, setShowAddMenu] = useState(false);
   const [exportPendingHost, setExportPendingHost] = useState<Host | null>(null);
   /** L'hôte dont on regarde les sessions persistantes, s'il y en a un. */
@@ -249,7 +282,7 @@ export function HostsPanel({
     const stray = new Map<string, VaultSection>();
     for (const e of [...workspace.hosts, ...workspace.groups]) {
       const v = bindings[e.id];
-      if (v && !known.has(v) && !stray.has(v)) stray.set(v, { id: v, name: "Vault inaccessible", kind: "shared", role: "reader" });
+      if (v && !known.has(v) && !stray.has(v)) stray.set(v, inaccessibleSection(v));
     }
     return [...sections, ...stray.values()].map((sec) => {
       const hosts = workspace.hosts.filter((h) => (bindings[h.id] ?? null) === sec.id);
@@ -372,8 +405,7 @@ export function HostsPanel({
             onClick={(e) => {
               e.stopPropagation();
               if (menuOpen) { setOpenMenuHostId(null); return; }
-              const rect = e.currentTarget.getBoundingClientRect();
-              setMenuAnchor({ top: rect.bottom + 4, right: window.innerWidth - rect.right });
+              setMenuAnchor(anchorFor(e.currentTarget.getBoundingClientRect()));
               setOpenMenuHostId(host.id);
             }}
             className={`btn btn-ghost btn-sm btn-icon ${menuOpen ? "bg-[var(--c-active)] text-[var(--c-text)]" : ""}`}
@@ -400,7 +432,7 @@ export function HostsPanel({
     return (
       <>
         <div className="fixed inset-0 z-30" onMouseDown={close} />
-        <div className="popover fixed z-40 w-60 py-1" style={{ top: menuAnchor.top, right: menuAnchor.right }} role="menu">
+        <div className="popover fixed z-40 max-h-[calc(100vh-16px)] w-60 overflow-y-auto py-1" style={menuAnchor} role="menu">
           <button onClick={() => { onEditHost(host); close(); }} className="menu-item"><IconEdit size={13} /> Modifier</button>
           {kind === "ssh" && (
             <button
@@ -443,6 +475,29 @@ export function HostsPanel({
             </button>
           )}
           <button onClick={() => { handleExportHost(host); close(); }} className="menu-item"><IconUpload size={13} /> Exporter…</button>
+          {sections && (() => {
+            // Déplacer vers un autre vault du compte, sans passer par le
+            // panneau GuiVault — le geste le plus fréquent. Pas depuis un
+            // vault lu (ce serait une suppression que la synchro annulerait),
+            // ni vers un vault lu.
+            const current = workspace.vaultBindings?.[host.id] ?? null;
+            const here = sections.find((sec) => sec.id === current);
+            if (here && here.role === "reader") return null;
+            const targets = sections.filter((sec) => sec.id !== current && sec.role !== "reader");
+            if (targets.length === 0) return null;
+            return (
+              <>
+                <div className="menu-sep" />
+                <p className="eyebrow px-2.5 pb-1 pt-1.5">Déplacer vers</p>
+                {targets.map((sec) => (
+                  <button key={sec.id ?? "personal"} onClick={() => { close(); moveHostTo(host, sec); }} className="menu-item" role="menuitem" data-move-to-vault={sec.name}>
+                    <IconVault size={13} className="shrink-0 text-[var(--c-text-muted)]" />
+                    <span className="truncate">{sec.name}</span>
+                  </button>
+                ))}
+              </>
+            );
+          })()}
           {hasAttachments(attached) && (
             /* Ce qui passe par cet hôte. Les liens existaient déjà dans le
                modèle — une base tunnelée porte l'id de son hôte, un hôte Docker
@@ -622,6 +677,9 @@ export function HostsPanel({
                 badge={roleLabel ? <span className="tag" title="Vous ne faites que lire ce vault">{roleLabel}</span> : undefined}
                 actions={
                   <>
+                    {sec.inaccessible && sec.id && (
+                      <button onClick={() => repatriate(sec.id!)} title="Rapatrier ces entités dans votre vault personnel avant que la synchronisation ne les retire" className="btn btn-secondary btn-sm">Rapatrier</button>
+                    )}
                     {writable && onNewHostInVault && (
                       <button onClick={() => onNewHostInVault(sec.id)} title="Nouvel hôte dans ce vault" aria-label={`Nouvel hôte dans ${sec.name}`} className="btn btn-ghost btn-sm btn-icon"><IconPlus size={12} /></button>
                     )}
@@ -671,6 +729,16 @@ export function HostsPanel({
       </div>
 
       {renderHostMenu()}
+      {pendingMove && (
+        <TransferConfirmDialog
+          title={`Déplacer « ${pendingMove.host.label} » vers ${pendingMove.to.name}`}
+          confirmLabel="Déplacer"
+          followers={pendingMove.followers}
+          busy={moving}
+          onConfirm={(kept) => doMoveHost(pendingMove.host, pendingMove.to, kept)}
+          onCancel={() => setPendingMove(null)}
+        />
+      )}
       {vaultMenu && (
         // Le menu « … » d'un vault : même ancrage flottant que celui d'un hôte.
         <>

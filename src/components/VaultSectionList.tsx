@@ -1,5 +1,6 @@
 import { useMemo, useState, type ReactNode } from "react";
-import type { VaultId } from "../lib/types";
+import { api } from "../lib/api";
+import type { VaultId, Workspace } from "../lib/types";
 import { sectionRoleLabel, splitByVault, type VaultSection } from "../lib/vaultSections";
 import { GroupRow } from "./EntityRow";
 import { IconVault } from "./ui-icons";
@@ -14,7 +15,7 @@ import { IconVault } from "./ui-icons";
  * Ne dessine pas les entités : chaque panneau garde sa carte (`render`).
  */
 export function VaultSectionList<T extends { id: string }>({
-  items, bindings, sections, render, emptyMessage = "Vide.",
+  items, bindings, sections, render, emptyMessage = "Vide.", onWorkspaceUpdate, onNotify, onError,
 }: {
   items: readonly T[];
   bindings: Record<string, VaultId> | undefined;
@@ -22,7 +23,19 @@ export function VaultSectionList<T extends { id: string }>({
   render: (item: T) => ReactNode;
   /** Sous l'en-tête d'un vault qui n'a rien ici. */
   emptyMessage?: string;
+  /** Pour « Rapatrier » sur une section de vault inaccessible : le
+   * workspace relu après coup, et les retours. Sans `onWorkspaceUpdate`, pas
+   * de bouton. */
+  onWorkspaceUpdate?: (ws: Workspace) => void;
+  onNotify?: (message: string) => void;
+  onError?: (message: string) => void;
 }) {
+  const onRepatriate = onWorkspaceUpdate
+    ? (vaultId: VaultId) =>
+      api.guivaultRepatriateVault(vaultId)
+        .then(async (n) => { onWorkspaceUpdate(await api.getWorkspace()); onNotify?.(`${n} entité(s) rapatriée(s) dans votre vault personnel.`); })
+        .catch((e) => onError?.(String(e)))
+    : undefined;
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
   const buckets = useMemo(() => (sections ? splitByVault(items, bindings, sections) : null), [items, bindings, sections]);
   if (!buckets) return <>{items.map(render)}</>;
@@ -42,6 +55,9 @@ export function VaultSectionList<T extends { id: string }>({
               name={section.name}
               count={inside.length}
               badge={roleLabel ? <span className="tag" title="Vous ne faites que lire ce vault">{roleLabel}</span> : undefined}
+              actions={section.inaccessible && section.id && onRepatriate ? (
+                <button onClick={() => onRepatriate(section.id!)} title="Rapatrier ces entités dans votre vault personnel avant que la synchronisation ne les retire" className="btn btn-secondary btn-sm">Rapatrier</button>
+              ) : undefined}
             />
             {expanded && (
               <div className="pl-2">

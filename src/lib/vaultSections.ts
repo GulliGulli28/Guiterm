@@ -21,6 +21,15 @@ export interface VaultSection {
   name: string;
   kind: VaultKind;
   role: VaultRole;
+  /** Un vault que le compte ne liste plus : ses entités sont encore là,
+   * la synchro suivante les retirerait — d'où « Rapatrier ». */
+  inaccessible?: boolean;
+}
+
+export const INACCESSIBLE_SECTION_NAME = "Vault inaccessible";
+
+export function inaccessibleSection(id: VaultId): VaultSection {
+  return { id, name: INACCESSIBLE_SECTION_NAME, kind: "shared", role: "reader", inaccessible: true };
 }
 
 export const PERSONAL_SECTION_NAME = "Personnel";
@@ -60,7 +69,10 @@ export function splitByVault<T extends { id: string }>(
     const vaultId = bindings?.[item.id] ?? null;
     let bucket = buckets.get(vaultId);
     if (!bucket) {
-      bucket = { section: { id: vaultId, name: "Vault inaccessible", kind: "shared", role: "reader" }, items: [] };
+      bucket = {
+        section: vaultId === null ? { id: null, name: PERSONAL_SECTION_NAME, kind: "personal", role: "owner" } : inaccessibleSection(vaultId),
+        items: [],
+      };
       buckets.set(vaultId, bucket);
     }
     bucket.items.push(item);

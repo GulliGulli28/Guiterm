@@ -97,7 +97,9 @@ const workspace: Workspace = {
   ],
   // Des entités rangées dans les vaults GuiVault partagés : chaque panneau
   // doit les montrer sous le dossier de leur vault.
-  vaultBindings: { "h-web-01": "v-infra", "h-db-01": "v-infra", "g-web": "v-infra", "s-2": "v-infra", "k-2": "v-lect", "sql-1": "v-infra" },
+  // `h-win` dans un vault lu (formulaire en lecture seule) ; `h-k8s` dans un
+  // vault que le compte ne liste plus (section « inaccessible », Rapatrier).
+  vaultBindings: { "h-web-01": "v-infra", "h-db-01": "v-infra", "g-web": "v-infra", "s-2": "v-infra", "k-2": "v-lect", "sql-1": "v-infra", "h-win": "v-lect", "h-k8s": "v-parti" },
 };
 
 const entries = (names: [string, boolean, number][]): Entry[] =>
@@ -221,6 +223,7 @@ const responses: Record<string, Invoke> = {
     ],
   }),
   guivault_delete_entities: async () => workspace,
+  guivault_repatriate_vault: async () => { delete workspace.vaultBindings["h-k8s"]; return 1; },
   guivault_sessions: async () => [
     { id: "s-1", deviceName: "Guiterm sur poste-alice", createdAt: new Date().toISOString(), lastUsedAt: new Date().toISOString(), current: true },
     { id: "s-2", deviceName: "Guiterm sur portable", createdAt: new Date().toISOString(), lastUsedAt: new Date().toISOString(), current: false },

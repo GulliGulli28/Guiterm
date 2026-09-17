@@ -13,6 +13,8 @@ export const snippetsModule = defineModule({
       <SnippetsPanel
         workspace={ctx.workspace}
         vaultSections={vaultSections(a.guivaultStatus)}
+        onWorkspaceUpdate={ctx.refreshWorkspace}
+        onNotify={(m) => ctx.pushNotification("info", m)}
         onAddSnippet={a.addSnippet}
         onUpdateSnippet={a.updateSnippet}
         onDeleteSnippet={a.deleteSnippet}

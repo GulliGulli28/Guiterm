@@ -358,6 +358,19 @@ export default function App() {
   }, [pushNotification, preferences.notifyOnUpdateAvailable]);
 
   const refreshWorkspace = useCallback((next: Workspace) => setWorkspace(next), []);
+  /** Après l'enregistrement d'une entité depuis son formulaire : son vault a
+   * changé ? On la déplace (clé et icône suivent, jamais un bastion — pas
+   * d'étape de confirmation ici) et on relit le workspace. L'affiliation
+   * n'est pas un champ de l'entité (voir `Workspace.vaultBindings`) : elle se
+   * pose après, une fois l'id connu pour une entité nouvelle. */
+  const applyVaultChoice = useCallback(async (ws: Workspace, id: string | null, chosen: VaultId | null | undefined): Promise<Workspace> => {
+    if (!id || chosen === undefined) return ws;
+    const current = ws.vaultBindings?.[id] ?? null;
+    if (chosen === current) return ws;
+    await api.guivaultTransferEntities([id], { kind: "account", vaultId: current }, { kind: "account", vaultId: chosen });
+    return api.getWorkspace();
+  }, []);
+  const accountVaults = guivaultStatus?.unlocked && !guivaultStatus.viewLocal ? guivaultStatus.vaults : [];
 
   const {
     tabs, setTabs, activeTabId, setActiveTabId,
@@ -752,8 +765,9 @@ export default function App() {
     newHostInGroup: (groupId) => { setEditingHost("new"); setNewHostDefaultGroupId(groupId); setNewHostDefaultVaultId(undefined); setEditingGroup(null); setEditingSqlConnection(null); },
     newHostInVault: (vaultId) => { setEditingHost("new"); setNewHostDefaultGroupId(null); setNewHostDefaultVaultId(vaultId); setEditingGroup(null); setEditingSqlConnection(null); },
     newGroup: () => { setEditingGroup({ id: null, name: "", parentId: null, icon: null, color: null }); setEditingHost(null); setEditingSqlConnection(null); },
-    newGroupUnder: (parentId) => { setEditingGroup({ id: null, name: "", parentId, icon: null, color: null }); setEditingHost(null); setEditingSqlConnection(null); },
-    editGroup: (group) => { setEditingGroup({ id: group.id, name: group.name, parentId: group.parentId ?? null, icon: group.icon ?? null, color: group.color ?? null }); setEditingHost(null); setEditingSqlConnection(null); },
+    // Un sous-dossier créé dans un dossier partagé rejoint ce vault.
+    newGroupUnder: (parentId) => { setEditingGroup({ id: null, name: "", parentId, icon: null, color: null, vaultId: workspace?.vaultBindings?.[parentId] ?? null }); setEditingHost(null); setEditingSqlConnection(null); },
+    editGroup: (group) => { setEditingGroup({ id: group.id, name: group.name, parentId: group.parentId ?? null, icon: group.icon ?? null, color: group.color ?? null, vaultId: workspace?.vaultBindings?.[group.id] ?? null }); setEditingHost(null); setEditingSqlConnection(null); },
     newSqlConnection: () => { setEditingSqlConnection("new"); setEditingHost(null); setEditingGroup(null); },
     editSqlConnection: (conn) => { setEditingSqlConnection(conn); setEditingHost(null); setEditingGroup(null); },
     importCloud: () => setCloudImport("picker"),
@@ -1114,7 +1128,7 @@ export default function App() {
               host={editingHost === "new" ? null : editingHost}
               defaultGroupId={editingHost === "new" ? newHostDefaultGroupId : null}
               onCancel={() => setEditingHost(null)}
-              vaults={guivaultStatus?.unlocked && !guivaultStatus.viewLocal ? guivaultStatus.vaults : []}
+              vaults={accountVaults}
               vaultId={editingHost === "new"
                 // Un hôte créé dans un dossier partagé rejoint ce vault : un
                 // hôte personnel dans un dossier partagé serait invisible aux
@@ -1124,19 +1138,8 @@ export default function App() {
               onSave={(input) => {
                 const before = new Set(workspace.hosts.map((h) => h.id));
                 api.saveHost(input)
-                  .then(async (ws) => {
-                    // L'affiliation à un vault n'est pas un champ de l'hôte
-                    // (voir `Workspace.vaultBindings`) : elle se pose après,
-                    // une fois l'id connu pour un nouvel hôte.
-                    const id = input.id ?? ws.hosts.find((h) => !before.has(h.id))?.id ?? null;
-                    const current = id ? (ws.vaultBindings?.[id] ?? null) : null;
-                    if (id && input.vaultId !== undefined && input.vaultId !== current) {
-                      await api.guivaultTransferEntities([id], { kind: "account", vaultId: current }, { kind: "account", vaultId: input.vaultId });
-                      ws = await api.getWorkspace();
-                    }
-                    refreshWorkspace(ws);
-                    setEditingHost(null);
-                  })
+                  .then((ws) => applyVaultChoice(ws, input.id ?? ws.hosts.find((h) => !before.has(h.id))?.id ?? null, input.vaultId))
+                  .then((ws) => { refreshWorkspace(ws); setEditingHost(null); })
                   .catch((e) => reportError(String(e)));
               }}
               onDeleteHost={editingHost !== "new" ? (id) => {
@@ -1151,9 +1154,12 @@ export default function App() {
             <GroupForm
               workspace={workspace}
               group={editingGroup}
+              vaults={accountVaults}
               onCancel={() => setEditingGroup(null)}
               onSave={(input) => {
+                const before = new Set(workspace.groups.map((g) => g.id));
                 api.saveGroup(input)
+                  .then((ws) => applyVaultChoice(ws, input.id ?? ws.groups.find((g) => !before.has(g.id))?.id ?? null, input.vaultId))
                   .then((ws) => { refreshWorkspace(ws); setEditingGroup(null); })
                   .catch((e) => reportError(String(e)));
               }}
@@ -1169,9 +1175,13 @@ export default function App() {
             <SqlConnectionForm
               workspace={workspace}
               connection={editingSqlConnection === "new" ? null : editingSqlConnection}
+              vaults={accountVaults}
+              vaultId={editingSqlConnection === "new" ? null : (workspace.vaultBindings?.[editingSqlConnection.id] ?? null)}
               onCancel={() => setEditingSqlConnection(null)}
-              onSave={(input) => {
+              onSave={(input, chosenVault) => {
+                const before = new Set(workspace.sqlConnections.map((c) => c.id));
                 api.saveSqlConnection(input)
+                  .then((ws) => applyVaultChoice(ws, input.id ?? ws.sqlConnections.find((c) => !before.has(c.id))?.id ?? null, chosenVault))
                   .then((ws) => { refreshWorkspace(ws); setEditingSqlConnection(null); })
                   .catch((e) => reportError(String(e)));
               }}

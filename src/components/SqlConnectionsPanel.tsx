@@ -17,12 +17,16 @@ interface SqlConnectionsPanelProps {
    * existait déjà dans le modèle et s'affichait déjà en texte (« via
    * bastion-prod ») — il ne menait simplement nulle part. */
   onConnectHost: (host: Host) => void;
+  /** Pour « Rapatrier » une section de vault inaccessible. */
+  onWorkspaceUpdate?: (ws: Workspace) => void;
+  onNotify?: (message: string) => void;
+  onError?: (message: string) => void;
 }
 
 /** List-only — creating/editing (and deleting, from inside that form) goes
  * through `SqlConnectionForm` in the app's right panel, same as hosts/groups
  * (`App.tsx`'s `showRightPanel`), not an inline expansion in this list. */
-export function SqlConnectionsPanel({ workspace, vaultSections, onConnect, onNewConnection, onEditConnection, onImportAws, onConnectHost }: SqlConnectionsPanelProps) {
+export function SqlConnectionsPanel({ workspace, vaultSections, onConnect, onNewConnection, onEditConnection, onImportAws, onConnectHost, onWorkspaceUpdate, onNotify, onError }: SqlConnectionsPanelProps) {
   return (
     <div className="flex h-full min-w-0 flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -34,7 +38,7 @@ export function SqlConnectionsPanel({ workspace, vaultSections, onConnect, onNew
         </button>
       </div>
       <div className="sidebar-scroll -mx-1 mt-3 min-h-0 min-w-0 flex-1 overflow-y-auto px-1 pb-2">
-        <VaultSectionList items={workspace.sqlConnections} bindings={workspace.vaultBindings} sections={vaultSections} emptyMessage="Aucune connexion dans ce vault." render={(conn) => {
+        <VaultSectionList items={workspace.sqlConnections} onWorkspaceUpdate={onWorkspaceUpdate} onNotify={onNotify} onError={onError} bindings={workspace.vaultBindings} sections={vaultSections} emptyMessage="Aucune connexion dans ce vault." render={(conn) => {
           // Carries its own preposition ("sur" for a SQLite file that lives
           // there, "via" for anything tunnelled) and covers SSM, which has no
           // saved host to name — see `sqlConnectionVia`.

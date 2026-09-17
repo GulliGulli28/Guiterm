@@ -6,6 +6,7 @@ import type { AuthMethod, EnvVar, GroupId, GuiVaultVault, Host, HostId, HostKind
 import { HostIcon } from "./icons";
 import { IconPicker } from "./IconPicker";
 import { GroupTreePicker } from "./GroupTreePicker";
+import { ReadOnlyVaultNotice, VaultField, readOnlyVault } from "./VaultField";
 import { HostTreePicker } from "./HostTreePicker";
 import { HOST_KINDS } from "../lib/hostKinds";
 import { assertNever } from "../lib/exhaustive";
@@ -199,8 +200,8 @@ export function HostForm({ workspace, host, defaultGroupId, vaults = [], vaultId
   const sharedVaults = vaults.filter((v) => v.kind === "shared");
   // Sans droit d'écriture, l'hôte se voit mais ne se modifie pas — et il ne
   // se déplace pas non plus vers un autre vault (ce serait une suppression).
-  const currentVault = vaults.find((v) => v.id === initialVaultId);
-  const vaultReadOnly = !!currentVault && (currentVault.role === "reader");
+  const currentVault = readOnlyVault(vaults, initialVaultId);
+  const vaultReadOnly = currentVault !== null;
   const vaultField = sharedVaults.length > 0 || vaultId !== "" ? { vaultId: vaultId || null } : {};
   const [tags, setTags] = useState<string[]>(host?.tags ?? []);
   const [tagInput, setTagInput] = useState("");
@@ -421,10 +422,15 @@ export function HostForm({ workspace, host, defaultGroupId, vaults = [], vaultId
         <h2 className="text-[13px] font-semibold text-[var(--c-text)]">{host ? "Modifier l'hôte" : "Nouvel hôte"}</h2>
         <div className="flex items-center gap-1.5">
           <button onClick={onCancel} className="btn btn-ghost">Annuler</button>
-          <button onClick={submit} className="btn btn-primary">Enregistrer</button>
+          <button onClick={submit} disabled={vaultReadOnly} className="btn btn-primary">Enregistrer</button>
         </div>
       </div>
+      {/* `fieldset disabled` : tout le formulaire est grisé d'un coup pour
+          une entité d'un vault lu — `display: contents` le rend invisible
+          à la mise en page. */}
+      <fieldset disabled={vaultReadOnly} className="contents min-w-0">
       <div className="sidebar-scroll min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+        {currentVault && <ReadOnlyVaultNotice vault={currentVault} what="cet hôte" />}
         {error && <p className="callout callout-danger">{error}</p>}
 
         <Field label="Nom">
@@ -788,25 +794,7 @@ export function HostForm({ workspace, host, defaultGroupId, vaults = [], vaultId
           />
         </Field>
 
-        {(sharedVaults.length > 0 || vaultId !== "") && (
-        <Field label="Vault GuiVault">
-          <select
-            value={vaultId}
-            disabled={vaultReadOnly}
-            onChange={(e) => setVaultId(e.target.value)}
-            className={inputClass}
-            title={vaultReadOnly ? "Vault en lecture seule : cet hôte ne peut être ni modifié ni déplacé" : "Un hôte rangé dans un vault partagé est visible — identifiants compris — par tous ses membres. Sa clé du trousseau le suit."}
-          >
-            <option value="">Personnel (vous seul)</option>
-            {sharedVaults.map((v) => (
-              <option key={v.id} value={v.id} disabled={v.role === "reader"}>
-                {v.name}{v.role === "reader" ? " (lecture seule)" : ""}
-              </option>
-            ))}
-          </select>
-          {vaultReadOnly && <p className="mt-1 text-[11.5px] text-[var(--c-text-muted)]">Vous êtes lecteur de « {currentVault?.name} » : les modifications ne seront pas synchronisées.</p>}
-        </Field>
-        )}
+        <VaultField vaults={vaults} value={vaultId} onChange={setVaultId} readOnly={vaultReadOnly} hint="Sa clé du trousseau et son icône le suivent ; son dossier aussi." />
 
         {shellExtras && (
         <Field label="Snippets au démarrage">
@@ -934,6 +922,7 @@ export function HostForm({ workspace, host, defaultGroupId, vaults = [], vaultId
           </div>
         )}
       </div>
+      </fieldset>
     </div>
   );
 }
