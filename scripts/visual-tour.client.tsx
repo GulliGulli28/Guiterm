@@ -158,6 +158,49 @@ const responses: Record<string, Invoke> = {
   get_fleet_history: async () => [],
   get_runbook_history: async () => [],
   recording_session_ids: async () => [],
+  // GuiVault : un compte connecté, un vault partagé avec deux membres, une
+  // invitation en attente — de quoi voir chaque ligne du panneau.
+  guivault_status: async () => ({
+    configured: true, unlocked: true, serverUrl: "https://vault.example.com", email: "alice@example.com",
+    userId: "u-alice", fingerprint: "3f2a-91c0-77de-0b4e-aa12-5c6d-e8f9-1a2b", deviceName: "Guiterm sur poste-alice",
+    autoSyncSecs: 300, persistUnlock: true, lastSyncAt: new Date().toISOString(), viewLocal: false,
+    vaults: [
+      { id: "v-perso", name: "Personnel", kind: "personal", role: "owner", revision: 12 },
+      { id: "v-infra", name: "Équipe infra", kind: "shared", role: "owner", revision: 40 },
+      { id: "v-lect", name: "Lecture seule — prod bancaire", kind: "shared", role: "reader", revision: 3 },
+    ],
+    accounts: [{ userId: "u-alice", email: "alice@example.com", serverUrl: "https://vault.example.com", lastUsedAt: new Date().toISOString() }],
+  }),
+  guivault_my_invitations: async () => [
+    { id: "inv-1", vaultId: "v-x", vaultName: null, inviterEmail: "bob.martin@example.com", inviteeEmail: "alice@example.com", inviteePublicKey: null, inviteeFingerprint: null, inviteeTrust: null, role: "writer", status: "pending", hasKey: true, createdAt: new Date().toISOString(), expiresAt: new Date().toISOString() },
+  ],
+  guivault_members: async () => [
+    { userId: "u-alice", email: "alice@example.com", fingerprint: "3f2a-91c0-77de-0b4e-aa12-5c6d-e8f9-1a2b", role: "owner", trust: { kind: "pinned" }, isMe: true },
+    { userId: "u-bob", email: "bob.martin@example.com", fingerprint: "9c1d-40aa-2e2e-b7f0-0c0c-d1d1-e2e2-f3f3", role: "writer", trust: { kind: "unknown" }, isMe: false },
+    { userId: "u-carol", email: "carol.dupont-lefebvre@example.com", fingerprint: "1111-2222-3333-4444-5555-6666-7777-8888", role: "reader", trust: { kind: "changed", previous: "0000-0000-0000-0000-0000-0000-0000-0000" }, isMe: false },
+  ],
+  guivault_vault_invitations: async () => [
+    { id: "inv-2", vaultId: "v-infra", vaultName: "Équipe infra", inviterEmail: "alice@example.com", inviteeEmail: "dave@example.com", inviteePublicKey: "AA==", inviteeFingerprint: "abcd-ef01-2345-6789-abcd-ef01-2345-6789", inviteeTrust: { kind: "unknown" }, role: "writer", status: "awaiting_key", hasKey: false, createdAt: new Date().toISOString(), expiresAt: new Date().toISOString() },
+  ],
+  guivault_list_entities: async (_cmd, args) => {
+    const a = args as { scope?: string } | undefined;
+    if (a?.scope === "local") return [
+      { id: "l-1", kind: "host", name: "nas-maison", path: "", vaultId: null },
+      { id: "l-2", kind: "snippet", name: "maj système", path: "", vaultId: null },
+    ];
+    return [
+      { id: "e-1", kind: "group", name: "Production", path: "", vaultId: "v-infra" },
+      { id: "e-2", kind: "host", name: "web-01", path: "Production", vaultId: "v-infra" },
+      { id: "e-3", kind: "host", name: "pg-primary-replica-longue-etiquette", path: "Production / Bases", vaultId: "v-infra" },
+      { id: "e-4", kind: "key", name: "deploy-ed25519", path: "", vaultId: "v-infra" },
+      { id: "e-5", kind: "host", name: "labo-1", path: "Labo", vaultId: null },
+    ];
+  },
+  guivault_sessions: async () => [
+    { id: "s-1", deviceName: "Guiterm sur poste-alice", createdAt: new Date().toISOString(), lastUsedAt: new Date().toISOString(), current: true },
+    { id: "s-2", deviceName: "Guiterm sur portable", createdAt: new Date().toISOString(), lastUsedAt: new Date().toISOString(), current: false },
+  ],
+  guivault_totp_status: async () => false,
   has_anthropic_api_key: async () => false,
   list_remote_edits: async () => [],
   check_host_status: async () => ({ reachable: true }),

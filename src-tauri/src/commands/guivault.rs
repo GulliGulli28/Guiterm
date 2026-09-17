@@ -5,7 +5,7 @@ use crate::state::AppState;
 use guivault_protocol::Role;
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager as _, State};
-use termius_core::guivault::{LoginStep, Report, Status, VaultSummary, sharing, sync};
+use termius_core::guivault::{LoginStep, Report, Status, VaultSummary, sharing, sync, transfer};
 use termius_core::model::{VaultId, Workspace};
 use termius_core::store;
 use termius_core::sync_ext::MutexExt;
@@ -29,15 +29,115 @@ pub async fn run_sync(app: &AppHandle, state: &AppState) -> anyhow::Result<Repor
     let Ok(_guard) = state.guivault_sync_lock.try_lock() else {
         anyhow::bail!("synchronisation déjà en cours");
     };
-    let snapshot = state.workspace.lock_recover().clone();
+    // Profil local affiché : le workspace en mémoire est le local, celui du
+    // compte est sur le disque — c'est lui qu'on synchronise, sans rien
+    // toucher à l'écran. La synchro continue donc quoi qu'on regarde.
+    let account_file = match (state.guivault.view_local(), state.guivault.active_user_id()) {
+        (true, Some(id)) => Some(state.guivault.workspace_path(id)),
+        _ => None,
+    };
+    let snapshot = match &account_file {
+        Some(path) => load_workspace_at(path),
+        None => state.workspace.lock_recover().clone(),
+    };
     let (changes, report) = sync::run(&state.guivault, &snapshot).await?;
     if !changes.is_empty() {
-        let mut ws = state.workspace.lock_recover();
-        sync::apply_changes(&mut ws, changes);
-        store::save(&ws)?;
+        match &account_file {
+            Some(path) => {
+                let mut ws = snapshot;
+                sync::apply_changes(&mut ws, changes);
+                store::save_at(path, &ws)?;
+            }
+            None => {
+                let mut ws = state.workspace.lock_recover();
+                sync::apply_changes(&mut ws, changes);
+                store::save(&ws)?;
+            }
+        }
     }
     let _ = app.emit(SYNCED_EVENT, &report);
     Ok(report)
+}
+
+// ─── Déplacer des entités ────────────────────────────────────────────────────
+
+/// Les deux workspaces d'un compte connecté : celui affiché est en mémoire,
+/// l'autre sur le disque. `f` reçoit `(local, compte)` et dit si elle a
+/// modifié quelque chose ; les deux sont alors sauvés.
+fn with_both_workspaces<T>(
+    state: &AppState,
+    f: impl FnOnce(&mut Workspace, &mut Workspace) -> Result<T, String>,
+) -> Result<T, String> {
+    let user_id = state.guivault.active_user_id().ok_or("aucun compte connecté")?;
+    let account_path = state.guivault.workspace_path(user_id);
+    let local_path = store::local_workspace_path().map_err(err)?;
+    let view_local = state.guivault.view_local();
+    let mut shown = state.workspace.lock_recover();
+    let mut other = load_workspace_at(if view_local { &account_path } else { &local_path });
+    let out = if view_local { f(&mut shown, &mut other)? } else { f(&mut other, &mut shown)? };
+    store::save(&shown).map_err(err)?;
+    store::save_at(if view_local { &account_path } else { &local_path }, &other).map_err(err)?;
+    Ok(out)
+}
+
+/// Les entités du profil local ou du compte, pour le menu des vaults.
+#[tauri::command]
+pub fn guivault_list_entities(state: State<'_, AppState>, scope: String) -> Result<Vec<transfer::EntitySummary>, String> {
+    let want_local = match scope.as_str() {
+        "local" => true,
+        "account" => false,
+        _ => return Err("scope : local | account".into()),
+    };
+    let shown_is_local = state.guivault.view_local() || state.guivault.active_user_id().is_none();
+    if want_local == shown_is_local {
+        return Ok(transfer::list(&state.workspace.lock_recover()));
+    }
+    let path = if want_local {
+        store::local_workspace_path().map_err(err)?
+    } else {
+        let id = state.guivault.active_user_id().ok_or("aucun compte connecté")?;
+        state.guivault.workspace_path(id)
+    };
+    Ok(transfer::list(&load_workspace_at(&path)))
+}
+
+/// Déplace des entités du profil local vers le compte (`to_account`,
+/// affiliées à `vault_id` ou au personnel), ou l'inverse. Ce qui doit les
+/// accompagner (dossiers, clé, sous-arbre) suit. Vers le local, une entité
+/// d'un vault partagé est **retirée** du vault — donc refusé sans droit
+/// d'écriture, sinon elle reviendrait à la synchro suivante.
+#[tauri::command]
+pub async fn guivault_transfer_entities(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    ids: Vec<Uuid>,
+    to_account: bool,
+    vault_id: Option<VaultId>,
+) -> Result<usize, String> {
+    let status = state.guivault.status();
+    if let Some(v) = vault_id
+        && !status.vaults.iter().any(|x| x.id == v && x.role.can_write_items())
+    {
+        return Err("pas de droit d'écriture dans ce vault".into());
+    }
+    let moved = with_both_workspaces(&state, |local, account| {
+        if to_account {
+            Ok(transfer::transfer(local, account, &ids, vault_id))
+        } else {
+            let set = transfer::closure(account, &ids);
+            for id in &set {
+                if let Some(v) = account.vault_bindings.get(id)
+                    && !status.vaults.iter().any(|x| x.id == *v && x.role.can_write_items())
+                {
+                    return Err("une des entités vient d'un vault en lecture seule : impossible de la retirer".into());
+                }
+            }
+            Ok(transfer::transfer(account, local, &ids, None))
+        }
+    })?;
+    // Le compte a changé : pousser (ou tombaliser) tout de suite.
+    let _ = run_sync(&app, &state).await;
+    Ok(moved)
 }
 
 /// La boucle de synchronisation automatique, lancée une fois au démarrage.
@@ -390,28 +490,20 @@ pub async fn guivault_leave_vault(app: AppHandle, state: State<'_, AppState>, va
 #[tauri::command]
 pub fn guivault_move_entity(state: State<'_, AppState>, id: Uuid, vault_id: Option<VaultId>) -> Result<Workspace, String> {
     let mut ws = state.workspace.lock_recover();
-    let key_to_follow = ws.host(id).and_then(|h| match &h.auth {
-        termius_core::model::AuthMethod::PrivateKey { key_id: Some(k), .. } => Some(*k),
-        _ => None,
-    });
-    let mut groups_to_follow = Vec::new();
-    let mut next = ws.host(id).and_then(|h| h.group_id);
-    while let Some(g) = next {
-        if groups_to_follow.contains(&g) {
-            break;
-        }
-        groups_to_follow.push(g);
-        next = ws.groups.iter().find(|x| x.id == g).and_then(|x| x.parent_id);
-    }
+    let followers = transfer::closure(&ws, &[id]);
     match vault_id {
         Some(v) => {
             ws.vault_bindings.insert(id, v);
-            for follower in key_to_follow.into_iter().chain(groups_to_follow) {
+            for follower in followers {
                 ws.vault_bindings.entry(follower).or_insert(v);
             }
         }
         None => {
-            ws.vault_bindings.remove(&id);
+            // Vers le personnel : le sous-arbre / la chaîne suit aussi, sinon
+            // un dossier resterait partagé avec un hôte personnel dedans.
+            for follower in followers {
+                ws.vault_bindings.remove(&follower);
+            }
         }
     }
     persist(&ws)?;

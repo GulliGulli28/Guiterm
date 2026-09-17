@@ -192,6 +192,29 @@ const scenes = [
     }));
     if (!state.labo || !state.prepro || !state.prod) throw new Error(`dossiers non restaurés : ${JSON.stringify(state)}`);
   }],
+  // GuiVault, à la largeur par défaut puis étroite : compte, invitation,
+  // vaults, puis le détail d'un vault (contenu, membres, invitations).
+  ["32-guivault", async (page) => {
+    await clickNav(page, "GuiVault");
+    await settle(page, 500);
+  }],
+  ["33-guivault-vault", async (page) => {
+    await page.locator("[data-sidebar-panel] button", { hasText: "Équipe infra" }).first().click();
+    await settle(page, 600);
+    await page.getByRole("button", { name: /Depuis cet appareil/ }).first().click();
+    await settle(page, 400);
+  }],
+  ["34-guivault-etroit", async (page) => {
+    await page.setViewportSize({ width: 1000, height: 900 });
+    await settle(page, 500);
+  }],
+  ["35-guivault-etroit-compte", async (page) => {
+    await page.getByRole("button", { name: /Vaults/ }).first().click();
+    await settle(page, 300);
+    await page.getByRole("button", { name: /Appareils, second facteur/ }).first().click();
+    await settle(page, 500);
+    await page.setViewportSize({ width: 1440, height: 900 });
+  }],
 ];
 
 try {

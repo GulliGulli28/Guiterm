@@ -7,11 +7,14 @@
 //! - [`entity`] : entités du workspace ↔ items chiffrés.
 //! - [`sync`] : le moteur de réconciliation.
 //! - [`sharing`] : vaults partagés, membres, invitations, empreintes.
+//! - [`transfer`] : déplacer des entités entre profil local, vault personnel
+//!   et vaults partagés.
 pub mod account;
 pub mod client;
 pub mod entity;
 pub mod sharing;
 pub mod sync;
+pub mod transfer;
 
 pub use account::{FingerprintTrust, KnownAccount, LoginStep, Manager, Status, VaultSummary};
 pub use sync::Report;

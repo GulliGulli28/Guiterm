@@ -599,6 +599,15 @@ export interface GuiVaultStatus {
   viewLocal: boolean;
 }
 
+/** Une entité telle que le menu des vaults la liste. */
+export interface GuiVaultEntity {
+  id: string;
+  kind: "host" | "group" | "snippet" | "key" | "sql-connection";
+  name: string;
+  path: string;
+  vaultId: VaultId | null;
+}
+
 export interface GuiVaultKnownAccount {
   userId: string;
   email: string;

@@ -338,11 +338,16 @@ doivent rester identiques).
 
 **Un workspace par compte, et un sélecteur de profil** (tête du panneau
 Hôtes) : « Cet appareil (local) » ou le compte connecté, bascule sans
-fermer la session (`guivault_switch_view` ; `view_local` dans le registre,
-`sync::run` refuse tant que le local est affiché — rien du local ne part
-jamais). Un hôte déplacé dans un vault emmène sa clé **et sa chaîne de
-dossiers** ; un hôte dont le dossier manque s'affiche à la racine
-(`buildHostTree`) plutôt que de disparaître.
+fermer la session (`guivault_switch_view` ; `view_local` dans le registre).
+Profil local affiché, **la synchro continue** : `run_sync` lit et écrit
+alors le workspace du compte *sur le disque* (`load_workspace_at` /
+`store::save_at`), jamais celui en mémoire — rien du local ne part jamais.
+`guivault::transfer` déplace des entités entre local, personnel et vaults
+partagés (`guivault_transfer_entities`, menu des vaults → « Contenu ») en
+fermant la sélection : un hôte emmène sa clé et sa chaîne de dossiers, un
+dossier son sous-arbre. Un hôte dont le dossier manque s'affiche à la
+racine (`buildHostTree`) plutôt que de disparaître. La scène
+`32-35-guivault*` de `visual-tour` rend le panneau avec un compte factice.
 
 **Un workspace par compte.** `store::workspace_path()` rend celui du compte
 actif (`<config>/guivault/<user_id>/workspace.json`) ou le local

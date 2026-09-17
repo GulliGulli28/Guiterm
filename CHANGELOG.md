@@ -35,13 +35,14 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
   **Un workspace par compte, jamais mélangé au local.** Un sélecteur en tête
   du panneau Hôtes affiche soit « Cet appareil (local) », soit le compte
-  connecté — vault personnel et vaults partagés — sans fermer la session
-  (côté local, la synchronisation est en pause). Déconnecté, le panneau
-  GuiVault propose les comptes déjà utilisés ici pour se reconnecter. À la
-  première connexion d'un compte, le profil local peut, sur demande, être
-  transféré dans son vault personnel. Un hôte se range dans un vault depuis
-  son formulaire (champ « Vault ») ; sa clé du trousseau et son dossier le
-  suivent.
+  connecté — vault personnel et vaults partagés — sans fermer la session (la
+  synchronisation continue pendant ce temps). Déconnecté, le panneau
+  GuiVault propose les comptes déjà utilisés ici pour se reconnecter. Le
+  menu de chaque vault — personnel compris — liste son contenu : y déplacer
+  une entité vers un autre vault ou vers l'appareil, ou en ajouter depuis le
+  profil local, à tout moment. Un hôte se range aussi dans un vault depuis
+  son formulaire (champ « Vault ») ; sa clé du trousseau et ses dossiers le
+  suivent, un dossier emmène son sous-arbre.
 
   **Le reste** : second facteur TOTP avec codes de récupération, liste des
   appareils connectés et déconnexion à distance, changement de mot de passe

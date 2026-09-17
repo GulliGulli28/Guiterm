@@ -1,9 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ReactNode } from "react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { api } from "../lib/api";
 import type {
-  FingerprintTrust, GuiVaultAuditEntry, GuiVaultInvitation, GuiVaultKnownAccount, GuiVaultMember, GuiVaultReport,
-  GuiVaultSession, GuiVaultStatus, GuiVaultUserLookup, GuiVaultVault, VaultId, VaultRole, Workspace,
+  FingerprintTrust, GuiVaultAuditEntry, GuiVaultEntity, GuiVaultInvitation, GuiVaultKnownAccount, GuiVaultMember,
+  GuiVaultReport, GuiVaultSession, GuiVaultStatus, GuiVaultUserLookup, GuiVaultVault, VaultId, VaultRole, Workspace,
 } from "../lib/types";
 import { IconCheck, IconCopy, IconEye, IconEyeOff, IconPlus, IconRefresh, IconTrash, IconVault } from "./ui-icons";
 import { ConfirmDialog } from "./ConfirmDialog";
@@ -60,8 +60,8 @@ function describeReport(r: GuiVaultReport): string {
 function Fingerprint({ value }: { value: string }) {
   const [copied, setCopied] = useState(false);
   return (
-    <span className="inline-flex min-w-0 items-center gap-1">
-      <code className="truncate font-mono text-[11px] text-[var(--c-text)]">{value}</code>
+    <span className="flex min-w-0 max-w-full items-start gap-1">
+      <code className="min-w-0 break-all font-mono text-[11px] leading-snug text-[var(--c-text)]">{value}</code>
       <button
         type="button"
         title="Copier l'empreinte"
@@ -178,7 +178,7 @@ function ConnectForm({ accounts, localCount, onDone, onError, onNotify }: { acco
         <div className="space-y-1.5">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">Comptes sur cet appareil</p>
           {accounts.map((a) => (
-            <div key={a.userId} className="card flex items-center gap-2 p-2">
+            <div key={a.userId} className="card flex min-w-0 items-center gap-2 p-2">
               <button type="button" onClick={() => pickKnown(a)} className="min-w-0 flex-1 text-left">
                 <span className="block truncate text-[12.5px] text-[var(--c-text)]">{a.email}</span>
                 <span className="block truncate text-[11px] text-[var(--c-text-muted)]">{a.serverUrl} — {formatWhen(a.lastUsedAt)}</span>
@@ -201,8 +201,8 @@ function ConnectForm({ accounts, localCount, onDone, onError, onNotify }: { acco
       )}
     <div className="card space-y-2 p-3">
       {known ? (
-        <div className="flex items-center gap-2">
-          <p className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--c-text)]">{known.email} <span className="text-[var(--c-text-muted)]">sur {known.serverUrl}</span></p>
+        <div className="flex min-w-0 flex-wrap items-center gap-2">
+          <p className="min-w-0 flex-1 basis-32 truncate text-[12.5px] text-[var(--c-text)]">{known.email} <span className="text-[var(--c-text-muted)]">sur {known.serverUrl}</span></p>
           <button type="button" onClick={() => { setKnown(null); setEmail(""); }} className="btn btn-ghost btn-sm">Autre compte</button>
         </div>
       ) : (
@@ -372,8 +372,8 @@ function AccountCard({ status, onStatusChange, onError, onNotify }: { status: Gu
 
   return (
     <div className="card space-y-2 p-3">
-      <div className="flex items-start justify-between gap-2">
-        <div className="min-w-0">
+      <div className="flex flex-wrap items-start justify-between gap-2">
+        <div className="min-w-0 flex-1 basis-32">
           <p className="truncate text-[13px] font-medium text-[var(--c-text)]">{status.email}</p>
           <p className="truncate text-[11.5px] text-[var(--c-text-muted)]">{status.serverUrl}</p>
         </div>
@@ -382,7 +382,7 @@ function AccountCard({ status, onStatusChange, onError, onNotify }: { status: Gu
         </button>
       </div>
       {status.viewLocal ? (
-        <div className="callout callout-warn flex items-center justify-between gap-2">
+        <div className="callout callout-warn flex flex-wrap items-center justify-between gap-2">
           <span>Profil local affiché — la synchronisation est en pause.</span>
           <button onClick={() => api.guivaultSwitchView(false).then(onStatusChange).catch((e) => onError(String(e)))} className="btn btn-primary btn-sm shrink-0">Afficher le compte</button>
         </div>
@@ -392,9 +392,9 @@ function AccountCard({ status, onStatusChange, onError, onNotify }: { status: Gu
       <div className="space-y-0.5">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">Votre empreinte</p>
         <p className="text-[11.5px] text-[var(--c-text-muted)]">À communiquer à qui veut vous partager un vault, pour qu'il la compare à celle que le serveur lui montre.</p>
-        {status.fingerprint && <Fingerprint value={status.fingerprint} />}
+        {status.fingerprint && <div className="min-w-0"><Fingerprint value={status.fingerprint} /></div>}
       </div>
-      <div className="flex items-center justify-between gap-2">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <label className="text-[12px] text-[var(--c-text-secondary)]">Synchronisation automatique</label>
         <select
           value={status.autoSyncSecs}
@@ -422,7 +422,7 @@ function AccountCard({ status, onStatusChange, onError, onNotify }: { status: Gu
             <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">Appareils connectés</p>
             {sessions === null && <p className="text-[11.5px] text-[var(--c-text-muted)]">Chargement…</p>}
             {sessions?.map((s) => (
-              <div key={s.id} className="flex items-center gap-2 text-[12px]">
+              <div key={s.id} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[12px]">
                 <span className="min-w-0 flex-1 truncate text-[var(--c-text)]">{s.deviceName ?? "appareil sans nom"}{s.current && <span className="tag tag-accent ml-1.5">celui-ci</span>}</span>
                 <span className="text-[11px] text-[var(--c-text-muted)]">{formatWhen(s.lastUsedAt)}</span>
                 {!s.current && (
@@ -435,8 +435,8 @@ function AccountCard({ status, onStatusChange, onError, onNotify }: { status: Gu
             <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">Second facteur (TOTP)</p>
             {totpEnabled === null && <p className="text-[11.5px] text-[var(--c-text-muted)]">Chargement…</p>}
             {totpEnabled === false && !totpSetup && (
-              <div className="flex items-center justify-between gap-2">
-                <p className="text-[11.5px] text-[var(--c-text-muted)]">Désactivé. Un code d'application d'authentification sera demandé à chaque connexion — il protège la session, pas les données (le mot de passe maître reste seul à les chiffrer).</p>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="min-w-0 flex-1 basis-40 text-[11.5px] text-[var(--c-text-muted)]">Désactivé. Un code d'application d'authentification sera demandé à chaque connexion — il protège la session, pas les données (le mot de passe maître reste seul à les chiffrer).</p>
                 <button onClick={startTotp} disabled={totpBusy} className="btn btn-secondary btn-sm shrink-0">Activer</button>
               </div>
             )}
@@ -527,12 +527,122 @@ function ReceivedInvitations({ invitations, onChange, onError }: { invitations: 
   );
 }
 
-// ─── Détail d'un vault partagé ───────────────────────────────────────────────
+// ─── Contenu d'un vault : lister, déplacer, ajouter depuis l'appareil ───────
 
-function VaultDetail({ vault, workspace, onBack, onStatusChange, onError, onNotify }: {
-  vault: GuiVaultVault; workspace: Workspace; onBack: () => void; onStatusChange: () => void; onError: (m: string) => void; onNotify: (m: string) => void;
+const KIND_LABELS: Record<GuiVaultEntity["kind"], string> = {
+  host: "hôte", group: "dossier", snippet: "snippet", key: "clé", "sql-connection": "connexion",
+};
+
+function EntityRow({ e, children }: { e: GuiVaultEntity; children?: ReactNode }) {
+  return (
+    <div className="flex min-w-0 items-center gap-2 rounded-md px-1.5 py-1 hover:bg-[var(--c-hover)]">
+      <span className="tag shrink-0">{KIND_LABELS[e.kind]}</span>
+      <span className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--c-text)]" title={e.path ? `${e.path} / ${e.name}` : e.name}>
+        {e.name}{e.path && <span className="text-[var(--c-text-muted)]"> — {e.path}</span>}
+      </span>
+      {children}
+    </div>
+  );
+}
+
+/** Ce qu'un vault contient, avec « Déplacer vers… » par ligne, et l'ajout
+ * d'entités depuis le profil local de cet appareil. Passe par le backend
+ * plutôt que par `workspace` : ce qui est affiché peut être le profil local.
+ *
+ * Les déplacements emmènent ce qui doit suivre (dossiers, clé, sous-arbre) :
+ * le backend ferme la sélection, la ligne ne dit que l'entité choisie. */
+function VaultContents({ vault, vaults, onChanged, onError, onNotify }: {
+  vault: GuiVaultVault; vaults: GuiVaultVault[]; onChanged: () => void; onError: (m: string) => void; onNotify: (m: string) => void;
 }) {
-  const manage = canManage(vault.role);
+  const [entities, setEntities] = useState<GuiVaultEntity[] | null>(null);
+  const [local, setLocal] = useState<GuiVaultEntity[] | null>(null);
+  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [busy, setBusy] = useState(false);
+  const isPersonal = vault.kind === "personal";
+  const here = (entities ?? []).filter((e) => (isPersonal ? e.vaultId === null : e.vaultId === vault.id));
+  const targets = vaults.filter((v) => v.id !== vault.id && (v.kind === "personal" || v.role !== "reader"));
+  const canWrite = vault.role !== "reader";
+
+  const load = useCallback(() => {
+    api.guivaultListEntities("account").then(setEntities).catch((e) => onError(String(e)));
+  }, [onError]);
+  useEffect(() => { load(); }, [load, vault.id]);
+
+  const moveTo = async (e: GuiVaultEntity, target: string) => {
+    setBusy(true);
+    try {
+      if (target === "local") {
+        const n = await api.guivaultTransferEntities([e.id], false, null);
+        onNotify(`${n} entité(s) déplacée(s) vers cet appareil.`);
+      } else {
+        await api.guivaultMoveEntity(e.id, target === "personal" ? null : target);
+      }
+      load(); onChanged();
+    } catch (err) { onError(String(err)); } finally { setBusy(false); }
+  };
+
+  const openLocal = () => api.guivaultListEntities("local").then((l) => { setLocal(l); setPicked(new Set()); }).catch((e) => onError(String(e)));
+  const importPicked = async () => {
+    setBusy(true);
+    try {
+      const n = await api.guivaultTransferEntities([...picked], true, isPersonal ? null : vault.id);
+      onNotify(`${n} entité(s) transférée(s) dans « ${vault.name} ».`);
+      setLocal(null); load(); onChanged();
+    } catch (err) { onError(String(err)); } finally { setBusy(false); }
+  };
+
+  return (
+    <div className="space-y-1.5">
+      <div className="flex flex-wrap items-center justify-between gap-1.5">
+        <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">Contenu{entities && ` (${here.length})`}</p>
+        {canWrite && local === null && <button onClick={openLocal} className="btn btn-ghost btn-sm"><IconPlus size={12} /> Depuis cet appareil…</button>}
+      </div>
+      {local !== null && (
+        <div className="card space-y-1.5 p-2">
+          <p className="text-[11.5px] text-[var(--c-text-muted)]">
+            Entités du profil local de cet appareil. Cochées, elles sont <strong>déplacées</strong> dans ce vault (dossiers et clés nécessaires compris) et quittent le profil local.
+          </p>
+          {local.length === 0 && <p className="text-[12px] text-[var(--c-text-muted)]">Le profil local est vide.</p>}
+          <div className="max-h-64 space-y-0.5 overflow-y-auto">
+            {local.map((e) => (
+              <label key={e.id} className="flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 hover:bg-[var(--c-hover)]">
+                <input type="checkbox" checked={picked.has(e.id)} onChange={(ev) => setPicked((p) => { const n = new Set(p); if (ev.target.checked) n.add(e.id); else n.delete(e.id); return n; })} className="h-3.5 w-3.5 shrink-0" />
+                <span className="tag shrink-0">{KIND_LABELS[e.kind]}</span>
+                <span className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--c-text)]">{e.name}{e.path && <span className="text-[var(--c-text-muted)]"> — {e.path}</span>}</span>
+              </label>
+            ))}
+          </div>
+          <div className="flex flex-wrap justify-end gap-1.5">
+            <button onClick={() => setPicked(new Set(local.map((e) => e.id)))} disabled={local.length === 0} className="btn btn-ghost btn-sm">Tout</button>
+            <button onClick={() => setLocal(null)} className="btn btn-ghost btn-sm">Annuler</button>
+            <button onClick={importPicked} disabled={busy || picked.size === 0} className="btn btn-primary btn-sm">Transférer ({picked.size})</button>
+          </div>
+        </div>
+      )}
+      {entities === null && <p className="text-[11.5px] text-[var(--c-text-muted)]">Chargement…</p>}
+      {entities && here.length === 0 && <p className="text-[11.5px] text-[var(--c-text-muted)]">Rien ici pour l'instant.</p>}
+      {here.map((e) => (
+        <EntityRow key={e.id} e={e}>
+          {canWrite && (
+            <select value="" disabled={busy} onChange={(ev) => { if (ev.target.value) moveTo(e, ev.target.value); }} className="input w-[110px] shrink-0" title="Déplacer vers…">
+              <option value="">Déplacer…</option>
+              {targets.map((t) => <option key={t.id} value={t.kind === "personal" ? "personal" : t.id}>{t.kind === "personal" ? "Personnel" : t.name}</option>)}
+              <option value="local">Cet appareil (local)</option>
+            </select>
+          )}
+        </EntityRow>
+      ))}
+    </div>
+  );
+}
+
+// ─── Détail d'un vault ───────────────────────────────────────────────────────
+
+function VaultDetail({ vault, vaults, workspace, onBack, onStatusChange, onError, onNotify }: {
+  vault: GuiVaultVault; vaults: GuiVaultVault[]; workspace: Workspace; onBack: () => void; onStatusChange: () => void; onError: (m: string) => void; onNotify: (m: string) => void;
+}) {
+  const isPersonal = vault.kind === "personal";
+  const manage = !isPersonal && canManage(vault.role);
   const [members, setMembers] = useState<GuiVaultMember[]>([]);
   const [invitations, setInvitations] = useState<GuiVaultInvitation[]>([]);
   const [inviteEmail, setInviteEmail] = useState("");
@@ -547,9 +657,10 @@ function VaultDetail({ vault, workspace, onBack, onStatusChange, onError, onNoti
   const bound = Object.values(workspace.vaultBindings ?? {}).filter((v) => v === vault.id).length;
 
   const reload = useCallback(() => {
+    if (isPersonal) return;
     api.guivaultMembers(vault.id).then(setMembers).catch((e) => onError(String(e)));
     if (manage) api.guivaultVaultInvitations(vault.id).then(setInvitations).catch((e) => onError(String(e)));
-  }, [vault.id, manage, onError]);
+  }, [vault.id, manage, isPersonal, onError]);
   useEffect(() => { reload(); }, [reload]);
 
   const doLookup = async () => {
@@ -576,7 +687,7 @@ function VaultDetail({ vault, workspace, onBack, onStatusChange, onError, onNoti
 
   return (
     <div className="space-y-3">
-      <div className="flex items-center gap-2">
+      <div className="flex min-w-0 flex-wrap items-center gap-2">
         <button onClick={onBack} className="btn btn-ghost btn-sm">← Vaults</button>
         {renaming === null ? (
           <p className="min-w-0 flex-1 truncate text-[13px] font-medium text-[var(--c-text)]" onDoubleClick={() => manage && setRenaming(vault.name)} title={manage ? "Double-clic pour renommer" : undefined}>{vault.name}</p>
@@ -594,17 +705,20 @@ function VaultDetail({ vault, workspace, onBack, onStatusChange, onError, onNoti
         )}
         <span className="tag" title={ROLE_HINTS[vault.role]}>{ROLE_LABELS[vault.role]}</span>
       </div>
-      <p className="text-[11.5px] text-[var(--c-text-muted)]">
-        {bound === 0 ? "Aucune entité ici pour l'instant — " : `${bound} entité(s) ici — `}
-        choisissez ce vault dans le champ « Vault » d'un hôte pour l'y ranger.
-      </p>
+      <VaultContents vault={vault} vaults={vaults} onChanged={onStatusChange} onError={onError} onNotify={onNotify} />
 
+      {!isPersonal && (
       <div className="space-y-1">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">Membres</p>
         {members.map((m) => (
-          <div key={m.userId} className="card space-y-1 p-2">
-            <div className="flex items-center gap-2">
-              <span className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--c-text)]">{m.email}{m.isMe && <span className="tag ml-1.5">vous</span>}</span>
+          <div key={m.userId} className="card min-w-0 space-y-1 p-2">
+            <div className="flex min-w-0 items-center gap-2">
+              <span className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--c-text)]" title={m.email}>{m.email}{m.isMe && <span className="tag ml-1.5">vous</span>}</span>
+              {manage && !m.isMe && m.role !== "owner" && (
+                <button onClick={() => setConfirm({ kind: "remove", m })} className="btn btn-ghost btn-sm btn-icon shrink-0 hover:text-[var(--c-danger)]" title="Retirer du vault"><IconTrash size={11} /></button>
+              )}
+            </div>
+            <div className="flex min-w-0 flex-wrap items-center gap-1.5">
               {manage && !m.isMe && m.role !== "owner" ? (
                 <select value={m.role} onChange={(e) => act(api.guivaultUpdateMember(vault.id, m.userId, e.target.value as VaultRole))} className={`${inputClass} w-auto`} title="Rôle">
                   {(["reader", "writer", "admin"] as VaultRole[]).filter((r) => r !== "admin" || vault.role === "owner" || vault.role === "admin").map((r) => (
@@ -615,10 +729,7 @@ function VaultDetail({ vault, workspace, onBack, onStatusChange, onError, onNoti
                 <span className="tag" title={ROLE_HINTS[m.role]}>{ROLE_LABELS[m.role]}</span>
               )}
               {vault.role === "owner" && !m.isMe && (
-                <button onClick={() => setConfirm({ kind: "transfer", m })} className="btn btn-ghost btn-sm" title="Transférer la propriété">Propriétaire</button>
-              )}
-              {manage && !m.isMe && m.role !== "owner" && (
-                <button onClick={() => setConfirm({ kind: "remove", m })} className="btn btn-ghost btn-sm btn-icon hover:text-[var(--c-danger)]" title="Retirer du vault"><IconTrash size={11} /></button>
+                <button onClick={() => setConfirm({ kind: "transfer", m })} className="btn btn-ghost btn-sm" title="Transférer la propriété">Rendre propriétaire</button>
               )}
             </div>
             {!m.isMe && (
@@ -631,10 +742,12 @@ function VaultDetail({ vault, workspace, onBack, onStatusChange, onError, onNoti
         ))}
       </div>
 
+      )}
+
       {manage && (
         <div className="space-y-1.5">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">Inviter</p>
-          <div className="flex gap-1.5">
+          <div className="flex flex-wrap gap-1.5">
             <input value={inviteEmail} onChange={(e) => { setInviteEmail(e.target.value); setLookup(null); }} onKeyDown={(e) => { if (e.key === "Enter") doLookup(); }} placeholder="E-mail" type="email" className={`${inputClass} min-w-0 flex-1`} />
             <select value={inviteRole} onChange={(e) => setInviteRole(e.target.value as VaultRole)} className={`${inputClass} w-auto`} title={ROLE_HINTS[inviteRole]}>
               {(["reader", "writer", "admin"] as VaultRole[]).map((r) => <option key={r} value={r}>{ROLE_LABELS[r]}</option>)}
@@ -664,12 +777,14 @@ function VaultDetail({ vault, workspace, onBack, onStatusChange, onError, onNoti
           {pending.length > 0 && (
             <div className="space-y-1">
               {pending.map((inv) => (
-                <div key={inv.id} className="card space-y-1 p-2">
-                  <div className="flex items-center gap-2">
-                    <span className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--c-text)]">{inv.inviteeEmail}</span>
+                <div key={inv.id} className="card min-w-0 space-y-1 p-2">
+                  <div className="flex min-w-0 items-center gap-2">
+                    <span className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--c-text)]" title={inv.inviteeEmail}>{inv.inviteeEmail}</span>
+                    <button onClick={() => act(api.guivaultRevokeInvitation(inv.id))} className="btn btn-ghost btn-sm btn-icon shrink-0 hover:text-[var(--c-danger)]" title="Révoquer"><IconTrash size={11} /></button>
+                  </div>
+                  <div className="flex flex-wrap items-center gap-1.5">
                     <span className="tag">{ROLE_LABELS[inv.role]}</span>
                     <span className="tag">{inv.status === "awaiting_key" ? "a accepté, clé à fournir" : inv.hasKey ? "en attente" : "en attente d'inscription"}</span>
-                    <button onClick={() => act(api.guivaultRevokeInvitation(inv.id))} className="btn btn-ghost btn-sm btn-icon hover:text-[var(--c-danger)]" title="Révoquer"><IconTrash size={11} /></button>
                   </div>
                   {inv.inviteeFingerprint && inv.inviteeTrust && !inv.hasKey && (
                     <div className="flex flex-wrap items-center gap-1.5">
@@ -685,6 +800,7 @@ function VaultDetail({ vault, workspace, onBack, onStatusChange, onError, onNoti
         </div>
       )}
 
+      {!isPersonal && (
       <div className="flex flex-wrap justify-end gap-1.5 border-t border-[var(--c-border)] pt-2">
         {manage && (
           <button onClick={() => { if (audit === null) api.guivaultVaultAudit(vault.id).then(setAudit).catch((e) => onError(String(e))); else setAudit(null); }} className="btn btn-ghost btn-sm">{audit === null ? "Journal" : "Masquer le journal"}</button>
@@ -693,6 +809,7 @@ function VaultDetail({ vault, workspace, onBack, onStatusChange, onError, onNoti
         {vault.role !== "owner" && <button onClick={() => setConfirm({ kind: "leave" })} className="btn btn-secondary btn-sm">Quitter</button>}
         {vault.role === "owner" && <button onClick={() => setConfirm({ kind: "delete" })} className="btn btn-danger btn-sm">Supprimer le vault</button>}
       </div>
+      )}
       {audit && (
         <div className="space-y-0.5">
           {audit.length === 0 && <p className="text-[11.5px] text-[var(--c-text-muted)]">Journal vide.</p>}
@@ -743,8 +860,7 @@ function VaultDetail({ vault, workspace, onBack, onStatusChange, onError, onNoti
               : "Vous n'y aurez plus accès. ") +
             (keepLocal
               ? `Les ${bound} entité(s) qu'il contient restent ici, rapatriées dans votre vault personnel.`
-              : `Les ${bound} entité(s) qu'il contient seront retirées de cet appareil.`) +
-            " (Rechoisir dans la liste après fermeture pour changer ce comportement : la case ci-dessous.)"
+              : `Les ${bound} entité(s) qu'il contient seront retirées de cet appareil.`)
           }
           confirmLabel={confirm.kind === "delete" ? "Supprimer" : "Quitter"}
           danger
@@ -753,13 +869,12 @@ function VaultDetail({ vault, workspace, onBack, onStatusChange, onError, onNoti
             act(k === "delete" ? api.guivaultDeleteVault(vault.id, keepLocal) : api.guivaultLeaveVault(vault.id, keepLocal), () => { onStatusChange(); onBack(); });
           }}
           onCancel={() => setConfirm(null)}
-        />
-      )}
-      {(confirm?.kind === "leave" || confirm?.kind === "delete") && (
-        <label className="flex cursor-pointer items-center gap-2 text-[12px] text-[var(--c-text-secondary)]">
-          <input type="checkbox" checked={keepLocal} onChange={(e) => setKeepLocal(e.target.checked)} className="h-3.5 w-3.5" />
-          Garder une copie locale des entités
-        </label>
+        >
+          <label className="flex cursor-pointer items-center gap-2 text-[12px] text-[var(--c-text-secondary)]">
+            <input type="checkbox" checked={keepLocal} onChange={(e) => setKeepLocal(e.target.checked)} className="h-3.5 w-3.5" />
+            Garder une copie dans mon vault personnel
+          </label>
+        </ConfirmDialog>
       )}
     </div>
   );
@@ -809,7 +924,7 @@ export function GuiVaultPanel({ workspace, status, onStatusChange, onError, onNo
         )}
         {status && status.configured && !status.unlocked && <UnlockForm status={status} onDone={onStatusChange} onError={onError} />}
         {status && unlocked && selectedVault && (
-          <VaultDetail vault={selectedVault} workspace={workspace} onBack={() => setSelected(null)} onStatusChange={onStatusChange} onError={onError} onNotify={onNotify} />
+          <VaultDetail vault={selectedVault} vaults={status.vaults} workspace={workspace} onBack={() => setSelected(null)} onStatusChange={onStatusChange} onError={onError} onNotify={onNotify} />
         )}
         {status && unlocked && !selectedVault && (
           <div className="space-y-3">
@@ -826,6 +941,7 @@ export function GuiVaultPanel({ workspace, status, onStatusChange, onError, onNo
                   <button onClick={createVault} disabled={!newName.trim()} className="btn btn-primary btn-sm">Créer</button>
                 </div>
               )}
+              <p className="text-[11.5px] text-[var(--c-text-muted)]">Ouvrir un vault pour voir son contenu, y déplacer des entités ou en ajouter depuis cet appareil.</p>
               {status.vaults.map((v) => {
                 const bindings = workspace.vaultBindings ?? {};
                 const count = v.kind === "personal"
@@ -835,9 +951,8 @@ export function GuiVaultPanel({ workspace, status, onStatusChange, onError, onNo
                   <button
                     key={v.id}
                     type="button"
-                    onClick={() => v.kind === "shared" && setSelected(v.id)}
-                    disabled={v.kind === "personal"}
-                    className={`card flex w-full items-center gap-2 p-2 text-left ${v.kind === "shared" ? "hover:bg-[var(--c-hover)]" : ""}`}
+                    onClick={() => setSelected(v.id)}
+                    className="card flex w-full min-w-0 items-center gap-2 p-2 text-left hover:bg-[var(--c-hover)]"
                   >
                     <IconVault size={14} className="shrink-0 text-[var(--c-text-muted)]" />
                     <span className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--c-text)]">{v.name}</span>
