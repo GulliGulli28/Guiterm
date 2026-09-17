@@ -14,6 +14,9 @@ use uuid::Uuid;
 /// Événement émis après chaque synchronisation (manuelle ou automatique) :
 /// le frontend recharge le workspace et affiche conflits/avertissements.
 pub const SYNCED_EVENT: &str = "guivault-synced";
+/// Émis au début d'une synchronisation ; `SYNCED_EVENT` en marque la fin
+/// (ou pas, en cas d'erreur — le frontend n'attend pas indéfiniment).
+pub const SYNC_STARTED_EVENT: &str = "guivault-sync-started";
 
 fn err(e: impl std::fmt::Display) -> String {
     e.to_string()
@@ -29,6 +32,8 @@ pub async fn run_sync(app: &AppHandle, state: &AppState) -> anyhow::Result<Repor
     let Ok(_guard) = state.guivault_sync_lock.try_lock() else {
         anyhow::bail!("synchronisation déjà en cours");
     };
+    // Le frontend affiche « synchronisation… » entre les deux événements.
+    let _ = app.emit(SYNC_STARTED_EVENT, ());
     // Profil local affiché : le workspace en mémoire est le local, celui du
     // compte est sur le disque — c'est lui qu'on synchronise, sans rien
     // toucher à l'écran. La synchro continue donc quoi qu'on regarde.

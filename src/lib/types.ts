@@ -657,6 +657,8 @@ export interface GuiVaultTotpSetup {
 
 export interface GuiVaultReport {
   pulled: number;
+  /** Reçus par nom de vault : « 3 reçus d'Équipe infra ». */
+  pulledByVault: Record<string, number>;
   pushed: number;
   removedLocally: number;
   deletedRemotely: number;

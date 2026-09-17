@@ -291,7 +291,7 @@ const scenes = [
     await page.setViewportSize({ width: 1440, height: 900 });
   }],
   // Barre latérale à sa largeur minimale (260 px) : liste des vaults, détail
-  // d'un vault, puis le panneau Hôtes avec le sélecteur de profil et les
+  // d'un vault, puis le panneau Hôtes avec la barre de profil et les
   // dossiers de vault.
   ["36-guivault-minimal", async (page) => {
     await page.evaluate(() => {
@@ -360,6 +360,13 @@ const scenes = [
     await settle(page, 300);
     const sections = await page.evaluate(() => Array.from(document.querySelectorAll('[data-sidebar-panel="keychain"] [data-vault-section]')).map((e) => e.getAttribute("data-vault-section")));
     if (!sections.includes("Lecture seule — prod bancaire")) throw new Error(`dossiers de vault (clés) : ${JSON.stringify(sections)}`);
+    // La barre de profil est globale : présente ici comme sur Hôtes, et elle
+    // dit l'état du compte.
+    const bar = await page.evaluate(() => ({
+      value: document.querySelector('[data-profile-bar] select')?.value,
+      state: document.querySelector("[data-profile-state]")?.textContent ?? "",
+    }));
+    if (bar.value !== "account" || !/Synchronisé/.test(bar.state)) throw new Error(`barre de profil : ${JSON.stringify(bar)}`);
   }],
   ["42-bases-vaults", async (page) => {
     await clickNav(page, "Bases de données");

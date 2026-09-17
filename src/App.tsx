@@ -157,6 +157,8 @@ export default function App() {
   // synchronisation ; le formulaire d'hôte s'en sert pour lister les vaults.
   const [guivaultStatus, setGuivaultStatus] = useState<GuiVaultStatus | null>(null);
   const [guivaultFocus, setGuivaultFocus] = useState<{ vaultId: VaultId | null; epoch: number } | null>(null);
+  /** Une synchronisation est en cours (entre les deux événements). */
+  const [guivaultSyncing, setGuivaultSyncing] = useState(false);
   // Recharge aussi le workspace : se connecter ou se déconnecter change de
   // workspace (un par compte, plus le profil local).
   const refreshGuivaultStatus = useCallback(() => {
@@ -169,14 +171,29 @@ export default function App() {
     // workspace sous nos pieds : on le recharge, et on dit ce qui s'est
     // passé si quelque chose mérite un regard (conflit, lecture seule…).
     let unlisten: (() => void) | undefined;
+    let unlistenStart: (() => void) | undefined;
+    // Une synchro qui échoue n'émet pas de fin : l'indicateur retombe seul.
+    let timer: number | undefined;
+    api.onGuivaultSyncStarted(() => {
+      setGuivaultSyncing(true);
+      window.clearTimeout(timer);
+      timer = window.setTimeout(() => setGuivaultSyncing(false), 20_000);
+    }).then((u) => { unlistenStart = u; });
     api.onGuivaultSynced((report) => {
+      window.clearTimeout(timer);
+      setGuivaultSyncing(false);
       api.getWorkspace().then(setWorkspace).catch(() => {});
       refreshGuivaultStatus();
       for (const c of report.conflicts) pushNotification("error", `GuiVault — ${c}`);
       for (const w of report.warnings) pushNotification("info", `GuiVault — ${w}`);
       if (report.pendingInvitations > 0) pushNotification("info", `GuiVault — ${report.pendingInvitations} invitation(s) en attente dans le panneau GuiVault.`);
+      // Ce qui vient d'arriver, et d'où — l'arbre ne change pas en silence.
+      if (report.pulled > 0) {
+        const parts = Object.entries(report.pulledByVault ?? {}).map(([vault, n]) => `${n} de « ${vault} »`);
+        pushNotification("info", `GuiVault — ${report.pulled} entité(s) reçue(s)${parts.length ? ` : ${parts.join(", ")}` : ""}.`);
+      }
     }).then((u) => { unlisten = u; });
-    return () => { unlisten?.(); };
+    return () => { unlisten?.(); unlistenStart?.(); window.clearTimeout(timer); };
   }, [refreshGuivaultStatus, pushNotification]);
 
   // ── Master-password vault ─────────────────────────────────────────────────
@@ -791,6 +808,7 @@ export default function App() {
     onVaultStatusChange: refreshVaultStatus,
     guivaultStatus,
     onGuivaultStatusChange: refreshGuivaultStatus,
+    guivaultSyncing,
     guivaultFocus,
     openVault: (vaultId) => { setGuivaultFocus((f) => ({ vaultId, epoch: (f?.epoch ?? 0) + 1 })); showTargetsPanel("guivault"); },
     updatePreferences,

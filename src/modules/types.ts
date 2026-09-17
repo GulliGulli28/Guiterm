@@ -247,6 +247,8 @@ export interface SidebarActions extends TabOpeners {
   /** Le vault que le panneau GuiVault doit ouvrir (`null` = personnel) —
    * posé par « Ouvrir le vault » dans le panneau Hôtes. `epoch` distingue
    * deux demandes pour le même vault. */
+  /** Une synchronisation est en cours — la barre de profil le montre. */
+  guivaultSyncing: boolean;
   guivaultFocus: { vaultId: VaultId | null; epoch: number } | null;
   openVault: (vaultId: VaultId | null) => void;
   updatePreferences: (p: AppPreferences) => void;

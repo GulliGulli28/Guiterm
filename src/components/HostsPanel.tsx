@@ -22,28 +22,12 @@ import {
   IconUpload, IconDownload, IconTransfer, IconTunnels, IconTerminal, IconChecklist, IconVault,
 } from "./ui-icons";
 
-/** Le sélecteur de profil en tête du panneau : quel workspace est affiché. */
-export interface HostsProfile {
-  /** Compte connecté (e-mail), ou `null` sans compte. */
-  connectedEmail: string | null;
-  /** Vrai quand le profil local est affiché alors qu'un compte est connecté. */
-  viewLocal: boolean;
-  /** Comptes connus sur cet appareil mais pas connectés. */
-  otherAccounts: { userId: string; email: string }[];
-  /** Les vaults du compte affiché (personnel, puis partagés) : chacun est un
-   * dossier de premier niveau de l'arbre. `null` quand ce qu'on voit n'a
-   * aucune affiliation (profil local). */
-  sections: VaultSection[] | null;
-}
-
 interface HostsPanelProps {
   workspace: Workspace;
   activeHostId?: HostId | null;
-  /** Absent : pas de compte GuiVault ici, pas de sélecteur. */
-  profile?: HostsProfile | null;
-  /** `"local"` / `"account"` basculent l'affichage ; un autre compte ouvre
-   * le panneau GuiVault pour s'y connecter. */
-  onSwitchProfile?: (target: "local" | "account" | { userId: string }) => void;
+  /** Les vaults du compte affiché : chacun est un dossier de premier niveau
+   * de l'arbre. Absent ou `null` = profil local, arbre à plat. */
+  vaultSections?: VaultSection[] | null;
   onConnect: (host: Host) => void;
   onConnectDocker: (host: Host, containerId: string) => void;
   onConnectK8s: (host: Host, podName: string, containerName: string | null) => void;
@@ -145,7 +129,7 @@ export function HostsPanel({
   workspace, activeHostId, onConnect, onConnectDocker, onConnectK8s, onConnectRdpView, onOpenTransfer, onConnectSql,
   onProbeReachability, onSearchFiles, onResumeSession, onOpenLocalTerminal,
   onNewHost, onEditHost, onNewGroup, onImportCloud, onImportAnsible, onNewHostInGroup, onNewGroupUnder,
-  onEditGroup, onQuickSSH, onWorkspaceUpdate, onError, onNotify, profile, onSwitchProfile, onNewHostInVault, onOpenVault,
+  onEditGroup, onQuickSSH, onWorkspaceUpdate, onError, onNotify, vaultSections: sections, onNewHostInVault, onOpenVault,
 }: HostsPanelProps) {
   const [search, setSearch] = useState("");
   // Compte affiché : l'arbre est découpé par vault (personnel, puis chaque
@@ -238,7 +222,6 @@ export function HostsPanel({
   // Nom du vault partagé de chaque hôte (compte affiché seulement) : un
   // critère de recherche de plus — « infra » retrouve les hôtes du vault
   // « Équipe infra », comme un tag.
-  const sections = profile?.sections ?? null;
   const vaultNameOf = useMemo(() => {
     const names = new Map<string, string>();
     if (!sections) return names;
@@ -534,32 +517,8 @@ export function HostsPanel({
 
   const addMenuItem = "menu-item";
 
-  const showProfile = !!profile && (profile.connectedEmail !== null || profile.otherAccounts.length > 0);
-  const profileValue = profile?.connectedEmail && !profile.viewLocal ? "account" : "local";
-
   return (
     <div className="flex h-full min-w-0 flex-col">
-      {showProfile && profile && (
-        // Quel workspace on regarde : cet appareil, ou un compte GuiVault.
-        // Un `<select>` natif, pas un `HostTreePicker` : ce sont des profils,
-        // pas des hôtes.
-        <select
-          value={profileValue}
-          onChange={(e) => {
-            const v = e.target.value;
-            if (v === "local" || v === "account") onSwitchProfile?.(v);
-            else onSwitchProfile?.({ userId: v });
-          }}
-          title={profile.viewLocal ? "Profil local affiché — le compte continue de se synchroniser en arrière-plan" : "Profil affiché"}
-          className={`input mb-2 w-full ${profile.viewLocal && profile.connectedEmail ? "border-[var(--c-warn)]" : ""}`}
-        >
-          <option value="local">Cet appareil (local)</option>
-          {profile.connectedEmail && <option value="account">{profile.connectedEmail}</option>}
-          {profile.otherAccounts.map((a) => (
-            <option key={a.userId} value={a.userId}>{a.email} — se connecter…</option>
-          ))}
-        </select>
-      )}
       {/* Search — first for discoverability */}
       <div className="relative shrink-0">
         <div className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center">

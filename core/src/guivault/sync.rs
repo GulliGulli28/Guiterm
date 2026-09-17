@@ -41,6 +41,9 @@ pub enum Change {
 #[serde(rename_all = "camelCase")]
 pub struct Report {
     pub pulled: usize,
+    /// Ce qui a été reçu, par nom de vault — pour le dire (« 3 reçus
+    /// d'Équipe infra ») plutôt que de changer l'arbre en silence.
+    pub pulled_by_vault: std::collections::BTreeMap<String, usize>,
     pub pushed: usize,
     pub removed_locally: usize,
     pub deleted_remotely: usize,
@@ -284,6 +287,7 @@ pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec
                 },
             );
             report.pulled += 1;
+            *report.pulled_by_vault.entry(v.name.clone()).or_default() += 1;
         }
         state.vault_revisions.insert(v.id, page.revision);
     }

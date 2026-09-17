@@ -6,6 +6,8 @@ import { renderModulePanel } from "../modules/registry";
 import type { AppContext, SidebarActions } from "../modules/types";
 import { IconHosts, IconSnippets, IconTunnels, IconKeychain, IconSettings, IconTransfer, IconShield, IconDatabase, IconFleet, IconCloud, IconNetDiag, IconRunbook, IconVault } from "./ui-icons";
 import { TabLoadingFallback } from "./TabLoadingFallback";
+import { ProfileBar, profileBarNeeded } from "./ProfileBar";
+import { api } from "../lib/api";
 
 interface SidebarProps {
   panel: SidebarPanelKind;
@@ -113,6 +115,25 @@ export function Sidebar({ panel, onPanelChange, ctx, actions }: SidebarProps) {
 
       {/* Panel content */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--c-bg2)]">
+        {/* Quel workspace on regarde : global, donc au-dessus de tous les
+            panneaux — pas seulement Hôtes. */}
+        {profileBarNeeded(actions.guivaultStatus) && (
+          <ProfileBar
+            status={actions.guivaultStatus}
+            syncing={actions.guivaultSyncing}
+            onSwitch={(target) => {
+              if (target === "local" || target === "account") {
+                api.guivaultSwitchView(target === "local").then(actions.onGuivaultStatusChange).catch((e) => ctx.reportError(String(e)));
+              } else {
+                // Un autre compte : il faut s'y connecter, c'est le panneau
+                // GuiVault qui le propose (déconnexion du courant comprise).
+                onPanelChange("guivault");
+              }
+            }}
+            onSyncNow={() => api.guivaultSync().then(actions.onGuivaultStatusChange).catch((e) => ctx.reportError(String(e)))}
+            onOpenGuiVault={() => onPanelChange("guivault")}
+          />
+        )}
         {/* `data-sidebar-panel` : le seul point d'accroche stable pour vérifier
             en E2E que le panneau demandé rend bien quelque chose. Sans lui, le
             test devrait viser des classes utilitaires Tailwind, qui changent

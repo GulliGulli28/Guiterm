@@ -357,6 +357,10 @@ export const api = {
   /** Fin de synchronisation (manuelle ou automatique) : recharger le workspace. */
   onGuivaultSynced: (handler: (report: GuiVaultReport) => void): Promise<UnlistenFn> =>
     listen<GuiVaultReport>("guivault-synced", (e) => handler(e.payload)),
+  /** Début d'une synchronisation — la barre de profil affiche « en cours »
+   * jusqu'à `guivault-synced` (ou quelques secondes, en cas d'erreur). */
+  onGuivaultSyncStarted: (handler: () => void): Promise<UnlistenFn> =>
+    listen<void>("guivault-sync-started", () => handler()),
 
   // Master-password vault (opt-in encrypted secret store).
   masterPasswordStatus: () => invoke<VaultStatus>("master_password_status"),
