@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { api } from "../lib/api";
-import type { Group, GroupId, Host, HostId, SqlConnection, Workspace } from "../lib/types";
+import type { Group, GroupId, Host, HostId, SqlConnection, VaultId, Workspace } from "../lib/types";
+import { sectionRoleLabel, type VaultSection } from "../lib/vaultSections";
 import { attachmentCount, hasAttachments, hostAttachments } from "../lib/hostGraph";
 import { HostIcon } from "./icons";
 import { hostKindMeta } from "../lib/hostKinds";
@@ -13,7 +14,6 @@ import { useContainerPicker } from "../hooks/useContainerPicker";
 import { useHostTreeMemory } from "../hooks/useHostTreeMemory";
 import { BulkEditPanel } from "./BulkEditPanel";
 import { EntityRow, EntityMono, EntityTags, GroupRow } from "./EntityRow";
-import { VaultChip } from "./VaultChip";
 import { PersistentSessionsModal } from "./PersistentSessionsModal";
 import {
   IconHosts, IconSearch, IconPlus, IconKeyboard, IconFlash,
@@ -30,9 +30,10 @@ export interface HostsProfile {
   viewLocal: boolean;
   /** Comptes connus sur cet appareil mais pas connectés. */
   otherAccounts: { userId: string; email: string }[];
-  /** Les vaults partagés du compte, pour étiqueter les hôtes qui y sont
-   * rangés (et les retrouver par ce nom dans la recherche). */
-  vaults: { id: string; name: string }[];
+  /** Les vaults du compte affiché (personnel, puis partagés) : chacun est un
+   * dossier de premier niveau de l'arbre. `null` quand ce qu'on voit n'a
+   * aucune affiliation (profil local). */
+  sections: VaultSection[] | null;
 }
 
 interface HostsPanelProps {
@@ -67,6 +68,11 @@ interface HostsPanelProps {
   onImportCloud: () => void;
   onImportAnsible: () => void;
   onNewHostInGroup: (groupId: GroupId) => void;
+  /** Depuis l'en-tête d'un vault : le formulaire s'ouvre dans ce vault. */
+  onNewHostInVault?: (vaultId: VaultId | null) => void;
+  /** Depuis l'en-tête d'un vault : son contenu et ses membres, dans le
+   * panneau GuiVault. */
+  onOpenVault?: (vaultId: VaultId | null) => void;
   onNewGroupUnder: (parentId: GroupId) => void;
   onEditGroup: (group: Group) => void;
   onQuickSSH: (cmd: string) => void;
@@ -139,17 +145,16 @@ export function HostsPanel({
   workspace, activeHostId, onConnect, onConnectDocker, onConnectK8s, onConnectRdpView, onOpenTransfer, onConnectSql,
   onProbeReachability, onSearchFiles, onResumeSession, onOpenLocalTerminal,
   onNewHost, onEditHost, onNewGroup, onImportCloud, onImportAnsible, onNewHostInGroup, onNewGroupUnder,
-  onEditGroup, onQuickSSH, onWorkspaceUpdate, onError, onNotify, profile, onSwitchProfile,
+  onEditGroup, onQuickSSH, onWorkspaceUpdate, onError, onNotify, profile, onSwitchProfile, onNewHostInVault, onOpenVault,
 }: HostsPanelProps) {
   const [search, setSearch] = useState("");
-  // « Trier par vault » : l'arbre est découpé par vault du compte (personnel,
-  // puis chaque vault partagé), chacun avec ses dossiers. Réglage de
-  // l'appareil, pas du workspace.
-  const [byVault, setByVault] = useState<boolean>(() => {
-    try { return localStorage.getItem("guiterm.hosts.byVault") === "1"; } catch { return false; }
-  });
-  const toggleByVault = () => setByVault((v) => { try { localStorage.setItem("guiterm.hosts.byVault", v ? "0" : "1"); } catch { /* sans stockage, réglage de session */ } return !v; });
+  // Compte affiché : l'arbre est découpé par vault (personnel, puis chaque
+  // vault partagé), chacun un dossier de premier niveau avec ses dossiers
+  // dedans. Replié ou non est un confort d'affichage, pas un état du
+  // workspace.
   const [collapsedVaults, setCollapsedVaults] = useState<Set<string>>(new Set());
+  /** Le menu « … » d'un en-tête de vault, et où l'accrocher. */
+  const [vaultMenu, setVaultMenu] = useState<{ section: VaultSection; top: number; right: number } | null>(null);
   /** Selection mode, and what is ticked in it.
    *
    * A mode rather than always-on checkboxes: the ordinary case is connecting
@@ -230,35 +235,45 @@ export function HostsPanel({
 
   // Indexé une fois par changement d'hôtes/dossiers/recherche, au lieu d'être
   // refiltré et retrié à chaque dossier affiché — voir `buildHostTree`.
-  // Nom du vault partagé de chaque hôte (profil du compte seulement) : une
-  // étiquette sur la ligne, et un critère de recherche (« testing »).
+  // Nom du vault partagé de chaque hôte (compte affiché seulement) : un
+  // critère de recherche de plus — « infra » retrouve les hôtes du vault
+  // « Équipe infra », comme un tag.
+  const sections = profile?.sections ?? null;
   const vaultNameOf = useMemo(() => {
     const names = new Map<string, string>();
-    if (!profile || profile.viewLocal || !profile.connectedEmail) return names;
-    const byId = new Map(profile.vaults.map((v) => [v.id, v.name]));
+    if (!sections) return names;
+    const byId = new Map(sections.filter((v) => v.id !== null).map((v) => [v.id as string, v.name]));
     for (const [id, vaultId] of Object.entries(workspace.vaultBindings ?? {})) {
       const name = byId.get(vaultId);
       if (name) names.set(id, name);
     }
     return names;
-  }, [profile, workspace.vaultBindings]);
+  }, [sections, workspace.vaultBindings]);
   const { hostsByGroup, groupsByParent, matchingGroups } = useMemo(
     () => buildHostTree(workspace.hosts, workspace.groups, query, vaultNameOf),
     [workspace.hosts, workspace.groups, query, vaultNameOf],
   );
 
-  // Un arbre par vault quand le mode est actif et qu'un compte est affiché.
+  // Un arbre par vault quand un compte est affiché. Un hôte affilié à un
+  // vault que le compte ne liste plus (accès retiré ; la synchro suivante le
+  // retirera) reste visible, sous une section « inaccessible » — le cacher
+  // ferait croire qu'il est perdu, le glisser dans Personnel serait faux.
   type Tree = ReturnType<typeof buildHostTree>;
   const vaultSections = useMemo(() => {
-    if (!byVault || !profile || profile.viewLocal || !profile.connectedEmail) return null;
+    if (!sections) return null;
     const bindings = workspace.vaultBindings ?? {};
-    const sections: { id: string | null; name: string }[] = [{ id: null, name: "Personnel" }, ...profile.vaults];
-    return sections.map((sec) => {
+    const known = new Set(sections.map((s) => s.id));
+    const stray = new Map<string, VaultSection>();
+    for (const e of [...workspace.hosts, ...workspace.groups]) {
+      const v = bindings[e.id];
+      if (v && !known.has(v) && !stray.has(v)) stray.set(v, { id: v, name: "Vault inaccessible", kind: "shared", role: "reader" });
+    }
+    return [...sections, ...stray.values()].map((sec) => {
       const hosts = workspace.hosts.filter((h) => (bindings[h.id] ?? null) === sec.id);
       const groups = workspace.groups.filter((g) => (bindings[g.id] ?? null) === sec.id);
-      return { ...sec, tree: buildHostTree(hosts, groups, query, vaultNameOf), total: hosts.length };
+      return { section: sec, tree: buildHostTree(hosts, groups, query, vaultNameOf), total: hosts.length };
     });
-  }, [byVault, profile, workspace.hosts, workspace.groups, workspace.vaultBindings, query, vaultNameOf]);
+  }, [sections, workspace.hosts, workspace.groups, workspace.vaultBindings, query, vaultNameOf]);
 
   const childGroups = (parentId: GroupId | null, tree?: Tree) => (tree ?? { groupsByParent }).groupsByParent.get(parentId) ?? [];
   const hostsIn = (groupId: GroupId | null, tree?: Tree) => (tree ?? { hostsByGroup }).hostsByGroup.get(groupId) ?? [];
@@ -355,12 +370,7 @@ export function HostsPanel({
         }
         title={host.label}
         title_={tooltip}
-        badges={
-          <>
-            {!vaultSections && <VaultChip name={vaultNameOf.get(host.id)} />}
-            {runningCount != null && <span className="tag tag-accent">{runningCount} actif{runningCount === 1 ? "" : "s"}</span>}
-          </>
-        }
+        badges={runningCount != null && <span className="tag tag-accent">{runningCount} actif{runningCount === 1 ? "" : "s"}</span>}
         meta={facts?.memUsedPct != null && (
           <span className="font-mono text-[10.5px] font-medium tabular-nums" style={{ color: ramColor(facts.memUsedPct) }}>
             {Math.round(facts.memUsedPct)}%
@@ -503,7 +513,6 @@ export function HostsPanel({
             ? <HostIcon iconId={group.icon} customIcons={workspace.customIcons} size={15} />
             : <IconFolder size={14} />}
           name={group.name}
-          badge={!tree && vaultNameOf.get(group.id) ? <VaultChip name={vaultNameOf.get(group.id)} /> : undefined}
           count={hostsIn(group.id, tree).length}
           actions={
             <>
@@ -592,16 +601,6 @@ export function HostsPanel({
           </button>
         </div>
         <LocalTerminalButton onOpen={onOpenLocalTerminal} />
-        {profile?.connectedEmail && !profile.viewLocal && (
-          <button
-            onClick={toggleByVault}
-            title={byVault ? "Trier par dossier" : "Trier par vault : personnel, puis chaque vault partagé"}
-            aria-pressed={byVault}
-            className={`btn btn-icon ${byVault ? "btn-toggled" : "btn-secondary text-[var(--c-text-muted)]"}`}
-          >
-            <IconVault size={14} />
-          </button>
-        )}
         {/* Selection mode: entering it, and acting on what's ticked. Offered
             only once there is more than one host — below that it is a mode with
             nothing to gain. */}
@@ -645,11 +644,13 @@ export function HostsPanel({
             <span className="kbd ml-auto shrink-0">Entrée</span>
           </button>
         )}
-        {vaultSections ? vaultSections.map((sec) => {
+        {vaultSections ? vaultSections.map(({ section: sec, tree, total }) => {
           const key = sec.id ?? "personal";
           const expanded = query ? true : !collapsedVaults.has(key);
-          const empty = sec.total === 0 && childGroups(null, sec.tree).length === 0;
-          if (query && hostsIn(null, sec.tree).length === 0 && childGroups(null, sec.tree).every((g) => !sec.tree.matchingGroups.has(g.id))) return null;
+          const empty = total === 0 && childGroups(null, tree).length === 0;
+          if (query && hostsIn(null, tree).length === 0 && childGroups(null, tree).every((g) => !tree.matchingGroups.has(g.id))) return null;
+          const writable = sec.role !== "reader";
+          const roleLabel = sectionRoleLabel(sec);
           return (
             <div key={key} data-vault-section={sec.name}>
               <GroupRow
@@ -658,14 +659,37 @@ export function HostsPanel({
                 onToggle={() => setCollapsedVaults((c) => { const n = new Set(c); if (n.has(key)) n.delete(key); else n.add(key); return n; })}
                 icon={<IconVault size={14} />}
                 name={sec.name}
-                count={sec.total}
-                badge={sec.id === null ? <span className="tag">personnel</span> : <span className="tag tag-accent">partagé</span>}
+                count={total}
+                badge={roleLabel ? <span className="tag" title="Vous ne faites que lire ce vault">{roleLabel}</span> : undefined}
+                actions={
+                  <>
+                    {writable && onNewHostInVault && (
+                      <button onClick={() => onNewHostInVault(sec.id)} title="Nouvel hôte dans ce vault" aria-label={`Nouvel hôte dans ${sec.name}`} className="btn btn-ghost btn-sm btn-icon"><IconPlus size={12} /></button>
+                    )}
+                    <button
+                      onClick={(e) => {
+                        const rect = e.currentTarget.getBoundingClientRect();
+                        setVaultMenu({ section: sec, top: rect.bottom + 4, right: window.innerWidth - rect.right });
+                      }}
+                      title="Options du vault"
+                      aria-label={`Options de ${sec.name}`}
+                      aria-haspopup="menu"
+                      className="btn btn-ghost btn-sm btn-icon"
+                    >
+                      <IconDotsVertical size={13} />
+                    </button>
+                  </>
+                }
               />
               {expanded && (
                 <div className="pl-2">
-                  {empty && <p className="px-2 py-1.5 text-[11.5px] text-[var(--c-text-muted)]">Vide — rangez-y un hôte depuis son formulaire, ou depuis le menu du vault.</p>}
-                  {hostsIn(null, sec.tree).map((h) => renderHost(h, 1))}
-                  {childGroups(null, sec.tree).map((g) => renderGroup(g, 1, sec.tree))}
+                  {empty && (
+                    <p className="px-2 py-1.5 text-[11.5px] text-[var(--c-text-muted)]">
+                      {writable ? "Vide — « + » y crée un hôte, ou le menu du vault y range des entités existantes." : "Vide."}
+                    </p>
+                  )}
+                  {hostsIn(null, tree).map((h) => renderHost(h, 1))}
+                  {childGroups(null, tree).map((g) => renderGroup(g, 1, tree))}
                 </div>
               )}
             </div>
@@ -688,6 +712,28 @@ export function HostsPanel({
       </div>
 
       {renderHostMenu()}
+      {vaultMenu && (
+        // Le menu « … » d'un vault : même ancrage flottant que celui d'un hôte.
+        <>
+          <div className="fixed inset-0 z-30" onMouseDown={() => setVaultMenu(null)} />
+          <div className="popover fixed z-40 w-60 py-1" style={{ top: vaultMenu.top, right: vaultMenu.right }} role="menu">
+            <p className="eyebrow px-2.5 pb-1 pt-1.5">{vaultMenu.section.name}</p>
+            {vaultMenu.section.role !== "reader" && onNewHostInVault && (
+              <button onClick={() => { onNewHostInVault(vaultMenu.section.id); setVaultMenu(null); }} className="menu-item" role="menuitem"><IconPlus size={13} /> Nouvel hôte ici</button>
+            )}
+            {onOpenVault && (
+              <button
+                onClick={() => { onOpenVault(vaultMenu.section.id); setVaultMenu(null); }}
+                title="Le contenu du vault (à déplacer, copier, supprimer), ses membres et ses invitations"
+                className="menu-item"
+                role="menuitem"
+              >
+                <IconVault size={13} /> Ouvrir le vault
+              </button>
+            )}
+          </div>
+        </>
+      )}
 
       {sessionsHost && (
         <PersistentSessionsModal

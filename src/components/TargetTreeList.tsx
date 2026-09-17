@@ -4,7 +4,7 @@ import type { TargetLike, TargetRow } from "../lib/targetTree";
 import { hostKindMeta } from "../lib/hostKinds";
 import { HostIcon } from "./icons";
 import { IconChevronDown, IconChevronRight, IconFolder, IconTerminal } from "./ui-icons";
-import { EntityRow, EntityMono, EntityTags, GroupRow } from "./EntityRow";
+import { BulkCheckbox, EntityRow, EntityMono, EntityTags, GroupRow } from "./EntityRow";
 
 /**
  * Le rendu commun des listes de cibles à cocher (flotte, diagnostic réseau),
@@ -52,25 +52,6 @@ interface TargetTreeListProps<T extends TargetLike> {
    * d'en-tête (vide / indéterminée / pleine). */
   countChecked?: (keys: string[]) => number;
   emptyMessage?: string;
-}
-
-/** Case d'un en-tête : cochée si tout l'est, indéterminée si une partie
- * seulement — l'état intermédiaire n'existe qu'ici, `input.indeterminate`
- * n'étant pas un attribut mais une propriété, d'où le `ref`. */
-function BulkCheckbox({
-  keys, checkedCount, onToggle, title,
-}: { keys: string[]; checkedCount: number; onToggle: (checked: boolean) => void; title: string }) {
-  const all = checkedCount === keys.length && keys.length > 0;
-  return (
-    <input
-      type="checkbox"
-      title={title}
-      checked={all}
-      ref={(el) => { if (el) el.indeterminate = checkedCount > 0 && !all; }}
-      onChange={(e) => onToggle(e.target.checked)}
-      className="shrink-0"
-    />
-  );
 }
 
 /** L'icône d'une ligne — même pastille que dans la liste des hôtes. `host`

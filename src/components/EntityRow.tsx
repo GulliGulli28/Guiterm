@@ -119,6 +119,28 @@ export function EntityRow({
   );
 }
 
+/** Case d'un en-tête (dossier, hôte relais, vault) : cochée si tout ce
+ * qu'il couvre l'est, indéterminée si une partie seulement — l'état
+ * intermédiaire n'existe qu'ici, `input.indeterminate` n'étant pas un
+ * attribut mais une propriété, d'où le `ref`. Partagée par toutes les
+ * arborescences à cocher (flotte, diagnostic, contenu des vaults). */
+export function BulkCheckbox({
+  keys, checkedCount, onToggle, title,
+}: { keys: string[]; checkedCount: number; onToggle: (checked: boolean) => void; title: string }) {
+  const all = checkedCount === keys.length && keys.length > 0;
+  return (
+    <input
+      type="checkbox"
+      title={title}
+      aria-label={title}
+      checked={all}
+      ref={(el) => { if (el) el.indeterminate = checkedCount > 0 && !all; }}
+      onChange={(e) => onToggle(e.target.checked)}
+      className="shrink-0"
+    />
+  );
+}
+
 /** Les étiquettes d'une ligne, dans la zone secondaire. */
 export function EntityTags({ tags }: { tags: string[] }) {
   if (tags.length === 0) return null;

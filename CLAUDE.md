@@ -342,24 +342,43 @@ fermer la session (`guivault_switch_view` ; `view_local` dans le registre).
 Profil local affiché, **la synchro continue** : `run_sync` lit et écrit
 alors le workspace du compte *sur le disque* (`load_workspace_at` /
 `store::save_at`), jamais celui en mémoire — rien du local ne part jamais.
-`guivault::transfer` déplace des entités entre local, personnel et vaults
-partagés (`guivault_transfer_entities`, menu des vaults → « Contenu ») en
-fermant la sélection : un hôte emmène sa clé et sa chaîne de dossiers, un
-dossier son sous-arbre. `transfer::copy` duplique sous de **nouveaux ids**
+`guivault::transfer` déplace ou copie des entités entre **emplacements**
+(`transfer::Place` : `local`, ou `account { vault_id }` — personnel si
+`None`) : **une seule fonction, `transfer::apply(local, account, ids, from,
+to, copy, can_write)`**, testée sens par sens dans `core`, derrière l'unique
+commande `guivault_transfer_entities(ids, from, to, copy)`. Elle ferme la
+sélection (un hôte emmène sa clé et sa chaîne de dossiers, un dossier son
+sous-arbre) et vérifie les droits à l'arrivée *et* au départ (retirer d'un
+vault en lecture seule ferait juste revenir l'entité à la synchro suivante ;
+une copie ne retire rien). `copy_between` duplique sous de **nouveaux ids**
 (réécriture textuelle des uuid dans le JSON des charges utiles, secrets
 dupliqués par `entity::apply`) — deux exemplaires ne doivent jamais partager
 un id, le coffre local indexe les secrets par id. Le panneau compte les
-entités du **compte** via `guivault_list_entities("account")`, jamais celles
-du workspace affiché (qui peut être le local). Même règle pour **toute
-modification du compte** depuis le menu des vaults (`with_account_workspace`
-dans `commands/guivault.rs`) : le workspace du compte est en mémoire s'il est
-affiché, sur le disque sinon — un `state.workspace` nu pointerait sur le
-local en vue locale (bug du 2026-09-17). Étiquettes de vault :
-`lib/vaultLabels.ts` + `VaultChip`, mode « trier par vault » du panneau
-Hôtes (`byVault`, un `buildHostTree` par section ; un dossier dont le parent
-est dans un autre vault monte à la racine). Un hôte dont le dossier manque s'affiche à la
-racine (`buildHostTree`) plutôt que de disparaître. La scène
-`32-35-guivault*` de `visual-tour` rend le panneau avec un compte factice.
+entités du **compte** via `guivault_list_entities("account")` (chaque ligne
+porte son `parentId`, c'est ce qui reconstruit l'arbre), jamais celles du
+workspace affiché (qui peut être le local). **Toute écriture du compte**
+depuis le menu des vaults passe par `with_both_workspaces` dans
+`commands/guivault.rs`, qui rend toujours `(local, compte)` quel que soit
+celui qui est en mémoire — un `state.workspace` nu pointerait sur le local
+en vue locale (bug du 2026-09-17), et c'est la seule raison pour laquelle
+rien d'autre ne touche au compte.
+
+UI (2026-09-17) : compte affiché ⇒ **chaque vault est un dossier de premier
+niveau** des panneaux Hôtes, Clés, Snippets et Bases (`lib/vaultSections.ts`
+: Personnel, puis les partagés, « Vault inaccessible » pour une affiliation
+que le compte ne liste plus ; `VaultSectionList` pour les listes plates, un
+`buildHostTree` par section dans `HostsPanel`), avec un menu « … » (Nouvel
+hôte ici, Ouvrir le vault → `openVault`/`guivaultFocus`). Plus d'étiquette
+ni de mode « trier par vault ». Le contenu d'un vault et le dialogue
+« Ajouter… » (cet appareil, personnel et les autres vaults comme origines)
+sont **la même arborescence à cocher** (`lib/vaultTree.ts` →
+`VaultEntityTree`, mêmes `GroupRow`/`EntityRow`/`BulkCheckbox` que le menu
+d'hôtes), suivie de Déplacer vers / Copier vers / Supprimer. Un hôte dont le
+dossier manque s'affiche à la racine (`buildHostTree`, `vaultTree`) plutôt
+que de disparaître. Scènes `visual-tour` `32`–`42` : compte factice, arbre
+du vault, dialogue « Ajouter », dossiers de vault dans chaque panneau — avec
+des assertions, pas seulement des captures. Le scénario E2E vérifie que
+`guivault_list_entities("local")` décrit exactement le workspace affiché.
 
 **Un workspace par compte.** `store::workspace_path()` rend celui du compte
 actif (`<config>/guivault/<user_id>/workspace.json`) ou le local

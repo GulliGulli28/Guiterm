@@ -1,6 +1,6 @@
 import { lazy } from "react";
 import { SqlConnectionTab } from "../components/SqlConnectionTab";
-import { vaultNameMap } from "../lib/vaultLabels";
+import { vaultSections } from "../lib/vaultSections";
 import { defineModule } from "./types";
 
 const SqlConnectionsPanel = lazy(() => import("../components/SqlConnectionsPanel").then((m) => ({ default: m.SqlConnectionsPanel })));
@@ -31,7 +31,7 @@ export const sqlModule = defineModule({
     render: (ctx, a) => (
       <SqlConnectionsPanel
         workspace={ctx.workspace}
-        vaultNameOf={vaultNameMap(ctx.workspace, a.guivaultStatus)}
+        vaultSections={vaultSections(a.guivaultStatus)}
         onConnect={a.connectSql}
         onNewConnection={a.newSqlConnection}
         onEditConnection={a.editSqlConnection}

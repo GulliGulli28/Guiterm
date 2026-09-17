@@ -1,12 +1,15 @@
-import { useCallback, useEffect, useState, type ReactNode } from "react";
+import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { api } from "../lib/api";
 import type {
   FingerprintTrust, GuiVaultAuditEntry, GuiVaultEntity, GuiVaultInvitation, GuiVaultKnownAccount, GuiVaultMember,
-  GuiVaultReport, GuiVaultSession, GuiVaultStatus, GuiVaultUserLookup, GuiVaultVault, VaultId, VaultRole, Workspace,
+  GuiVaultReport, GuiVaultSession, GuiVaultStatus, GuiVaultUserLookup, GuiVaultVault, VaultId, VaultPlace, VaultRole, Workspace,
 } from "../lib/types";
-import { IconCheck, IconCopy, IconEye, IconEyeOff, IconPlus, IconRefresh, IconTrash, IconVault } from "./ui-icons";
+import { buildVaultTree, buildVaultTreeSections } from "../lib/vaultTree";
+import { useModalSurface } from "../hooks/useModalSurface";
+import { IconCheck, IconChevronDown, IconCopy, IconEye, IconEyeOff, IconMonitor, IconPlus, IconRefresh, IconSearch, IconTransfer, IconTrash, IconVault } from "./ui-icons";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { VaultEntityTree } from "./VaultEntityTree";
 
 interface GuiVaultPanelProps {
   workspace: Workspace;
@@ -14,6 +17,9 @@ interface GuiVaultPanelProps {
   /** Le statut a changé (connexion, vault créé…) : `App` le recharge — il le
    * passe aussi au formulaire d'hôte pour le sélecteur de vault. */
   onStatusChange: () => void;
+  /** « Ouvrir le vault » depuis le panneau Hôtes : le détail de ce vault
+   * s'affiche (`null` = personnel). */
+  focus?: { vaultId: VaultId | null; epoch: number } | null;
   onWorkspaceUpdate: (ws: Workspace) => void;
   onError: (message: string) => void;
   onNotify: (message: string) => void;
@@ -527,138 +533,323 @@ function ReceivedInvitations({ invitations, onChange, onError }: { invitations: 
   );
 }
 
-// ─── Contenu d'un vault : lister, déplacer, ajouter depuis l'appareil ───────
+// ─── Contenu d'un vault : arborescence à cocher, déplacer/copier/supprimer ──
 
-const KIND_LABELS: Record<GuiVaultEntity["kind"], string> = {
-  host: "hôte", group: "dossier", snippet: "snippet", key: "clé", "sql-connection": "connexion",
-};
+/** Un emplacement où envoyer une sélection, tel que le menu le propose. */
+interface Destination {
+  key: string;
+  label: string;
+  place: VaultPlace;
+}
 
-function EntityRow({ e, children }: { e: GuiVaultEntity; children?: ReactNode }) {
+/** Les emplacements autres que `current` : les vaults où le compte écrit,
+ * le personnel, puis cet appareil. */
+function destinationsFrom(current: VaultPlace, vaults: GuiVaultVault[]): Destination[] {
+  const out: Destination[] = [];
+  for (const v of vaults) {
+    const place: VaultPlace = { kind: "account", vaultId: v.kind === "personal" ? null : v.id };
+    if (samePlace(place, current) || (v.kind === "shared" && v.role === "reader")) continue;
+    out.push({ key: v.kind === "personal" ? "personal" : v.id, label: v.kind === "personal" ? "Vault personnel" : v.name, place });
+  }
+  if (current.kind !== "local") out.push({ key: "local", label: "Cet appareil (local)", place: { kind: "local" } });
+  return out;
+}
+
+function samePlace(a: VaultPlace, b: VaultPlace): boolean {
+  return a.kind === b.kind && (a.kind === "local" || b.kind === "local" || a.vaultId === b.vaultId);
+}
+
+/** « Déplacer vers ▾ » / « Copier vers ▾ » : un bouton et son menu
+ * d'emplacements, ancré dessous. */
+function DestinationMenu({ label, icon, destinations, disabled, onPick }: {
+  label: string; icon: ReactNode; destinations: Destination[]; disabled: boolean; onPick: (d: Destination) => void;
+}) {
+  const [open, setOpen] = useState(false);
   return (
-    <div className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 rounded-md px-1.5 py-1 hover:bg-[var(--c-hover)]">
-      <span className="tag shrink-0">{KIND_LABELS[e.kind]}</span>
-      <span className="min-w-[7rem] flex-1 truncate text-[12.5px] text-[var(--c-text)]" title={e.path ? `${e.path} / ${e.name}` : e.name}>
-        {e.name}{e.path && <span className="text-[var(--c-text-muted)]"> — {e.path}</span>}
-      </span>
-      {children}
+    <div className="relative">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        disabled={disabled || destinations.length === 0}
+        aria-haspopup="menu"
+        aria-expanded={open}
+        className="btn btn-secondary btn-sm"
+        title={destinations.length === 0 ? "Aucun autre emplacement où écrire" : undefined}
+      >
+        {icon} {label} <IconChevronDown size={10} className="text-[var(--c-text-muted)]" />
+      </button>
+      {open && (
+        <>
+          <div className="fixed inset-0 z-30" onMouseDown={() => setOpen(false)} />
+          <div className="popover absolute right-0 top-full z-40 mt-1 min-w-[12rem] py-1" role="menu">
+            <p className="eyebrow px-2.5 pb-1 pt-1.5">{label}</p>
+            {destinations.map((d) => (
+              <button key={d.key} type="button" onClick={() => { setOpen(false); onPick(d); }} className="menu-item" role="menuitem">
+                {d.place.kind === "local" ? <IconMonitor size={13} /> : <IconVault size={13} />}
+                <span className="truncate">{d.label}</span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </div>
   );
 }
 
-/** Ce qu'un vault contient, avec « Déplacer vers… » par ligne, et l'ajout
- * d'entités depuis le profil local de cet appareil. Passe par le backend
- * plutôt que par `workspace` : ce qui est affiché peut être le profil local.
+/** Une sélection dans un ensemble de clés — ce que les cases manipulent. */
+function useSelection() {
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const toggle = (id: string) => setSelected((prev) => { const n = new Set(prev); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const toggleKeys = (keys: string[], checked: boolean) => setSelected((prev) => { const n = new Set(prev); for (const k of keys) { if (checked) n.add(k); else n.delete(k); } return n; });
+  const clear = () => setSelected(new Set());
+  const setAll = (keys: string[]) => setSelected(new Set(keys));
+  return { selected, toggle, toggleKeys, clear, setAll };
+}
+
+/** Ce qu'un vault contient, en arborescence à cocher — dossiers, hôtes et
+ * connexions dedans, clés et snippets regroupés — puis les actions sur la
+ * sélection : déplacer ou copier vers un autre emplacement, supprimer.
+ * Passe par le backend plutôt que par `workspace` : ce qui est affiché peut
+ * être le profil local.
  *
  * Les déplacements emmènent ce qui doit suivre (dossiers, clé, sous-arbre) :
- * le backend ferme la sélection, la ligne ne dit que l'entité choisie. */
+ * le backend ferme la sélection, la case ne dit que l'entité choisie. */
 function VaultContents({ vault, vaults, onChanged, onError, onNotify }: {
   vault: GuiVaultVault; vaults: GuiVaultVault[]; onChanged: () => void; onError: (m: string) => void; onNotify: (m: string) => void;
 }) {
   const [entities, setEntities] = useState<GuiVaultEntity[] | null>(null);
-  const [local, setLocal] = useState<GuiVaultEntity[] | null>(null);
-  const [picked, setPicked] = useState<Set<string>>(new Set());
+  const [query, setQuery] = useState("");
   const [busy, setBusy] = useState(false);
-  const [deleting, setDeleting] = useState<GuiVaultEntity | null>(null);
+  const [adding, setAdding] = useState(false);
+  const [confirmDelete, setConfirmDelete] = useState(false);
+  const { selected, toggle, toggleKeys, clear, setAll } = useSelection();
   const isPersonal = vault.kind === "personal";
-  const here = (entities ?? []).filter((e) => (isPersonal ? e.vaultId === null : e.vaultId === vault.id));
-  const targets = vaults.filter((v) => v.id !== vault.id && (v.kind === "personal" || v.role !== "reader"));
+  const place: VaultPlace = { kind: "account", vaultId: isPersonal ? null : vault.id };
   const canWrite = vault.role !== "reader";
+  const here = useMemo(() => (entities ?? []).filter((e) => e.vaultId === place.vaultId), [entities, place.vaultId]);
+  const tree = useMemo(() => buildVaultTree(here, query), [here, query]);
+  const destinations = useMemo(() => destinationsFrom(place, vaults), [place.vaultId, vaults]); // eslint-disable-line react-hooks/exhaustive-deps
+  const count = selected.size;
 
   const load = useCallback(() => {
     api.guivaultListEntities("account").then(setEntities).catch((e) => onError(String(e)));
   }, [onError]);
   useEffect(() => { load(); }, [load, vault.id]);
+  // Une entité disparue (synchro, suppression) ne reste pas cochée en silence.
+  useEffect(() => {
+    if (entities === null) return;
+    const ids = new Set(here.map((e) => e.id));
+    if ([...selected].some((id) => !ids.has(id))) setAll([...selected].filter((id) => ids.has(id)));
+  }, [here]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const moveTo = async (e: GuiVaultEntity, target: string) => {
-    if (target === "delete") { setDeleting(e); return; }
+  const send = async (to: Destination, copy: boolean) => {
     setBusy(true);
     try {
-      if (target === "local" || target === "local-copy") {
-        const copy = target === "local-copy";
-        const n = await api.guivaultTransferEntities([e.id], false, null, copy);
-        onNotify(`${n} entité(s) ${copy ? "copiée(s)" : "déplacée(s)"} vers cet appareil.`);
-      } else {
-        await api.guivaultMoveEntity(e.id, target === "personal" ? null : target);
-      }
-      load(); onChanged();
+      const n = await api.guivaultTransferEntities([...selected], place, to.place, copy);
+      onNotify(`${n} entité(s) ${copy ? "copiée(s)" : "déplacée(s)"} vers ${to.label}.`);
+      clear(); load(); onChanged();
     } catch (err) { onError(String(err)); } finally { setBusy(false); }
   };
 
-  const openLocal = () => api.guivaultListEntities("local").then((l) => { setLocal(l); setPicked(new Set()); }).catch((e) => onError(String(e)));
-  const importPicked = async (copy: boolean) => {
+  const remove = async () => {
+    setConfirmDelete(false);
     setBusy(true);
     try {
-      const n = await api.guivaultTransferEntities([...picked], true, isPersonal ? null : vault.id, copy);
-      onNotify(`${n} entité(s) ${copy ? "copiée(s)" : "transférée(s)"} dans « ${vault.name} ».`);
-      setLocal(null); load(); onChanged();
+      const ids = [...selected];
+      await api.guivaultDeleteEntities(ids);
+      onNotify(`${ids.length} entité(s) supprimée(s) de « ${vault.name} ».`);
+      clear(); load(); onChanged();
     } catch (err) { onError(String(err)); } finally { setBusy(false); }
   };
+
+  const selectedNames = here.filter((e) => selected.has(e.id)).map((e) => e.name);
 
   return (
-    <div className="space-y-1.5">
+    <div className="space-y-2">
       <div className="flex flex-wrap items-center justify-between gap-1.5">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">Contenu{entities && ` (${here.length})`}</p>
-        {canWrite && local === null && <button onClick={openLocal} className="btn btn-ghost btn-sm"><IconPlus size={12} /> Depuis cet appareil…</button>}
+        {canWrite && (
+          <button onClick={() => setAdding(true)} className="btn btn-ghost btn-sm" title="Ajouter des entités depuis cet appareil ou depuis un autre vault">
+            <IconPlus size={12} /> Ajouter…
+          </button>
+        )}
       </div>
-      {local !== null && (
-        <div className="card space-y-1.5 p-2">
-          <p className="text-[11.5px] text-[var(--c-text-muted)]">
-            Entités du profil local de cet appareil. <strong>Transférer</strong> les déplace dans ce vault (dossiers et clés nécessaires compris) ; <strong>Copier</strong> en met un exemplaire indépendant ici et les laisse en local.
-          </p>
-          {local.length === 0 && <p className="text-[12px] text-[var(--c-text-muted)]">Le profil local est vide.</p>}
-          <div className="max-h-64 space-y-0.5 overflow-y-auto">
-            {local.map((e) => (
-              <label key={e.id} className="flex min-w-0 cursor-pointer items-center gap-2 rounded-md px-1.5 py-1 hover:bg-[var(--c-hover)]">
-                <input type="checkbox" checked={picked.has(e.id)} onChange={(ev) => setPicked((p) => { const n = new Set(p); if (ev.target.checked) n.add(e.id); else n.delete(e.id); return n; })} className="h-3.5 w-3.5 shrink-0" />
-                <span className="tag shrink-0">{KIND_LABELS[e.kind]}</span>
-                <span className="min-w-0 flex-1 truncate text-[12.5px] text-[var(--c-text)]">{e.name}{e.path && <span className="text-[var(--c-text-muted)]"> — {e.path}</span>}</span>
-              </label>
-            ))}
-          </div>
-          <div className="flex flex-wrap justify-end gap-1.5">
-            <button onClick={() => setPicked(new Set(local.map((e) => e.id)))} disabled={local.length === 0} className="btn btn-ghost btn-sm">Tout</button>
-            <button onClick={() => setLocal(null)} className="btn btn-ghost btn-sm">Annuler</button>
-            <button onClick={() => importPicked(true)} disabled={busy || picked.size === 0} className="btn btn-secondary btn-sm">Copier ({picked.size})</button>
-            <button onClick={() => importPicked(false)} disabled={busy || picked.size === 0} className="btn btn-primary btn-sm">Transférer ({picked.size})</button>
-          </div>
+      {here.length > 6 && (
+        <div className="relative">
+          <div className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center"><IconSearch size={12} className="text-[var(--c-text-muted)]" /></div>
+          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filtrer le contenu" aria-label="Filtrer le contenu" className="input h-7 w-full pl-7 text-[12px]" />
         </div>
       )}
-      {deleting && (
+      {canWrite && here.length > 0 && (
+        // La barre d'actions de la sélection — même dessin que le mode
+        // sélection du panneau Hôtes : compteur, Tout/Aucun, actions à droite.
+        <div className="flex flex-wrap items-center gap-x-2 gap-y-1.5 rounded-md border border-[var(--c-border)] bg-[var(--c-bg3)] px-2 py-1 text-[11.5px]" data-vault-selection-bar="">
+          <span className="text-[var(--c-text-secondary)]">{count} sélectionné{count > 1 ? "s" : ""}</span>
+          <button type="button" onClick={() => setAll(tree.visibleKeys)} className="text-[var(--c-accent-text)] hover:underline">Tout</button>
+          <button type="button" onClick={clear} className="text-[var(--c-text-muted)] hover:underline">Aucun</button>
+          <span className="ml-auto flex items-center gap-1">
+            <DestinationMenu label="Déplacer" icon={<IconTransfer size={12} />} destinations={destinations} disabled={busy || count === 0} onPick={(d) => send(d, false)} />
+            <DestinationMenu label="Copier" icon={<IconCopy size={12} />} destinations={destinations} disabled={busy || count === 0} onPick={(d) => send(d, true)} />
+            <button type="button" onClick={() => setConfirmDelete(true)} disabled={busy || count === 0} className="btn btn-ghost btn-sm btn-icon hover:text-[var(--c-danger)]" title="Supprimer la sélection" aria-label="Supprimer la sélection"><IconTrash size={12} /></button>
+          </span>
+        </div>
+      )}
+      {entities === null ? (
+        <p className="text-[11.5px] text-[var(--c-text-muted)]">Chargement…</p>
+      ) : (
+        <VaultEntityTree
+          rows={tree.rows}
+          selected={selected}
+          onToggle={toggle}
+          onToggleKeys={toggleKeys}
+          selectable={canWrite}
+          emptyMessage={query ? `Rien ne correspond à « ${query.trim()} ».` : canWrite ? "Vide — « Ajouter… » y range des entités de cet appareil ou d'un autre vault." : "Vide."}
+        />
+      )}
+      {confirmDelete && (
         <ConfirmDialog
-          title={`Supprimer ${KIND_LABELS[deleting.kind]} « ${deleting.name} » ?`}
+          title={count === 1 ? `Supprimer « ${selectedNames[0]} » ?` : `Supprimer ${count} entités ?`}
           message={
-            (deleting.kind === "group"
-              ? "Les hôtes qu'il contient reviennent à la racine. "
-              : deleting.kind === "key"
-                ? "Les hôtes qui s'authentifient avec cette clé ne pourront plus se connecter. "
-                : "") +
+            "Un dossier supprimé rend ses hôtes à la racine ; une clé supprimée laisse ses hôtes sans moyen de s'authentifier. " +
             (isPersonal ? "Supprimé de votre compte et de tous vos appareils à la prochaine synchronisation." : "Supprimé du vault pour tous ses membres à la prochaine synchronisation.")
           }
           confirmLabel="Supprimer"
           danger
-          onConfirm={() => {
-            const e = deleting; setDeleting(null); setBusy(true);
-            api.guivaultDeleteEntities([e.id]).then(() => { onNotify(`${KIND_LABELS[e.kind]} « ${e.name} » supprimé.`); load(); onChanged(); }).catch((err) => onError(String(err))).finally(() => setBusy(false));
-          }}
-          onCancel={() => setDeleting(null)}
+          onConfirm={remove}
+          onCancel={() => setConfirmDelete(false)}
         />
       )}
-      {entities === null && <p className="text-[11.5px] text-[var(--c-text-muted)]">Chargement…</p>}
-      {entities && here.length === 0 && <p className="text-[11.5px] text-[var(--c-text-muted)]">Rien ici pour l'instant.</p>}
-      {here.map((e) => (
-        <EntityRow key={e.id} e={e}>
-          {canWrite && (
-            <select value="" disabled={busy} onChange={(ev) => { if (ev.target.value) moveTo(e, ev.target.value); }} className="input ml-auto w-[110px] shrink-0" title="Déplacer vers…">
-              <option value="">Déplacer…</option>
-              {targets.map((t) => <option key={t.id} value={t.kind === "personal" ? "personal" : t.id}>{t.kind === "personal" ? "Personnel" : t.name}</option>)}
-              <option value="local">Cet appareil (local)</option>
-              <option value="local-copy">Copier vers cet appareil</option>
-              <option value="delete">Supprimer…</option>
-            </select>
-          )}
-        </EntityRow>
-      ))}
+      {adding && (
+        <AddToVaultDialog
+          vault={vault}
+          vaults={vaults}
+          onClose={() => setAdding(false)}
+          onDone={(message) => { setAdding(false); onNotify(message); load(); onChanged(); }}
+          onError={onError}
+        />
+      )}
     </div>
+  );
+}
+
+/** « Ajouter dans ce vault » : le même arbre à cocher, avec un dossier par
+ * emplacement d'origine — cet appareil, le vault personnel, chaque autre
+ * vault du compte — puis « Copier ici » ou « Déplacer ici ». Une sélection
+ * peut mélanger les origines : un appel par origine. */
+function AddToVaultDialog({ vault, vaults, onClose, onDone, onError }: {
+  vault: GuiVaultVault; vaults: GuiVaultVault[]; onClose: () => void; onDone: (message: string) => void; onError: (m: string) => void;
+}) {
+  const { ref, dialogProps } = useModalSurface({ onClose, label: `Ajouter dans ${vault.name}` });
+  const [local, setLocal] = useState<GuiVaultEntity[] | null>(null);
+  const [account, setAccount] = useState<GuiVaultEntity[] | null>(null);
+  const [query, setQuery] = useState("");
+  const [busy, setBusy] = useState(false);
+  const { selected, toggle, toggleKeys, clear } = useSelection();
+  const isPersonal = vault.kind === "personal";
+  const target: VaultPlace = { kind: "account", vaultId: isPersonal ? null : vault.id };
+
+  useEffect(() => {
+    api.guivaultListEntities("local").then(setLocal).catch((e) => { onError(String(e)); setLocal([]); });
+    api.guivaultListEntities("account").then(setAccount).catch((e) => { onError(String(e)); setAccount([]); });
+  }, [onError]);
+
+  // Les origines, dans l'ordre où le panneau Hôtes les montre : cet appareil,
+  // Personnel, puis chaque vault partagé — sauf le vault de destination.
+  const sources = useMemo(() => {
+    if (local === null || account === null) return null;
+    const out: { key: string; name: string; place: VaultPlace; readOnly: boolean; entities: GuiVaultEntity[] }[] = [
+      { key: "local", name: "Cet appareil (local)", place: { kind: "local" }, readOnly: false, entities: local },
+    ];
+    for (const v of vaults) {
+      const vaultId = v.kind === "personal" ? null : v.id;
+      if (vaultId === target.vaultId) continue;
+      out.push({
+        key: v.kind === "personal" ? "personal" : v.id,
+        name: v.kind === "personal" ? "Vault personnel" : v.name,
+        place: { kind: "account", vaultId },
+        readOnly: v.kind === "shared" && v.role === "reader",
+        entities: account.filter((e) => e.vaultId === vaultId),
+      });
+    }
+    return out;
+  }, [local, account, vaults, target.vaultId]);
+  const tree = useMemo(() => (sources ? buildVaultTreeSections(sources, query) : null), [sources, query]);
+
+  // Une entité d'un vault en lecture seule se copie mais ne se déplace pas
+  // (la retirer la ferait juste revenir à la synchro suivante).
+  const readOnlyIds = useMemo(() => new Set((sources ?? []).filter((s) => s.readOnly).flatMap((s) => s.entities.map((e) => e.id))), [sources]);
+  const moveBlocked = [...selected].some((id) => readOnlyIds.has(id));
+  const count = selected.size;
+
+  const submit = async (copy: boolean) => {
+    if (!sources) return;
+    setBusy(true);
+    try {
+      let n = 0;
+      for (const source of sources) {
+        const ids = source.entities.filter((e) => selected.has(e.id)).map((e) => e.id);
+        if (ids.length === 0) continue;
+        n += await api.guivaultTransferEntities(ids, source.place, target, copy);
+      }
+      clear();
+      onDone(`${n} entité(s) ${copy ? "copiée(s)" : "déplacée(s)"} dans « ${vault.name} ».`);
+    } catch (err) { onError(String(err)); } finally { setBusy(false); }
+  };
+
+  const sectionMeta = (key: string) => {
+    const source = sources?.find((s) => s.key === key);
+    if (!source) return undefined;
+    return {
+      icon: source.place.kind === "local" ? <IconMonitor size={14} /> : <IconVault size={14} />,
+      badge: source.readOnly ? <span className="tag" title="Vous ne faites que lire ce vault : copier, oui ; déplacer, non.">copie seulement</span> : undefined,
+    };
+  };
+
+  return (
+    <>
+      <div className="fixed inset-0 z-40 bg-black/50" onClick={onClose} />
+      <div ref={ref} {...dialogProps} className="modal fixed left-1/2 top-1/2 z-50 flex max-h-[80vh] w-[520px] max-w-[92vw] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden" data-vault-add-dialog="">
+        <div className="px-4 pt-4">
+          <h2 className="text-[14px] font-semibold text-[var(--c-text)]">Ajouter dans « {vault.name} »</h2>
+          <p className="mt-1 text-[12px] leading-relaxed text-[var(--c-text-secondary)]">
+            Cochez ce qui doit rejoindre ce vault, depuis cet appareil ou depuis un autre vault. <strong>Déplacer</strong> retire l'entité de son origine ; <strong>copier</strong> en met un exemplaire indépendant ici. Un hôte emmène sa clé et ses dossiers, un dossier son contenu.
+          </p>
+          <div className="relative mt-3">
+            <div className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center"><IconSearch size={13} className="text-[var(--c-text-muted)]" /></div>
+            <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Rechercher un hôte, un dossier, une clé…" aria-label="Rechercher" autoFocus className="input w-full pl-8" />
+          </div>
+        </div>
+        <div className="sidebar-scroll min-h-0 flex-1 overflow-y-auto px-3 py-2">
+          {tree === null ? (
+            <p className="px-2 py-6 text-center text-[12px] text-[var(--c-text-muted)]">Chargement…</p>
+          ) : (
+            <VaultEntityTree
+              rows={tree.rows}
+              selected={selected}
+              onToggle={toggle}
+              onToggleKeys={toggleKeys}
+              sectionMeta={sectionMeta}
+              emptyMessage={query ? `Rien ne correspond à « ${query.trim()} ».` : "Rien à ajouter : les autres emplacements sont vides."}
+            />
+          )}
+        </div>
+        <div className="flex flex-wrap items-center gap-2 border-t border-[var(--c-border)] px-4 py-3">
+          <span className="text-[11.5px] text-[var(--c-text-secondary)]">{count} sélectionné{count > 1 ? "s" : ""}</span>
+          <span className="ml-auto flex flex-wrap gap-1.5">
+            <button onClick={onClose} className="btn btn-ghost">Annuler</button>
+            <button onClick={() => submit(true)} disabled={busy || count === 0} className="btn btn-secondary"><IconCopy size={12} /> Copier ici{count > 0 && ` (${count})`}</button>
+            <button
+              onClick={() => submit(false)}
+              disabled={busy || count === 0 || moveBlocked}
+              className="btn btn-primary"
+              title={moveBlocked ? "La sélection contient des entités d'un vault en lecture seule : elles ne peuvent qu'être copiées" : undefined}
+            >
+              <IconTransfer size={12} /> Déplacer ici{count > 0 && ` (${count})`}
+            </button>
+          </span>
+        </div>
+      </div>
+    </>
   );
 }
 
@@ -911,7 +1102,7 @@ function VaultDetail({ vault, vaults, workspace, onBack, onStatusChange, onError
 
 // ─── Le panneau ──────────────────────────────────────────────────────────────
 
-export function GuiVaultPanel({ workspace, status, onStatusChange, onError, onNotify }: GuiVaultPanelProps) {
+export function GuiVaultPanel({ workspace, status, onStatusChange, focus, onError, onNotify }: GuiVaultPanelProps) {
   const [received, setReceived] = useState<GuiVaultInvitation[]>([]);
   // Les entités du **compte** — pas celles affichées : quand le profil local
   // est à l'écran, `workspace` est le local, et le compter au vault personnel
@@ -922,6 +1113,11 @@ export function GuiVaultPanel({ workspace, status, onStatusChange, onError, onNo
   const [newName, setNewName] = useState("");
 
   const unlocked = !!status?.configured && status.unlocked;
+  useEffect(() => {
+    if (!focus || !status) return;
+    const target = status.vaults.find((v) => (focus.vaultId === null ? v.kind === "personal" : v.id === focus.vaultId));
+    if (target) setSelected(target.id);
+  }, [focus?.epoch]); // eslint-disable-line react-hooks/exhaustive-deps
   const loadReceived = useCallback(() => {
     if (!unlocked) { setReceived([]); return; }
     api.guivaultMyInvitations().then(setReceived).catch(() => setReceived([]));
@@ -978,7 +1174,7 @@ export function GuiVaultPanel({ workspace, status, onStatusChange, onError, onNo
                   <button onClick={createVault} disabled={!newName.trim()} className="btn btn-primary btn-sm">Créer</button>
                 </div>
               )}
-              <p className="text-[11.5px] text-[var(--c-text-muted)]">Ouvrir un vault pour voir son contenu, y déplacer des entités ou en ajouter depuis cet appareil.</p>
+              <p className="text-[11.5px] text-[var(--c-text-muted)]">Ouvrir un vault pour voir son contenu, en déplacer ou copier une partie ailleurs, ou y ajouter des entités de cet appareil ou d'un autre vault.</p>
               {status.vaults.map((v) => {
                 const count = accountEntities.filter((e) => (v.kind === "personal" ? e.vaultId === null : e.vaultId === v.id)).length;
                 return (

@@ -198,13 +198,64 @@ const scenes = [
     await clickNav(page, "GuiVault");
     await settle(page, 500);
   }],
+  // Le contenu d'un vault : arborescence à cocher, barre de sélection avec
+  // Déplacer / Copier / Supprimer. Cocher un dossier coche son sous-arbre.
   ["33-guivault-vault", async (page) => {
     await page.locator("[data-sidebar-panel] button", { hasText: "Équipe infra" }).first().click();
     await settle(page, 600);
-    await page.getByRole("button", { name: /Depuis cet appareil/ }).first().click();
-    await settle(page, 400);
+    await page.locator('[data-vault-tree] input[aria-label="Tout sélectionner — Production"]').click();
+    await settle(page, 300);
+    const state = await page.evaluate(() => ({
+      entities: Array.from(document.querySelectorAll("[data-vault-tree] [data-vault-entity]")).map((e) => e.getAttribute("data-vault-entity")),
+      checked: Array.from(document.querySelectorAll('[data-vault-tree] input[type="checkbox"]:checked')).length,
+      bar: document.querySelector("[data-vault-selection-bar]")?.textContent ?? "",
+    }));
+    if (!state.entities.includes("web-01") || !state.entities.includes("deploy-ed25519")) throw new Error(`arbre du vault incomplet : ${JSON.stringify(state.entities)}`);
+    // Le dossier, son sous-dossier, deux hôtes et une connexion : 5 entités
+    // sélectionnées, et les deux cases de dossier passent à « tout ».
+    if (state.checked < 5) throw new Error(`cocher le dossier n'a pas coché son sous-arbre : ${state.checked}`);
+    if (!/5 sélectionnés/.test(state.bar)) throw new Error(`barre de sélection : « ${state.bar} »`);
+    await page.getByRole("button", { name: /^Déplacer/ }).first().click();
+    await settle(page, 300);
+    const menu = await page.evaluate(() => Array.from(document.querySelectorAll('[role="menu"] [role="menuitem"]')).map((e) => e.textContent?.trim()));
+    if (!menu.some((m) => /personnel/i.test(m ?? "")) || !menu.some((m) => /appareil/i.test(m ?? ""))) throw new Error(`destinations : ${JSON.stringify(menu)}`);
+    // Un vault en lecture seule n'est pas une destination.
+    if (menu.some((m) => /bancaire/i.test(m ?? ""))) throw new Error("un vault en lecture seule est proposé comme destination");
+  }],
+  // « Ajouter… » : le même arbre, un dossier par origine — cet appareil, le
+  // vault personnel, les autres vaults (« copie seulement » en lecteur).
+  ["33b-guivault-ajouter", async (page) => {
+    await page.keyboard.press("Escape");
+    await settle(page, 200);
+    await page.getByRole("button", { name: /Ajouter…/ }).first().click();
+    await settle(page, 600);
+    const dialog = await page.evaluate(() => {
+      const d = document.querySelector("[data-vault-add-dialog]");
+      const headers = Array.from(d?.querySelectorAll('button[aria-label^="Replier"], button[aria-label^="Déplier"]') ?? []).map((b) => b.getAttribute("aria-label")?.replace(/^(Replier|Déplier) /, ""));
+      return { present: !!d, headers, entities: Array.from(d?.querySelectorAll("[data-vault-entity]") ?? []).map((e) => e.getAttribute("data-vault-entity")) };
+    });
+    if (!dialog.present) throw new Error("dialogue « Ajouter » absent");
+    for (const expected of ["Cet appareil (local)", "Vault personnel", "Lecture seule — prod bancaire"]) {
+      if (!dialog.headers.includes(expected)) throw new Error(`origine manquante dans « Ajouter » : ${expected} — ${JSON.stringify(dialog.headers)}`);
+    }
+    if (dialog.headers.includes("Équipe infra")) throw new Error("le vault de destination est proposé comme origine");
+    if (!dialog.entities.includes("nas-maison") || !dialog.entities.includes("labo-1") || !dialog.entities.includes("core-banking-01")) throw new Error(`entités des origines : ${JSON.stringify(dialog.entities)}`);
+    // Cocher une entité d'un vault en lecture seule : copier oui, déplacer non.
+    await page.locator('[data-vault-add-dialog] input[aria-label="Sélectionner core-banking-01"]').click();
+    await settle(page, 200);
+    const moveDisabled = await page.locator('[data-vault-add-dialog] button', { hasText: /Déplacer ici/ }).isDisabled();
+    const copyDisabled = await page.locator('[data-vault-add-dialog] button', { hasText: /Copier ici/ }).isDisabled();
+    if (!moveDisabled || copyDisabled) throw new Error(`lecture seule : déplacer ${moveDisabled ? "désactivé" : "actif"}, copier ${copyDisabled ? "désactivé" : "actif"}`);
+  }],
+  ["33c-guivault-ajouter-recherche", async (page) => {
+    await page.locator('[data-vault-add-dialog] input[aria-label="Rechercher"]').fill("nas");
+    await settle(page, 300);
+    const left = await page.evaluate(() => Array.from(document.querySelectorAll("[data-vault-add-dialog] [data-vault-entity]")).map((e) => e.getAttribute("data-vault-entity")));
+    if (left.join() !== "nas-maison") throw new Error(`recherche dans « Ajouter » : ${JSON.stringify(left)}`);
   }],
   ["34-guivault-etroit", async (page) => {
+    await page.keyboard.press("Escape");
+    await settle(page, 200);
     await page.setViewportSize({ width: 1000, height: 900 });
     await settle(page, 500);
   }],
@@ -217,7 +268,7 @@ const scenes = [
   }],
   // Barre latérale à sa largeur minimale (260 px) : liste des vaults, détail
   // d'un vault, puis le panneau Hôtes avec le sélecteur de profil et les
-  // étiquettes de vault.
+  // dossiers de vault.
   ["36-guivault-minimal", async (page) => {
     await page.evaluate(() => {
       const handle = document.querySelector(".cursor-col-resize");
@@ -239,7 +290,8 @@ const scenes = [
     await clickNav(page, "Hôtes");
     await settle(page, 400);
   }],
-  // Mode « trier par vault » : une section par vault, dossiers dedans.
+  // Compte affiché : chaque vault est un dossier de premier niveau de l'arbre
+  // (Personnel, puis les partagés), avec son menu « … » ; plus d'étiquette.
   ["39-hotes-par-vault", async (page) => {
     await page.evaluate(() => {
       const handle = document.querySelector(".cursor-col-resize");
@@ -249,14 +301,47 @@ const scenes = [
       window.dispatchEvent(new MouseEvent("mousemove", { bubbles: true, clientX: rect.left + 120, clientY: 300 }));
       window.dispatchEvent(new MouseEvent("mouseup", { bubbles: true, clientX: rect.left + 120, clientY: 300 }));
     });
-    await page.locator('button[title^="Trier par vault"]').click();
     await settle(page, 500);
-    const sections = await page.evaluate(() => Array.from(document.querySelectorAll("[data-vault-section]")).map((e) => e.getAttribute("data-vault-section")));
-    if (sections.length < 2) throw new Error(`sections de vault absentes : ${JSON.stringify(sections)}`);
+    const sections = await page.evaluate(() => Array.from(document.querySelectorAll('[data-sidebar-panel="hosts"] [data-vault-section]')).map((e) => e.getAttribute("data-vault-section")));
+    if (sections[0] !== "Personnel" || !sections.includes("Équipe infra")) throw new Error(`dossiers de vault : ${JSON.stringify(sections)}`);
+    const chips = await page.evaluate(() => Array.from(document.querySelectorAll('[data-sidebar-panel="hosts"] .tag')).map((e) => e.textContent).filter((t) => t === "Équipe infra"));
+    if (chips.length) throw new Error("une étiquette de vault subsiste sur une ligne d'hôte");
+    // L'hôte partagé est bien sous son vault, pas sous Personnel.
+    const under = await page.evaluate(() => {
+      const sec = Array.from(document.querySelectorAll('[data-sidebar-panel="hosts"] [data-vault-section]')).find((e) => e.getAttribute("data-vault-section") === "Équipe infra");
+      return Array.from(sec?.querySelectorAll("[data-host-row]") ?? []).map((e) => e.getAttribute("data-host-row"));
+    });
+    if (!under.includes("web-01") || under.includes("bastion")) throw new Error(`contenu du dossier « Équipe infra » : ${JSON.stringify(under)}`);
+    await page.locator('button[aria-label="Options de Équipe infra"]').click({ force: true });
+    await settle(page, 300);
+    const menu = await page.evaluate(() => Array.from(document.querySelectorAll('[role="menu"] [role="menuitem"]')).map((e) => e.textContent?.trim()));
+    if (!menu.some((m) => /Nouvel hôte ici/.test(m ?? "")) || !menu.some((m) => /Ouvrir le vault/.test(m ?? ""))) throw new Error(`menu du vault : ${JSON.stringify(menu)}`);
   }],
+  // « Ouvrir le vault » mène au détail de ce vault dans le panneau GuiVault.
+  ["39b-ouvrir-le-vault", async (page) => {
+    await page.locator('[role="menu"] [role="menuitem"]', { hasText: "Ouvrir le vault" }).click();
+    await settle(page, 600);
+    const title = await page.evaluate(() => document.querySelector('[data-sidebar-panel="guivault"]')?.textContent ?? "");
+    if (!/Équipe infra/.test(title) || !/Membres/.test(title)) throw new Error("le détail du vault ne s'est pas ouvert");
+  }],
+  // Clés, snippets, bases : les mêmes dossiers de vault.
   ["40-snippets-vaults", async (page) => {
-    await page.locator('button[title^="Trier par dossier"]').click();
     await clickNav(page, "Snippets");
+    await settle(page, 300);
+    const sections = await page.evaluate(() => Array.from(document.querySelectorAll('[data-sidebar-panel="snippets"] [data-vault-section]')).map((e) => e.getAttribute("data-vault-section")));
+    if (sections[0] !== "Personnel" || !sections.includes("Équipe infra")) throw new Error(`dossiers de vault (snippets) : ${JSON.stringify(sections)}`);
+  }],
+  ["41-cles-vaults", async (page) => {
+    await clickNav(page, "Clés");
+    await settle(page, 300);
+    const sections = await page.evaluate(() => Array.from(document.querySelectorAll('[data-sidebar-panel="keychain"] [data-vault-section]')).map((e) => e.getAttribute("data-vault-section")));
+    if (!sections.includes("Lecture seule — prod bancaire")) throw new Error(`dossiers de vault (clés) : ${JSON.stringify(sections)}`);
+  }],
+  ["42-bases-vaults", async (page) => {
+    await clickNav(page, "Bases de données");
+    await settle(page, 300);
+    const sections = await page.evaluate(() => Array.from(document.querySelectorAll('[data-sidebar-panel="database"] [data-vault-section]')).map((e) => e.getAttribute("data-vault-section")));
+    if (!sections.includes("Équipe infra")) throw new Error(`dossiers de vault (bases) : ${JSON.stringify(sections)}`);
   }],
 ];
 

@@ -1,11 +1,14 @@
 import { sqlConnectionTarget, sqlConnectionVia, sqlConnectionViaHostId, sqlEngineLabel, type Host, type SqlConnection, type Workspace } from "../lib/types";
 import { IconDatabase, IconPlus, IconEdit, IconDownload, IconTunnels } from "./ui-icons";
 import { EntityRow, EntityMono } from "./EntityRow";
-import { VaultChip } from "./VaultChip";
+import { VaultSectionList } from "./VaultSectionList";
+import type { VaultSection } from "../lib/vaultSections";
 
 interface SqlConnectionsPanelProps {
   workspace: Workspace;
-  vaultNameOf?: Map<string, string>;
+  /** Les vaults du compte affiché : chaque connexion est rangée sous le
+   * sien. Absent = liste à plat. */
+  vaultSections?: VaultSection[] | null;
   onConnect: (conn: SqlConnection) => void;
   onNewConnection: () => void;
   onEditConnection: (conn: SqlConnection) => void;
@@ -19,7 +22,7 @@ interface SqlConnectionsPanelProps {
 /** List-only — creating/editing (and deleting, from inside that form) goes
  * through `SqlConnectionForm` in the app's right panel, same as hosts/groups
  * (`App.tsx`'s `showRightPanel`), not an inline expansion in this list. */
-export function SqlConnectionsPanel({ workspace, vaultNameOf, onConnect, onNewConnection, onEditConnection, onImportAws, onConnectHost }: SqlConnectionsPanelProps) {
+export function SqlConnectionsPanel({ workspace, vaultSections, onConnect, onNewConnection, onEditConnection, onImportAws, onConnectHost }: SqlConnectionsPanelProps) {
   return (
     <div className="flex h-full min-w-0 flex-col">
       <div className="flex shrink-0 flex-wrap items-center gap-2">
@@ -31,7 +34,7 @@ export function SqlConnectionsPanel({ workspace, vaultNameOf, onConnect, onNewCo
         </button>
       </div>
       <div className="sidebar-scroll -mx-1 mt-3 min-h-0 min-w-0 flex-1 overflow-y-auto px-1 pb-2">
-        {workspace.sqlConnections.map((conn) => {
+        <VaultSectionList items={workspace.sqlConnections} bindings={workspace.vaultBindings} sections={vaultSections} emptyMessage="Aucune connexion dans ce vault." render={(conn) => {
           // Carries its own preposition ("sur" for a SQLite file that lives
           // there, "via" for anything tunnelled) and covers SSM, which has no
           // saved host to name — see `sqlConnectionVia`.
@@ -47,7 +50,7 @@ export function SqlConnectionsPanel({ workspace, vaultNameOf, onConnect, onNewCo
               icon={<IconDatabase size={13} />}
               title={conn.label}
               title_={`Se connecter — ${sqlConnectionTarget(conn)}`}
-              badges={<><VaultChip name={vaultNameOf?.get(conn.id)} /><span className="tag">{sqlEngineLabel(conn.engine)}</span></>}
+              badges={<span className="tag">{sqlEngineLabel(conn.engine)}</span>}
               secondary={
                 <>
                   <EntityMono>{sqlConnectionTarget(conn)}</EntityMono>
@@ -71,7 +74,7 @@ export function SqlConnectionsPanel({ workspace, vaultNameOf, onConnect, onNewCo
               }
             />
           );
-        })}
+        }} />
         {workspace.sqlConnections.length === 0 && (
           <div className="px-2 py-8 text-center">
             <p className="text-[12.5px] font-medium text-[var(--c-text-secondary)]">Aucune connexion</p>

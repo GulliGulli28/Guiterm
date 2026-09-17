@@ -5,7 +5,7 @@ import type { AppPreferences } from "../lib/preferences";
 import type {
   AwsSessionAlert, AwsSsoSession, Group, GroupId, Host, HostId, KeyAlgorithm, KeyId,
   PaneSource, PortForwardId, PortForwardKind, RunbookId, SnippetId, SqlConnection, TabMeta, TransferPanes, VaultStatus, Workspace,
-  GuiVaultStatus,
+  GuiVaultStatus, VaultId,
 } from "../lib/types";
 import type { SidebarPanelKind } from "../lib/sidebarButtons";
 import type { AppObject } from "../lib/appObject";
@@ -197,6 +197,9 @@ export interface SidebarActions extends TabOpeners {
   newHost: () => void;
   editHost: (host: Host) => void;
   newHostInGroup: (groupId: GroupId) => void;
+  /** Depuis l'en-tête d'un vault du panneau Hôtes : le formulaire s'ouvre
+   * avec ce vault présélectionné (`null` = personnel). */
+  newHostInVault: (vaultId: VaultId | null) => void;
   newGroup: () => void;
   newGroupUnder: (parentId: GroupId) => void;
   editGroup: (group: Group) => void;
@@ -241,6 +244,11 @@ export interface SidebarActions extends TabOpeners {
   /** Compte GuiVault (`null` tant que non chargé). Voir `modules/guivault`. */
   guivaultStatus: GuiVaultStatus | null;
   onGuivaultStatusChange: () => void;
+  /** Le vault que le panneau GuiVault doit ouvrir (`null` = personnel) —
+   * posé par « Ouvrir le vault » dans le panneau Hôtes. `epoch` distingue
+   * deux demandes pour le même vault. */
+  guivaultFocus: { vaultId: VaultId | null; epoch: number } | null;
+  openVault: (vaultId: VaultId | null) => void;
   updatePreferences: (p: AppPreferences) => void;
 
 }

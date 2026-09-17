@@ -61,13 +61,20 @@ pub async fn run_sync(app: &AppHandle, state: &AppState) -> anyhow::Result<Repor
 
 // ─── Déplacer des entités ────────────────────────────────────────────────────
 
-/// Les deux workspaces d'un compte connecté : celui affiché est en mémoire,
-/// l'autre sur le disque. `f` reçoit `(local, compte)` et dit si elle a
-/// modifié quelque chose ; les deux sont alors sauvés.
+/// **Le seul accès en écriture aux workspaces d'un compte connecté** depuis
+/// le menu des vaults. Celui affiché est en mémoire, l'autre sur le disque —
+/// et lequel est lequel dépend de la vue (`view_local`). `f` reçoit toujours
+/// `(local, compte)` dans cet ordre, sans avoir à le savoir ; les deux sont
+/// sauvés ensuite, chacun à sa place. Rend aussi le workspace *affiché*
+/// (celui que le frontend recharge), qui peut être le local, inchangé.
+///
+/// Un `state.workspace` nu ici pointerait sur le local en vue locale : c'est
+/// le bug du 2026-09-17, et la raison pour laquelle rien d'autre ne touche
+/// au compte.
 fn with_both_workspaces<T>(
     state: &AppState,
     f: impl FnOnce(&mut Workspace, &mut Workspace) -> Result<T, String>,
-) -> Result<T, String> {
+) -> Result<(T, Workspace), String> {
     let user_id = state.guivault.active_user_id().ok_or("aucun compte connecté")?;
     let account_path = state.guivault.workspace_path(user_id);
     let local_path = store::local_workspace_path().map_err(err)?;
@@ -77,7 +84,7 @@ fn with_both_workspaces<T>(
     let out = if view_local { f(&mut shown, &mut other)? } else { f(&mut other, &mut shown)? };
     store::save(&shown).map_err(err)?;
     store::save_at(if view_local { &account_path } else { &local_path }, &other).map_err(err)?;
-    Ok(out)
+    Ok((out, shown.clone()))
 }
 
 /// Les entités du profil local ou du compte, pour le menu des vaults.
@@ -101,49 +108,24 @@ pub fn guivault_list_entities(state: State<'_, AppState>, scope: String) -> Resu
     Ok(transfer::list(&load_workspace_at(&path)))
 }
 
-/// Déplace des entités du profil local vers le compte (`to_account`,
-/// affiliées à `vault_id` ou au personnel), ou l'inverse. Ce qui doit les
-/// accompagner (dossiers, clé, sous-arbre) suit. Vers le local, une entité
-/// d'un vault partagé est **retirée** du vault — donc refusé sans droit
-/// d'écriture, sinon elle reviendrait à la synchro suivante.
+/// Déplace ou copie des entités entre deux emplacements — le profil local,
+/// le vault personnel, un vault partagé — dans n'importe quel sens. Ce qui
+/// doit les accompagner (dossiers, clé, sous-arbre) suit ; les droits sont
+/// vérifiés au départ et à l'arrivée par `transfer::apply` (testé sens par
+/// sens dans `core`). Rend le nombre d'entités concernées.
 #[tauri::command]
 pub async fn guivault_transfer_entities(
     app: AppHandle,
     state: State<'_, AppState>,
     ids: Vec<Uuid>,
-    to_account: bool,
-    vault_id: Option<VaultId>,
+    from: transfer::Place,
+    to: transfer::Place,
     copy: bool,
 ) -> Result<usize, String> {
     let status = state.guivault.status();
-    if let Some(v) = vault_id
-        && !status.vaults.iter().any(|x| x.id == v && x.role.can_write_items())
-    {
-        return Err("pas de droit d'écriture dans ce vault".into());
-    }
-    let moved = with_both_workspaces(&state, |local, account| {
-        if copy {
-            // Une copie ne retire rien : le droit d'écriture ne compte que
-            // du côté où elle arrive (vérifié plus haut pour un vault).
-            return if to_account {
-                transfer::copy(local, account, &ids, vault_id).map_err(err)
-            } else {
-                transfer::copy(account, local, &ids, None).map_err(err)
-            };
-        }
-        if to_account {
-            Ok(transfer::transfer(local, account, &ids, vault_id))
-        } else {
-            let set = transfer::closure(account, &ids);
-            for id in &set {
-                if let Some(v) = account.vault_bindings.get(id)
-                    && !status.vaults.iter().any(|x| x.id == *v && x.role.can_write_items())
-                {
-                    return Err("une des entités vient d'un vault en lecture seule : impossible de la retirer".into());
-                }
-            }
-            Ok(transfer::transfer(account, local, &ids, None))
-        }
+    let can_write = |v: VaultId| status.vaults.iter().any(|x| x.id == v && x.role.can_write_items());
+    let (moved, _) = with_both_workspaces(&state, |local, account| {
+        transfer::apply(local, account, &ids, from, to, copy, can_write).map_err(err)
     })?;
     // Le compte a changé : pousser (ou tombaliser) tout de suite.
     let _ = run_sync(&app, &state).await;
@@ -491,64 +473,13 @@ pub async fn guivault_leave_vault(app: AppHandle, state: State<'_, AppState>, va
     Ok(state.guivault.status())
 }
 
-/// Déplace une entité (hôte, groupe, snippet, clé, connexion SQL) vers un
-/// vault partagé, ou vers le personnel (`None`). Un hôte emmène ce qu'il
-/// référence et qui n'est pas déjà partagé : la clé du trousseau, et son
-/// dossier avec toute la chaîne de dossiers parents — sans eux, les autres
-/// membres verraient un hôte qui pointe vers une clé qu'ils n'ont pas, ou
-/// rangé dans un dossier qui n'existe pas chez eux (donc invisible).
-/// Le workspace du **compte**, où qu'il soit : en mémoire s'il est affiché,
-/// sur le disque si c'est le profil local qui l'est. `f` le modifie ; il est
-/// sauvé au bon endroit. Rend le workspace *affiché* (celui que le frontend
-/// recharge), qui peut donc être le local, inchangé.
-fn with_account_workspace<T>(state: &AppState, f: impl FnOnce(&mut Workspace) -> Result<T, String>) -> Result<(T, Workspace), String> {
-    let user_id = state.guivault.active_user_id().ok_or("aucun compte connecté")?;
-    let mut shown = state.workspace.lock_recover();
-    if state.guivault.view_local() {
-        let path = state.guivault.workspace_path(user_id);
-        let mut account = load_workspace_at(&path);
-        let out = f(&mut account)?;
-        store::save_at(&path, &account).map_err(err)?;
-        Ok((out, shown.clone()))
-    } else {
-        let out = f(&mut shown)?;
-        persist(&shown)?;
-        Ok((out, shown.clone()))
-    }
-}
-
-#[tauri::command]
-pub async fn guivault_move_entity(app: AppHandle, state: State<'_, AppState>, id: Uuid, vault_id: Option<VaultId>) -> Result<Workspace, String> {
-    let ((), shown) = with_account_workspace(&state, |ws| {
-        let followers = transfer::closure(ws, &[id]);
-        match vault_id {
-            Some(v) => {
-                ws.vault_bindings.insert(id, v);
-                for follower in followers {
-                    ws.vault_bindings.entry(follower).or_insert(v);
-                }
-            }
-            None => {
-                // Vers le personnel : le sous-arbre / la chaîne suit aussi, sinon
-                // un dossier resterait partagé avec un hôte personnel dedans.
-                for follower in followers {
-                    ws.vault_bindings.remove(&follower);
-                }
-            }
-        }
-        Ok(())
-    })?;
-    let _ = run_sync(&app, &state).await;
-    Ok(shown)
-}
-
 /// Supprime des entités du compte (avec leurs secrets) depuis le menu des
 /// vaults. Un dossier supprimé rend ses hôtes à la racine, comme depuis le
 /// panneau Hôtes. La synchro qui suit pose les tombales.
 #[tauri::command]
 pub async fn guivault_delete_entities(app: AppHandle, state: State<'_, AppState>, ids: Vec<Uuid>) -> Result<Workspace, String> {
     let status = state.guivault.status();
-    let ((), shown) = with_account_workspace(&state, |ws| {
+    let ((), shown) = with_both_workspaces(&state, |_local, ws| {
         for id in &ids {
             if let Some(v) = ws.vault_bindings.get(id)
                 && !status.vaults.iter().any(|x| x.id == *v && x.role.can_write_items())

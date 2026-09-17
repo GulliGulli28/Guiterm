@@ -17,6 +17,7 @@ export const guivaultModule = defineModule({
         workspace={ctx.workspace}
         status={a.guivaultStatus}
         onStatusChange={a.onGuivaultStatusChange}
+        focus={a.guivaultFocus}
         onWorkspaceUpdate={ctx.refreshWorkspace}
         onError={ctx.reportError}
         onNotify={(m) => ctx.pushNotification("info", m)}

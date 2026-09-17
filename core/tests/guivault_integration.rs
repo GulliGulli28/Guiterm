@@ -12,8 +12,9 @@
 //! coffre local, qui retombe sur sa map mémoire sans Secret Service.
 use guivault_protocol::Role;
 use termius_core::guivault::account::{FingerprintTrust, MemoryStore};
+use termius_core::guivault::transfer::{self, Place};
 use termius_core::guivault::{LoginStep, Manager, sharing, sync};
-use termius_core::model::{Group, Host, Snippet, Workspace};
+use termius_core::model::{Group, Host, Snippet, VaultId, Workspace};
 use termius_core::vault::{self as local_vault, SecretKind};
 use std::time::Duration;
 use uuid::Uuid;
@@ -315,6 +316,100 @@ async fn same_machine_account_switch_keeps_shared_entity_in_shared_vault() {
     assert_eq!((r.pushed, r.pulled, r.deleted_remotely), (0, 0, 0), "{r:?}");
     assert_eq!(bob.ws.vault_bindings.get(&host.id), Some(&team.id));
     drop(bob_reg);
+}
+
+/// Ce que le menu des vaults fait (« Déplacer vers », « Copier vers »,
+/// « Ajouter… »), joué avec le vrai moteur de bout en bout : la sélection
+/// passe par `transfer::apply` (comme la commande Tauri), puis la synchro
+/// pousse le résultat et l'autre membre le reçoit. Chaque sens est vérifié
+/// une fois contre le serveur, y compris le refus en lecture seule.
+#[tokio::test]
+async fn moving_and_copying_between_places_reaches_the_other_member() {
+    if !server_available().await {
+        return;
+    }
+    let tag = Uuid::new_v4().simple();
+    let (alice_email, bob_email) = (format!("alice-{tag}@test.local"), format!("bob-{tag}@test.local"));
+    let mut alice = Device::register(&alice_email, "pw-a").await;
+    let mut bob = Device::register(&bob_email, "pw-b").await;
+    alice.sync().await;
+    bob.sync().await;
+    let team = sharing::create_vault(&alice.manager, "infra").await.unwrap();
+    let lookup = sharing::lookup_user(&alice.manager, &bob_email).await.unwrap().unwrap();
+    alice.manager.pin_fingerprint(&bob_email, &lookup.fingerprint).unwrap();
+    sharing::invite(&alice.manager, team.id, &bob_email, Role::Reader).await.unwrap();
+    let mine = sharing::my_invitations(&bob.manager).await.unwrap();
+    sharing::accept_invitation(&bob.manager, mine[0].id).await.unwrap();
+
+    let can_write = |m: &Manager| {
+        let vaults = m.status().vaults;
+        move |v: VaultId| vaults.iter().any(|x| x.id == v && x.role.can_write_items())
+    };
+
+    // Le profil local d'Alice : un dossier avec un hôte (et son mot de passe).
+    let mut local = Workspace::default();
+    let folder = Group { id: Uuid::new_v4(), name: "Prod".into(), parent_id: None, icon: None, color: None };
+    let mut host = Host::new("db-1", "10.0.0.1", "root");
+    host.group_id = Some(folder.id);
+    local_vault::store(host.id, SecretKind::Password, "s3cret").unwrap();
+    local.groups.push(folder.clone());
+    local.hosts.push(host.clone());
+
+    // « Ajouter… » depuis cet appareil, en déplaçant : l'hôte et son dossier
+    // partent dans le vault partagé, et Bob les reçoit avec le secret.
+    let n = transfer::apply(&mut local, &mut alice.ws, &[host.id], Place::Local, Place::Account { vault_id: Some(team.id) }, false, can_write(&alice.manager)).unwrap();
+    assert_eq!(n, 2);
+    assert!(local.hosts.is_empty() && local.groups.is_empty());
+    let r = alice.sync().await;
+    assert_eq!(r.pushed, 2, "{r:?}");
+    local_vault::delete(host.id, SecretKind::Password).unwrap();
+    let r = bob.sync().await;
+    assert_eq!(r.pulled, 2, "{r:?}");
+    assert_eq!(bob.ws.hosts[0].group_id, Some(folder.id), "le dossier est arrivé avec l'hôte");
+    assert_eq!(bob.ws.vault_bindings.get(&folder.id), Some(&team.id));
+    assert_eq!(local_vault::load(host.id, SecretKind::Password).unwrap().as_deref(), Some("s3cret"));
+
+    // Bob, lecteur : ne peut ni retirer vers son appareil ni déplacer vers
+    // son personnel — mais peut copier chez lui, sous un nouvel id, sans
+    // rien changer sur le serveur.
+    let mut bob_local = Workspace::default();
+    let err = transfer::apply(&mut bob_local, &mut bob.ws, &[host.id], Place::Account { vault_id: Some(team.id) }, Place::Local, false, can_write(&bob.manager)).unwrap_err();
+    assert!(err.to_string().contains("lecture seule"), "{err}");
+    let err = transfer::apply(&mut bob_local, &mut bob.ws, &[host.id], Place::Account { vault_id: Some(team.id) }, Place::Account { vault_id: None }, false, can_write(&bob.manager)).unwrap_err();
+    assert!(err.to_string().contains("lecture seule"), "{err}");
+    let n = transfer::apply(&mut bob_local, &mut bob.ws, &[host.id], Place::Account { vault_id: Some(team.id) }, Place::Local, true, can_write(&bob.manager)).unwrap();
+    assert_eq!(n, 2);
+    let copy = bob_local.hosts.iter().find(|h| h.label == "db-1").unwrap();
+    assert_ne!(copy.id, host.id);
+    assert_eq!(local_vault::load(copy.id, SecretKind::Password).unwrap().as_deref(), Some("s3cret"), "le secret est dupliqué sous le nouvel id");
+    let r = bob.sync().await;
+    assert_eq!((r.pushed, r.pulled, r.deleted_remotely), (0, 0, 0), "une copie vers l'appareil ne touche pas au compte : {r:?}");
+
+    // Alice copie l'hôte dans son vault personnel : un deuxième exemplaire,
+    // poussé sous un nouvel id ; l'original reste partagé, Bob ne voit rien.
+    let n = transfer::apply(&mut local, &mut alice.ws, &[host.id], Place::Account { vault_id: Some(team.id) }, Place::Account { vault_id: None }, true, can_write(&alice.manager)).unwrap();
+    assert_eq!(n, 2);
+    assert_eq!(alice.ws.hosts.len(), 2);
+    let r = alice.sync().await;
+    assert_eq!(r.pushed, 2, "{r:?}");
+    let r = bob.sync().await;
+    assert_eq!((r.pulled, r.removed_locally), (0, 0), "{r:?}");
+
+    // Puis retire l'original vers son appareil : tombale côté serveur, Bob
+    // perd l'hôte et le dossier.
+    let n = transfer::apply(&mut local, &mut alice.ws, &[host.id], Place::Account { vault_id: Some(team.id) }, Place::Local, false, can_write(&alice.manager)).unwrap();
+    assert_eq!(n, 2);
+    assert_eq!(local.hosts[0].id, host.id, "déplacé, même id");
+    let r = alice.sync().await;
+    assert_eq!(r.deleted_remotely, 2, "{r:?}");
+    let r = bob.sync().await;
+    assert_eq!(r.removed_locally, 2, "{r:?}");
+    assert!(bob.ws.hosts.is_empty() && bob.ws.groups.is_empty());
+    // L'exemplaire personnel d'Alice est toujours là, et stable.
+    assert_eq!(alice.ws.hosts.len(), 1);
+    assert!(alice.ws.vault_bindings.is_empty());
+    let r = alice.sync().await;
+    assert_eq!((r.pushed, r.pulled, r.deleted_remotely), (0, 0, 0), "{r:?}");
 }
 
 #[tokio::test]

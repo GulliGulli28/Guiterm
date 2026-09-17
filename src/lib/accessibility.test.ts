@@ -65,6 +65,9 @@ describe("sémantique des fenêtres modales", () => {
     "components/CommandPalette.tsx",
     "components/ConfirmDialog.tsx",
     "components/ConnectionPickerModal.tsx",
+    // `AddToVaultDialog` — l'arborescence à cocher des autres emplacements
+    // (cet appareil, les autres vaults) pour ajouter dans un vault.
+    "components/GuiVaultPanel.tsx",
     // `HostTreeModal` — l'arborescence d'hôtes servie en boîte de dialogue,
     // pour les parcours qui demandent l'hôte avant toute autre chose.
     "components/HostTreePicker.tsx",

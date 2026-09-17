@@ -5,20 +5,23 @@ import { api } from "../lib/api";
 import type { HostId, KeyAlgorithm, KeyId, PrivateKey, Workspace } from "../lib/types";
 import { IconPlus, IconTrash, IconEdit, IconKeychain, IconFolder, IconCopy, IconUpload, IconEye, IconEyeOff, IconCheck } from "./ui-icons";
 import { EntityRow, EntityMono } from "./EntityRow";
-import { VaultChip } from "./VaultChip";
+import { VaultSectionList } from "./VaultSectionList";
+import type { VaultSection } from "../lib/vaultSections";
 import { HostTreePicker } from "./HostTreePicker";
 import { ConfirmDialog } from "./ConfirmDialog";
 
 interface KeychainPanelProps {
   workspace: Workspace;
-  vaultNameOf?: Map<string, string>;
+  /** Les vaults du compte affiché : chaque clé est rangée sous le sien.
+   * Absent = liste à plat. */
+  vaultSections?: VaultSection[] | null;
   onAddKey: (name: string, path: string, passphrase: string | null) => void;
   onGenerateKey: (name: string, algorithm: KeyAlgorithm, passphrase: string | null) => void;
   onDeleteKey: (id: KeyId) => void;
   onRenameKey: (id: KeyId, name: string) => void;
 }
 
-export function KeychainPanel({ workspace, vaultNameOf, onAddKey, onGenerateKey, onDeleteKey, onRenameKey }: KeychainPanelProps) {
+export function KeychainPanel({ workspace, vaultSections, onAddKey, onGenerateKey, onDeleteKey, onRenameKey }: KeychainPanelProps) {
   const [mode, setMode] = useState<"import" | "generate">("import");
   const [algorithm, setAlgorithm] = useState<KeyAlgorithm>("ed25519");
   const [name, setName] = useState("");
@@ -210,7 +213,7 @@ export function KeychainPanel({ workspace, vaultNameOf, onAddKey, onGenerateKey,
             <p className="help-text mt-1">Importez une clé privée existante ou générez-en une, puis déployez sa clé publique sur vos hôtes d'ici.</p>
           </div>
         )}
-        {workspace.keychain.map((key: PrivateKey) => (
+        <VaultSectionList items={workspace.keychain} bindings={workspace.vaultBindings} sections={vaultSections} emptyMessage="Aucune clé dans ce vault." render={(key: PrivateKey) => (
           <EntityRow
             key={key.id}
             variant="card"
@@ -232,7 +235,6 @@ export function KeychainPanel({ workspace, vaultNameOf, onAddKey, onGenerateKey,
             // bin, not only in the confirmation.
             badges={
               <>
-                <VaultChip name={vaultNameOf?.get(key.id)} />
                 {(keyUsage[key.id]?.length ?? 0) > 0 && (
                   <span title={`Utilisée par : ${keyUsage[key.id].join(", ")}`} className="tag">
                     {keyUsage[key.id].length} hôte{keyUsage[key.id].length > 1 ? "s" : ""}
@@ -299,7 +301,7 @@ export function KeychainPanel({ workspace, vaultNameOf, onAddKey, onGenerateKey,
               </div>
             )}
           </EntityRow>
-        ))}
+        )} />
       </div>
 
       {confirmDelete && (

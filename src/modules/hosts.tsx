@@ -1,5 +1,6 @@
 import { HostsPanel } from "../components/HostsPanel";
 import { api } from "../lib/api";
+import { vaultSections } from "../lib/vaultSections";
 import { defineModule } from "./types";
 
 // Eager, comme dans `Sidebar.tsx` : c'est le panneau affiché au lancement.
@@ -31,6 +32,8 @@ export const hostsModule = defineModule({
         onImportCloud={a.importCloud}
         onImportAnsible={a.importAnsible}
         onNewHostInGroup={a.newHostInGroup}
+        onNewHostInVault={a.newHostInVault}
+        onOpenVault={a.openVault}
         onNewGroupUnder={a.newGroupUnder}
         onEditGroup={a.editGroup}
         onWorkspaceUpdate={ctx.refreshWorkspace}
@@ -41,7 +44,7 @@ export const hostsModule = defineModule({
           otherAccounts: a.guivaultStatus.accounts
             .filter((acc) => acc.userId !== a.guivaultStatus?.userId)
             .map((acc) => ({ userId: acc.userId, email: acc.email })),
-          vaults: a.guivaultStatus.vaults.filter((v) => v.kind === "shared").map((v) => ({ id: v.id, name: v.name })),
+          sections: vaultSections(a.guivaultStatus),
         } : null}
         onSwitchProfile={(target) => {
           if (target === "local" || target === "account") {

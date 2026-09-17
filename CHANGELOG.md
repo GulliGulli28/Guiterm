@@ -38,16 +38,18 @@ This changelog starts 2026-07-21 — for earlier versions, see
   connecté — vault personnel et vaults partagés — sans fermer la session (la
   synchronisation continue pendant ce temps). Déconnecté, le panneau
   GuiVault propose les comptes déjà utilisés ici pour se reconnecter. Le
-  menu de chaque vault — personnel compris — liste son contenu : y déplacer
-  ou copier une entité vers un autre vault ou vers l'appareil, ou en ajouter
-  depuis le profil local (transfert ou copie), à tout moment. Partout —
-  hôtes, dossiers, clés, snippets, connexions — une entité d'un vault
-  partagé porte son nom en étiquette, cherchable comme un tag ; et le
-  panneau Hôtes a un mode **« trier par vault »** : une section par vault
-  (personnel, puis chaque vault partagé), avec ses dossiers dedans. Depuis
-  le menu d'un vault on peut aussi supprimer une entité. Un hôte se range aussi dans un vault depuis
-  son formulaire (champ « Vault ») ; sa clé du trousseau et ses dossiers le
-  suivent, un dossier emmène son sous-arbre.
+  compte affiché, **chaque vault est un dossier de premier niveau** des
+  panneaux Hôtes, Clés, Snippets et Bases de données — Personnel, puis
+  chaque vault partagé, avec ses dossiers dedans — et son menu « … » crée un
+  hôte dedans ou ouvre le vault. Le contenu d'un vault, personnel compris,
+  est une **arborescence à cocher** (dossiers, hôtes, connexions ; clés et
+  snippets regroupés), comme le menu d'hôtes : cocher, puis **Déplacer
+  vers**, **Copier vers** un autre vault ou cet appareil, ou **Supprimer**.
+  « Ajouter… » ouvre la même arborescence avec un dossier par origine — cet
+  appareil, le vault personnel, chaque autre vault — pour déplacer ou copier
+  ici (un vault en lecture seule se copie, ne se déplace pas). Un hôte se
+  range aussi dans un vault depuis son formulaire (champ « Vault ») ; sa clé
+  du trousseau et ses dossiers le suivent, un dossier emmène son sous-arbre.
 
   **Le reste** : second facteur TOTP avec codes de récupération, liste des
   appareils connectés et déconnexion à distance, changement de mot de passe

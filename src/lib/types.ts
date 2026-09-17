@@ -599,14 +599,28 @@ export interface GuiVaultStatus {
   viewLocal: boolean;
 }
 
+export type GuiVaultEntityKind = "host" | "group" | "snippet" | "key" | "sql-connection";
+
 /** Une entité telle que le menu des vaults la liste. */
 export interface GuiVaultEntity {
   id: string;
-  kind: "host" | "group" | "snippet" | "key" | "sql-connection";
+  kind: GuiVaultEntityKind;
   name: string;
+  /** Chemin de dossiers (« Prod / Bases »), pour les listes à plat. */
   path: string;
+  /** Le dossier qui la contient (hôte, connexion, sous-dossier) — ce qui
+   * permet de reconstruire l'arborescence. `null` à la racine, et toujours
+   * pour une clé ou un snippet. */
+  parentId: string | null;
   vaultId: VaultId | null;
 }
+
+/** D'où vient, ou où va, une sélection d'entités : le profil local de cet
+ * appareil, ou le compte connecté — vault personnel (`vaultId: null`) ou
+ * vault partagé. Miroir de `termius_core::guivault::transfer::Place`. */
+export type VaultPlace =
+  | { kind: "local" }
+  | { kind: "account"; vaultId: VaultId | null };
 
 export interface GuiVaultKnownAccount {
   userId: string;

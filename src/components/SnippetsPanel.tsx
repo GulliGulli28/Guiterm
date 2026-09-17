@@ -5,13 +5,15 @@ import { AdaptiveComposer } from "./AdaptiveComposer";
 import { DSL_CONDITION_FIELDS, DSL_FUNCTIONS } from "../lib/operations";
 import { IconPlay, IconTrash, IconPlus, IconEdit, IconFlash, IconSnippets } from "./ui-icons";
 import { EntityRow } from "./EntityRow";
-import { VaultChip } from "./VaultChip";
+import { VaultSectionList } from "./VaultSectionList";
+import type { VaultSection } from "../lib/vaultSections";
 import { TerminalTargetPicker } from "./TerminalTargetPicker";
 
 interface SnippetsPanelProps {
   workspace: Workspace;
-  /** Snippet → nom de son vault GuiVault partagé (voir `lib/vaultLabels`). */
-  vaultNameOf?: Map<string, string>;
+  /** Les vaults du compte affiché : chaque snippet est rangé sous le sien.
+   * Absent = liste à plat. */
+  vaultSections?: VaultSection[] | null;
   onAddSnippet: (name: string, command: string) => void;
   onUpdateSnippet: (id: SnippetId, name: string, command: string) => void;
   onDeleteSnippet: (id: SnippetId) => void;
@@ -187,7 +189,6 @@ function SnippetForm({
 
 function SnippetCard({
   snippet,
-  vaultName,
   openTerminals,
   onError,
   onRun,
@@ -197,7 +198,6 @@ function SnippetCard({
   onDelete,
 }: {
   snippet: Snippet;
-  vaultName?: string;
   openTerminals: { id: string; label: string }[];
   onError: (message: string) => void;
   onRun: (command: string, targetTabIds?: string[]) => void;
@@ -295,7 +295,6 @@ function SnippetCard({
       title={snippet.name}
       badges={
         <>
-          <VaultChip name={vaultName} />
           {variables.length > 0 && (
             <span title={`Variables : ${variables.join(", ")}`} className="tag font-mono">
               {"{{}}"} {variables.length}
@@ -336,7 +335,7 @@ function SnippetCard({
   );
 }
 
-export function SnippetsPanel({ workspace, vaultNameOf, onAddSnippet, onUpdateSnippet, onDeleteSnippet, onRunSnippet, onRunAdaptiveSnippet, onSaveAdaptiveSnippet, openTerminals, onError }: SnippetsPanelProps) {
+export function SnippetsPanel({ workspace, vaultSections, onAddSnippet, onUpdateSnippet, onDeleteSnippet, onRunSnippet, onRunAdaptiveSnippet, onSaveAdaptiveSnippet, openTerminals, onError }: SnippetsPanelProps) {
   const [showForm, setShowForm] = useState(false);
 
   return (
@@ -361,11 +360,10 @@ export function SnippetsPanel({ workspace, vaultNameOf, onAddSnippet, onUpdateSn
           )}
         </div>
 
-        {workspace.snippets.map((snippet) => (
+        <VaultSectionList items={workspace.snippets} bindings={workspace.vaultBindings} sections={vaultSections} emptyMessage="Aucun snippet dans ce vault." render={(snippet) => (
           <SnippetCard
             key={snippet.id}
             snippet={snippet}
-            vaultName={vaultNameOf?.get(snippet.id)}
             openTerminals={openTerminals}
             onError={onError}
             onRun={onRunSnippet}
@@ -374,7 +372,7 @@ export function SnippetsPanel({ workspace, vaultNameOf, onAddSnippet, onUpdateSn
             onUpdateAdaptive={(name, command) => onSaveAdaptiveSnippet(snippet.id, name, command)}
             onDelete={() => onDeleteSnippet(snippet.id)}
           />
-        ))}
+        )} />
         {workspace.snippets.length === 0 && !showForm && (
           <div className="px-2 py-8 text-center">
             <p className="text-[12.5px] font-medium text-[var(--c-text-secondary)]">Aucun snippet</p>

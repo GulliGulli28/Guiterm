@@ -1,5 +1,5 @@
 import { lazy } from "react";
-import { vaultNameMap } from "../lib/vaultLabels";
+import { vaultSections } from "../lib/vaultSections";
 import { defineModule } from "./types";
 
 const SnippetsPanel = lazy(() => import("../components/SnippetsPanel").then((m) => ({ default: m.SnippetsPanel })));
@@ -12,7 +12,7 @@ export const snippetsModule = defineModule({
     render: (ctx, a) => (
       <SnippetsPanel
         workspace={ctx.workspace}
-        vaultNameOf={vaultNameMap(ctx.workspace, a.guivaultStatus)}
+        vaultSections={vaultSections(a.guivaultStatus)}
         onAddSnippet={a.addSnippet}
         onUpdateSnippet={a.updateSnippet}
         onDeleteSnippet={a.deleteSnippet}

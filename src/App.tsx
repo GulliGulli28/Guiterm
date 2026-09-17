@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { check as checkForUpdate } from "@tauri-apps/plugin-updater";
 import { api, onSshAuthPrompt } from "./lib/api";
-import type { AwsSsoSession, GroupId, GuiVaultStatus, Host, HostId, PaneSource, SqlConnection, SshAuthPrompt, TabMeta, VaultStatus, Workspace } from "./lib/types";
+import type { AwsSsoSession, GroupId, GuiVaultStatus, Host, HostId, PaneSource, SqlConnection, SshAuthPrompt, TabMeta, VaultId, VaultStatus, Workspace } from "./lib/types";
 import { isHostBoundTab } from "./lib/types";
 import { Sidebar } from "./components/Sidebar";
 import { HostForm } from "./components/HostForm";
@@ -60,6 +60,9 @@ export default function App() {
   const [editingGroup, setEditingGroup] = useState<GroupFormData | null>(null);
   const [editingSqlConnection, setEditingSqlConnection] = useState<SqlConnection | "new" | null>(null);
   const [newHostDefaultGroupId, setNewHostDefaultGroupId] = useState<GroupId | null>(null);
+  /** Vault présélectionné pour un nouvel hôte (`null` = personnel) ; sans
+   * valeur, celui du dossier de départ s'il en a un. */
+  const [newHostDefaultVaultId, setNewHostDefaultVaultId] = useState<VaultId | null | undefined>(undefined);
   const {
     status,
     notifications,
@@ -153,6 +156,7 @@ export default function App() {
   // Chargé au lancement et rechargé après chaque action du panneau ou fin de
   // synchronisation ; le formulaire d'hôte s'en sert pour lister les vaults.
   const [guivaultStatus, setGuivaultStatus] = useState<GuiVaultStatus | null>(null);
+  const [guivaultFocus, setGuivaultFocus] = useState<{ vaultId: VaultId | null; epoch: number } | null>(null);
   // Recharge aussi le workspace : se connecter ou se déconnecter change de
   // workspace (un par compte, plus le profil local).
   const refreshGuivaultStatus = useCallback(() => {
@@ -726,9 +730,10 @@ export default function App() {
   const sidebarActions: SidebarActions = {
     ...tabOpeners,
 
-    newHost: () => { setEditingHost("new"); setNewHostDefaultGroupId(null); setEditingGroup(null); setEditingSqlConnection(null); },
+    newHost: () => { setEditingHost("new"); setNewHostDefaultGroupId(null); setNewHostDefaultVaultId(undefined); setEditingGroup(null); setEditingSqlConnection(null); },
     editHost: (host) => { setEditingHost(host); setEditingGroup(null); setEditingSqlConnection(null); },
-    newHostInGroup: (groupId) => { setEditingHost("new"); setNewHostDefaultGroupId(groupId); setEditingGroup(null); setEditingSqlConnection(null); },
+    newHostInGroup: (groupId) => { setEditingHost("new"); setNewHostDefaultGroupId(groupId); setNewHostDefaultVaultId(undefined); setEditingGroup(null); setEditingSqlConnection(null); },
+    newHostInVault: (vaultId) => { setEditingHost("new"); setNewHostDefaultGroupId(null); setNewHostDefaultVaultId(vaultId); setEditingGroup(null); setEditingSqlConnection(null); },
     newGroup: () => { setEditingGroup({ id: null, name: "", parentId: null, icon: null, color: null }); setEditingHost(null); setEditingSqlConnection(null); },
     newGroupUnder: (parentId) => { setEditingGroup({ id: null, name: "", parentId, icon: null, color: null }); setEditingHost(null); setEditingSqlConnection(null); },
     editGroup: (group) => { setEditingGroup({ id: group.id, name: group.name, parentId: group.parentId ?? null, icon: group.icon ?? null, color: group.color ?? null }); setEditingHost(null); setEditingSqlConnection(null); },
@@ -786,6 +791,8 @@ export default function App() {
     onVaultStatusChange: refreshVaultStatus,
     guivaultStatus,
     onGuivaultStatusChange: refreshGuivaultStatus,
+    guivaultFocus,
+    openVault: (vaultId) => { setGuivaultFocus((f) => ({ vaultId, epoch: (f?.epoch ?? 0) + 1 })); showTargetsPanel("guivault"); },
     updatePreferences,
 
   };
@@ -1090,7 +1097,12 @@ export default function App() {
               defaultGroupId={editingHost === "new" ? newHostDefaultGroupId : null}
               onCancel={() => setEditingHost(null)}
               vaults={guivaultStatus?.unlocked && !guivaultStatus.viewLocal ? guivaultStatus.vaults : []}
-              vaultId={editingHost === "new" ? null : (workspace.vaultBindings?.[editingHost.id] ?? null)}
+              vaultId={editingHost === "new"
+                // Un hôte créé dans un dossier partagé rejoint ce vault : un
+                // hôte personnel dans un dossier partagé serait invisible aux
+                // autres membres.
+                ? (newHostDefaultVaultId !== undefined ? newHostDefaultVaultId : (newHostDefaultGroupId ? workspace.vaultBindings?.[newHostDefaultGroupId] ?? null : null))
+                : (workspace.vaultBindings?.[editingHost.id] ?? null)}
               onSave={(input) => {
                 const before = new Set(workspace.hosts.map((h) => h.id));
                 api.saveHost(input)
@@ -1101,7 +1113,8 @@ export default function App() {
                     const id = input.id ?? ws.hosts.find((h) => !before.has(h.id))?.id ?? null;
                     const current = id ? (ws.vaultBindings?.[id] ?? null) : null;
                     if (id && input.vaultId !== undefined && input.vaultId !== current) {
-                      ws = await api.guivaultMoveEntity(id, input.vaultId);
+                      await api.guivaultTransferEntities([id], { kind: "account", vaultId: current }, { kind: "account", vaultId: input.vaultId });
+                      ws = await api.getWorkspace();
                     }
                     refreshWorkspace(ws);
                     setEditingHost(null);

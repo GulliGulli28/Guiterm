@@ -95,8 +95,9 @@ const workspace: Workspace = {
   runbooks: [
     { id: "rb-1", name: "Déploiement web", description: "Bascule des frontaux un par un.", steps: [] },
   ],
-  // Deux hôtes rangés dans un vault GuiVault partagé : l'étiquette doit se voir.
-  vaultBindings: { "h-web-01": "v-infra", "h-db-01": "v-infra", "g-web": "v-infra", "s-2": "v-infra", "k-2": "v-lect" },
+  // Des entités rangées dans les vaults GuiVault partagés : chaque panneau
+  // doit les montrer sous le dossier de leur vault.
+  vaultBindings: { "h-web-01": "v-infra", "h-db-01": "v-infra", "g-web": "v-infra", "s-2": "v-infra", "k-2": "v-lect", "sql-1": "v-infra" },
 };
 
 const entries = (names: [string, boolean, number][]): Entry[] =>
@@ -184,20 +185,32 @@ const responses: Record<string, Invoke> = {
   guivault_vault_invitations: async () => [
     { id: "inv-2", vaultId: "v-infra", vaultName: "Équipe infra", inviterEmail: "alice@example.com", inviteeEmail: "dave@example.com", inviteePublicKey: "AA==", inviteeFingerprint: "abcd-ef01-2345-6789-abcd-ef01-2345-6789", inviteeTrust: { kind: "unknown" }, role: "writer", status: "awaiting_key", hasKey: false, createdAt: new Date().toISOString(), expiresAt: new Date().toISOString() },
   ],
+  // Le contenu des vaults, tel que `transfer::list` le rend : dossiers avec
+  // leur `parentId`, hôtes et connexions dedans, clés et snippets à part —
+  // de quoi voir l'arborescence à cocher, dans le vault et dans « Ajouter ».
   guivault_list_entities: async (_cmd, args) => {
     const a = args as { scope?: string } | undefined;
     if (a?.scope === "local") return [
-      { id: "l-1", kind: "host", name: "nas-maison", path: "", vaultId: null },
-      { id: "l-2", kind: "snippet", name: "maj système", path: "", vaultId: null },
+      { id: "l-1", kind: "host", name: "nas-maison", path: "", parentId: null, vaultId: null },
+      { id: "l-2", kind: "snippet", name: "maj système", path: "", parentId: null, vaultId: null },
+      { id: "l-3", kind: "group", name: "Maison", path: "", parentId: null, vaultId: null },
+      { id: "l-4", kind: "host", name: "raspberry", path: "Maison", parentId: "l-3", vaultId: null },
     ];
     return [
-      { id: "e-1", kind: "group", name: "Production", path: "", vaultId: "v-infra" },
-      { id: "e-2", kind: "host", name: "web-01", path: "Production", vaultId: "v-infra" },
-      { id: "e-3", kind: "host", name: "pg-primary-replica-longue-etiquette", path: "Production / Bases", vaultId: "v-infra" },
-      { id: "e-4", kind: "key", name: "deploy-ed25519", path: "", vaultId: "v-infra" },
-      { id: "e-5", kind: "host", name: "labo-1", path: "Labo", vaultId: null },
+      { id: "e-1", kind: "group", name: "Production", path: "", parentId: null, vaultId: "v-infra" },
+      { id: "e-6", kind: "group", name: "Bases", path: "Production", parentId: "e-1", vaultId: "v-infra" },
+      { id: "e-2", kind: "host", name: "web-01", path: "Production", parentId: "e-1", vaultId: "v-infra" },
+      { id: "e-3", kind: "host", name: "pg-primary-replica-longue-etiquette", path: "Production / Bases", parentId: "e-6", vaultId: "v-infra" },
+      { id: "e-7", kind: "sql-connection", name: "Catalogue (prod)", path: "Production / Bases", parentId: "e-6", vaultId: "v-infra" },
+      { id: "e-4", kind: "key", name: "deploy-ed25519", path: "", parentId: null, vaultId: "v-infra" },
+      { id: "e-8", kind: "snippet", name: "Journal nginx", path: "", parentId: null, vaultId: "v-infra" },
+      { id: "e-5", kind: "host", name: "labo-1", path: "Labo", parentId: null, vaultId: null },
+      { id: "e-9", kind: "key", name: "id_ed25519 (perso)", path: "", parentId: null, vaultId: null },
+      { id: "e-10", kind: "host", name: "core-banking-01", path: "", parentId: null, vaultId: "v-lect" },
     ];
   },
+  guivault_transfer_entities: async (_cmd, args) => ((args as { ids?: string[] })?.ids ?? []).length,
+  guivault_delete_entities: async () => workspace,
   guivault_sessions: async () => [
     { id: "s-1", deviceName: "Guiterm sur poste-alice", createdAt: new Date().toISOString(), lastUsedAt: new Date().toISOString(), current: true },
     { id: "s-2", deviceName: "Guiterm sur portable", createdAt: new Date().toISOString(), lastUsedAt: new Date().toISOString(), current: false },

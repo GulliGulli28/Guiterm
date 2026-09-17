@@ -335,7 +335,6 @@ fn main() {
             commands::guivault::guivault_rename_vault,
             commands::guivault::guivault_delete_vault,
             commands::guivault::guivault_leave_vault,
-            commands::guivault::guivault_move_entity,
             commands::guivault::guivault_rotate_vault_key,
             commands::guivault::guivault_vault_audit,
             commands::guivault::guivault_members,

@@ -4837,6 +4837,35 @@ async function runGuiVaultPanelScenario(browser) {
     throw new Error(`invoke("guivault_status") n'a pas répondu correctement via IPC : ${JSON.stringify(status)}`);
   }
 
+  // The vault contents tree is built from `guivault_list_entities`, whose
+  // rows must carry `parentId` (the tree) alongside `path` (flat lists). The
+  // local scope is read-only and needs no account: it lists what the shown
+  // workspace holds, so every row here must also be a host/group/key/… of the
+  // workspace, with the same id — the two commands disagreeing is exactly the
+  // "which workspace" bug class of 2026-09-17.
+  const listed = await browser.execute(async () => {
+    try {
+      const [entities, workspace] = await Promise.all([
+        window.__TAURI_INTERNALS__.invoke("guivault_list_entities", { scope: "local" }),
+        window.__TAURI_INTERNALS__.invoke("get_workspace"),
+      ]);
+      const ids = new Set([
+        ...workspace.hosts, ...workspace.groups, ...workspace.keychain, ...workspace.snippets, ...workspace.sqlConnections,
+      ].map((e) => e.id));
+      return {
+        count: entities.length,
+        shape: entities.every((e) => typeof e.id === "string" && typeof e.kind === "string" && typeof e.name === "string" && "parentId" in e && "vaultId" in e),
+        known: entities.every((e) => ids.has(e.id)),
+        expected: ids.size,
+      };
+    } catch (e) {
+      return { __error: String(e) };
+    }
+  });
+  if (!listed || listed.__error || !listed.shape || !listed.known || listed.count !== listed.expected) {
+    throw new Error(`invoke("guivault_list_entities") ne décrit pas le workspace affiché : ${JSON.stringify(listed)}`);
+  }
+
   await browser.execute(() => {
     const tab = Array.from(document.querySelectorAll("button"))
       .find((b) => (b.getAttribute("title") || "").startsWith("GuiVault"));
@@ -4850,5 +4879,5 @@ async function runGuiVaultPanelScenario(browser) {
     // unlock form. Any of the three proves the panel mounted with content.
     return text.includes("Se connecter") || text.includes("Synchroniser") || text.includes("Déverrouiller");
   }), { timeout: 10_000, timeoutMsg: "le panneau GuiVault ne s est pas charge (ni formulaire de connexion, ni compte)" });
-  console.log(`GuiVault : OK (guivault_status répond — ${status.configured ? "compte configuré" : "aucun compte"}, panneau atteignable).`);
+  console.log(`GuiVault : OK (guivault_status répond — ${status.configured ? "compte configuré" : "aucun compte"}, ${listed.count} entité(s) listée(s), panneau atteignable).`);
 }
