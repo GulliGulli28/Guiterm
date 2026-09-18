@@ -9,6 +9,12 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+## [4.0.0] - 2026-09-18
+
+Version majeure : Guiterm devient un client de coffre partagé. Rien ne change
+pour qui l'utilise sans compte — le profil local reste exactement ce qu'il
+était.
+
 ### Added
 
 - **GuiVault : synchronisation chiffrée et vaults partagés.** Un serveur
@@ -59,8 +65,8 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
   **La barre de profil**, en tête de la barre latérale sur tous les
   panneaux, dit quel workspace est affiché — cet appareil ou le compte — et
-  l'état de la synchronisation (en cours, dernière, profil local avec le
-  compte en arrière-plan), avec un bouton pour synchroniser maintenant. Une
+  l'état de la synchronisation (en cours, dernière synchronisation,
+  verrouillé), avec un bouton pour synchroniser maintenant. Une
   synchronisation qui reçoit des changements le dit, par vault. Un vault que
   le compte ne liste plus apparaît en « Vault inaccessible » avec un bouton
   **Rapatrier** dans le personnel. La flotte et le diagnostic réseau
@@ -72,6 +78,15 @@ This changelog starts 2026-07-21 — for earlier versions, see
   réglable) et **immédiate** dès qu'un autre membre écrit, « rester
   déverrouillé sur cet appareil » désactivable. En cas de modification des
   deux côtés, la version locale est conservée et la notification le dit.
+
+### Fixed
+- Le panneau Transfert, la flotte et le diagnostic réseau ne montraient pas
+  un hôte dont le dossier n'est pas dans le workspace (reçu d'un vault
+  partagé sans son dossier) ; il s'affiche à la racine, comme dans Hôtes.
+- Un hôte ou un dossier dont l'icône personnalisée manque affichait une
+  case vide au lieu de l'icône de son type.
+- Le menu « … » d'un hôte en bas de fenêtre s'ouvrait à moitié hors écran ;
+  il se place au-dessus de son bouton.
 
 ## [3.5.0] - 2026-09-15
 
