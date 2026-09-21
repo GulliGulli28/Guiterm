@@ -138,6 +138,17 @@ pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec
         }
         let page = client.items(v.id, known).await.map_err(super::account::user_error)?;
         for item in page.items {
+            // Les secrets de l'interface web de GuiVault (identifiants,
+            // notes, cartes, identités — `guivault-items`) : ce client ne
+            // les affiche pas encore, et surtout ne doit pas les toucher.
+            // Ni avertissement, ni état de synchro — un item qui entrerait
+            // dans `state.items` sans exister localement serait pris pour
+            // une suppression locale et effacé en face à la synchro
+            // suivante. Le jour où Guiterm les range quelque part, c'est
+            // ici que ça commence (`docs/ITEMS.md` côté GuiVault).
+            if guivault_items::SecretItem::is_secret_type(&item.item_type) {
+                continue;
+            }
             // Copie : la boucle modifie `locals` plus bas.
             let local = locals.get(&item.id).cloned();
             let local = local.as_ref();

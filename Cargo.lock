@@ -2626,7 +2626,7 @@ dependencies = [
 
 [[package]]
 name = "guiterm"
-version = "4.0.0"
+version = "4.0.1"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -2657,7 +2657,7 @@ dependencies = [
 [[package]]
 name = "guivault-crypto"
 version = "0.1.0"
-source = "git+https://github.com/GulliGulli28/GuiVault.git?rev=ab9025f#ab9025fdebedfb7ee09aa76fcba1da348e0d1dcb"
+source = "git+https://github.com/GulliGulli28/GuiVault.git?rev=1001fbd#1001fbd414653e81ad730df76ecd56c5525685dc"
 dependencies = [
  "argon2 0.5.3",
  "base64 0.22.1",
@@ -2673,9 +2673,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "guivault-items"
+version = "0.1.0"
+source = "git+https://github.com/GulliGulli28/GuiVault.git?rev=1001fbd#1001fbd414653e81ad730df76ecd56c5525685dc"
+dependencies = [
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "guivault-protocol"
 version = "0.1.0"
-source = "git+https://github.com/GulliGulli28/GuiVault.git?rev=ab9025f#ab9025fdebedfb7ee09aa76fcba1da348e0d1dcb"
+source = "git+https://github.com/GulliGulli28/GuiVault.git?rev=1001fbd#1001fbd414653e81ad730df76ecd56c5525685dc"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -7656,7 +7666,7 @@ dependencies = [
 
 [[package]]
 name = "termius-core"
-version = "4.0.0"
+version = "4.0.1"
 dependencies = [
  "anyhow",
  "argon2 0.5.3",
@@ -7672,6 +7682,7 @@ dependencies = [
  "futures-util",
  "getrandom 0.4.3",
  "guivault-crypto",
+ "guivault-items",
  "guivault-protocol",
  "hyper",
  "hyper-util",

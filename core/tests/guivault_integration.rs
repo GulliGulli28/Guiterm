@@ -144,6 +144,64 @@ async fn personal_vault_syncs_between_two_devices() {
     assert!(err.to_string().contains("incorrect"), "{err}");
 }
 
+/// Un secret rangé par l'interface web de GuiVault (identifiant, note,
+/// carte, identité) traverse la synchro sans bruit — et surtout sans être
+/// effacé : ce client ne le stocke pas encore, il ne doit donc jamais le
+/// prendre pour une suppression locale.
+#[tokio::test]
+async fn web_secrets_are_left_alone_by_sync() {
+    if !server_available().await {
+        return;
+    }
+    let email = format!("alice-{}@test.local", Uuid::new_v4().simple());
+    let mut a1 = Device::register(&email, "alice-master").await;
+    a1.ws.hosts.push(Host::new("db-1", "10.0.0.1", "root"));
+    a1.sync().await;
+
+    // Ce que l'interface web écrit : un `login` chiffré sous la clé du vault.
+    let client = a1.manager.client().unwrap();
+    let vault = a1.manager.vault_infos().into_iter().next().unwrap();
+    let login = guivault_items::SecretItem::Login {
+        login: guivault_items::Login {
+            base: guivault_items::SecretBase {
+                id: Uuid::new_v4(),
+                name: "GitHub".into(),
+                group_id: None,
+                tags: vec![],
+                favorite: Some(true),
+                notes: None,
+                fields: None,
+                extra: Default::default(),
+            },
+            username: "alice".into(),
+            password: "pw".into(),
+            uris: vec![],
+            totp: None,
+            passkeys: vec![],
+            password_history: vec![],
+        },
+    };
+    let json = login.to_json().unwrap();
+    let ct = guivault_crypto::seal_item(&vault.key, &vault.id.to_string(), &login.id().to_string(), login.item_type(), json.as_bytes()).unwrap();
+    client
+        .put_item(vault.id, login.id(), &guivault_protocol::PutItemRequest { item_type: login.item_type().into(), ciphertext: ct, base_revision: None })
+        .await
+        .unwrap();
+
+    // Deux synchros : rien de reçu, rien d'envoyé, rien à dire, et l'item
+    // est toujours là (une troisième serait celle qui le supprimerait si
+    // l'état s'en souvenait).
+    for _ in 0..3 {
+        let r = a1.sync().await;
+        assert_eq!((r.pulled, r.pushed, r.deleted_remotely), (0, 0, 0), "{r:?}");
+        assert!(r.warnings.is_empty() && r.conflicts.is_empty(), "{r:?}");
+    }
+    let page = client.items(vault.id, None).await.unwrap();
+    let remote = page.items.iter().find(|i| i.id == login.id()).expect("le secret est toujours sur le serveur");
+    assert!(!remote.deleted);
+    assert_eq!(a1.ws.hosts.len(), 1, "l'hôte, lui, est synchronisé normalement");
+}
+
 #[tokio::test]
 async fn shared_vault_with_fingerprint_gate_roles_and_rotation() {
     if !server_available().await {
