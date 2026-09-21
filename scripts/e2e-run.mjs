@@ -281,6 +281,7 @@ async function runScenarios(browser) {
   await runActivityScenario(browser);
   await runHostTreePickerScenario(browser);
   await runPersistentSessionScenario(browser);
+  await runHostPasswordScenario(browser);
   await runSessionManagerScenario(browser);
   await runResumeOnLaunchScenario(browser);
 
@@ -4451,6 +4452,128 @@ async function runHostTreePickerScenario(browser) {
  * forme d'appel — `connect_terminal` a gagné un argument `sessionKey`, et une
  * casse ratée s'y verrait comme un « invalid args » plutôt qu'un refus TCP.
  */
+/**
+ * Le mot de passe d'un hôte : enregistré par le formulaire, montré tel quel à
+ * la réouverture, remplacé quand on le change.
+ *
+ * Ce que ce scénario couvre : le chemin complet champ « Mot de passe » →
+ * `save_host` → coffre → `get_host_secrets` → champ prérempli — sur le vrai
+ * binaire, avec le vrai backend de secrets. Rapporté le 2026-09-21 :
+ * « modifier le champ mot de passe ne change pas le mot de passe de
+ * connexion » — invérifiable tant que le formulaire s'ouvrait avec un champ
+ * vide, sans dire ce qui était enregistré. Le test relit le secret par
+ * `invoke`, pas dans l'état React : c'est ce que `ssh::authenticate` lira.
+ */
+async function runHostPasswordScenario(browser) {
+  const LABEL = `e2e-mdp-${Date.now()}`;
+  const FIRST = "e2e-premier-mot-de-passe";
+  const SECOND = "e2e-second-mot-de-passe";
+
+  const readSecret = (id) => browser.execute(async (hostId) => {
+    try {
+      const s = await window.__TAURI_INTERNALS__.invoke("get_host_secrets", { hostId });
+      return { password: s.password, passphrase: s.passphrase };
+    } catch (e) {
+      return { __error: String(e) };
+    }
+  }, id);
+
+  await browser.execute(() => {
+    const btn = Array.from(document.querySelectorAll("aside nav button"))
+      .find((b) => (b.getAttribute("title") || "") === "Hôtes");
+    if (btn instanceof HTMLElement) btn.click();
+  });
+  await clickButtonByText(browser, "Ajouter…");
+  await clickButtonByText(browser, "Nouvel hôte");
+  await setFieldByLabel(browser, "Nom", LABEL);
+  await setFieldByLabel(browser, "Adresse", "127.0.0.1");
+  await setFieldByLabel(browser, "Port", "1");
+  await setFieldByLabel(browser, "Utilisateur", "e2e");
+  const authSet = await browser.execute(() => {
+    const field = Array.from(document.querySelectorAll("[data-form] label"))
+      .find((l) => l.querySelector("span")?.textContent?.trim() === "Authentification");
+    const select = field?.querySelector("select");
+    if (!(select instanceof HTMLSelectElement)) return false;
+    const setter = Object.getOwnPropertyDescriptor(window.HTMLSelectElement.prototype, "value").set;
+    setter.call(select, "password");
+    select.dispatchEvent(new Event("change", { bubbles: true }));
+    return true;
+  });
+  if (!authSet) throw new Error("le sélecteur « Authentification » est introuvable");
+  await setFieldByLabel(browser, "Mot de passe", FIRST);
+  await clickButtonByText(browser, "Enregistrer");
+
+  let hostId = null;
+  await browser.waitUntil(async () => {
+    hostId = await browser.execute(async (label) => {
+      try {
+        const ws = await window.__TAURI_INTERNALS__.invoke("get_workspace");
+        return ws.hosts.find((h) => h.label === label)?.id ?? null;
+      } catch {
+        return null;
+      }
+    }, LABEL);
+    return !!hostId;
+  }, { timeout: 10_000, timeoutMsg: "l hôte de test n a pas été enregistré" });
+
+  try {
+    const stored = await readSecret(hostId);
+    if (stored.password !== FIRST) {
+      throw new Error(`le mot de passe saisi à la création n est pas dans le coffre : ${JSON.stringify(stored)}`);
+    }
+
+    // Rouvrir : le champ doit montrer la valeur enregistrée, masquée, et
+    // l'œil la révéler — c'est ce qui rend « a-t-il changé ? » vérifiable.
+    const menuOpened = await browser.execute((label) => {
+      const row = document.querySelector(`[data-host-row='${label}']`);
+      const menu = Array.from(row?.querySelectorAll("button") ?? []).find((b) => b.getAttribute("title") === "Options");
+      if (!(menu instanceof HTMLElement)) return false;
+      menu.click();
+      return true;
+    }, LABEL);
+    if (!menuOpened) throw new Error("le menu de l hôte de test est introuvable");
+    await clickButtonByText(browser, "Modifier");
+    const shown = await browser.waitUntil(async () => {
+      const state = await browser.execute(() => {
+        const input = document.querySelector("[data-form] [data-testid='host-secret']");
+        return input instanceof HTMLInputElement && input.value ? { type: input.type, value: input.value } : null;
+      });
+      return state || false;
+    }, { timeout: 10_000, timeoutMsg: "le formulaire rouvert n a pas chargé le mot de passe enregistré" });
+    if (shown.type !== "password" || shown.value !== FIRST) {
+      throw new Error(`champ mot de passe à la réouverture : ${JSON.stringify(shown)}`);
+    }
+    const revealed = await browser.execute(() => {
+      const eye = document.querySelector("[data-form] button[aria-label='Afficher le mot de passe']");
+      if (!(eye instanceof HTMLElement)) return null;
+      eye.click();
+      return document.querySelector("[data-form] [data-testid='host-secret']")?.type ?? null;
+    });
+    if (revealed !== "text") throw new Error(`l œil ne révèle pas le mot de passe : ${JSON.stringify(revealed)}`);
+
+    await setFieldByLabel(browser, "Mot de passe", SECOND);
+    await clickButtonByText(browser, "Enregistrer");
+    await browser.waitUntil(async () => (await readSecret(hostId)).password === SECOND, {
+      timeout: 10_000,
+      timeoutMsg: `le mot de passe modifié n a pas remplacé l ancien : ${JSON.stringify(await readSecret(hostId))}`,
+    });
+
+    console.log("Mot de passe d'hôte : OK (enregistré à la création, montré à la réouverture, révélé par l'œil, remplacé à la modification).");
+  } finally {
+    const cleanup = await browser.execute(async (id) => {
+      try {
+        await window.__TAURI_INTERNALS__.invoke("delete_host", { hostId: id });
+        return "ok";
+      } catch (e) {
+        return String(e);
+      }
+    }, hostId);
+    if (cleanup !== "ok") {
+      throw new Error(`l hôte de test n a pas pu être supprimé, workspace pollué : ${cleanup}`);
+    }
+  }
+}
+
 async function runPersistentSessionScenario(browser) {
   const LABEL = `e2e-tmux-${Date.now()}`;
   const FIELD = "Session persistante";

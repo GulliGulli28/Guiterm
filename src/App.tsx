@@ -1122,8 +1122,13 @@ export default function App() {
           style={{ width: showRightPanel ? rightPanel.value : 0 }}
           className={`flex shrink-0 flex-col overflow-hidden bg-[var(--c-bg2)] ${isDragging ? "" : "transition-[width] duration-200 ease-in-out"}`}
         >
+          {/* `key` : passer d'un hôte à l'autre sans fermer le panneau
+              remonte le formulaire, sinon React garde l'état du précédent
+              (ses champs, et depuis peu son mot de passe) et l'enregistre
+              sous l'id du nouveau. */}
           {editingHost && (
             <HostForm
+              key={editingHost === "new" ? `new:${newHostDefaultGroupId ?? ""}:${newHostDefaultVaultId ?? ""}` : editingHost.id}
               workspace={workspace}
               host={editingHost === "new" ? null : editingHost}
               defaultGroupId={editingHost === "new" ? newHostDefaultGroupId : null}
@@ -1152,6 +1157,7 @@ export default function App() {
           )}
           {editingGroup && (
             <GroupForm
+              key={editingGroup.id ?? `new:${editingGroup.parentId ?? ""}`}
               workspace={workspace}
               group={editingGroup}
               vaults={accountVaults}
@@ -1173,6 +1179,7 @@ export default function App() {
           )}
           {editingSqlConnection && (
             <SqlConnectionForm
+              key={editingSqlConnection === "new" ? "new" : editingSqlConnection.id}
               workspace={workspace}
               connection={editingSqlConnection === "new" ? null : editingSqlConnection}
               vaults={accountVaults}

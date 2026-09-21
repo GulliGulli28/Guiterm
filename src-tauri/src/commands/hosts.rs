@@ -37,7 +37,11 @@ pub struct SaveHostInput {
     pub startup_snippets: Vec<SnippetId>,
     pub env_vars: Vec<EnvVar>,
     pub icon: Option<String>,
-    /// Plaintext password or key passphrase, stored in the OS keychain — never persisted in workspace.json.
+    /// Plaintext password or key passphrase, stored in the OS keychain — never
+    /// persisted in workspace.json. Three states, because the form shows the
+    /// stored value (see `get_host_secrets`) and the user may clear it:
+    /// `None` leaves the slot alone, `Some("")` empties it, anything else
+    /// replaces it.
     pub secret: Option<String>,
     #[serde(default)]
     pub keepalive_interval_secs: Option<u32>,
@@ -162,22 +166,66 @@ pub fn save_host(state: State<'_, AppState>, input: SaveHostInput) -> Result<Wor
         }
     }
 
-    if let Some(secret) = input.secret.filter(|s| !s.is_empty()) {
-        match &input.auth {
-            AuthMethod::Password | AuthMethod::KeyboardInteractive => {
-                let _ = vault::store(host_id, SecretKind::Password, &secret);
-            }
-            // Only store the passphrase per-host when no keychain key is involved;
-            // keychain keys have their own passphrase stored under key_id.
-            AuthMethod::PrivateKey { key_id: None, .. } => {
-                let _ = vault::store(host_id, SecretKind::KeyPassphrase, &secret);
-            }
-            _ => {}
+    if let Some(secret) = input.secret {
+        // Only the slot the auth method uses; keychain keys carry their own
+        // passphrase under their key id, so a host referencing one has none.
+        let slot = match &input.auth {
+            AuthMethod::Password | AuthMethod::KeyboardInteractive => Some(SecretKind::Password),
+            AuthMethod::PrivateKey { key_id: None, .. } => Some(SecretKind::KeyPassphrase),
+            AuthMethod::PrivateKey { key_id: Some(_), .. } | AuthMethod::Agent => None,
+        };
+        if let Some(slot) = slot {
+            // The host is saved below whether or not this succeeds, but a
+            // failure (locked vault) must reach the user: silently keeping the
+            // old password while the form said "saved" is exactly the bug that
+            // makes "changing the password does nothing" impossible to
+            // diagnose from the interface.
+            write_secret(host_id, slot, &secret)
+                .map_err(|e| format!("{} : {e}", secret_label(slot)))?;
         }
     }
 
     persist(&workspace)?;
     Ok(workspace.clone())
+}
+
+/// An empty value empties the slot: the form shows the stored secret, so an
+/// empty field is a decision, not an omission.
+fn write_secret(id: HostId, kind: SecretKind, secret: &str) -> anyhow::Result<()> {
+    if secret.is_empty() {
+        vault::delete(id, kind)
+    } else {
+        vault::store(id, kind, secret)
+    }
+}
+
+fn secret_label(kind: SecretKind) -> &'static str {
+    match kind {
+        SecretKind::Password => "Le mot de passe n'a pas pu être enregistré",
+        SecretKind::KeyPassphrase => "La passphrase n'a pas pu être enregistrée",
+        SecretKind::SqlPassword => "Le mot de passe SQL n'a pas pu être enregistré",
+    }
+}
+
+/// What the vault holds for one host, so the form can show it (behind an
+/// eye button) instead of an empty field that looks the same whether a
+/// password is stored, wrong, or missing. Both slots are read regardless of
+/// the current auth method: the form switches between them as the user
+/// changes the method. Fails when the master vault is locked — the form then
+/// says so rather than showing an empty field as if nothing were stored.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HostSecrets {
+    pub password: Option<String>,
+    pub passphrase: Option<String>,
+}
+
+#[tauri::command]
+pub fn get_host_secrets(host_id: HostId) -> Result<HostSecrets, String> {
+    Ok(HostSecrets {
+        password: vault::load(host_id, SecretKind::Password).map_err(|e| e.to_string())?,
+        passphrase: vault::load(host_id, SecretKind::KeyPassphrase).map_err(|e| e.to_string())?,
+    })
 }
 
 #[tauri::command]
@@ -618,4 +666,43 @@ pub async fn delete_forward(
     workspace.port_forwards.retain(|f| f.id != forward_id);
     persist(&workspace)?;
     Ok(workspace.clone())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use uuid::Uuid;
+
+    // Through the real secret backend (keychain, or its in-memory fallback),
+    // like `core::vault`'s own tests: a random id per test, cleaned up after.
+    // This is the write side of "I changed the password and saved, but the
+    // connection still used the old one" — `ssh::authenticate` reads the
+    // same slot.
+
+    #[test]
+    fn a_new_value_replaces_the_stored_one() {
+        let id = Uuid::new_v4();
+        write_secret(id, SecretKind::Password, "ancien").unwrap();
+        write_secret(id, SecretKind::Password, "nouveau").unwrap();
+        assert_eq!(vault::load(id, SecretKind::Password).unwrap().as_deref(), Some("nouveau"));
+        let _ = vault::delete(id, SecretKind::Password);
+    }
+
+    #[test]
+    fn an_empty_value_empties_the_slot() {
+        let id = Uuid::new_v4();
+        write_secret(id, SecretKind::Password, "ancien").unwrap();
+        write_secret(id, SecretKind::Password, "").unwrap();
+        assert_eq!(vault::load(id, SecretKind::Password).unwrap(), None);
+    }
+
+    #[test]
+    fn get_host_secrets_reports_both_slots() {
+        let id = Uuid::new_v4();
+        write_secret(id, SecretKind::KeyPassphrase, "sésame").unwrap();
+        let s = get_host_secrets(id).unwrap();
+        assert_eq!(s.password, None);
+        assert_eq!(s.passphrase.as_deref(), Some("sésame"));
+        let _ = vault::delete(id, SecretKind::KeyPassphrase);
+    }
 }

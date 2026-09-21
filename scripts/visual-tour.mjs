@@ -94,7 +94,25 @@ const scenes = [
     await page.locator("[data-host-row='pg-primary'] button[title='Options']").click();
     await settle(page, 300);
   }],
+  // Le formulaire d'un hôte à mot de passe montre la valeur enregistrée
+  // derrière l'œil : sans ça, un champ vide ne dit pas si un mot de passe est
+  // enregistré, et « je l'ai changé mais rien ne change » est invérifiable.
+  ["16b-formulaire-mot-de-passe", async (page) => {
+    await page.locator('[role="menu"] button', { hasText: "Modifier" }).click();
+    await settle(page, 500);
+    const before = await page.evaluate(() => {
+      const input = document.querySelector("[data-form] [data-testid='host-secret']");
+      return { type: input?.type, value: input?.value };
+    });
+    if (before.type !== "password" || before.value !== "hunter2-mais-plus-long") throw new Error(`mot de passe enregistré non chargé : ${JSON.stringify(before)}`);
+    await page.locator('[data-form] button[aria-label="Afficher le mot de passe"]').click();
+    await settle(page, 200);
+    const after = await page.evaluate(() => document.querySelector("[data-form] [data-testid='host-secret']")?.type);
+    if (after !== "text") throw new Error(`l'œil n'affiche pas le mot de passe : type=${after}`);
+  }],
   ["17-menu-ajouter", async (page) => {
+    await page.locator("[data-form] button", { hasText: "Annuler" }).click();
+    await settle(page, 200);
     await page.keyboard.press("Escape");
     await page.mouse.click(700, 500);
     await settle(page, 200);

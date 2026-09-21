@@ -101,6 +101,12 @@ export type HostKind = "ssh" | "dockerExec" | "k8sExec" | "rdp";
  * « auto » — il ferait exactement la même chose. */
 export type PersistentShellMode = "off" | "tmux";
 
+/** Ce que le coffre enregistre pour un hôte (voir `get_host_secrets`). */
+export interface HostSecrets {
+  password: string | null;
+  passphrase: string | null;
+}
+
 export interface Host {
   id: HostId;
   label: string;

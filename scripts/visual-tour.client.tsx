@@ -62,7 +62,7 @@ const facts = (osName: string, memUsedPct: number, load1: number): Partial<Host>
 const hosts: Host[] = [
   host("h-web-01", "web-01", "203.0.113.10", "deploy", "g-web", ["nginx", "ubuntu"], facts("Ubuntu 24.04", 61, 0.42)),
   host("h-web-02", "web-02", "203.0.113.11", "deploy", "g-web", ["nginx", "ubuntu"], facts("Ubuntu 24.04", 58, 0.31)),
-  host("h-db-01", "pg-primary", "10.0.4.20", "postgres", "g-data", ["postgres", "debian"], facts("Debian 12", 87, 1.9)),
+  host("h-db-01", "pg-primary", "10.0.4.20", "postgres", "g-data", ["postgres", "debian"], { auth: "password", ...facts("Debian 12", 87, 1.9) }),
   host("h-docker", "docker-host", "10.0.4.12", "ops", "g-staging", ["docker"], { kind: "ssh", persistentShell: "tmux" }),
   host("h-app", "app-container", "10.0.4.12", "root", "g-staging", ["docker"], { kind: "dockerExec", dockerViaHostId: "h-docker" as HostId }),
   host("h-k8s", "prod-cluster", "prod-eu-west", "—", "g-lab", ["k8s"], { kind: "k8sExec" }),
@@ -230,6 +230,7 @@ const responses: Record<string, Invoke> = {
   ],
   guivault_totp_status: async () => false,
   has_anthropic_api_key: async () => false,
+  get_host_secrets: async () => ({ password: "hunter2-mais-plus-long", passphrase: null }),
   list_remote_edits: async () => [],
   check_host_status: async () => ({ reachable: true }),
   list_persistent_sessions: async () => ({ tmuxAvailable: true, sessions: [] }),

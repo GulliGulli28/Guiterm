@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "../lib/api";
-import { IconTrash, IconClose, IconFolder, IconHosts, IconKeychain, IconLock, IconUnlock, IconPlus } from "./ui-icons";
+import { IconTrash, IconClose, IconEye, IconEyeOff, IconFolder, IconHosts, IconKeychain, IconLock, IconUnlock, IconPlus } from "./ui-icons";
 import type { AuthMethod, EnvVar, GroupId, GuiVaultVault, Host, HostId, HostKind, KeyId, PersistentShellMode, ProxyProbe, SnippetId, VaultId, Workspace } from "../lib/types";
 import { HostIcon } from "./icons";
 import { IconPicker } from "./IconPicker";
@@ -10,6 +10,7 @@ import { ReadOnlyVaultNotice, VaultField, readOnlyVault } from "./VaultField";
 import { HostTreePicker } from "./HostTreePicker";
 import { HOST_KINDS } from "../lib/hostKinds";
 import { assertNever } from "../lib/exhaustive";
+import { secretSlot, secretToSave, type AuthKind, type StoredSecretsState } from "../lib/hostSecret";
 
 interface HostFormProps {
   workspace: Workspace;
@@ -127,7 +128,6 @@ const PROXY_COMMAND_EXAMPLES: { label: string; hint: string; command: string }[]
   },
 ];
 
-type AuthKind = "agent" | "password" | "privateKey" | "keyboardInteractive";
 
 /**
  * Which radio/dropdown entry an existing host's auth corresponds to.
@@ -174,7 +174,32 @@ export function HostForm({ workspace, host, defaultGroupId, vaults = [], vaultId
   /** Set when the conventional `<clé>-cert.pub` was found on disk and offered,
    * so the hint can say the field was filled in rather than typed. */
   const [certSuggested, setCertSuggested] = useState(false);
-  const [secret, setSecret] = useState("");
+  // Le mot de passe et la passphrase ont chacun leur champ : un même état
+  // pour les deux faisait suivre le texte tapé d'une méthode à l'autre.
+  const [password, setPassword] = useState("");
+  const [passphrase, setPassphrase] = useState("");
+  const [revealSecret, setRevealSecret] = useState(false);
+  /** Ce que le coffre enregistre pour cet hôte, lu à l'ouverture : « loaded »
+   * quand les champs affichent la valeur enregistrée (un champ vidé l'efface
+   * alors), « unavailable » quand le coffre n'a pas pu répondre (verrouillé),
+   * et un champ vide veut alors dire « ne pas toucher ». */
+  const [storedSecrets, setStoredSecrets] = useState<{ state: Exclude<StoredSecretsState, "unavailable"> } | { state: "unavailable"; reason: string }>(
+    host ? { state: "loading" } : { state: "loaded" },
+  );
+  const hostId = host?.id ?? null;
+  useEffect(() => {
+    if (!hostId) return;
+    let cancelled = false;
+    api.getHostSecrets(hostId)
+      .then((s) => {
+        if (cancelled) return;
+        setPassword(s?.password ?? "");
+        setPassphrase(s?.passphrase ?? "");
+        setStoredSecrets({ state: "loaded" });
+      })
+      .catch((e) => { if (!cancelled) setStoredSecrets({ state: "unavailable", reason: String(e) }); });
+    return () => { cancelled = true; };
+  }, [hostId]);
   const [dockerViaHostId, setDockerViaHostId] = useState<HostId | "">(host?.dockerViaHostId ?? "");
   const [jumpVia, setJumpVia] = useState<HostId[]>(host?.jumpVia ?? []);
   const [proxyCommand, setProxyCommand] = useState(host?.proxyCommand ?? "");
@@ -389,6 +414,8 @@ export function HostForm({ workspace, host, defaultGroupId, vaults = [], vaultId
         // "agent" | "password" | "keyboardInteractive" map to themselves.
         : authKind;
     const keepaliveNum = Number(keepalive);
+    const slot = secretSlot(kind, authKind, keyId);
+    const secret = secretToSave(slot === "password" ? password : slot === "passphrase" ? passphrase : null, storedSecrets.state);
 
     onSave({
       id: host?.id ?? null,
@@ -406,7 +433,7 @@ export function HostForm({ workspace, host, defaultGroupId, vaults = [], vaultId
       startupSnippets: sshOnlyExtras ? startupSnippets : [],
       envVars: sshOnlyExtras ? envVars.filter((v) => v.key.trim()) : [],
       icon,
-      secret: secret || null,
+      secret,
       keepaliveIntervalSecs: sshOnlyExtras && Number.isInteger(keepaliveNum) && keepaliveNum > 0 ? keepaliveNum : null,
       agentForward: sshOnlyExtras && authKind === "agent" && agentForward,
       persistentShell: sshOnlyExtras ? persistentShell : "off",
@@ -688,11 +715,52 @@ export function HostForm({ workspace, host, defaultGroupId, vaults = [], vaultId
             </Field>
           </>
         )}
-        {showAuthSection && (authKind === "password" || authKind === "privateKey") && (
-          <Field label={authKind === "password" ? "Mot de passe" : "Passphrase (optionnelle)"}>
-            <input value={secret} onChange={(e) => setSecret(e.target.value)} type="password" className={inputClass} />
-          </Field>
-        )}
+        {showAuthSection && secretSlot(kind, authKind, keyId) !== null && (() => {
+          const isPassword = secretSlot(kind, authKind, keyId) === "password";
+          const value = isPassword ? password : passphrase;
+          const setValue = isPassword ? setPassword : setPassphrase;
+          const noun = isPassword ? "le mot de passe" : "la passphrase";
+          return (
+            <Field label={isPassword ? "Mot de passe" : "Passphrase (optionnelle)"}>
+              <div className="flex gap-1.5">
+                <input
+                  value={value}
+                  onChange={(e) => setValue(e.target.value)}
+                  type={revealSecret ? "text" : "password"}
+                  autoComplete="off"
+                  data-testid="host-secret"
+                  className={`${inputClass} min-w-0 flex-1`}
+                  placeholder={storedSecrets.state === "unavailable" ? "(conservé tel quel)" : undefined}
+                />
+                <button
+                  type="button"
+                  onClick={() => setRevealSecret((v) => !v)}
+                  title={revealSecret ? `Cacher ${noun}` : `Afficher ${noun}`}
+                  aria-label={revealSecret ? `Cacher ${noun}` : `Afficher ${noun}`}
+                  aria-pressed={revealSecret}
+                  className="btn btn-secondary btn-icon text-[var(--c-text-muted)]"
+                >
+                  {revealSecret ? <IconEyeOff size={13} /> : <IconEye size={13} />}
+                </button>
+              </div>
+              {/* Ce que le champ montre est ce que la connexion utilisera :
+                  dire d'où ça vient évite de confondre « rien d'enregistré »
+                  et « enregistré mais masqué ». */}
+              {host && storedSecrets.state === "loaded" && (
+                <p className="help-text mt-1">
+                  {value
+                    ? `C'est ${noun} enregistré${isPassword ? "" : "e"} pour cet hôte : modifiez-le ici puis enregistrez. Vidé, il sera effacé.`
+                    : `Aucun${isPassword ? "" : "e"} ${noun.replace(/^l[ae] /, "")} enregistré${isPassword ? "" : "e"} pour cet hôte.`}
+                </p>
+              )}
+              {storedSecrets.state === "unavailable" && (
+                <p className="help-text mt-1 text-[var(--c-warn)]">
+                  Impossible de lire {noun} enregistré{isPassword ? "" : "e"} ({storedSecrets.reason}). Laissé vide, il est conservé tel quel.
+                </p>
+              )}
+            </Field>
+          );
+        })()}
 
         {sshOnlyExtras && (
         <Field label="Chaîne de bastions">
