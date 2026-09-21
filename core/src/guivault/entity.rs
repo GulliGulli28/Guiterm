@@ -116,6 +116,21 @@ impl Payload {
     }
 }
 
+/// Le fichier d'une clé du trousseau, `~` compris. `None` s'il est absent ou
+/// illisible : on n'invente rien, l'item part sans contenu comme avant.
+fn read_key_file(path: &str) -> Option<String> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    let expanded = if let Some(rest) = trimmed.strip_prefix("~/").or_else(|| trimmed.strip_prefix("~\\")) {
+        directories::BaseDirs::new()?.home_dir().join(rest)
+    } else {
+        std::path::PathBuf::from(trimmed)
+    };
+    std::fs::read_to_string(expanded).ok().filter(|c| !c.trim().is_empty())
+}
+
 pub fn hash(json: &str) -> String {
     let h = Sha256::digest(json.as_bytes());
     h.iter().map(|b| format!("{b:02x}")).collect()
@@ -182,10 +197,16 @@ pub fn collect(workspace: &Workspace, personal: VaultId) -> anyhow::Result<Vec<L
         push(Payload::Group { group: g.clone() })?;
     }
     for k in &workspace.keychain {
+        // Le contenu de la clé, d'où qu'il vienne : embarqué dans le
+        // workspace, dans le coffre local, ou — pour une clé qui n'a été
+        // ajoutée que par son chemin — lu dans le fichier lui-même. Un autre
+        // appareil n'a pas ce fichier : sans le contenu, l'item ne lui sert à
+        // rien.
         let content = k
             .content
             .clone()
-            .or_else(|| local_vault::load_key_content(k.id).ok().flatten());
+            .or_else(|| local_vault::load_key_content(k.id).ok().flatten())
+            .or_else(|| read_key_file(&k.path));
         push(Payload::Key {
             key: PrivateKey {
                 content: None,
