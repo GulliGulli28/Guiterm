@@ -220,9 +220,9 @@
   "218": ".put_item",
   "219": ".list",
   "220": "run",
+  "221": "Navigation au clavier de toute l'app (2026-09-22)",
   "223": "visual-tour.mjs",
   "226": ".server_channel_open_agent_forward",
-  "227": "MongoSession",
   "229": "usePolledHostStat.ts",
   "230": "input.rs",
   "232": "paneElevation.test.ts"

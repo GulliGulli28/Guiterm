@@ -34,9 +34,15 @@ export function CommandPalette({ commands, title, placeholder, onClose }: Comman
 
   useEffect(() => { inputRef.current?.focus(); }, []);
 
-  const filtered = query.trim()
-    ? commands.filter((c) =>
-        `${c.label} ${c.keywords ?? ""}`.toLowerCase().includes(query.trim().toLowerCase()))
+  // Mot à mot, comme les arborescences de l'app (`vaultTree`, `hostTree`) :
+  // « panneau clés » doit trouver « Panneau — Clés », que la recherche d'un
+  // seul bloc manquait à cause du tiret. Tous les mots doivent correspondre.
+  const terms = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+  const filtered = terms.length > 0
+    ? commands.filter((c) => {
+        const haystack = `${c.label} ${c.keywords ?? ""}`.toLowerCase();
+        return terms.every((t) => haystack.includes(t));
+      })
     : commands;
 
   useEffect(() => { setActiveIndex(0); }, [query]);

@@ -232,6 +232,10 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
     <div className="-m-3 flex h-[calc(100%+1.5rem)] min-w-0">
       {/* Les catégories, avec leur nom : une colonne d'icônes seules
           demandait de survoler chacune pour savoir ce qu'elle cachait. */}
+      {/* `data-nav-row` : les catégories se parcourent aux flèches comme
+          n'importe quelle liste de la barre latérale (`useRowNavigation`),
+          Entrée en ouvre une. Tab passe ensuite dans les réglages eux-mêmes,
+          qui sont des champs de formulaire, donc focalisables nativement. */}
       <nav className="flex w-[10rem] shrink-0 flex-col gap-px border-r border-[var(--c-border)] p-2.5">
         <p className="eyebrow px-2 pb-1.5 pt-1">Paramètres</p>
         {CATEGORIES.map((c) => {
@@ -241,6 +245,9 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
               key={c.key}
               onClick={() => setCategory(c.key)}
               title={c.label}
+              tabIndex={-1}
+              data-nav-row=""
+              data-settings-category={c.key}
               data-active={active ? "true" : undefined}
               className="list-row h-7 min-h-0 gap-2 px-2 text-[12.5px]"
             >

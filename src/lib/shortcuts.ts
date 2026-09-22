@@ -68,11 +68,17 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
   // readline : elle ouvre la même palette, cadrée sur la sélection.
   { id: "objects.sendSelection", label: "Envoyer la sélection vers…", defaultKey: "Ctrl+Shift+Alt+K", bubblesThroughTerminal: true },
 
-  // Tool tabs and panels.
-  { id: "fleet.open", label: "Opérations de flotte — exécuter sur plusieurs hôtes…", defaultKey: "Ctrl+Shift+O", bubblesThroughTerminal: true },
+  // Les onglets-outils qui n'ont **pas** de bouton dans la barre latérale.
+  //
+  // « Opérations de flotte » (Ctrl+Maj+O), « Bases de données » (Ctrl+Maj+Q)
+  // et « Diagnostic réseau » (Ctrl+Maj+D) étaient ici : trois actions qui
+  // ouvraient exactement ce que leur bouton de la barre ouvre déjà, donc deux
+  // chemins pour la même chose, dont un seul suivait une logique. Elles sont
+  // parties au profit des raccourcis de panneaux ci-dessous (position,
+  // voisin, ou nom dans la palette), et un test empêche d'en rouvrir une.
+  // « Activité », elle, n'a pas de bouton : c'est un onglet, et c'est le seul
+  // accès direct.
   { id: "activity.open", label: "Activité — qui a fait quoi, où, quand…", defaultKey: "Ctrl+Shift+A", bubblesThroughTerminal: true },
-  { id: "database.open", label: "Bases de données", defaultKey: "Ctrl+Shift+Q", bubblesThroughTerminal: true },
-  { id: "netdiag.open", label: "Diagnostic réseau — ping, DNS, TCP, HTTP…", defaultKey: "Ctrl+Shift+D", bubblesThroughTerminal: true },
 
   // Broadcast is turned *off* from inside a terminal as often as it is turned
   // on — a shortcut that only worked outside one would miss half its use.
@@ -95,20 +101,32 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
   { id: "focus.nextZone", label: "Zone suivante (barre, panneau, contenu, colonne droite)", defaultKey: "F6", bubblesThroughTerminal: true },
   { id: "focus.prevZone", label: "Zone précédente", defaultKey: "Shift+F6", bubblesThroughTerminal: true },
 
-  // Les panneaux de la barre latérale, par position : Alt+1 est le premier
-  // bouton *visible*, donc la numérotation suit les boutons masqués dans les
-  // réglages, et l'infobulle de chaque bouton dit la sienne. Pas
-  // `Ctrl+Maj+chiffre` : Maj est retiré de la rangée des chiffres par
+  // Les panneaux de la barre latérale, sur trois gestes complémentaires —
+  // et **un seul chemin par panneau**, c'est ce qui a fait partir les trois
+  // actions supprimées plus haut :
+  //
+  // - **par position**, Alt+1…9 puis Alt+0 pour le dixième (la convention des
+  //   navigateurs) — sur les boutons *visibles*, donc la numérotation suit ce
+  //   qui est masqué dans les réglages, et chaque infobulle dit la sienne ;
+  // - **de proche en proche**, Alt+Page suiv./préc., qui atteint les
+  //   onzième et douzième quel que soit l'ordre ;
+  // - **par son nom**, dans la palette (`Ctrl+K`), où chaque panneau a son
+  //   entrée avec sa combinaison en indice.
+  //
+  // Pas `Ctrl+Maj+chiffre` : Maj est retiré de la rangée des chiffres par
   // `comboFromEvent` (AZERTY), ce serait `Ctrl+chiffre`, déjà les onglets.
   // Alt+chiffre est `digit-argument` dans readline — un préfixe de
   // répétition que personne ne tape, et que ces actions prennent.
-  ...Array.from({ length: 9 }, (_, i) => ({
+  ...Array.from({ length: 10 }, (_, i) => ({
     id: `sidebar.panel${i + 1}`,
     label: `Ouvrir le panneau n° ${i + 1} de la barre latérale`,
-    defaultKey: `Alt+${i + 1}`,
+    // Le dixième sur `Alt+0`, après le neuvième.
+    defaultKey: `Alt+${(i + 1) % 10}`,
     bubblesThroughTerminal: true as const,
     paletteHidden: true as const,
   })),
+  { id: "sidebar.nextPanel", label: "Panneau suivant dans la barre latérale", defaultKey: "Alt+PageDown", bubblesThroughTerminal: true },
+  { id: "sidebar.prevPanel", label: "Panneau précédent dans la barre latérale", defaultKey: "Alt+PageUp", bubblesThroughTerminal: true },
 ];
 
 export function defaultShortcuts(): Record<string, string> {

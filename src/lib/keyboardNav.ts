@@ -74,3 +74,13 @@ export function isTypingKey(e: { key: string; ctrlKey: boolean; metaKey: boolean
 export function sidebarButtonAt<T>(visible: readonly T[], position: number): T | null {
   return position >= 1 && position <= visible.length ? visible[position - 1] : null;
 }
+
+/** Le panneau voisin, en boucle — ce qu'Alt+Page suiv./préc. ouvre. Un
+ * panneau courant hors de la liste (les Paramètres, qui n'ont pas de bouton
+ * masquable) entre par le premier ou par le dernier. */
+export function neighbourPanel<T>(visible: readonly T[], current: T | null, dir: 1 | -1): T | null {
+  if (visible.length === 0) return null;
+  const idx = current === null ? -1 : visible.indexOf(current);
+  if (idx === -1) return dir === 1 ? visible[0] : visible[visible.length - 1];
+  return visible[(idx + dir + visible.length) % visible.length];
+}

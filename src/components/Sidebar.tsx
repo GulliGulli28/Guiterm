@@ -73,10 +73,15 @@ export function Sidebar({ panel, onPanelChange, ctx, actions }: SidebarProps) {
   // cul-de-sac, on cocherait des machines sans avoir où lancer quoi que ce
   // soit. Un clic continue donc de donner un écran utilisable, comme quand ces
   // deux boutons n'ouvraient qu'un onglet.
+  // Ouvrir un panneau **et y aller** : rester sur la bande de boutons après
+  // Entrée obligeait à un F6 de plus pour lire ce qu'on vient d'ouvrir. Le
+  // conteneur n'existe qu'au rendu suivant, d'où la trame d'attente.
+  const focusPanel = () => requestAnimationFrame(() => panelRef.current?.focus());
   const activate = (id: SidebarButtonId) => {
     onPanelChange(id);
     if (id === "fleet") actions.openFleet();
     if (id === "netdiag") actions.openNetDiag();
+    focusPanel();
   };
 
   return (
@@ -136,7 +141,7 @@ export function Sidebar({ panel, onPanelChange, ctx, actions }: SidebarProps) {
         })}
         <div className="mt-auto">
           <button
-            onClick={() => onPanelChange(panel === "settings" ? "hosts" : "settings")}
+            onClick={() => { onPanelChange(panel === "settings" ? "hosts" : "settings"); focusPanel(); }}
             tabIndex={-1}
             data-nav-row=""
             data-sidebar-button="settings"

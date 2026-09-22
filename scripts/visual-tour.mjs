@@ -769,6 +769,75 @@ const scenes = [
     await page.keyboard.press("Alt+2");
     await settle(page, 300);
   }],
+  // Tous les panneaux sont atteignables : Alt+0 ouvre le dixième, Alt+Page
+  // suiv./préc. atteint les onzième et douzième (Diagnostic réseau,
+  // GuiVault), et la palette les liste tous par leur nom.
+  ["48-clavier-tous-les-panneaux", async (page) => {
+    const panel = () => page.evaluate(() => document.querySelector("[data-sidebar-panel]")?.getAttribute("data-sidebar-panel"));
+    const zone = () => page.evaluate(() => document.activeElement?.getAttribute("data-focus-zone"));
+    await page.keyboard.press("Alt+0");
+    await settle(page, 400);
+    if ((await panel()) !== "runbook") throw new Error(`Alt+0 devrait ouvrir le dixième panneau (Runbooks) : ${await panel()}`);
+    if ((await zone()) !== "sidebar-panel") throw new Error("Alt+0 n'a pas donné le focus au panneau");
+    await page.keyboard.press("Alt+PageDown");
+    await settle(page, 500);
+    if ((await panel()) !== "netdiag") throw new Error(`Alt+Page suiv. : ${await panel()}`);
+    await page.keyboard.press("Alt+PageDown");
+    await settle(page, 500);
+    if ((await panel()) !== "guivault") throw new Error(`Alt+Page suiv. ×2 : ${await panel()}`);
+    await page.keyboard.press("Alt+PageUp");
+    await settle(page, 400);
+    if ((await panel()) !== "netdiag") throw new Error(`Alt+Page préc. : ${await panel()}`);
+    // Et par son nom dans la palette.
+    await page.keyboard.press("Control+k");
+    await settle(page, 300);
+    await page.keyboard.type("panneau");
+    await settle(page, 200);
+    const rows = await page.evaluate(() => Array.from(document.querySelectorAll(".modal button")).map((b) => b.querySelector("span")?.textContent ?? ""));
+    for (const expected of ["Panneau — Runbooks", "Panneau — Diagnostic réseau", "Panneau — GuiVault"]) {
+      if (!rows.includes(expected)) throw new Error(`« ${expected} » absent de la palette : ${JSON.stringify(rows)}`);
+    }
+    await page.keyboard.type(" clés");
+    await settle(page, 200);
+    await page.keyboard.press("Enter");
+    await settle(page, 500);
+    if ((await panel()) !== "keychain" || (await zone()) !== "sidebar-panel") throw new Error(`la palette n'a pas ouvert et focalisé le panneau : ${await panel()} / ${await zone()}`);
+  }],
+  // Dans la bande, Entrée ouvre le panneau **et y va** ; dans les
+  // Paramètres, ↑/↓ et Entrée passent d'une catégorie à l'autre.
+  ["49-clavier-parametres", async (page) => {
+    await page.keyboard.press("Escape");
+    await settle(page, 200);
+    await page.keyboard.press("F6");
+    await settle(page, 150);
+    await page.keyboard.press("Home");
+    await page.keyboard.press("Enter");
+    await settle(page, 400);
+    const afterEnter = await page.evaluate(() => ({
+      panel: document.querySelector("[data-sidebar-panel]")?.getAttribute("data-sidebar-panel"),
+      zone: document.activeElement?.getAttribute("data-focus-zone"),
+    }));
+    if (afterEnter.panel !== "knownHosts" || afterEnter.zone !== "sidebar-panel") throw new Error(`Entrée dans la bande : ${JSON.stringify(afterEnter)}`);
+    // Les paramètres : le focus arrive dedans, ↓ et Entrée changent de
+    // catégorie, et le titre de droite suit.
+    await page.keyboard.press("Control+,");
+    await settle(page, 500);
+    const current = () => page.evaluate(() => document.querySelector("[data-settings-category][data-active='true']")?.getAttribute("data-settings-category"));
+    const first = await current();
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
+    await settle(page, 300);
+    const moved = await current();
+    if (!first || moved === first) throw new Error(`↑/↓ + Entrée ne changent pas de catégorie : ${first} → ${moved}`);
+    const heading = await page.evaluate(() => document.querySelector("[data-sidebar-panel='settings'] .sidebar-scroll p")?.textContent?.trim());
+    const label = await page.evaluate((k) => document.querySelector(`[data-settings-category='${k}']`)?.textContent?.trim(), moved);
+    if (heading !== label) throw new Error(`le contenu ne suit pas la catégorie : « ${heading} » pour « ${label} »`);
+    await page.keyboard.press("Control+,");
+    await settle(page, 400);
+    await page.keyboard.press("Alt+2");
+    await settle(page, 300);
+  }],
 ];
 
 try {

@@ -39,9 +39,9 @@ import { VaultBrowserPanel } from "./components/VaultBrowserPanel";
 import { paletteRows } from "./lib/vaultBrowse";
 import { KIND_LABELS as VAULT_KIND_LABELS } from "./lib/vaultTree";
 import { copySecret } from "./lib/secretClipboard";
-import { sidebarButtonAt } from "./lib/keyboardNav";
+import { neighbourPanel, sidebarButtonAt } from "./lib/keyboardNav";
 import { cycleZone, focusZone } from "./lib/focusZonesDom";
-import { SIDEBAR_BUTTONS, isSidebarButtonVisible } from "./lib/sidebarButtons";
+import { SIDEBAR_BUTTONS, isSidebarButtonVisible, type SidebarButtonId } from "./lib/sidebarButtons";
 import { SnippetPicker } from "./components/SnippetPicker";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { VaultUnlockModal } from "./components/VaultUnlockModal";
@@ -513,12 +513,7 @@ export default function App() {
       else void startActiveRecording();
     },
     "terminal.exportScrollback": () => { void exportActiveScrollback(); },
-    "fleet.open": () => openFleetTab(),
     "activity.open": () => openActivity(),
-    // No source: this machine, which is the "do *I* reach it" half of the
-    // question. Opening from a host's menu preselects that host instead.
-    "netdiag.open": () => openNetdiagTab(null),
-    "database.open": () => { setSidebarVisible(true); setSidebarPanel("database"); },
     "broadcast.toggle": () => toggleBroadcastMode(),
     /** Le bus d'objets au clavier : ce qui est surligné dans le terminal actif,
      * offert aux autres modules.
@@ -559,22 +554,28 @@ export default function App() {
     "focus.terminal": () => focusTerminal(),
     "focus.nextZone": () => cycleZone(1, focusTerminal),
     "focus.prevZone": () => cycleZone(-1, focusTerminal),
-    // Alt+N : le n-ième bouton visible. Le panneau déjà ouvert et focalisé
-    // rend la main au terminal — un seul geste pour l'aller et le retour.
-    ...Object.fromEntries(Array.from({ length: 9 }, (_, i) => [
+    // Alt+N : le n-ième bouton visible (Alt+0 = le dixième). Le panneau déjà
+    // ouvert et focalisé rend la main au terminal — un seul geste pour
+    // l'aller et le retour.
+    ...Object.fromEntries(Array.from({ length: 10 }, (_, i) => [
       `sidebar.panel${i + 1}`,
       () => {
-        const visible = SIDEBAR_BUTTONS.filter((b) => isSidebarButtonVisible(b.id, preferences.hiddenSidebarButtons));
-        const button = sidebarButtonAt(visible, i + 1);
+        const button = sidebarButtonAt(visibleSidebarButtons, i + 1);
         if (!button) return;
         const panelHasFocus = !!document.activeElement?.closest('[data-focus-zone="sidebar-panel"]');
         if (sidebarVisible && sidebarPanel === button.id && panelHasFocus) { focusTerminal(); return; }
-        showTargetsPanel(button.id);
-        if (button.id === "fleet") openFleetTab();
-        if (button.id === "netdiag") openNetdiagTab(null);
-        focusSidebarPanelSoon();
+        openSidebarPanel(button.id);
       },
     ])),
+    // Et de proche en proche, pour les panneaux au-delà du dixième.
+    "sidebar.nextPanel": () => {
+      const next = neighbourPanel(visibleSidebarButtons.map((b) => b.id), currentPanelId(), 1);
+      if (next) openSidebarPanel(next);
+    },
+    "sidebar.prevPanel": () => {
+      const prev = neighbourPanel(visibleSidebarButtons.map((b) => b.id), currentPanelId(), -1);
+      if (prev) openSidebarPanel(prev);
+    },
     "vault.paste": () => {
       if (!guivaultStatus?.configured || !guivaultStatus.unlocked) {
         reportError(guivaultStatus?.configured
@@ -588,6 +589,21 @@ export default function App() {
     },
   };
   useGlobalShortcuts(preferences.keyboardShortcuts, shortcutHandlers);
+
+  // ── Les panneaux de la barre latérale, au clavier ─────────────────────
+  const visibleSidebarButtons = SIDEBAR_BUTTONS.filter((b) => isSidebarButtonVisible(b.id, preferences.hiddenSidebarButtons));
+  /** Le panneau courant s'il a un bouton (les Paramètres n'en ont pas). */
+  const currentPanelId = (): SidebarButtonId | null =>
+    visibleSidebarButtons.find((b) => b.id === sidebarPanel)?.id ?? null;
+  /** Ouvre un panneau **et lui donne le focus** : ouvrir sans pouvoir y
+   * naviguer obligerait à reprendre la souris juste après. Les deux panneaux
+   * qui ont un onglet de travail l'ouvrent aussi, comme au clic. */
+  function openSidebarPanel(id: SidebarButtonId) {
+    showTargetsPanel(id);
+    if (id === "fleet") openFleetTab();
+    if (id === "netdiag") openNetdiagTab(null);
+    focusSidebarPanelSoon();
+  }
 
   // ── Le focus, entre les zones ─────────────────────────────────────────
   // Le terminal de l'onglet actif, sinon le contenu lui-même (un onglet SQL,
@@ -705,6 +721,16 @@ export default function App() {
       hint: h.tags.length > 0 ? h.tags.join(" · ") : "Hôte",
       keywords: [...h.tags, h.address, h.username].join(" "),
       run: () => openTab("terminal", h),
+    })),
+    // Chaque panneau de la barre, par son nom : c'est ce qui rend les
+    // douzièmes atteignables au clavier quand les dix positions d'Alt+chiffre
+    // sont prises, et ce qui évite d'avoir à retenir une position.
+    ...visibleSidebarButtons.map((b, i) => ({
+      id: `sidebar.open.${b.id}`,
+      label: `Panneau — ${b.label}`,
+      hint: (preferences.keyboardShortcuts[`sidebar.panel${i + 1}`] || undefined)?.replace("Shift", "Maj"),
+      keywords: b.hint ?? "",
+      run: () => openSidebarPanel(b.id),
     })),
     // "Tester la joignabilité" used to be listed here. It is now `netdiag.open`
     // among the shortcut actions above, which renders it with its combo — and

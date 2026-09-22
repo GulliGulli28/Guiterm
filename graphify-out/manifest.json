@@ -690,8 +690,8 @@
     "semantic_hash": ""
   },
   "src/App.tsx": {
-    "mtime": 1790071457.2825944,
-    "ast_hash": "56a1f487888cd6c857ca62bb761520ac",
+    "mtime": 1790088775.86341,
+    "ast_hash": "0a13f42728191e62ac0aa807bf9cac6c",
     "semantic_hash": ""
   },
   "src/components/ActivityTab.tsx": {
@@ -765,8 +765,8 @@
     "semantic_hash": ""
   },
   "src/components/CommandPalette.tsx": {
-    "mtime": 1789379222.056287,
-    "ast_hash": "d5d5593791983a06db28e14d1a196de6",
+    "mtime": 1790088629.4270499,
+    "ast_hash": "ddcdfb0a02251e6414c0fb0692f0fed9",
     "semantic_hash": ""
   },
   "src/components/ConfirmDialog.tsx": {
@@ -895,8 +895,8 @@
     "semantic_hash": ""
   },
   "src/components/SettingsPanel.tsx": {
-    "mtime": 1789401474.7273536,
-    "ast_hash": "667a8221fb923040d878ef87a751881c",
+    "mtime": 1790088388.3708947,
+    "ast_hash": "ed615363be8c97cce046a7feab73c54a",
     "semantic_hash": ""
   },
   "src/components/SftpPanel.tsx": {
@@ -905,8 +905,8 @@
     "semantic_hash": ""
   },
   "src/components/Sidebar.tsx": {
-    "mtime": 1790072252.861719,
-    "ast_hash": "6040ab4b70b18f254faeed571521e373",
+    "mtime": 1790088442.5726924,
+    "ast_hash": "f1c7e4b51fb6e36d1de719a1cae78fe4",
     "semantic_hash": ""
   },
   "src/components/SnippetPicker.tsx": {
@@ -1350,13 +1350,13 @@
     "semantic_hash": ""
   },
   "src/lib/shortcuts.test.ts": {
-    "mtime": 1788879175.2733028,
-    "ast_hash": "c98cad870fbadcdf4a9e87bb5319f3ec",
+    "mtime": 1790088775.864601,
+    "ast_hash": "657fc63fe3219f52f28dba5c05badb5f",
     "semantic_hash": ""
   },
   "src/lib/shortcuts.ts": {
-    "mtime": 1790070740.4399924,
-    "ast_hash": "96b2674fea48f932d2122b285e3c5935",
+    "mtime": 1790088815.7718055,
+    "ast_hash": "f979cde9bce54909c24add990e0ce853",
     "semantic_hash": ""
   },
   "src/lib/sidebarButtons.test.ts": {
@@ -1625,8 +1625,8 @@
     "semantic_hash": ""
   },
   "docs/dev-history.md": {
-    "mtime": 1790072407.6065714,
-    "ast_hash": "3af492f1c84a9b449d15d6aace94d305",
+    "mtime": 1790089242.704291,
+    "ast_hash": "c86b9e945a1a7838be5427cbf3a3fa8e",
     "semantic_hash": ""
   },
   "index.html": {
@@ -2145,8 +2145,8 @@
     "semantic_hash": ""
   },
   "scripts/visual-tour.mjs": {
-    "mtime": 1790072017.208504,
-    "ast_hash": "15efacae8210e48b2269006b685a5a64",
+    "mtime": 1790088629.427647,
+    "ast_hash": "bc4c54726f35972f9781063042e504ac",
     "semantic_hash": ""
   },
   "src-tauri/src/commands/guivault.rs": {
@@ -2335,13 +2335,13 @@
     "semantic_hash": ""
   },
   "src/lib/keyboardNav.test.ts": {
-    "mtime": 1790070511.9958863,
-    "ast_hash": "2721285679953bf5d11436d6f95943bd",
+    "mtime": 1790088452.8029811,
+    "ast_hash": "1981a27dfee83b31a8cba3a4f3460252",
     "semantic_hash": ""
   },
   "src/lib/keyboardNav.ts": {
-    "mtime": 1790070494.767836,
-    "ast_hash": "428168bc8b6586fcd2b95222d6fbad1b",
+    "mtime": 1790088388.3693857,
+    "ast_hash": "521d847e8e62f3f3dc80f2e618dba2df",
     "semantic_hash": ""
   },
   "src/lib/menuKeyboard.ts": {

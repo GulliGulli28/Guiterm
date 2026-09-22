@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { isTypingKey, nextZone, parentRow, sidebarButtonAt, stepCursor } from "./keyboardNav";
+import { isTypingKey, neighbourPanel, nextZone, parentRow, sidebarButtonAt, stepCursor } from "./keyboardNav";
 
 describe("nextZone", () => {
   it("tourne dans l'ordre de l'écran, en sautant les zones absentes", () => {
@@ -73,5 +73,19 @@ describe("sidebarButtonAt", () => {
     expect(sidebarButtonAt(["hosts", "sftp"], 2)).toBe("sftp");
     expect(sidebarButtonAt(["hosts", "sftp"], 3)).toBeNull();
     expect(sidebarButtonAt(["hosts", "sftp"], 0)).toBeNull();
+  });
+});
+
+describe("neighbourPanel", () => {
+  const visible = ["hosts", "sftp", "guivault"];
+  it("tourne en boucle dans les deux sens", () => {
+    expect(neighbourPanel(visible, "hosts", 1)).toBe("sftp");
+    expect(neighbourPanel(visible, "guivault", 1)).toBe("hosts");
+    expect(neighbourPanel(visible, "hosts", -1)).toBe("guivault");
+  });
+  it("un panneau sans bouton (les Paramètres) entre par le bord", () => {
+    expect(neighbourPanel(visible, null, 1)).toBe("hosts");
+    expect(neighbourPanel(visible, null, -1)).toBe("guivault");
+    expect(neighbourPanel([], "hosts", 1)).toBeNull();
   });
 });

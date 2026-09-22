@@ -1,4 +1,5 @@
 import { describe, expect, it } from "vitest";
+import { SIDEBAR_BUTTONS } from "./sidebarButtons";
 import {
   SHORTCUT_ACTIONS,
   comboConflicts,
@@ -46,6 +47,57 @@ describe("le catalogue d'actions", () => {
       seen.set(action.defaultKey, action.id);
     }
     expect(clashes).toEqual([]);
+  });
+
+  /** Le test au-dessus compare les chaînes ; celui-ci compare ce que
+   * `comboFromEvent` produira réellement. La différence n'est pas théorique :
+   * Maj est **retiré** de la rangée des chiffres (AZERTY, voir
+   * `comboFromEvent`), donc un futur `Ctrl+Maj+2` arriverait comme `Ctrl+2`
+   * et masquerait silencieusement « aller à l'onglet 2 ». Deux actions
+   * distinctes à l'écrit, une seule au clavier. */
+  it("n'a pas deux actions qui arrivent sur la même combinaison une fois normalisées", () => {
+    const normalise = (combo: string) => {
+      const parts = combo.split("+");
+      const key = parts[parts.length - 1];
+      const isDigit = /^\d$/.test(key);
+      const mods = parts.slice(0, -1).filter((m) => !(isDigit && m === "Shift"));
+      return [...mods, key].join("+");
+    };
+    const seen = new Map<string, string>();
+    const clashes: string[] = [];
+    for (const [id, combo] of Object.entries(defaultShortcuts())) {
+      const n = normalise(combo);
+      const previous = seen.get(n);
+      if (previous) clashes.push(`${n} : ${previous} et ${id}`);
+      seen.set(n, id);
+    }
+    expect(clashes).toEqual([]);
+  });
+
+  /** Chaque bouton de la barre latérale doit être atteignable : les dix
+   * premières positions ont leur `Alt+chiffre`, les suivantes passent par
+   * « panneau suivant/précédent » — sans quoi un panneau ajouté en
+   * onzième position n'aurait aucun chemin clavier direct. */
+  it("couvre la barre latérale : dix positions, et de quoi atteindre les autres", () => {
+    const positional = SHORTCUT_ACTIONS.filter((a) => /^sidebar\.panel\d+$/.test(a.id));
+    expect(positional.length).toBe(10);
+    expect(positional.map((a) => a.defaultKey)).toEqual(["Alt+1", "Alt+2", "Alt+3", "Alt+4", "Alt+5", "Alt+6", "Alt+7", "Alt+8", "Alt+9", "Alt+0"]);
+    for (const id of ["sidebar.nextPanel", "sidebar.prevPanel"]) {
+      expect(SHORTCUT_ACTIONS.some((a) => a.id === id), `${id} manque`).toBe(true);
+    }
+  });
+
+  /** Un panneau de la barre latérale a **un** chemin clavier : les actions
+   * `sidebar.*`. Trois actions doublonnaient (« Bases de données » sur
+   * Ctrl+Maj+Q *et* sur Alt+6, idem flotte et diagnostic) : deux gestes pour
+   * le même écran, dont un seul suivait la numérotation de la barre. Ce test
+   * empêche d'en rouvrir une. */
+  it("ne donne pas à un panneau de la barre une seconde porte hors de la famille sidebar.*", () => {
+    const offenders = SHORTCUT_ACTIONS
+      .filter((a) => !a.id.startsWith("sidebar."))
+      .filter((a) => SIDEBAR_BUTTONS.some((b) => a.label.toLowerCase().startsWith(b.label.toLowerCase())))
+      .map((a) => `${a.id} (${a.label})`);
+    expect(offenders).toEqual([]);
   });
 
   it("garde le bus d'objets remontant à travers un terminal", () => {

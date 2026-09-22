@@ -2570,3 +2570,49 @@ liste, F6, Ctrl+Maj+Espace, Ctrl+, aller-retour), et un scénario E2E dans
 la vraie webview (tout traverse xterm, le focus arrive dans son textarea).
 Les lookups E2E des boutons de la barre passent par
 `data-sidebar-button`, l'infobulle portant maintenant le raccourci.
+
+### Deuxième passe : couvrir les douze panneaux, et retirer les doublons (2026-09-22)
+
+Trois manques et un doublon, relevés à l'usage.
+
+**Douze boutons, neuf raccourcis.** Runbooks, Diagnostic réseau et GuiVault
+(10ᵉ, 11ᵉ, 12ᵉ) n'avaient aucune position. D'où trois gestes
+complémentaires, un seul chemin par panneau : **Alt+1…9 puis Alt+0** pour
+les dix premiers (la convention des navigateurs), **Alt+Page suiv./préc.**
+pour aller de proche en proche jusqu'aux derniers, et **chaque panneau dans
+la palette** (« Panneau — Runbooks ») avec sa combinaison en indice. La
+palette filtre désormais **mot à mot** comme les arborescences de l'app :
+« panneau clés » trouve « Panneau — Clés », ce que la recherche d'un seul
+bloc manquait à cause du tiret.
+
+**Le doublon.** `Ctrl+Maj+Q` (« Bases de données ») et `Alt+6` ouvraient le
+même panneau ; idem `Ctrl+Maj+O` pour la flotte et `Ctrl+Maj+D` pour le
+diagnostic. Deux chemins pour le même écran, dont un seul suivait la
+numérotation de la barre — et le test de collisions ne pouvait rien y voir,
+puisque ce ne sont pas les mêmes *combinaisons*. Les trois actions sont
+parties ; `activity.open` reste, c'est le seul onglet-outil sans bouton dans
+la barre. Un test le tient : aucune action hors de la famille `sidebar.*` ne
+peut porter le libellé d'un bouton de la barre.
+
+Deux garde-fous ajoutés, tous deux vérifiés en réintroduisant le bug :
+- **collision après normalisation**, et pas seulement sur la chaîne écrite :
+  `comboFromEvent` retire Maj de la rangée des chiffres (AZERTY), donc un
+  futur `Ctrl+Maj+2` arriverait comme `Ctrl+2` et masquerait « aller à
+  l'onglet 2 » en silence. Deux actions distinctes à l'écrit, une seule au
+  clavier — le test des chaînes passait, celui-ci échoue ;
+- **couverture de la barre** : dix positions déclarées, plus « panneau
+  suivant/précédent ».
+
+**Entrée dans la bande ouvre *et* va dans le panneau.** Rester sur la bande
+obligeait à un F6 de plus pour lire ce qu'on venait d'ouvrir. `activate`
+(donc aussi le clic à la souris) donne le focus au panneau.
+
+**Les catégories des Paramètres** sont des lignes comme les autres
+(`data-nav-row`) : ↑/↓ les parcourent, Entrée en ouvre une, Tab passe
+ensuite dans les réglages eux-mêmes — ce sont des champs de formulaire,
+focalisables nativement. Rien de spécifique au panneau : c'est le hook
+générique qui les prend.
+
+Scènes `48` (Alt+0, Alt+Page suiv./préc., les trois panneaux dans la
+palette, ouverture par son nom) et `49` (Entrée dans la bande → focus
+panneau ; catégories des Paramètres aux flèches, le contenu suit).
