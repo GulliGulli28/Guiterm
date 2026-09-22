@@ -56,12 +56,16 @@ describe("browseSections", () => {
     ]);
   });
 
-  it("un filtre par type ne garde que ce type et ses dossiers, et tait un vault qui n'en a pas", () => {
+  it("un filtre par type ne garde que ce type, les dossiers qui en contiennent, et tait un vault qui n'en a pas", () => {
     const sections = browseSections(all, "note");
     expect(sections.map((s) => s.name)).toEqual(["Personnel"]);
-    expect(sections[0].entities.map((e) => e.kind).sort()).toEqual(["group", "group", "note"]);
+    // La note est à la racine : aucun dossier n'a de raison de rester.
+    expect(sections[0].entities.map((e) => e.kind)).toEqual(["note"]);
     const logins = browseSections(all, "login");
-    expect(logins.map((s) => s.entities.filter((e) => e.kind === "login").map((e) => e.name))).toEqual([["GitHub"], ["admin"]]);
+    expect(logins.map((s) => s.entities.map((e) => e.name))).toEqual([["Prod", "Bases", "GitHub"], ["Comptes", "admin"]]);
+    // Les hôtes : « Prod » reste (web-01 y est), « Bases » part.
+    const hosts = browseSections(all, "host");
+    expect(hosts.map((s) => s.entities.map((e) => e.name))).toEqual([["Prod", "web-01"]]);
   });
 
   it("la recherche de l'arbre trouve un identifiant par son utilisateur, son site ou son tag", () => {

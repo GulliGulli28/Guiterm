@@ -409,6 +409,31 @@ fn open_cached(manager: &Manager, cache: &Cache, vault: VaultId, id: Uuid) -> an
     open(&item.item_type, &plain)?.ok_or_else(|| anyhow::anyhow!("cet item n'a rien à copier"))
 }
 
+/// Un champ avec sa valeur — ce qu'un item déplié montre.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct FieldValue {
+    #[serde(flatten)]
+    pub field: Field,
+    /// Vide pour un champ TOTP : le code se demande à [`totp`], le secret
+    /// lui-même n'a rien à faire à l'écran.
+    pub value: String,
+}
+
+/// Tous les champs d'un item avec leurs valeurs, pour le montrer déplié —
+/// les secrets sont masqués par l'affichage, pas par ce qui traverse.
+pub fn read_item(manager: &Manager, cache: &Cache, vault: VaultId, id: Uuid) -> anyhow::Result<Vec<FieldValue>> {
+    let opened = open_cached(manager, cache, vault, id)?;
+    Ok(opened
+        .fields
+        .into_iter()
+        .map(|(field, value)| {
+            let value = if field.totp { String::new() } else { value };
+            FieldValue { field, value }
+        })
+        .collect())
+}
+
 /// La valeur d'**un** champ, au moment où l'utilisateur la demande.
 pub fn read_field(manager: &Manager, cache: &Cache, vault: VaultId, id: Uuid, key: &str) -> anyhow::Result<String> {
     let opened = open_cached(manager, cache, vault, id)?;
@@ -500,6 +525,16 @@ mod tests {
         // Les valeurs sont à côté, jamais dans l'`Entry` sérialisée.
         assert_eq!(values["password"], "s3cret");
         assert!(!serde_json::to_string(&entry).unwrap().contains("s3cret"));
+    }
+
+    #[test]
+    fn a_field_value_flattens_its_field_and_hides_a_totp_secret() {
+        let fv = FieldValue { field: Field { key: "totp".into(), label: "Code TOTP".into(), secret: true, multiline: false, totp: true }, value: String::new() };
+        let json = serde_json::to_value(&fv).unwrap();
+        assert_eq!(json["key"], "totp");
+        assert_eq!(json["totp"], true);
+        assert_eq!(json["value"], "");
+        assert!(json.get("field").is_none(), "aplati, pas un sous-objet");
     }
 
     #[test]

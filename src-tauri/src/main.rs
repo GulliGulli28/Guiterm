@@ -326,6 +326,7 @@ fn main() {
             commands::guivault::guivault_switch_view,
             commands::guivault::guivault_list_entities,
             commands::guivault::guivault_browse,
+            commands::guivault::guivault_browse_item,
             commands::guivault::guivault_browse_field,
             commands::guivault::guivault_browse_totp,
             commands::guivault::guivault_transfer_entities,

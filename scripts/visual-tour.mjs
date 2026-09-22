@@ -489,12 +489,20 @@ const scenes = [
       labels: Array.from(document.querySelectorAll("[data-browse-fields] li")).map((li) => li.querySelector("span span")?.textContent ?? ""),
       totp: document.querySelector("[data-totp-code]")?.getAttribute("data-totp-code"),
       pasteButtons: document.querySelectorAll("[data-browse-fields] button[aria-label^='Coller']").length,
-      leaked: /valeur:/.test(document.querySelector("[data-vault-browser]")?.textContent ?? ""),
+      text: document.querySelector("[data-browse-fields]")?.textContent ?? "",
+      masked: document.querySelectorAll("[data-browse-value='masked']").length,
     }));
     if (fields.labels.join("|") !== "Utilisateur|Mot de passe|Code TOTP|Site") throw new Error(`champs de GitHub : ${JSON.stringify(fields.labels)}`);
     if (fields.totp !== "492817") throw new Error("le code TOTP ne s'affiche pas");
     if (fields.pasteButtons !== 8) throw new Error(`boutons Coller : ${fields.pasteButtons}`);
-    if (fields.leaked) throw new Error("une valeur de champ est affichée avant d'être demandée");
+    // Les valeurs sont là — l'utilisateur et le site en clair, le mot de
+    // passe masqué jusqu'à l'œil.
+    if (!/alice/.test(fields.text) || !/github\.com/.test(fields.text)) throw new Error(`valeurs en clair absentes : ${fields.text}`);
+    if (/s3cret/.test(fields.text) || fields.masked !== 1) throw new Error("le mot de passe devrait être masqué");
+    await page.locator("[data-browse-fields] button[aria-label='Afficher Mot de passe']").click();
+    await settle(page, 200);
+    const revealed = await page.evaluate(() => document.querySelector("[data-browse-fields]")?.textContent ?? "");
+    if (!/s3cret-hunter2/.test(revealed)) throw new Error("l'œil ne révèle pas le mot de passe");
     const footer = await page.evaluate(() => document.querySelector("[data-vault-browser]")?.textContent ?? "");
     if (!/Coller écrit dans web-01/.test(footer)) throw new Error(`le panneau ne dit pas dans quel terminal il colle : ${footer.slice(-80)}`);
     // Coller « Utilisateur », puis « Mot de passe » avec Entrée : la valeur
@@ -505,7 +513,68 @@ const scenes = [
     await page.locator("[data-browse-fields] button[aria-label='Coller Mot de passe puis Entrée']").click();
     await settle(page, 300);
     const written = await page.evaluate(() => (window.__tourWritten ?? []).join(""));
-    if (!/valeur:username/.test(written) || !/valeur:password\r/.test(written)) throw new Error(`collage dans le terminal : ${JSON.stringify(written)}`);
+    if (!/alice/.test(written) || !/s3cret-hunter2\r/.test(written)) throw new Error(`collage dans le terminal : ${JSON.stringify(written)}`);
+  }],
+  // Tout au clavier, sans quitter l'arbre : ↓ depuis la recherche, Entrée
+  // ouvre, ↓ descend dans les champs, Entrée colle, Espace révèle,
+  // Maj+Entrée colle puis Entrée — et le focus est resté dans l'arbre.
+  ["43a-coller-guivault-clavier", async (page) => {
+    // GitHub est resté ouvert de la scène précédente : le refermer (un clic
+    // sur son en-tête), puis repartir de la recherche.
+    await page.locator("[data-vault-browser] [data-vault-entity='GitHub'] > button").click();
+    await settle(page, 200);
+    await page.locator("[data-vault-browser] input[aria-label='Rechercher dans les vaults']").click();
+    await page.evaluate(() => { window.__tourWritten = []; });
+    await page.keyboard.press("ArrowDown");
+    await settle(page, 100);
+    // Le curseur est resté sur GitHub (le dernier item cliqué) : ↓ mène à
+    // Registre Docker, juste en dessous.
+    await page.keyboard.press("ArrowDown");
+    await settle(page, 60);
+    let cursor = await page.evaluate(() => document.querySelector("[data-browse-entity][data-cursor]")?.getAttribute("data-vault-entity"));
+    if (cursor !== "Registre Docker") throw new Error(`curseur après ↓ : ${cursor}`);
+    await page.keyboard.press("ArrowUp");
+    await settle(page, 60);
+    cursor = await page.evaluate(() => document.querySelector("[data-browse-entity][data-cursor]")?.getAttribute("data-vault-entity"));
+    if (cursor !== "GitHub") throw new Error(`curseur après ↑ : ${cursor}`);
+    await page.keyboard.press("Enter");
+    await settle(page, 400);
+    await page.keyboard.press("ArrowDown");
+    await settle(page, 100);
+    let field = await page.evaluate(() => document.querySelector("[data-browse-field][data-cursor]")?.getAttribute("data-browse-field"));
+    if (field !== "username") throw new Error(`champ sous le curseur : ${field}`);
+    await page.keyboard.press("Enter");
+    await settle(page, 200);
+    await page.keyboard.press("ArrowDown");
+    await settle(page, 100);
+    field = await page.evaluate(() => document.querySelector("[data-browse-field][data-cursor]")?.getAttribute("data-browse-field"));
+    if (field !== "password") throw new Error(`champ sous le curseur : ${field}`);
+    await page.keyboard.press("Space");
+    await settle(page, 100);
+    await page.keyboard.press("Shift+Enter");
+    await settle(page, 200);
+    const after = await page.evaluate(() => ({
+      written: (window.__tourWritten ?? []).join(""),
+      focus: document.activeElement?.getAttribute("role"),
+      shown: document.querySelector("[data-browse-field='password'] [data-browse-value]")?.getAttribute("data-browse-value"),
+    }));
+    if (!/^alice/.test(after.written) || !/s3cret-hunter2\r$/.test(after.written)) throw new Error(`collage au clavier : ${JSON.stringify(after.written)}`);
+    if (after.focus !== "tree") throw new Error(`le focus a quitté l'arbre : ${after.focus}`);
+    if (after.shown !== "shown") throw new Error("Espace n'a pas révélé le mot de passe");
+    // ↓ continue après le dernier champ vers l'item suivant.
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowDown");
+    await settle(page, 100);
+    cursor = await page.evaluate(() => document.querySelector("[data-browse-entity][data-cursor]")?.getAttribute("data-vault-entity"));
+    if (cursor !== "Registre Docker") throw new Error(`curseur après les champs : ${cursor}`);
+    // Une lettre ramène à la recherche.
+    await page.keyboard.press("r");
+    await settle(page, 200);
+    const search = await page.evaluate(() => ({ focus: document.activeElement?.getAttribute("aria-label"), value: document.activeElement?.value }));
+    if (search.focus !== "Rechercher dans les vaults" || search.value !== "r") throw new Error(`retour à la recherche : ${JSON.stringify(search)}`);
+    await page.keyboard.press("Escape");
+    await settle(page, 100);
   }],
   // Le filtre par type et la recherche.
   ["43b-coller-guivault-filtre", async (page) => {
@@ -513,6 +582,13 @@ const scenes = [
     await settle(page, 300);
     const only = await page.evaluate(() => Array.from(document.querySelectorAll("[data-vault-browser] [data-vault-entity]")).map((e) => e.getAttribute("data-vault-entity")));
     if (only.join("|") !== "GitHub|Registre Docker|Console cloud") throw new Error(`filtre Identifiants : ${JSON.stringify(only)}`);
+    // Sous « Notes », la note est à la racine : aucun dossier ne reste.
+    await page.locator("[data-vault-browser] button", { hasText: "Notes" }).click();
+    await settle(page, 300);
+    const folders = await page.evaluate(() => Array.from(document.querySelectorAll("[data-vault-browser] button[aria-label^='Replier']")).map((b) => b.getAttribute("aria-label")));
+    if (folders.join("|") !== "Replier Personnel") throw new Error(`filtre Notes garde des dossiers : ${JSON.stringify(folders)}`);
+    await page.locator("[data-vault-browser] button", { hasText: "Identifiants" }).click();
+    await settle(page, 300);
     await page.locator("[data-vault-browser] input[aria-label='Rechercher dans les vaults']").fill("robot");
     await settle(page, 300);
     const found = await page.evaluate(() => Array.from(document.querySelectorAll("[data-vault-browser] [data-vault-entity]")).map((e) => e.getAttribute("data-vault-entity")));

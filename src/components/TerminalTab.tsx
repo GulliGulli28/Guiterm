@@ -27,9 +27,11 @@ export interface TerminalTabHandle {
    * le *bracketed paste* si le programme au premier plan l'a demandé — une
    * note de trois lignes arrive d'un bloc, pas comme trois Entrées — et
    * les fins de ligne normalisées. `enter` ajoute la frappe d'Entrée après,
-   * pour un mot de passe qu'on veut valider dans la foulée. Sans terminal
-   * texte (RDP), le texte est tapé tel quel. */
-  paste: (text: string, enter: boolean) => void;
+   * pour un mot de passe qu'on veut valider dans la foulée. `focus` rend le
+   * focus au terminal après — pas depuis le clavier du panneau GuiVault, où
+   * l'on colle souvent plusieurs champs d'affilée. Sans terminal texte
+   * (RDP), le texte est tapé tel quel. */
+  paste: (text: string, enter: boolean, focus: boolean) => void;
   getScrollbackText: () => string;
   /** Ce que l'utilisateur a surligné, ou `null` s'il n'a rien surligné.
    *
@@ -230,7 +232,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
         const id = sessionIdRef.current;
         if (id) api.writeTerminal(id, new TextEncoder().encode(data));
       },
-      paste: (text: string, enter: boolean) => {
+      paste: (text: string, enter: boolean, focus: boolean) => {
         const term = termRef.current;
         const id = sessionIdRef.current;
         if (!term || !id) return;
@@ -239,7 +241,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
         // répercute comme elle le ferait d'un collage au clavier.
         term.paste(text);
         if (enter) api.writeTerminal(id, new TextEncoder().encode("\r"));
-        term.focus();
+        if (focus) term.focus();
       },
       getScrollbackText: () => (termRef.current ? scrollbackText(termRef.current) : ""),
       getSelection: () => termRef.current?.getSelection() || null,

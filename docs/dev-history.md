@@ -2478,6 +2478,30 @@ Le presse-papiers : `copySecret` efface la valeur au bout de trente secondes
 **si elle y est encore** — copier autre chose entre-temps n'est plus notre
 affaire.
 
+### Premier retour d'usage : les valeurs, les dossiers vides, le clavier
+
+Trois retouches après le premier essai réel :
+
+- **Les valeurs s'affichent.** Un item déplié ne montrait que ses champs ;
+  c'est frustrant pour un utilisateur ou une adresse qu'on veut juste lire.
+  `guivault_browse_item` rend les champs *avec* leurs valeurs à l'ouverture
+  (oubliées à la fermeture), les secrets masqués et révélables à l'œil.
+  L'arbre lui-même (`guivault_browse`) reste sans valeur.
+- **Un filtre par type ne garde que les dossiers qui en contiennent** —
+  « Identifiants » ne montre plus un dossier « Bases » vide.
+- **Le clavier : une seule zone.** La première version posait le focus sur
+  le premier bouton « Coller » à l'ouverture d'un item : les flèches ne
+  marchaient plus, et Espace sur le bouton collait *puis rendait le focus
+  au terminal* — on ne pouvait pas coller l'utilisateur puis le mot de
+  passe. Désormais l'arbre est la zone focalisable, ses boutons ont
+  `tabIndex={-1}`, le curseur parcourt en-têtes et champs comme une seule
+  liste (↑/↓, →/← ouvre/ferme, Entrée colle, Maj+Entrée colle puis
+  Entrée, Ctrl+C copie, Espace révèle), et `paste(text, enter, focus)`
+  prend un troisième paramètre : depuis le clavier, le focus reste dans
+  l'arbre ; à la souris et depuis la palette, il revient au terminal.
+  Scène `43a` du tour visuel : tout le parcours, avec l'assertion que
+  `document.activeElement` est toujours l'arbre à la fin.
+
 ### Ce qui n'est pas là
 
 Pas d'écriture (créer, modifier un identifiant) : l'interface web reste le

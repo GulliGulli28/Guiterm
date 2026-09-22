@@ -660,6 +660,12 @@ export interface GuiVaultBrowseEntry {
   fields: GuiVaultBrowseField[];
 }
 
+/** Un champ avec sa valeur, pour un item déplié dans le panneau. Vide pour
+ * un champ TOTP (`guivaultBrowseTotp` rend le code). */
+export interface GuiVaultBrowseValue extends GuiVaultBrowseField {
+  value: string;
+}
+
 export interface GuiVaultTotpCode {
   code: string;
   ttlSecs: number;

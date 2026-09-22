@@ -231,6 +231,15 @@ const responses: Record<string, Invoke> = {
     ];
   },
   guivault_browse_field: async (_cmd, args) => `valeur:${(args as { key?: string })?.key ?? ""}`,
+  // L'item déplié : les mêmes champs, avec leurs valeurs (le TOTP à vide, le
+  // code se demande à part).
+  guivault_browse_item: async (_cmd, args) => {
+    const a = args as { id?: string };
+    const f = (key: string, label: string, value: string, secret = false, multiline = false, totp = false) => ({ key, label, secret, multiline, totp, value });
+    if (a?.id === "b-l1") return [f("username", "Utilisateur", "alice"), f("password", "Mot de passe", "s3cret-hunter2", true), f("totp", "Code TOTP", "", true, false, true), f("uri:0", "Site", "https://github.com")];
+    if (a?.id === "b-n1") return [f("content", "Contenu", "1. Vérifier l'alerte\n2. Ouvrir un incident\n3. Prévenir l'astreinte N2", false, true)];
+    return [f("username", "Utilisateur", "valeur:username"), f("password", "Mot de passe", "valeur:password", true)];
+  },
   guivault_browse_totp: async () => ({ code: "492817", ttlSecs: 21, periodSecs: 30 }),
   // Ce qui suivrait un transfert : un dossier obligatoire, une clé, une
   // icône et un bastion proposés — de quoi voir les deux niveaux.

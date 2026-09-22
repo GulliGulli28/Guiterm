@@ -68,12 +68,9 @@ export function countByKind(entries: GuiVaultBrowseEntry[]): Partial<Record<GuiV
 
 /**
  * Les sections de l'arbre. Avec un filtre, seuls les items de ce type
- * restent — et les dossiers, qu'il faut pour les ranger (un dossier sans
- * rien dedans disparaît de l'arbre de lui-même, `buildVaultTreeSections`
- * ne garde pas un dossier vide quand une recherche est en cours ; sans
- * recherche il reste, et c'est voulu ici aussi : le filtre se lit alors
- * comme « ce vault n'a rien de ce type dans ce dossier »). Un vault qui n'a
- * aucun item du type voulu n'est pas listé du tout.
+ * restent, et les seuls dossiers gardés sont ceux qui en contiennent (eux
+ * ou un sous-dossier) — un dossier vide sous « Identifiants » ne dirait
+ * que « rien ici ». Un vault sans item du type voulu n'est pas listé.
  */
 export function browseSections(entries: GuiVaultBrowseEntry[], filter: BrowseFilter): VaultTreeSection[] {
   const groupsByVault = new Map<string, Map<string, GuiVaultBrowseEntry>>();
@@ -86,10 +83,25 @@ export function browseSections(entries: GuiVaultBrowseEntry[], filter: BrowseFil
     }
     groups.set(e.id, e);
   }
+  // Les dossiers à garder : la chaîne d'ancêtres de chaque item retenu.
+  const kept = new Set<string>();
+  if (filter !== "all") {
+    for (const e of entries) {
+      if (e.kind !== filter) continue;
+      const groups = groupsByVault.get(e.vaultId);
+      const seen = new Set<string>();
+      let current = e.parentId;
+      while (current && groups?.has(current) && !seen.has(current)) {
+        seen.add(current);
+        kept.add(current);
+        current = groups.get(current)!.parentId;
+      }
+    }
+  }
   const sections: VaultTreeSection[] = [];
   const byKey = new Map<string, VaultTreeSection>();
   for (const e of entries) {
-    if (filter !== "all" && e.kind !== filter && e.kind !== "group") continue;
+    if (filter !== "all" && e.kind !== filter && !(e.kind === "group" && kept.has(e.id))) continue;
     let section = byKey.get(e.vaultId);
     if (!section) {
       section = { key: e.vaultId, name: e.vaultName, entities: [] };
@@ -98,8 +110,7 @@ export function browseSections(entries: GuiVaultBrowseEntry[], filter: BrowseFil
     }
     section.entities.push(toEntity(e, groupsByVault.get(e.vaultId) ?? new Map()));
   }
-  // Avec un filtre, un vault qui n'a que des dossiers n'a rien à montrer.
-  return filter === "all" ? sections : sections.filter((s) => s.entities.some((e) => e.kind !== "group"));
+  return sections;
 }
 
 /** Ce que la palette liste : chaque item collable, avec son vault et son

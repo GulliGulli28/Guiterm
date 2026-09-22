@@ -454,7 +454,16 @@ pub async fn guivault_browse(state: State<'_, AppState>) -> Result<Vec<browse::E
     browse::list(&state.guivault, &cache).map_err(err)
 }
 
-/// La valeur d'un champ, au moment où l'utilisateur la copie ou la colle.
+/// Les champs d'un item avec leurs valeurs — ce que le panneau montre quand
+/// on le déplie (mots de passe masqués à l'écran, révélables).
+#[tauri::command]
+pub fn guivault_browse_item(state: State<'_, AppState>, vault_id: VaultId, id: Uuid) -> Result<Vec<browse::FieldValue>, String> {
+    let cache = state.guivault_browse.lock_recover();
+    browse::read_item(&state.guivault, &cache, vault_id, id).map_err(err)
+}
+
+/// La valeur d'un champ, au moment où l'utilisateur la copie ou la colle
+/// (la palette, qui ne montre rien avant).
 #[tauri::command]
 pub fn guivault_browse_field(state: State<'_, AppState>, vault_id: VaultId, id: Uuid, key: String) -> Result<String, String> {
     let cache = state.guivault_browse.lock_recover();

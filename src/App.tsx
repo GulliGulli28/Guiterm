@@ -571,13 +571,13 @@ export default function App() {
   const activeTerminalTab = tabs.find((t) => t.id === activeTabId);
   const activeTerminalHandle = activeTabId ? terminalRefs.current.get(activeTabId) : undefined;
   const pasteTargetLabel = activeTerminalHandle && activeTerminalTab ? activeTerminalTab.label : null;
-  const pasteIntoActiveTerminal = (text: string, enter: boolean) => {
+  const pasteIntoActiveTerminal = (text: string, enter: boolean, focusTerminal = true) => {
     const handle = activeTabId ? terminalRefs.current.get(activeTabId) : undefined;
     if (!handle) {
       reportError("Aucun terminal actif — ouvrir un terminal, puis réessayer (ou utiliser « Copier »).");
       return;
     }
-    handle.paste(text, enter);
+    handle.paste(text, enter, focusTerminal);
   };
   /** Les actions d'un item, pour la seconde palette : coller, coller puis
    * Entrée, copier — champ par champ, dans l'ordre où le panneau les montre. */
