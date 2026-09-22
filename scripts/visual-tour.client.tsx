@@ -15,7 +15,7 @@
 // `__TAURI_INTERNALS__.metadata` aussitôt.
 import type { Entry, Group, GroupId, Host, HostId, Workspace } from "../src/lib/types";
 
-type Invoke = (cmd: string, args?: Record<string, unknown>) => Promise<unknown>;
+type Invoke = (cmd: string, args?: Record<string, unknown> | Uint8Array | ArrayBuffer) => Promise<unknown>;
 
 const groups: Group[] = [
   { id: "g-prod" as GroupId, name: "Production", parentId: null, color: "rose" },
@@ -212,6 +212,26 @@ const responses: Record<string, Invoke> = {
     ];
   },
   guivault_transfer_entities: async (_cmd, args) => ((args as { ids?: string[] })?.ids ?? []).length,
+  // Coller depuis GuiVault : tout le compte, secrets de l'interface web
+  // compris, sans valeur — puis une valeur à la fois, et un code TOTP.
+  guivault_browse: async () => {
+    const f = (key: string, label: string, secret = false, multiline = false, totp = false) => ({ key, label, secret, multiline, totp });
+    return [
+      { id: "b-g1", vaultId: "v-perso", vaultName: "Personnel", kind: "group", name: "Comptes", parentId: null, tags: [], search: "", fields: [] },
+      { id: "b-l1", vaultId: "v-perso", vaultName: "Personnel", kind: "login", name: "GitHub", parentId: "b-g1", tags: ["dev"], search: "alice https://github.com", fields: [f("username", "Utilisateur"), f("password", "Mot de passe", true), f("totp", "Code TOTP", true, false, true), f("uri:0", "Site")] },
+      { id: "b-l2", vaultId: "v-perso", vaultName: "Personnel", kind: "login", name: "Registre Docker", parentId: "b-g1", tags: [], search: "robot+ci", fields: [f("username", "Utilisateur"), f("password", "Mot de passe", true)] },
+      { id: "b-n1", vaultId: "v-perso", vaultName: "Personnel", kind: "note", name: "Procédure astreinte", parentId: null, tags: ["ops"], search: "", fields: [f("content", "Contenu", false, true)] },
+      { id: "b-c1", vaultId: "v-perso", vaultName: "Personnel", kind: "card", name: "Visa pro", parentId: null, tags: [], search: "visa", fields: [f("number", "Numéro", true), f("expiration", "Expiration"), f("code", "Code de sécurité", true)] },
+      { id: "b-h1", vaultId: "v-perso", vaultName: "Personnel", kind: "host", name: "labo-1", parentId: null, tags: [], search: "10.0.0.12 glorin", fields: [f("sshCommand", "Commande SSH"), f("address", "Adresse"), f("username", "Utilisateur"), f("password", "Mot de passe", true)] },
+      { id: "e-1", vaultId: "v-infra", vaultName: "Équipe infra", kind: "group", name: "Production", parentId: null, tags: [], search: "", fields: [] },
+      { id: "e-2", vaultId: "v-infra", vaultName: "Équipe infra", kind: "host", name: "web-01", parentId: "e-1", tags: ["web"], search: "10.0.0.5 deploy", fields: [f("sshCommand", "Commande SSH"), f("address", "Adresse"), f("username", "Utilisateur"), f("password", "Mot de passe", true), f("env:API_TOKEN", "Variable API_TOKEN", true)] },
+      { id: "b-l3", vaultId: "v-infra", vaultName: "Équipe infra", kind: "login", name: "Console cloud", parentId: "e-1", tags: [], search: "infra@example.com https://console.example.com", fields: [f("username", "Utilisateur"), f("password", "Mot de passe", true)] },
+      { id: "e-4", vaultId: "v-infra", vaultName: "Équipe infra", kind: "key", name: "deploy-ed25519", parentId: null, tags: [], search: "", fields: [f("passphrase", "Passphrase", true), f("content", "Clé privée", true, true)] },
+      { id: "e-8", vaultId: "v-infra", vaultName: "Équipe infra", kind: "snippet", name: "Journal nginx", parentId: null, tags: [], search: "", fields: [f("command", "Commande", false, true)] },
+    ];
+  },
+  guivault_browse_field: async (_cmd, args) => `valeur:${(args as { key?: string })?.key ?? ""}`,
+  guivault_browse_totp: async () => ({ code: "492817", ttlSecs: 21, periodSecs: 30 }),
   // Ce qui suivrait un transfert : un dossier obligatoire, une clé, une
   // icône et un bastion proposés — de quoi voir les deux niveaux.
   guivault_transfer_plan: async () => ({
@@ -241,6 +261,16 @@ const responses: Record<string, Invoke> = {
   connect_terminal: async (_cmd, args) => {
     feedChannel(args?.channel, banner);
     return { sessionId: "sess-1", sessionKey: null, persistence: "off", readOnly: false, cols: 120, rows: 30 };
+  },
+  // Ce que le terminal envoie à la session (frappes, collages) — consigné
+  // pour que le tour vérifie qu'un « Coller » arrive bien jusqu'ici.
+  // `api.writeBytes` passe les octets comme corps entier de l'appel (pas dans
+  // un objet), avec l'id de session dans un en-tête.
+  write_terminal: async (_cmd, args) => {
+    const w = window as unknown as { __tourWritten: string[] };
+    const bytes = args instanceof Uint8Array ? args : args instanceof ArrayBuffer ? new Uint8Array(args) : new Uint8Array();
+    (w.__tourWritten ??= []).push(new TextDecoder().decode(bytes));
+    return null;
   },
   open_local_terminal: async (_cmd, args) => {
     feedChannel(args?.channel, "\x1b[1;36mglorin@station\x1b[0m:\x1b[1;34m~/projets\x1b[0m$ ");
@@ -277,7 +307,7 @@ const internals = {
   },
   unregisterCallback(id: number) { callbacks.delete(id); },
   convertFileSrc: (p: string) => p,
-  async invoke(cmd: string, args?: Record<string, unknown>) {
+  async invoke(cmd: string, args?: Record<string, unknown> | Uint8Array | ArrayBuffer) {
     const handler = responses[cmd];
     if (handler) return handler(cmd, args);
     // Plugins : fenêtre, événements, presse-papiers… Rien ne s'y passe, mais

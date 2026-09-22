@@ -466,6 +466,79 @@ const scenes = [
     const sections = await page.evaluate(() => Array.from(document.querySelectorAll('[data-sidebar-panel="database"] [data-vault-section]')).map((e) => e.getAttribute("data-vault-section")));
     if (!sections.includes("Équipe infra")) throw new Error(`dossiers de vault (bases) : ${JSON.stringify(sections)}`);
   }],
+  // Coller depuis GuiVault : le bouton de la barre d'onglets ouvre le
+  // panneau à droite du terminal — une section par vault, les identifiants
+  // de l'interface web rangés par dossier comme les hôtes ; un item cliqué
+  // montre ses champs, jamais leurs valeurs, avec Copier / Coller / Coller
+  // puis Entrée, et le code TOTP en direct.
+  ["43-coller-guivault", async (page) => {
+    // L'onglet actif est une vignette restaurée : le reconnecter donne un
+    // vrai terminal (factice) dans lequel coller.
+    await page.locator("button", { hasText: "Reconnecter" }).first().click();
+    await page.waitForSelector(".xterm-screen", { timeout: 10_000 });
+    await settle(page, 400);
+    await page.locator("[data-vault-browser-toggle]").click();
+    await settle(page, 500);
+    const tree = await page.evaluate(() => Array.from(document.querySelectorAll("[data-vault-browser] [data-vault-entity]")).map((e) => e.getAttribute("data-vault-entity")));
+    for (const name of ["GitHub", "Procédure astreinte", "Visa pro", "web-01", "deploy-ed25519", "Journal nginx"]) {
+      if (!tree.includes(name)) throw new Error(`arbre du panneau : ${name} manque dans ${JSON.stringify(tree)}`);
+    }
+    await page.locator("[data-vault-browser] [data-vault-entity='GitHub'] button").first().click();
+    await settle(page, 400);
+    const fields = await page.evaluate(() => ({
+      labels: Array.from(document.querySelectorAll("[data-browse-fields] li")).map((li) => li.querySelector("span span")?.textContent ?? ""),
+      totp: document.querySelector("[data-totp-code]")?.getAttribute("data-totp-code"),
+      pasteButtons: document.querySelectorAll("[data-browse-fields] button[aria-label^='Coller']").length,
+      leaked: /valeur:/.test(document.querySelector("[data-vault-browser]")?.textContent ?? ""),
+    }));
+    if (fields.labels.join("|") !== "Utilisateur|Mot de passe|Code TOTP|Site") throw new Error(`champs de GitHub : ${JSON.stringify(fields.labels)}`);
+    if (fields.totp !== "492817") throw new Error("le code TOTP ne s'affiche pas");
+    if (fields.pasteButtons !== 8) throw new Error(`boutons Coller : ${fields.pasteButtons}`);
+    if (fields.leaked) throw new Error("une valeur de champ est affichée avant d'être demandée");
+    const footer = await page.evaluate(() => document.querySelector("[data-vault-browser]")?.textContent ?? "");
+    if (!/Coller écrit dans web-01/.test(footer)) throw new Error(`le panneau ne dit pas dans quel terminal il colle : ${footer.slice(-80)}`);
+    // Coller « Utilisateur », puis « Mot de passe » avec Entrée : la valeur
+    // est demandée au moment de l'appui et arrive dans la session par le
+    // chemin d'un collage (xterm → onData → write_terminal), l'Entrée derrière.
+    await page.locator("[data-browse-fields] button[aria-label='Coller Utilisateur']").click();
+    await settle(page, 300);
+    await page.locator("[data-browse-fields] button[aria-label='Coller Mot de passe puis Entrée']").click();
+    await settle(page, 300);
+    const written = await page.evaluate(() => (window.__tourWritten ?? []).join(""));
+    if (!/valeur:username/.test(written) || !/valeur:password\r/.test(written)) throw new Error(`collage dans le terminal : ${JSON.stringify(written)}`);
+  }],
+  // Le filtre par type et la recherche.
+  ["43b-coller-guivault-filtre", async (page) => {
+    await page.locator("[data-vault-browser] button", { hasText: "Identifiants" }).click();
+    await settle(page, 300);
+    const only = await page.evaluate(() => Array.from(document.querySelectorAll("[data-vault-browser] [data-vault-entity]")).map((e) => e.getAttribute("data-vault-entity")));
+    if (only.join("|") !== "GitHub|Registre Docker|Console cloud") throw new Error(`filtre Identifiants : ${JSON.stringify(only)}`);
+    await page.locator("[data-vault-browser] input[aria-label='Rechercher dans les vaults']").fill("robot");
+    await settle(page, 300);
+    const found = await page.evaluate(() => Array.from(document.querySelectorAll("[data-vault-browser] [data-vault-entity]")).map((e) => e.getAttribute("data-vault-entity")));
+    if (found.join("|") !== "Registre Docker") throw new Error(`recherche par utilisateur : ${JSON.stringify(found)}`);
+  }],
+  // Tout au clavier : Ctrl+Maj+P liste les items, Entrée sur l'un liste ses
+  // champs (coller, coller puis Entrée, copier).
+  ["44-coller-guivault-palette", async (page) => {
+    await page.locator("[data-vault-browser] button[aria-label='Fermer le panneau GuiVault']").click();
+    await settle(page, 300);
+    await page.keyboard.press("Control+Shift+P");
+    await settle(page, 500);
+    await page.keyboard.type("console");
+    await settle(page, 200);
+    const items = await page.evaluate(() => Array.from(document.querySelectorAll(".modal button")).map((b) => b.textContent ?? ""));
+    if (items.length !== 1 || !/Équipe infra › Production › Console cloud/.test(items[0])) throw new Error(`palette des items : ${JSON.stringify(items)}`);
+    await page.keyboard.press("Enter");
+    await settle(page, 300);
+    const actions = await page.evaluate(() => ({
+      title: document.querySelector(".modal .eyebrow")?.textContent ?? "",
+      rows: Array.from(document.querySelectorAll(".modal button")).map((b) => b.querySelector("span")?.textContent ?? ""),
+    }));
+    if (!/Console cloud/.test(actions.title)) throw new Error(`titre de la palette des champs : ${actions.title}`);
+    const expected = ["Coller « Utilisateur »", "Coller « Utilisateur » puis Entrée", "Copier « Utilisateur »", "Coller « Mot de passe »", "Coller « Mot de passe » puis Entrée", "Copier « Mot de passe »"];
+    if (actions.rows.join("|") !== expected.join("|")) throw new Error(`palette des champs : ${JSON.stringify(actions.rows)}`);
+  }],
 ];
 
 try {

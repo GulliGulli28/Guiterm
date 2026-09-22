@@ -1,17 +1,20 @@
 import { useEffect, useRef, useState } from "react";
 import type { TabMeta } from "../lib/types";
-import { IconTerminal, IconTransfer, IconMonitor, IconSplit, IconClose, IconBroadcast, IconDatabase, IconFullscreen, IconFullscreenExit, IconNetDiag, IconBell, IconPin, IconEye } from "./ui-icons";
+import { IconTerminal, IconTransfer, IconMonitor, IconSplit, IconClose, IconBroadcast, IconDatabase, IconFullscreen, IconFullscreenExit, IconNetDiag, IconBell, IconPin, IconEye, IconVault } from "./ui-icons";
 
 interface TabBarProps {
   tabs: TabMeta[];
   activeTabId: string | null;
   splitOpen: boolean;
   broadcastActive: boolean;
+  /** Le panneau « Coller depuis GuiVault » est ouvert à droite du terminal. */
+  vaultBrowserActive: boolean;
   fullscreen: boolean;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
   onToggleSplit: () => void;
   onToggleBroadcast: () => void;
+  onToggleVaultBrowser: () => void;
   onToggleFullscreen: () => void;
   onReorder: (tabs: TabMeta[]) => void;
   /** Resolves a tab to its host group's tag color (hex), if any. */
@@ -28,7 +31,7 @@ function TabIcon({ kind }: { kind: TabMeta["kind"] }) {
   return <IconMonitor size={13} />;
 }
 
-export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, fullscreen, onSelect, onClose, onToggleSplit, onToggleBroadcast, onToggleFullscreen, onReorder, tabColor }: TabBarProps) {
+export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, vaultBrowserActive, fullscreen, onSelect, onClose, onToggleSplit, onToggleBroadcast, onToggleVaultBrowser, onToggleFullscreen, onReorder, tabColor }: TabBarProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const dragState = useRef<{ draggedId: string; moved: boolean; startX: number } | null>(null);
   const [draggedId, setDraggedId] = useState<string | null>(null);
@@ -143,6 +146,18 @@ export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, fullscre
         })}
       </div>
       <div className="flex items-center gap-0.5 pl-1.5">
+      {/* À côté de la diffusion : les deux agissent sur le terminal qu'on
+          regarde — l'une y envoie une commande, l'autre un secret. */}
+      <button
+        onClick={onToggleVaultBrowser}
+        title={vaultBrowserActive ? "Fermer le panneau GuiVault (Ctrl+Maj+G)" : "Coller depuis GuiVault — parcourir les vaults (Ctrl+Maj+G)"}
+        aria-label="Coller depuis GuiVault"
+        aria-pressed={vaultBrowserActive}
+        data-vault-browser-toggle=""
+        className={`btn btn-sm btn-icon ${vaultBrowserActive ? "btn-toggled" : "btn-ghost text-[var(--c-text-muted)]"}`}
+      >
+        <IconVault size={15} />
+      </button>
       <button
         onClick={onToggleBroadcast}
         title={broadcastActive ? "Quitter la diffusion" : "Diffuser une commande à tous les terminaux ouverts"}

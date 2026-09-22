@@ -110,6 +110,9 @@ export const RdpTab = forwardRef<TerminalTabHandle, RdpTabProps>(function RdpTab
       // just get typed literally. Known, accepted limitation: not worth
       // building an ANSI-sequence parser for this secondary mode.
       writeRaw: (data: string) => sendInputRef.current({ type: "typeText", text: data }),
+      // Pas de bracketed paste sur un bureau distant : le texte est tapé, et
+      // `enter` est une vraie touche Entrée derrière.
+      paste: (text: string, enter: boolean) => sendInputRef.current({ type: "typeText", text: enter ? `${text}\n` : text }),
       // No text scrollback here — this is a picture, not a terminal.
       getScrollbackText: () => "",
       // Pas de sélection de texte non plus : un canevas RDP n'a pas de tampon

@@ -588,3 +588,56 @@ export function IconVault({ size = 16, className }: P) {
     </svg>
   );
 }
+
+// ── Consultation GuiVault : les secrets de l'interface web, et coller ──────
+
+/** Un identifiant (login) : une personne. Sert aussi à une identité. */
+export function IconUser({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <circle cx="8" cy="5.5" r="2.75" stroke="currentColor" strokeWidth="1.25" />
+      <path d="M2.75 14c.6-2.9 2.6-4.25 5.25-4.25s4.65 1.35 5.25 4.25" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Une note : une feuille avec des lignes. */
+export function IconNote({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <rect x="3" y="2" width="10" height="12" rx="1.5" stroke="currentColor" strokeWidth="1.25" />
+      <path d="M5.5 5.5h5M5.5 8h5M5.5 10.5h3" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Une carte bancaire. */
+export function IconCard({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <rect x="1.5" y="3.5" width="13" height="9" rx="1.5" stroke="currentColor" strokeWidth="1.25" />
+      <path d="M1.5 6.5h13" stroke="currentColor" strokeWidth="1.25" />
+      <path d="M4 10h3" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+/** Coller dans le terminal : un presse-papiers avec une flèche vers le bas. */
+export function IconPaste({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path d="M5.5 3H4.5a1 1 0 0 0-1 1v9a1 1 0 0 0 1 1h7a1 1 0 0 0 1-1V4a1 1 0 0 0-1-1h-1" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" />
+      <rect x="5.5" y="1.75" width="5" height="2.5" rx="0.75" stroke="currentColor" strokeWidth="1.25" />
+      <path d="M8 6.5v5m0 0-2-2m2 2 2-2" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
+/** La touche Entrée : coller puis valider. */
+export function IconReturn({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path d="M12.5 3.5v4a1.5 1.5 0 0 1-1.5 1.5H4m0 0 2.5-2.5M4 9l2.5 2.5" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}

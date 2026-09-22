@@ -75,6 +75,14 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
   // on — a shortcut that only worked outside one would miss half its use.
   { id: "broadcast.toggle", label: "Activer/couper la diffusion", defaultKey: "Ctrl+Shift+B", bubblesThroughTerminal: true },
   { id: "host.new", label: "Nouvel hôte…", defaultKey: "Ctrl+Shift+N", bubblesThroughTerminal: true },
+
+  // Coller depuis GuiVault : le panneau à droite du terminal (l'arbre des
+  // vaults, à la souris ou aux flèches), et le même contenu en deux palettes
+  // successives — l'item, puis le champ — pour ne pas quitter le clavier.
+  // Les deux remontent : c'est depuis une invite de mot de passe qu'on en a
+  // besoin.
+  { id: "vault.browse", label: "Coller depuis GuiVault — afficher/masquer le panneau", defaultKey: "Ctrl+Shift+G", bubblesThroughTerminal: true },
+  { id: "vault.paste", label: "Coller depuis GuiVault — choisir un item…", defaultKey: "Ctrl+Shift+P", bubblesThroughTerminal: true },
 ];
 
 export function defaultShortcuts(): Record<string, string> {

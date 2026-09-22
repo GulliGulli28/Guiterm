@@ -606,8 +606,11 @@ export interface GuiVaultStatus {
 }
 
 /** `icon` n'apparaît jamais dans la liste d'un vault — seulement comme
- * suiveur d'un hôte ou d'un dossier dans un plan de transfert. */
-export type GuiVaultEntityKind = "host" | "group" | "snippet" | "key" | "sql-connection" | "icon";
+ * suiveur d'un hôte ou d'un dossier dans un plan de transfert. Les quatre
+ * derniers sont les secrets de l'interface web de GuiVault (identifiants,
+ * notes, cartes, identités) : Guiterm ne les synchronise pas, il ne les
+ * voit qu'en consultation (`guivaultBrowse`). */
+export type GuiVaultEntityKind = "host" | "group" | "snippet" | "key" | "sql-connection" | "icon" | "login" | "note" | "card" | "identity";
 
 /** Une entité telle que le menu des vaults la liste. */
 export interface GuiVaultEntity {
@@ -621,6 +624,46 @@ export interface GuiVaultEntity {
    * pour une clé ou un snippet. */
   parentId: string | null;
   vaultId: VaultId | null;
+  /** Termes que la recherche accepte sans les afficher (utilisateur,
+   * adresse, site) et tags — renseignés par la consultation, pas par le
+   * menu des vaults. */
+  search?: string;
+  tags?: string[];
+}
+
+/** Un champ copiable/collable d'un item consulté — sa valeur reste côté
+ * Rust jusqu'à `guivaultBrowseField`. */
+export interface GuiVaultBrowseField {
+  /** Ce que `guivaultBrowseField` attend (`password`, `env:TOKEN`, `field:2`…). */
+  key: string;
+  label: string;
+  /** À masquer à l'affichage. */
+  secret: boolean;
+  /** Plusieurs lignes (note, snippet, clé). */
+  multiline: boolean;
+  /** Un secret TOTP : `guivaultBrowseTotp` rend le code du moment. */
+  totp: boolean;
+}
+
+/** Un item du compte tel que `guivaultBrowse` le liste : de quoi le ranger
+ * dans l'arbre, le chercher et savoir quels champs proposer — jamais une
+ * valeur. */
+export interface GuiVaultBrowseEntry {
+  id: string;
+  vaultId: VaultId;
+  vaultName: string;
+  kind: GuiVaultEntityKind;
+  name: string;
+  parentId: string | null;
+  tags: string[];
+  search: string;
+  fields: GuiVaultBrowseField[];
+}
+
+export interface GuiVaultTotpCode {
+  code: string;
+  ttlSecs: number;
+  periodSecs: number;
 }
 
 /** Une entité qui en accompagne une autre dans un transfert, et pourquoi.

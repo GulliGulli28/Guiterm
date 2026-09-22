@@ -1,16 +1,16 @@
-# Graph Report - gui-termius  (2026-09-22)
+# Graph Report - gui-termius  (2026-09-21)
 
 ## Corpus Check
-- 398 files · ~653,291 words
+- 392 files · ~642,867 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 5621 nodes · 14677 edges · 228 communities (215 shown, 13 thin omitted)
-- Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 128 edges (avg confidence: 0.79)
+- 5521 nodes · 14362 edges · 227 communities (211 shown, 16 thin omitted)
+- Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 127 edges (avg confidence: 0.79)
 - Token cost: 0 input · 0 output
 
 ## Graph Freshness
-- Built from commit: `3c7bd310`
+- Built from commit: `9486fb73`
 - Run `git rev-parse HEAD` and compare to check if the graph is stale.
 - Run `graphify update .` after code changes (no API cost).
 
@@ -200,7 +200,6 @@
 - [[_COMMUNITY_check_drift|check_drift]]
 - [[_COMMUNITY_MongoSession|MongoSession]]
 - [[_COMMUNITY_input.rs|input.rs]]
-- [[_COMMUNITY_k8s.rs|k8s.rs]]
 - [[_COMMUNITY_knownHosts.tsx|knownHosts.tsx]]
 - [[_COMMUNITY_aws.tsx|aws.tsx]]
 - [[_COMMUNITY_MongoSession|MongoSession]]
@@ -211,7 +210,6 @@
 - [[_COMMUNITY_PersistentSessionsModal.tsx|PersistentSessionsModal.tsx]]
 - [[_COMMUNITY_connect_terminal|connect_terminal]]
 - [[_COMMUNITY_sync.rs|sync.rs]]
-- [[_COMMUNITY_sync_ext.rs|sync_ext.rs]]
 - [[_COMMUNITY_visual-tour.client.tsx|visual-tour.client.tsx]]
 - [[_COMMUNITY_azure_auth.rs|azure_auth.rs]]
 - [[_COMMUNITY_guivault_integration.rs|guivault_integration.rs]]
@@ -219,13 +217,14 @@
 - [[_COMMUNITY_visual-tour.client.tsx|visual-tour.client.tsx]]
 - [[_COMMUNITY_keys.rs|keys.rs]]
 - [[_COMMUNITY_Session|Session]]
-- [[_COMMUNITY_SessionAppearance|SessionAppearance]]
 - [[_COMMUNITY_KeyId|KeyId]]
 - [[_COMMUNITY_AwsCliError|AwsCliError]]
+- [[_COMMUNITY_SqlConnection|SqlConnection]]
 - [[_COMMUNITY_run|run]]
 - [[_COMMUNITY_build_url|build_url]]
 - [[_COMMUNITY_terminalZoom.ts|terminalZoom.ts]]
 - [[_COMMUNITY_visual-tour.mjs|visual-tour.mjs]]
+- [[_COMMUNITY_RemoteFileClient|RemoteFileClient]]
 - [[_COMMUNITY_.server_channel_open_agent_forward|.server_channel_open_agent_forward]]
 - [[_COMMUNITY_MongoSession|MongoSession]]
 - [[_COMMUNITY_usePolledHostStat.ts|usePolledHostStat.ts]]
@@ -234,15 +233,15 @@
 - [[_COMMUNITY_paneElevation.test.ts|paneElevation.test.ts]]
 
 ## God Nodes (most connected - your core abstractions)
-1. `result` - 689 edges
-2. `AppState` - 260 edges
+1. `result` - 677 edges
+2. `AppState` - 256 edges
 3. `HostId` - 154 edges
 4. `Workspace` - 90 edges
-5. `Manager` - 88 edges
-6. `VaultId` - 80 edges
-7. `Client` - 72 edges
+5. `Manager` - 81 edges
+6. `Client` - 72 edges
+7. `VaultId` - 69 edges
 8. `Host` - 60 edges
-9. `api` - 50 edges
+9. `api` - 49 edges
 10. `Connection` - 47 edges
 
 ## Surprising Connections (you probably didn't know these)
@@ -254,48 +253,48 @@
   core/examples/redis_wsl_smoke.rs → scripts/visual-check-transfer-compare.client.tsx
 - `ensure_safe_component()` --references--> `result`  [EXTRACTED]
   core/src/sftp.rs → scripts/visual-check-transfer-compare.client.tsx
-- `secret_label()` --references--> `SecretKind`  [EXTRACTED]
-  src-tauri/src/commands/hosts.rs → core/src/vault.rs
+- `main()` --references--> `result`  [EXTRACTED]
+  core/examples/sql_wsl_smoke.rs → scripts/visual-check-transfer-compare.client.tsx
 
 ## Import Cycles
-- 1-file cycle: `src-tauri/src/commands/aws_sso.rs -> src-tauri/src/commands/aws_sso.rs`
+- 1-file cycle: `src-tauri/src/commands/adaptive.rs -> src-tauri/src/commands/adaptive.rs`
 - 1-file cycle: `core/src/cloud_cli.rs -> core/src/cloud_cli.rs`
+- 1-file cycle: `src-tauri/src/commands/cloud_inventory.rs -> src-tauri/src/commands/cloud_inventory.rs`
+- 1-file cycle: `src-tauri/src/commands/sftp.rs -> src-tauri/src/commands/sftp.rs`
 - 1-file cycle: `src-tauri/src/commands/fleet.rs -> src-tauri/src/commands/fleet.rs`
-- 1-file cycle: `src-tauri/src/commands/k8s.rs -> src-tauri/src/commands/k8s.rs`
+- 1-file cycle: `src-tauri/src/commands/guivault.rs -> src-tauri/src/commands/guivault.rs`
 - 1-file cycle: `src-tauri/src/commands/known_hosts.rs -> src-tauri/src/commands/known_hosts.rs`
+- 1-file cycle: `src-tauri/src/commands/reachability.rs -> src-tauri/src/commands/reachability.rs`
+- 1-file cycle: `src-tauri/src/commands/remote_edit.rs -> src-tauri/src/commands/remote_edit.rs`
 - 3-file cycle: `core/src/ssh.rs -> src-tauri/src/commands/keys.rs -> src-tauri/src/state.rs -> core/src/ssh.rs`
 - 3-file cycle: `core/src/ssh.rs -> src-tauri/src/commands/known_hosts.rs -> src-tauri/src/state.rs -> core/src/ssh.rs`
 - 3-file cycle: `core/src/guivault/entity.rs -> core/src/vault.rs -> core/src/guivault/sync.rs -> core/src/guivault/entity.rs`
-- 4-file cycle: `core/src/pane_ops.rs -> core/src/ssh.rs -> src-tauri/src/commands/keys.rs -> src-tauri/src/state.rs -> core/src/pane_ops.rs`
-- 4-file cycle: `core/src/pane_ops.rs -> core/src/ssh.rs -> src-tauri/src/commands/known_hosts.rs -> src-tauri/src/state.rs -> core/src/pane_ops.rs`
 - 4-file cycle: `core/src/port_forward.rs -> core/src/ssh.rs -> src-tauri/src/commands/keys.rs -> src-tauri/src/state.rs -> core/src/port_forward.rs`
 - 4-file cycle: `core/src/port_forward.rs -> core/src/ssh.rs -> src-tauri/src/commands/known_hosts.rs -> src-tauri/src/state.rs -> core/src/port_forward.rs`
+- 4-file cycle: `core/src/pane_ops.rs -> core/src/ssh.rs -> src-tauri/src/commands/keys.rs -> src-tauri/src/state.rs -> core/src/pane_ops.rs`
+- 4-file cycle: `core/src/pane_ops.rs -> core/src/ssh.rs -> src-tauri/src/commands/known_hosts.rs -> src-tauri/src/state.rs -> core/src/pane_ops.rs`
 - 4-file cycle: `core/src/sftp.rs -> core/src/ssh.rs -> src-tauri/src/commands/keys.rs -> src-tauri/src/state.rs -> core/src/sftp.rs`
 - 4-file cycle: `core/src/sftp.rs -> core/src/ssh.rs -> src-tauri/src/commands/known_hosts.rs -> src-tauri/src/state.rs -> core/src/sftp.rs`
 - 4-file cycle: `core/src/ssh.rs -> src-tauri/src/commands/keys.rs -> src-tauri/src/state.rs -> core/src/ssh_pool.rs -> core/src/ssh.rs`
 - 4-file cycle: `core/src/ssh.rs -> src-tauri/src/commands/known_hosts.rs -> src-tauri/src/state.rs -> core/src/ssh_pool.rs -> core/src/ssh.rs`
-- 5-file cycle: `core/src/sftp.rs -> core/src/ssh.rs -> src-tauri/src/commands/keys.rs -> src-tauri/src/state.rs -> core/src/sql.rs -> core/src/sftp.rs`
-- 5-file cycle: `core/src/sftp.rs -> core/src/ssh.rs -> src-tauri/src/commands/known_hosts.rs -> src-tauri/src/state.rs -> core/src/sql.rs -> core/src/sftp.rs`
-- 5-file cycle: `core/src/sql.rs -> core/src/ssh_pool.rs -> core/src/ssh.rs -> src-tauri/src/commands/keys.rs -> src-tauri/src/state.rs -> core/src/sql.rs`
-- 5-file cycle: `core/src/sql.rs -> core/src/ssh_pool.rs -> core/src/ssh.rs -> src-tauri/src/commands/known_hosts.rs -> src-tauri/src/state.rs -> core/src/sql.rs`
 
-## Communities (228 total, 13 thin omitted)
+## Communities (227 total, 16 thin omitted)
 
 ### Community 0 - "App.tsx"
 Cohesion: 0.07
 Nodes (69): a_pipe_in_a_label_does_not_break_the_table(), a_report_names_the_run_its_date_and_its_steps(), a_run_that_stopped_says_the_rest_never_ran(), cell(), history_path(), labeller(), load(), load_from() (+61 more)
 
 ### Community 1 - "HostId"
-Cohesion: 0.18
+Cohesion: 0.19
 Nodes (27): CloudSelection, InventoryDiff, azure_login(), azure_logout(), CloudFailure, diff_azure_inventory(), diff_gcp_inventory(), discover_azure_vms() (+19 more)
 
 ### Community 2 - "types.ts"
-Cohesion: 0.06
-Nodes (58): groups, hosts, root, Window, BulkCheckbox(), EntityMono(), EntityRow(), EntityRowProps (+50 more)
+Cohesion: 0.04
+Nodes (78): groups, hosts, root, Window, AuthKind, BulkEditPanel(), BulkEditPanelProps, BulkCheckbox() (+70 more)
 
 ### Community 3 - "TransferTab.tsx"
-Cohesion: 0.05
-Nodes (76): FactFilterFields(), FactFilterFieldsProps, FleetTabProps, HostsPanelProps, KeychainPanelProps, NetDiagTab(), NetDiagTabProps, NetDiagTargetsPanel() (+68 more)
+Cohesion: 0.07
+Nodes (44): FactFilterFields(), FactFilterFieldsProps, FleetTargetsPanel(), NetDiagTab(), NetDiagTargetsPanel(), RunbookTab(), TargetTreeList(), IconRefresh() (+36 more)
 
 ### Community 4 - "netdiag.rs"
 Cohesion: 0.06
@@ -303,7 +302,7 @@ Nodes (72): a_2xx_is_ok_with_its_timing(), a_comma_decimal_separator_is_understo
 
 ### Community 5 - "model.rs"
 Cohesion: 0.07
-Nodes (9): a_key_referenced_only_by_path_is_not_counted(), a_secret_value_never_reaches_the_persisted_json(), an_empty_secret_is_left_alone_rather_than_erased(), Approval, EnvVar, OnFailure, RunbookAction, RunbookStepScope (+1 more)
+Nodes (8): a_secret_value_never_reaches_the_persisted_json(), an_empty_secret_is_left_alone_rather_than_erased(), Approval, EnvVar, OnFailure, Uuid, RunbookAction, split_env_secrets()
 
 ### Community 6 - "Workspace"
 Cohesion: 0.06
@@ -314,28 +313,28 @@ Cohesion: 0.06
 Nodes (66): a_deletion_does_not_leave_a_growing_gap(), a_renewable_or_never_used_session_is_not_an_alert(), a_replaced_section_ends_at_the_next_header_not_at_a_blank_line(), a_session_no_host_depends_on_does_not_alert(), a_session_with_hours_left_stays_quiet_until_it_crosses_the_threshold(), account_names(), alerts(), AlertSeverity (+58 more)
 
 ### Community 8 - "sql.rs"
-Cohesion: 0.12
-Nodes (36): SessionListing, close_local_terminal(), close_terminal(), connect_terminal(), finish_recording(), kill_persistent_session(), list_persistent_sessions(), NewShellSession (+28 more)
+Cohesion: 0.15
+Nodes (24): SessionListing, close_local_terminal(), close_terminal(), connect_terminal(), kill_persistent_session(), list_persistent_sessions(), PersistenceOutcome, persistent_session_share_command() (+16 more)
 
 ### Community 9 - "TerminalTab.tsx"
 Cohesion: 0.04
-Nodes (67): App(), SplitPane, BroadcastBar(), CloudProvider, CloudProviderPicker(), PROVIDERS, CommandPalette(), CommandPaletteProps (+59 more)
+Nodes (101): App(), SplitPane, AdaptiveEngineSettings(), Notice, CloudProvider, CloudProviderPicker(), PROVIDERS, KIND_DOT (+93 more)
 
 ### Community 10 - "docker.rs"
 Cohesion: 0.06
 Nodes (53): Connected, Context, main(), CachedClient, classify_docker_host(), client_fingerprint(), connect(), connect_for_host() (+45 more)
 
 ### Community 11 - "FleetTab.tsx"
-Cohesion: 0.05
-Nodes (41): AdaptiveComposer(), AdaptiveComposerProps, ContextMenu(), ContextMenuItem, countOutcomes(), FleetTab(), outcomeStatus(), RowStatus (+33 more)
+Cohesion: 0.08
+Nodes (27): ContextMenu(), ContextMenuItem, countOutcomes(), FleetTab(), outcomeStatus(), RowStatus, statusOf(), onFleetDone() (+19 more)
 
 ### Community 12 - "ui-icons.tsx"
-Cohesion: 0.11
-Nodes (73): result, activate_account_workspace(), activate_local_workspace(), ConnectInput, detach_vault(), err(), guivault_accept_invitation(), guivault_browse() (+65 more)
+Cohesion: 0.12
+Nodes (69): result, activate_account_workspace(), activate_local_workspace(), ConnectInput, detach_vault(), err(), guivault_accept_invitation(), guivault_change_password() (+61 more)
 
 ### Community 13 - "azure_inventory.rs"
-Cohesion: 0.05
-Nodes (56): AdaptiveEngineSettings(), Notice, RdpTab, RdpTabProps, CATEGORIES, ImportPending, SettingsCategory, SettingsPanel() (+48 more)
+Cohesion: 0.16
+Nodes (27): CommandEntry, commands(), history_path(), load(), load_from(), load_missing_file_returns_empty_history(), migrated_history_survives_being_saved_back(), parse() (+19 more)
 
 ### Community 14 - "aws_inventory.rs"
 Cohesion: 0.09
@@ -359,47 +358,47 @@ Nodes (10): Assertion, ContentBlock, ExecutionGroup, is_valid_port(), Message, M
 
 ### Community 19 - "vault.rs"
 Cohesion: 0.09
-Nodes (52): main(), SqlConnection, Workspace, run(), Backend, change_password(), delete(), delete_anthropic_api_key() (+44 more)
+Nodes (53): main(), SqlConnection, Workspace, run(), Backend, change_password(), delete(), delete_anthropic_api_key() (+45 more)
 
 ### Community 20 - "activity.rs"
-Cohesion: 0.06
-Nodes (69): ActivityEvent, ActivityKind, by_recency(), collect(), command_event(), csv_field(), csv_quotes_commas_quotes_and_newlines(), csv_writes_an_empty_cell_for_a_dateless_event() (+61 more)
+Cohesion: 0.07
+Nodes (54): ActivityEvent, ActivityKind, ActivityEvent, ActivityKind, by_recency(), collect(), command_event(), csv_field() (+46 more)
 
 ### Community 21 - "terminal.rs"
-Cohesion: 0.13
-Nodes (34): a_login_written_by_the_web_ui_lists_its_fields_without_their_values(), a_totp_secret_gives_a_six_digit_code_from_a_bare_base32_or_an_otpauth_uri(), Cache, CachedVault, decrypt(), describe_plain(), empty_fields_are_not_offered(), Entry (+26 more)
+Cohesion: 0.06
+Nodes (45): AdaptiveComposer(), AdaptiveComposerProps, AnsibleImportPanel(), AnsibleImportPanelProps, AuthKind, KeychainPanelProps, SftpPanelProps, SnippetPicker() (+37 more)
 
 ### Community 22 - "FilePushBackend"
-Cohesion: 0.16
-Nodes (19): ClipboardMessageProxy, FileContentsRequest, build_file_contents_response(), FilePushBackendFactory, FileTable, init(), read_range(), Box (+11 more)
+Cohesion: 0.07
+Nodes (27): ClipboardFormat, ClipboardGeneralCapabilityFlags, ClipboardMessageProxy, FileContentsRequest, FileContentsResponse, FormatDataRequest, FormatDataResponse, LockDataId (+19 more)
 
 ### Community 23 - "proxy_command.rs"
-Cohesion: 0.05
-Nodes (43): DockerPaneClient, AtomicBool, Docker, Entry, FnMut, Option, Path, Self (+35 more)
+Cohesion: 0.15
+Nodes (11): DockerPaneClient, AtomicBool, Docker, Entry, FnMut, Option, Path, Self (+3 more)
 
 ### Community 24 - "k8s.rs"
 Cohesion: 0.14
 Nodes (27): AttachParams, attach_params(), connect(), exec_capped(), exec_capture(), exec_raw(), exec_with_exit_code(), exit_code_cause() (+19 more)
 
 ### Community 25 - "ansible_inventory.rs"
-Cohesion: 0.08
-Nodes (54): a_child_group_membership_reaches_the_parent(), a_host_from_another_source_is_never_matched(), a_host_outside_any_section_lands_in_ungrouped(), a_host_without_ansible_host_connects_by_its_own_name(), a_numeric_range_expands_and_keeps_its_padding(), a_reimport_leaves_the_users_own_edits_alone(), an_inline_value_wins_over_the_group_default(), an_unreadable_yaml_says_so_rather_than_returning_nothing() (+46 more)
+Cohesion: 0.11
+Nodes (43): a_child_group_membership_reaches_the_parent(), a_host_from_another_source_is_never_matched(), a_host_outside_any_section_lands_in_ungrouped(), a_host_without_ansible_host_connects_by_its_own_name(), a_numeric_range_expands_and_keeps_its_padding(), a_reimport_leaves_the_users_own_edits_alone(), an_inline_value_wins_over_the_group_default(), an_unreadable_yaml_says_so_rather_than_returning_nothing() (+35 more)
 
 ### Community 26 - "api"
-Cohesion: 0.10
-Nodes (32): AwsDatabaseImportPanel(), AwsDatabaseImportPanelProps, ENGINE_LABEL, importable(), AwsIdentitiesPanel(), AwsIdentitiesPanelProps, Check, AuthKind (+24 more)
+Cohesion: 0.09
+Nodes (34): AwsDatabaseImportPanel(), AwsDatabaseImportPanelProps, ENGINE_LABEL, importable(), AwsIdentitiesPanel(), AwsIdentitiesPanelProps, Check, AuthKind (+26 more)
 
 ### Community 27 - "remote_search.rs"
 Cohesion: 0.09
 Nodes (31): a_colon_in_the_path_or_in_the_match_does_not_confuse_the_split(), a_cut_short_search_says_so(), a_hostile_pattern_stays_data(), a_name_pattern_gets_wildcards_unless_it_has_them(), a_very_long_match_is_cut_down(), every_search_is_bounded(), parse_content_line(), parse_hits() (+23 more)
 
 ### Community 28 - "redis_client.rs"
-Cohesion: 0.09
-Nodes (29): ConnectionManager, main(), an_empty_password_is_left_out_entirely(), bounded_key_scan(), build_url(), connect(), get_value(), RedisHandle (+21 more)
+Cohesion: 0.15
+Nodes (18): bounded_key_scan(), get_value(), RedisHandle, RedisKeyDetail, RedisKeyEntry, RedisReply, RedisValue, reply_to_json() (+10 more)
 
 ### Community 29 - "hosts.rs"
 Cohesion: 0.14
-Nodes (45): BulkEdit, HostKind, PersistentShellMode, PortForwardKind, a_new_value_replaces_the_stored_one(), add_custom_icon(), add_forward(), add_private_key() (+37 more)
+Nodes (44): BulkEdit, HostKind, PersistentShellMode, PortForwardKind, a_new_value_replaces_the_stored_one(), add_custom_icon(), add_forward(), add_private_key() (+36 more)
 
 ### Community 30 - "store.rs"
 Cohesion: 0.22
@@ -415,19 +414,19 @@ Nodes (30): AzureImportPanel(), AzureImportPanelProps, AzureSignInPanel(), Azure
 
 ### Community 33 - "parse_program"
 Cohesion: 0.09
-Nodes (35): and_binds_tighter_than_or(), compose_for_host(), compose_joins_every_matching_block_in_order(), compose_matches_a_block_by_target_name_alone(), compose_matches_a_block_by_target_tag_alone(), compose_notes_an_unsupported_platform_for_a_matching_block(), compose_prefixes_posix_output_with_set_dash_e(), compose_prefixes_windows_output_with_stop_error_preference() (+27 more)
+Nodes (34): and_binds_tighter_than_or(), compose_for_host(), compose_joins_every_matching_block_in_order(), compose_matches_a_block_by_target_name_alone(), compose_matches_a_block_by_target_tag_alone(), compose_notes_an_unsupported_platform_for_a_matching_block(), compose_prefixes_posix_output_with_set_dash_e(), compose_prefixes_windows_output_with_stop_error_preference() (+26 more)
 
 ### Community 34 - "ssm_tunnel.rs"
 Cohesion: 0.08
 Nodes (36): a_dead_sso_token_is_not_explained_as_a_missing_program(), a_failed_proxy_connection_carries_its_remediation(), a_failure_without_a_known_cause_is_left_as_it_was(), a_missing_program_is_still_recognised_after_tightening_not_found(), expand(), failure_message(), flushing_gives_up_on_a_helper_that_keeps_running(), flushing_is_what_makes_a_fast_failure_reportable() (+28 more)
 
 ### Community 35 - "fleet.rs"
-Cohesion: 0.04
-Nodes (64): TransferConfirmDialogProps, IconCard(), IconHosts(), IconLock(), IconNote(), IconPalette(), IconPaste(), IconReturn() (+56 more)
+Cohesion: 0.10
+Nodes (24): parentOf(), VaultEntityTreeProps, GuiVaultEntity, BUCKETS, buildVaultTree(), buildVaultTreeSections(), byName(), emitSection() (+16 more)
 
 ### Community 36 - "AppState"
-Cohesion: 0.11
-Nodes (28): a_password_prompt_is_told_apart_from_a_refusal(), an_empty_output_is_not_confused_with_a_missing_sentinel(), find_last(), interpret_probe(), probe(), pump(), reads_the_body_and_the_exit_code(), Request (+20 more)
+Cohesion: 0.12
+Nodes (26): a_password_prompt_is_told_apart_from_a_refusal(), an_empty_output_is_not_confused_with_a_missing_sentinel(), find_last(), interpret_probe(), probe(), pump(), reads_the_body_and_the_exit_code(), Request (+18 more)
 
 ### Community 37 - "gcp_inventory.rs"
 Cohesion: 0.14
@@ -435,47 +434,47 @@ Nodes (29): a_project_without_a_display_name_falls_back_to_its_id(), a_zone_that
 
 ### Community 38 - "known_hosts.rs"
 Cohesion: 0.24
-Nodes (18): can_write_in(), copying_a_subfolder_to_a_shared_vault_sends_no_sibling(), Device, moving_and_copying_between_places_reaches_the_other_member(), personal_vault_syncs_between_two_devices(), Fn, Host, Self (+10 more)
+Nodes (17): check_and_trust(), corrupt_store_is_rejected_not_silently_emptied(), Entry, list(), missing_file_is_empty_store_on_first_run(), path(), read(), read_at() (+9 more)
 
 ### Community 39 - "sql.rs"
 Cohesion: 0.18
 Nodes (30): ColumnInfo, QueryResult, SqlConnectionId, close_sql_session(), delete_sql_connection(), dump_groups(), export_sql_dump(), list_sql_columns() (+22 more)
 
 ### Community 40 - "command_history.rs"
-Cohesion: 0.07
-Nodes (59): an_entry_without_a_proxy_command_has_none(), default_path(), keeps_a_proxy_command_whole(), parse(), parse_str(), parses_basic_hosts(), Option, Path (+51 more)
+Cohesion: 0.05
+Nodes (70): an_entry_without_a_proxy_command_has_none(), default_path(), keeps_a_proxy_command_whole(), parse(), parse_str(), parses_basic_hosts(), Option, Path (+62 more)
 
 ### Community 41 - "result"
 Cohesion: 0.15
 Nodes (25): a_helper_that_never_announces_a_port_is_a_failure(), append_bounded(), builds_the_documented_command_line(), failure_message(), fake_helper(), open(), open_with(), opens_when_the_helper_announces_a_port() (+17 more)
 
 ### Community 42 - "useModalSurface"
-Cohesion: 0.10
-Nodes (8): ClipboardFormat, ClipboardGeneralCapabilityFlags, FileContentsResponse, FormatDataRequest, FormatDataResponse, LockDataId, FilePushBackend, CliprdrBackend
+Cohesion: 0.18
+Nodes (18): device_name_default(), ItemState, KnownAccount, LocalState, LoginStep, PendingLogin, Registry, BTreeMap (+10 more)
 
 ### Community 43 - "K8sPaneClient"
 Cohesion: 0.06
-Nodes (46): deploy_public_key(), ed25519_roundtrips_without_passphrase(), generate(), GeneratedKey, KeyAlgorithm, merge_appends_after_existing_entries_missing_trailing_newline(), merge_appends_to_empty_file(), merge_authorized_keys() (+38 more)
+Nodes (45): deploy_public_key(), ed25519_roundtrips_without_passphrase(), generate(), GeneratedKey, KeyAlgorithm, merge_appends_after_existing_entries_missing_trailing_newline(), merge_appends_to_empty_file(), merge_authorized_keys() (+37 more)
 
 ### Community 44 - "RedisTab.tsx"
-Cohesion: 0.04
-Nodes (58): HostTreeModal(), ActiveSubTab, DocumentsPane, EMPTY_PANE, MongoTab(), MongoTabProps, Selection, ActiveSubTab (+50 more)
+Cohesion: 0.05
+Nodes (45): ActiveSubTab, DocumentsPane, EMPTY_PANE, MongoTab(), MongoTabProps, Selection, ActiveSubTab, ConsoleEntry (+37 more)
 
 ### Community 45 - "mongo_client.rs"
-Cohesion: 0.12
-Nodes (21): main(), CollectionInfo, connect(), find_documents(), inject_credentials(), list_collections(), list_databases(), MongoHandle (+13 more)
+Cohesion: 0.14
+Nodes (17): main(), CollectionInfo, find_documents(), inject_credentials(), list_collections(), list_databases(), MongoHandle, MongoQueryResult (+9 more)
 
 ### Community 46 - "cloud_inventory.rs"
 Cohesion: 0.15
 Nodes (25): a_first_import_creates_hosts_carrying_their_provenance(), a_host_from_another_scope_is_never_called_gone(), a_host_imported_before_scopes_existed_is_left_alone(), a_listing_names_what_disappeared_and_what_is_new(), a_reimport_keeps_what_the_user_decided(), a_reimport_reattributes_a_host_that_changed_scope(), a_reimport_refreshes_instead_of_duplicating(), apply_import() (+17 more)
 
 ### Community 47 - "mod.rs"
-Cohesion: 0.14
-Nodes (18): claimed_ports(), ClientKey, current_username(), free_port(), Child, Command, Drop, Mutex (+10 more)
+Cohesion: 0.13
+Nodes (19): claimed_ports(), ClientKey, current_username(), free_port(), Child, Command, Drop, Mutex (+11 more)
 
 ### Community 48 - "DockerPaneClient"
-Cohesion: 0.08
-Nodes (25): attach_command(), generated_keys_are_valid_and_distinct(), is_valid_session_key(), kill(), kill_command(), list(), new_session_key(), observe_command() (+17 more)
+Cohesion: 0.07
+Nodes (28): attach_command(), generated_keys_are_valid_and_distinct(), is_valid_session_key(), kill(), kill_command(), list(), new_session_key(), observe_command() (+20 more)
 
 ### Community 49 - "drift.rs"
 Cohesion: 0.17
@@ -495,7 +494,7 @@ Nodes (22): a_database_that_is_not_available_is_not_importable(), a_standalone_i
 
 ### Community 53 - "cloud_cli.rs"
 Cohesion: 0.11
-Nodes (34): AuthResult, AppHandler, authenticate(), authenticate_keyboard_interactive(), authenticate_with_agent(), autofilled_answers(), CommandOutput, connect_chain() (+26 more)
+Nodes (30): AuthResult, AppHandler, authenticate(), authenticate_keyboard_interactive(), authenticate_with_agent(), connect(), connect_chain(), ensure_success() (+22 more)
 
 ### Community 54 - "reachability.rs"
 Cohesion: 0.13
@@ -503,7 +502,7 @@ Nodes (15): classify_curl(), classify_message(), classify_stream_tool(), nc_comm
 
 ### Community 55 - "transfer.rs"
 Cohesion: 0.15
-Nodes (19): copy_remote_to_remote_file(), download_client_to_fresh_temp(), ensure_dir(), free_name(), list(), mkdir(), never_cancel(), PaneRef (+11 more)
+Nodes (23): a_cancelled_copy_stops_and_says_so(), a_copy_carries_the_modification_date_over(), copy_entry(), copy_relative_creates_the_missing_folders(), copy_reports_one_cumulative_total_across_a_whole_tree(), copying_a_folder_twice_merges_instead_of_failing(), copying_under_another_name_leaves_the_original_alone(), ensure_dir() (+15 more)
 
 ### Community 56 - "test_host"
 Cohesion: 0.10
@@ -526,28 +525,28 @@ Cohesion: 0.15
 Nodes (20): a_field_that_was_not_chosen_is_left_alone(), an_id_that_no_longer_exists_is_skipped(), apply(), apply_to(), BulkEdit, clearing_a_group_differs_from_not_touching_it(), double_option(), only_the_selected_hosts_are_touched() (+12 more)
 
 ### Community 61 - "rdp_view.rs"
-Cohesion: 0.15
-Nodes (26): PushedFile, String, close_rdp_view(), collect_local_pushed_files(), collect_pushed_files(), connect_rdp_view(), push_rdp_view_clipboard_entries(), push_rdp_view_clipboard_paths() (+18 more)
+Cohesion: 0.17
+Nodes (24): close_rdp_view(), collect_local_pushed_files(), collect_pushed_files(), connect_rdp_view(), push_rdp_view_clipboard_entries(), push_rdp_view_clipboard_paths(), RdpViewClosedEvent, RdpViewErrorEvent (+16 more)
 
 ### Community 62 - "interactive_auth.rs"
 Cohesion: 0.13
 Nodes (19): InfoRequest, Prompter, PromptField, Arc, Option, Send, String, Sync (+11 more)
 
 ### Community 63 - "pane_ops.rs"
-Cohesion: 0.14
-Nodes (17): dir_size(), dir_size_script_agrees_with_the_rust_walk(), find(), find_output_is_bounded_and_reports_it(), find_script_finds_at_depth_and_ignores_case(), FindOutcome, globbed(), local_dir_size() (+9 more)
+Cohesion: 0.05
+Nodes (79): archive(), archive_base_name(), archive_file_name(), archive_format_of(), archive_then_extract_gives_the_tree_back(), ArchiveFormat, dir_size(), dir_size_script_agrees_with_the_rust_walk() (+71 more)
 
 ### Community 64 - "Connection"
-Cohesion: 0.18
-Nodes (15): ActiveForward, ActiveKind, handle_socks_connection(), Arc, Option, SocketAddr, socks_reply(), socks_reply_bnd_addr_and_port_are_always_zero() (+7 more)
+Cohesion: 0.25
+Nodes (13): ActiveForward, ActiveKind, handle_socks_connection(), Arc, Option, SocketAddr, socks_reply(), socks_reply_bnd_addr_and_port_are_always_zero() (+5 more)
 
 ### Community 65 - "ssh.rs"
-Cohesion: 0.05
-Nodes (57): BroadcastBarProps, KnownHostsPanelProps, KIND_DOT, ProfileBar(), profileBarNeeded(), parentOf(), RemoteSearchPanel(), RunbookPanelProps (+49 more)
+Cohesion: 0.07
+Nodes (34): BroadcastBar(), BroadcastBarProps, RemoteSearchPanel(), TabBar(), TerminalTargetPicker(), TerminalTargetPickerProps, IconBell(), IconBroadcast() (+26 more)
 
 ### Community 66 - "main.rs"
-Cohesion: 0.09
-Nodes (43): ActiveStage, ClientConnector, ConnectionActivationSequence, ConnectionResult, ConnectorConfig, DecodedImage, InclusiveRectangle, ClientMessage (+35 more)
+Cohesion: 0.15
+Nodes (24): ConnectionActivationSequence, DecodedImage, InclusiveRectangle, ClientMessage, active_session(), AsyncReadWrite, error_chain(), handle_deactivate_all() (+16 more)
 
 ### Community 67 - "ssh_cert.rs"
 Cohesion: 0.17
@@ -563,7 +562,7 @@ Nodes (20): a_changed_line_shows_both_versions_with_their_numbers(), a_missing_f
 
 ### Community 70 - "sql_sqlite_integration.rs"
 Cohesion: 0.08
-Nodes (22): ChangePasswordRequest, CompleteInvitationRequest, ClientResult, Invitation, Item, Role, TotpSetupResponse, Uuid (+14 more)
+Nodes (20): ChangePasswordRequest, CompleteInvitationRequest, ClientResult, Invitation, Role, TotpSetupResponse, Uuid, Value (+12 more)
 
 ### Community 71 - "pane_sync.rs"
 Cohesion: 0.16
@@ -574,8 +573,8 @@ Cohesion: 0.10
 Nodes (19): 1. État des lieux mesuré (2026-08-13), 2. La question en contient trois, 3. Ce qui doit rester noyau, non extensible, 4. Le risque principal, 5. Feuille de route en 4 étapes, 6. Plan détaillé du registre de modules (validé le 2026-08-13, non démarré), A. Choisir à la compilation (features Cargo + flags Vite, N installeurs), B. Choisir à l'exécution (tout est compilé, l'utilisateur active ce qu'il veut) (+11 more)
 
 ### Community 73 - "registry.ts"
-Cohesion: 0.05
-Nodes (45): activityModule, ActivityTab, AwsIdentitiesPanel, awsModule, fleetModule, FleetTab, FleetTargetsPanel, guivaultModule (+37 more)
+Cohesion: 0.03
+Nodes (79): FleetTabProps, NetDiagTabProps, RemoteSearchPanelProps, TransferTabProps, AppObject, handlerBlock(), invokedCommands(), read() (+71 more)
 
 ### Community 74 - "AwsFailure"
 Cohesion: 0.22
@@ -594,24 +593,24 @@ Cohesion: 0.26
 Nodes (17): cache_path(), CachedAccountNames, load(), load_from(), missing_file_yields_empty_names(), now_ms(), reads_a_file_written_without_the_timestamp_field(), HashMap (+9 more)
 
 ### Community 78 - "known_hosts.rs"
-Cohesion: 0.50
-Nodes (5): open_shell(), open_shell_with_command(), Receiver, Sender, ShellSession
+Cohesion: 0.15
+Nodes (15): Self, autofilled_answers(), CommandOutput, Connection, open_shell(), open_shell_with_command(), Option, Receiver (+7 more)
 
 ### Community 79 - "String"
-Cohesion: 0.13
-Nodes (41): ClientResult, TotpSetupResponse, to_user(), accept_invitation(), audit(), complete_invitation(), create_vault(), decline_invitation() (+33 more)
+Cohesion: 0.14
+Nodes (44): Manager, ClientResult, Default, Mutex, TotpSetupResponse, to_user(), accept_invitation(), audit() (+36 more)
 
 ### Community 80 - "run"
 Cohesion: 0.12
 Nodes (15): Send, Sync, ShellExec, probe_identity(), RemoteIdentity, Arc, AtomicBool, Entry (+7 more)
 
 ### Community 81 - "AppHandler"
-Cohesion: 0.14
-Nodes (17): describeObject(), describeSource(), directoryOf(), hostLabel(), isHostLike(), isIpv6(), ParsedEndpoint, parseEndpoint() (+9 more)
+Cohesion: 0.15
+Nodes (12): K8sPaneClient, AtomicBool, Entry, FnMut, Option, Path, Self, Send (+4 more)
 
 ### Community 82 - "copy_dir"
-Cohesion: 0.18
-Nodes (15): an_unknown_field_is_still_refused_and_names_the_real_ones(), CmpOp, Condition, condition_expr_matches(), condition_matches(), ConditionExpr, HostContext, parse_condition() (+7 more)
+Cohesion: 0.17
+Nodes (16): an_unknown_field_is_still_refused_and_names_the_real_ones(), CmpOp, Condition, condition_expr_matches(), condition_matches(), ConditionExpr, HostContext, parse_condition() (+8 more)
 
 ### Community 83 - "Historique de dev : décisions, bugs corrigés, spécifications fines"
 Cohesion: 0.09
@@ -622,16 +621,16 @@ Cohesion: 0.11
 Nodes (18): devDependencies, autoprefixer, eslint, @eslint/js, eslint-plugin-react-hooks, globals, playwright, postcss (+10 more)
 
 ### Community 85 - "fleet.rs"
-Cohesion: 0.02
-Nodes (118): sessions, AwsSsoSetupPanel(), AwsSsoSetupPanelProps, Stage, ConnectionPickerModal(), ConnectionPickerModalProps, PickerAction, PickerItem (+110 more)
+Cohesion: 0.03
+Nodes (107): AwsSsoSetupPanel(), AwsSsoSetupPanelProps, Stage, AccountCard(), AddToVaultDialog(), canManage(), Destination, destinationsFrom() (+99 more)
 
 ### Community 86 - "Operation"
 Cohesion: 0.17
 Nodes (16): a_rendered_program_parses_back_to_itself(), a_rollback_keeps_the_conditions_and_the_sudo_of_what_it_undoes(), a_rollback_undoes_in_reverse_order(), every_operation_has_a_decided_reversibility(), function_name(), inverse(), InverseProgram, invert_program() (+8 more)
 
 ### Community 87 - "HostContext"
-Cohesion: 0.17
-Nodes (20): client_message_variants_roundtrip_through_a_pipe(), closed_message_roundtrips_through_a_pipe(), connect_request_read_is_none_on_immediate_eof(), connect_request_roundtrips_through_a_pipe(), error_message_roundtrips_through_a_pipe(), image_message_roundtrips_through_a_pipe(), multiple_messages_are_framed_independently_on_the_same_stream(), pointer_bitmap_roundtrips_through_a_pipe() (+12 more)
+Cohesion: 0.28
+Nodes (12): client_message_variants_roundtrip_through_a_pipe(), closed_message_roundtrips_through_a_pipe(), connect_request_read_is_none_on_immediate_eof(), connect_request_roundtrips_through_a_pipe(), error_message_roundtrips_through_a_pipe(), image_message_roundtrips_through_a_pipe(), multiple_messages_are_framed_independently_on_the_same_stream(), pointer_bitmap_roundtrips_through_a_pipe() (+4 more)
 
 ### Community 88 - "facts.rs"
 Cohesion: 0.21
@@ -646,8 +645,8 @@ Cohesion: 0.12
 Nodes (16): Build : commandes et piège à connaître, Définition de « fini » : atteignable, pas seulement compilable, Environnement de dev (important), Fonctionnalités et roadmap, graphify, GuiVault : synchronisation chiffrée et vaults partagés, Habitudes de collaboration sur ce projet, Lancer l'app Windows en conditions réelles — OBLIGATOIRE après un changement (+8 more)
 
 ### Community 91 - "keygen.rs"
-Cohesion: 0.08
-Nodes (44): BufWriter, execute(), FleetTarget, HostOutcome, Arc, HashMap, Option, String (+36 more)
+Cohesion: 0.13
+Nodes (26): BufWriter, execute(), FleetTarget, HostOutcome, Arc, HashMap, Option, String (+18 more)
 
 ### Community 92 - "local_shell.rs"
 Cohesion: 0.17
@@ -658,8 +657,8 @@ Cohesion: 0.12
 Nodes (17): dependencies, @fontsource/fira-code, @fontsource/inter, @fontsource/jetbrains-mono, @fontsource/source-code-pro, @fontsource/ubuntu-mono, react, react-dom (+9 more)
 
 ### Community 94 - "lib.rs"
-Cohesion: 0.19
-Nodes (11): DbTunnel, EngineConfig, Group, MongoConfig, MongoConfigWire, resolve_tunnel(), From, Option (+3 more)
+Cohesion: 0.28
+Nodes (10): DbTunnel, MongoConfig, MongoConfigWire, resolve_tunnel(), From, Option, Self, ServerConfig (+2 more)
 
 ### Community 95 - "remote_edit.rs"
 Cohesion: 0.12
@@ -674,8 +673,8 @@ Cohesion: 0.19
 Nodes (13): args, bold(), failed, fast, green(), grey(), paint(), red() (+5 more)
 
 ### Community 98 - "ActivityFilterInput"
-Cohesion: 0.13
-Nodes (11): Arc, Error, From, HashMap, Role, Vault, Session, user_error() (+3 more)
+Cohesion: 0.21
+Nodes (7): From, HashMap, Role, Vault, Session, VaultInfo, VaultSummary
 
 ### Community 99 - "logging.rs"
 Cohesion: 0.20
@@ -694,8 +693,8 @@ Cohesion: 0.34
 Nodes (13): absorb_key_content_into_vault(), diagnostics_directory(), export_host(), export_text(), export_workspace(), hydrate_key_content(), import_host_from_file(), import_workspace() (+5 more)
 
 ### Community 103 - "remote_edit.rs"
-Cohesion: 0.24
-Nodes (11): hosts_by_key(), hosts_using_a_key_can_be_named_before_it_is_deleted(), HostSource, provenance_survives_a_round_trip_in_camel_case(), HashMap, Into, Self, String (+3 more)
+Cohesion: 0.29
+Nodes (5): a_key_referenced_only_by_path_is_not_counted(), hosts_using_a_key_can_be_named_before_it_is_deleted(), HostSource, provenance_survives_a_round_trip_in_camel_case(), Into
 
 ### Community 104 - "vault.rs"
 Cohesion: 0.40
@@ -710,24 +709,24 @@ Cohesion: 0.50
 Nodes (4): La demi-journée perdue : un test qui s'empoisonnait lui-même, Le texte rogné dans le gestionnaire de sessions, Remonter dans l'historique à la molette, Sessions persistantes — deux retours d'usage, et un test qui s'empoisonnait (2026-08-25)
 
 ### Community 107 - "alerts"
-Cohesion: 0.17
-Nodes (19): dir_size_script_fails_on_a_missing_directory(), disk_space_script_fails_on_a_missing_path(), has(), inventory_parsing_survives_a_tab_in_a_filename(), inventory_script_and_the_rust_walk_see_the_same_tree(), inventory_script_falls_back_to_the_bsd_stat(), local_inventory(), parse_inventory() (+11 more)
+Cohesion: 0.20
+Nodes (12): ClientConnector, ConnectionResult, ConnectorConfig, ConnectRequest, build_config(), build_connector(), connect(), Box (+4 more)
 
 ### Community 108 - "azure_auth.rs"
 Cohesion: 0.33
 Nodes (6): Approval, OnFailure, RunbookAction, RunbookStepScope, RunbookStep, RunbookStepId
 
 ### Community 109 - "Serialize"
-Cohesion: 0.29
-Nodes (11): DiagTool, DiagVerdict, DiagRow, NetdiagOutcome, AppHandle, FleetTarget, State, String (+3 more)
+Cohesion: 0.26
+Nodes (12): DiagTool, DiagVerdict, Serialize, DiagRow, NetdiagOutcome, AppHandle, FleetTarget, State (+4 more)
 
 ### Community 110 - "RDP intégré : détails de build, protocole, et bugs corrigés"
 Cohesion: 0.15
 Nodes (13): Build et vérifications historiques, CI : `rdp-sidecar` (corrigé le 2026-07-11, cassait tout `windows-workspace`), Curseur distant (2026-08-17), Forward souris/clavier — comportements notables, Frappe clavier simulée (snippets/diffusion sur RDP) — 2026-07-11, Glisser-déposer vers le presse-papiers (fichiers/dossiers) — 2026-07-12, Limites connues restantes, Où placer le binaire compilé (référence build) (+5 more)
 
 ### Community 111 - "keys.rs"
-Cohesion: 0.19
-Nodes (19): FileFacts, Inventory, a_capped_inventory_makes_the_whole_comparison_partial(), a_file_missing_on_one_side_is_reported_on_that_side(), a_two_second_clock_gap_is_not_a_difference(), both_sides_of_a_difference_are_reported(), compare(), Comparison (+11 more)
+Cohesion: 0.23
+Nodes (7): load_state(), read_json(), FnOnce, Path, T, save_state(), write_json()
 
 ### Community 112 - "scripts"
 Cohesion: 0.14
@@ -738,20 +737,20 @@ Cohesion: 0.15
 Nodes (13): Architecture, Contributing, Data & configuration, Development, Features, Guiterm, How it compares, Known limitations (+5 more)
 
 ### Community 114 - "connect"
-Cohesion: 0.19
-Nodes (20): decode_mysql_value(), decode_pg_value(), decode_sqlite_value(), dump_table_rows(), dump_tables(), dump_tables_round_trips_through_a_second_database(), execute_query(), hex_encode() (+12 more)
+Cohesion: 0.33
+Nodes (8): read_json_line(), AsyncRead, AsyncWrite, Option, Self, T, Unpin, write_json_line()
 
 ### Community 115 - "ShellExec"
 Cohesion: 0.17
 Nodes (16): a_missing_cli_is_told_apart_from_a_refusal(), a_permissions_refusal_does_not_offer_to_log_in(), candidate_programs(), classify(), CloudCliError, is_not_logged_in(), Provider, FnMut (+8 more)
 
 ### Community 116 - "read_json_line"
-Cohesion: 0.19
-Nodes (15): ClientError, apply_changes(), Change, conflict_current(), label_of(), put(), Report, rotate_vault_key() (+7 more)
+Cohesion: 0.36
+Nodes (11): append_local_history(), append_sql_history(), append_ssh_history(), get_local_history(), get_sql_history(), get_ssh_history(), CommandEntry, Option (+3 more)
 
 ### Community 117 - "SqlConnectionTab.tsx"
-Cohesion: 0.11
-Nodes (29): ActivityTab(), ActivityTabProps, KIND_TONE, PERIODS, TONE_CLASS, ApprovalWhy(), formatCountdown(), RunbookApprovalModal() (+21 more)
+Cohesion: 0.06
+Nodes (45): ActivityTab(), ActivityTabProps, KIND_TONE, PERIODS, TONE_CLASS, ApprovalWhy(), formatCountdown(), RunbookApprovalModal() (+37 more)
 
 ### Community 118 - "command_history.rs"
 Cohesion: 0.40
@@ -762,24 +761,24 @@ Cohesion: 0.18
 Nodes (11): Bouton dédié, facts persistées, filtres étendus (2026-07-16), Bug `FleetTarget` : `rename_all` ne renomme pas les champs (2026-07-17), Cibles unifiées (SSH + Docker exec + terminal local) — mode Commande (2026-07-16), DSL adaptatif → export Ansible : piste envisagée, pas implémentée (2026-07-17), Extension à Docker exec, terminal local, Windows (2026-07-16), FleetTab : dépassement aide-mémoire, sélection libre, redimensionnement (2026-07-17), Le DSL adaptatif : trois itérations le même jour (2026-07-16), Neuf opérations supplémentaires + `target name`/`target tag` (2026-07-17) (+3 more)
 
 ### Community 120 - "push_clipboard_files"
-Cohesion: 0.18
-Nodes (17): archive(), archive_base_name(), archive_file_name(), archive_format_of(), archive_then_extract_gives_the_tree_back(), ArchiveFormat, extract(), extract_refuses_what_is_not_an_archive() (+9 more)
+Cohesion: 0.22
+Nodes (6): B, T, HealthResponse, Method, PreloginResponse, Response
 
 ### Community 121 - "Contributing to Guiterm"
 Cohesion: 0.20
 Nodes (10): Before you open a PR, Building the RDP sidecar, Code of conduct, Contributing to Guiterm, Development setup, Licensing of contributions, Project layout, Pull request process (+2 more)
 
 ### Community 122 - "secure_file.rs"
-Cohesion: 0.11
-Nodes (37): RedisKeyDetail, RedisReply, ScanPage, append_local_history(), append_sql_history(), append_ssh_history(), get_local_history(), get_sql_history() (+29 more)
+Cohesion: 0.10
+Nodes (38): CollectionInfo, MongoQueryResult, RedisKeyDetail, RedisReply, ScanPage, check_drift(), HostDrift, State (+30 more)
 
 ### Community 123 - "Client SQL (MySQL/PostgreSQL) (2026-07-21)"
 Cohesion: 0.20
 Nodes (10): Client SQL (MySQL/PostgreSQL) (2026-07-21), Deux limitations connues, actées sciemment, Deux modes de connexion, un seul mécanisme de tunnel éphémère, Décodage générique des résultats de requête — vérifié dans les sources vendues, Dépendance `sqlx` — vérifiée avant d'écrire une ligne de code métier, Frontend : nouvelle section dédiée, pas un `HostKind` de plus, Modèle de données : `SqlConnection`, volontairement pas un `HostKind`, MySQL vs PostgreSQL : bases vs schémas, assumé plutôt que masqué (+2 more)
 
 ### Community 124 - "transfer.tsx"
-Cohesion: 0.22
-Nodes (13): connect(), connect_sqlite(), DialTarget, fetch_remote_hash(), local_copy_changed(), Option, Path, PathBuf (+5 more)
+Cohesion: 0.18
+Nodes (10): ConnectionManager, an_empty_password_is_left_out_entirely(), build_url(), connect(), RedisSession, SqlConnection, Url, Workspace (+2 more)
 
 ### Community 125 - "drift_integration.rs"
 Cohesion: 0.39
@@ -802,15 +801,15 @@ Cohesion: 0.17
 Nodes (17): ConnectionFailed(), ConnectionFailedProps, LocalTerminalTab, LocalTerminalTabProps, SearchOptions, TerminalSearchBar(), TerminalSearchBarProps, scrollbackText() (+9 more)
 
 ### Community 130 - "defineModule"
-Cohesion: 0.24
-Nodes (12): ActivityEvent, ActivityKind, ActivityFilterInput, export_activity(), Filter, list_activity(), From, Option (+4 more)
+Cohesion: 0.15
+Nodes (20): assert_sample_listing(), build_single_file_tar(), extract_single_file(), ignores_malformed_lines(), list_with_path(), lists_with_bsd_stat(), lists_with_the_local_stat(), parse_listing() (+12 more)
 
 ### Community 131 - "local_fs.rs"
-Cohesion: 0.19
-Nodes (11): handlerBlock(), invokedCommands(), read(), registeredCommands(), registeredDomains(), ctx, EVERY_OBJECT_KIND, SAMPLES (+3 more)
+Cohesion: 0.31
+Nodes (9): ActiveStage, PushedFile, String, clipboard_svc_frame(), paste_key_sequence(), push_clipboard_files(), ClipboardMessage, Option (+1 more)
 
 ### Community 133 - ".server_channel_open_agent_forward"
-Cohesion: 0.32
+Cohesion: 0.33
 Nodes (13): discard_remote_edit(), end_remote_edit(), list_remote_edits(), listed(), open_remote_file_in_editor(), RemoteEditListed, RemoteEditSync, AppHandle (+5 more)
 
 ### Community 134 - "Adding RDP to a Rust SSH client, one process removed"
@@ -830,28 +829,28 @@ Cohesion: 0.36
 Nodes (6): RegionSelect(), RegionSelectProps, AWS_REGIONS, AwsRegion, isKnownRegion(), regionsByArea()
 
 ### Community 138 - "probe_reachability"
-Cohesion: 0.15
-Nodes (27): apply(), apply_then_collect_roundtrips_without_secret_store(), collect(), custom_icons_travel_as_items_when_their_id_is_a_uuid(), hash(), host_payload_is_stable_and_strips_observed_state(), host_secrets(), HostSecrets (+19 more)
+Cohesion: 0.06
+Nodes (62): apply(), apply_then_collect_roundtrips_without_secret_store(), collect(), custom_icons_travel_as_items_when_their_id_is_a_uuid(), hash(), host_payload_is_stable_and_strips_observed_state(), host_secrets(), HostSecrets (+54 more)
 
 ### Community 139 - "Frontend Design"
 Cohesion: 0.29
 Nodes (6): Design principles, Frontend Design, Ground it in the subject, More on writing in design, Process: brainstorm, explore, plan, critique, build, critique again, Restraint and self-critique
 
 ### Community 140 - "disk_space"
-Cohesion: 0.11
-Nodes (22): device_name_default(), FingerprintTrust, ItemState, Keys, legacy_keys(), load_keys(), load_tokens(), LocalVaultStore (+14 more)
+Cohesion: 0.14
+Nodes (15): clear_secrets(), FingerprintTrust, Keys, legacy_keys(), load_keys(), load_tokens(), LocalVaultStore, MemoryStore (+7 more)
 
 ### Community 141 - "Mutex<T>"
-Cohesion: 0.12
-Nodes (16): entries, pane, root, Window, workspace, Harness(), leftEntries, panes (+8 more)
+Cohesion: 0.06
+Nodes (49): entries, pane, root, Window, workspace, Harness(), leftEntries, panes (+41 more)
 
 ### Community 142 - "rust_sources"
 Cohesion: 0.43
 Nodes (6): non_test_body(), Path, PathBuf, Vec, rust_sources(), user_facing_errors_are_written_in_french()
 
 ### Community 143 - "ShellExec"
-Cohesion: 0.29
-Nodes (8): RemoteFileClient, Sync, Pane, Arc, Option, Self, String, Zeroizing
+Cohesion: 0.36
+Nodes (6): Pane, Arc, Option, Self, String, Zeroizing
 
 ### Community 144 - "visual-check-transfer-columns.mjs"
 Cohesion: 0.29
@@ -902,8 +901,8 @@ Cohesion: 0.33
 Nodes (5): description, identifier, permissions, $schema, windows
 
 ### Community 156 - "run"
-Cohesion: 0.17
-Nodes (15): AuthMethod, CustomIcon, Host, HostFacts, HostKind, PersistentShellMode, PrivateKey, BTreeMap (+7 more)
+Cohesion: 0.16
+Nodes (20): AuthMethod, CustomIcon, Group, Host, HostFacts, HostKind, hosts_by_key(), PersistentShellMode (+12 more)
 
 ### Community 158 - "run"
 Cohesion: 0.29
@@ -938,24 +937,20 @@ Cohesion: 0.67
 Nodes (3): Installation, macOS, Why the .dmg says "Guiterm is damaged and can't be opened"
 
 ### Community 170 - "facts.rs"
-Cohesion: 0.29
-Nodes (9): FactsOutcome, Serialize, collect_facts(), CollectFactsResult, now_ms(), State, String, Vec (+1 more)
+Cohesion: 0.33
+Nodes (8): FactsOutcome, collect_facts(), CollectFactsResult, now_ms(), State, String, Vec, Workspace
 
 ### Community 171 - "fleet.tsx"
-Cohesion: 0.11
-Nodes (20): B, BoxStream, Client, LoginOutcome, LoginResponse, Mutex, Option, Self (+12 more)
+Cohesion: 0.13
+Nodes (15): BoxStream, Client, ClientError, LoginOutcome, LoginResponse, Mutex, Option, Self (+7 more)
 
 ### Community 172 - "local_fs.rs"
 Cohesion: 0.29
 Nodes (7): content_hash(), home_dir(), list(), Entry, Path, String, Vec
 
 ### Community 174 - "localTerminal.tsx"
-Cohesion: 0.20
-Nodes (11): describeVerdict(), splitEndpoint(), VerdictDisplay, ReachabilityVerdict, probe_reachability(), ReachabilityOutcome, FleetTarget, State (+3 more)
-
-### Community 175 - "Vec"
-Cohesion: 0.33
-Nodes (12): CollectionInfo, MongoQueryResult, close_mongo_session(), find_mongo_documents(), list_mongo_collections(), list_mongo_databases(), open_mongo_session(), Option (+4 more)
+Cohesion: 0.39
+Nodes (7): probe_reachability(), ReachabilityOutcome, FleetTarget, State, String, Vec, Verdict
 
 ### Community 176 - "input.rs"
 Cohesion: 0.52
@@ -970,8 +965,8 @@ Cohesion: 0.47
 Nodes (3): ClosureAction, ClosureContext, nextClosureAction()
 
 ### Community 191 - "quote"
-Cohesion: 0.33
-Nodes (3): injection_shaped_values_stay_inside_their_quotes(), quote(), String
+Cohesion: 0.27
+Nodes (5): injection_shaped_values_stay_inside_their_quotes(), quote(), String, Vec, SudoOutput
 
 ### Community 192 - "remote_search.rs"
 Cohesion: 0.50
@@ -981,49 +976,37 @@ Nodes (4): L'inattention, La coupure de connexion — le vrai sujet, La fermetur
 Cohesion: 0.43
 Nodes (6): a_name_that_resolves_nowhere_is_reported_as_such(), an_open_port_and_a_closed_one_get_different_answers(), probe(), Verdict, Workspace, this_platforms_nc_tells_a_refusal_from_a_silence()
 
-### Community 196 - "k8s.rs"
-Cohesion: 0.31
-Nodes (12): connect_k8s_exec(), find_host(), k8s_pod_logs(), list_k8s_pods(), AppHandle, Channel, Host, Option (+4 more)
-
 ### Community 197 - "knownHosts.tsx"
-Cohesion: 0.18
-Nodes (25): build_url(), build_url_omits_password_when_none_or_empty(), build_url_percent_encodes_special_characters_in_credentials(), build_url_uses_the_engines_scheme_and_carries_host_port_and_database(), column_info(), ColumnInfo, list_columns(), list_databases() (+17 more)
+Cohesion: 0.09
+Nodes (58): build_url(), build_url_omits_password_when_none_or_empty(), build_url_percent_encodes_special_characters_in_credentials(), build_url_uses_the_engines_scheme_and_carries_host_port_and_database(), column_info(), ColumnInfo, connect(), connect_sqlite() (+50 more)
 
 ### Community 198 - "aws.tsx"
 Cohesion: 0.50
 Nodes (5): deser_jump_via(), null_to_default(), D, Error, T
 
 ### Community 199 - "MongoSession"
-Cohesion: 0.27
-Nodes (9): MongoTabLazy, RedisTabLazy, SqlConnectionTab(), SqlTabLazy, componentFor(), connectionFor(), EMPTY_WORKSPACE, SqlConnectionsPanel (+1 more)
+Cohesion: 0.50
+Nodes (4): connect(), MongoSession, SqlConnection, Workspace
 
 ### Community 200 - "SessionAppearance"
-Cohesion: 0.40
-Nodes (4): PortForward, PortForwardKind, Display, Formatter
+Cohesion: 0.50
+Nodes (3): PortForwardKind, Display, Formatter
 
 ### Community 202 - "ssh_pool.rs"
 Cohesion: 0.14
 Nodes (14): AtomicUsize, acquire(), concurrent_claims_never_exceed_the_limit(), Pooled, Arc, Drop, HashMap, Mutex (+6 more)
 
-### Community 203 - "redis_wsl_smoke.rs"
-Cohesion: 0.42
-Nodes (9): PaneView(), baseName(), breadcrumbs(), cdCommand(), Crumb, joinPath(), parentPath(), pathSeparator() (+1 more)
-
 ### Community 204 - "PersistentSessionsModal.tsx"
-Cohesion: 0.36
-Nodes (10): a_cancelled_copy_stops_and_says_so(), a_copy_carries_the_modification_date_over(), copy_entry(), copy_relative_creates_the_missing_folders(), copy_reports_one_cumulative_total_across_a_whole_tree(), copying_a_folder_twice_merges_instead_of_failing(), copying_under_another_name_leaves_the_original_alone(), entry() (+2 more)
+Cohesion: 0.06
+Nodes (38): sessions, CommandPalette(), CommandPaletteProps, PaletteCommand, ConfirmDialog(), ConfirmDialogProps, ConnectionPickerModal(), ConnectionPickerModalProps (+30 more)
 
 ### Community 205 - "connect_terminal"
-Cohesion: 0.38
-Nodes (7): disk_space(), disk_space_is_read_in_kilobyte_blocks(), disk_space_script_reads_this_machines_df(), DiskSpace, local_disk_space(), local_disk_space_answers_for_a_real_directory(), parse_disk_space()
+Cohesion: 0.42
+Nodes (9): finish_recording(), open_local_terminal(), record_chunk(), register_recorder_slot(), AppHandle, Channel, Receiver, RecorderSlot (+1 more)
 
 ### Community 206 - "sync.rs"
-Cohesion: 0.04
-Nodes (51): Window, diff, Window, Action, ComparisonPanel(), DeniedAction, DirSize, EditingFile (+43 more)
-
-### Community 207 - "sync_ext.rs"
-Cohesion: 0.33
-Nodes (4): Mutex<T>, MutexExt, MutexGuard, T
+Cohesion: 0.03
+Nodes (60): Window, diff, Window, RdpTab, RdpTabProps, Action, ComparisonPanel(), DeniedAction (+52 more)
 
 ### Community 208 - "visual-tour.client.tsx"
 Cohesion: 0.12
@@ -1032,10 +1015,6 @@ Nodes (12): banner, callbacks, groups, hosts, internals, Invoke, localEntries, m
 ### Community 209 - "azure_auth.rs"
 Cohesion: 0.19
 Nodes (8): login(), logout(), CloudCliError, FnMut, Option, Send, String, tenant_in_error()
-
-### Community 210 - "guivault_integration.rs"
-Cohesion: 0.33
-Nodes (6): Ce qui n'est pas là, Ce qui reste en mémoire, et ce qui traverse l'IPC, Coller depuis GuiVault (2026-09-22), Coller = `term.paste`, pas `writeRaw`, Deux entrées, un contenu, Un chemin de lecture à côté de la synchro, pas dedans
 
 ### Community 211 - "Sessions persistantes — tranche 4 : observer et partager (2026-08-24)"
 Cohesion: 0.40
@@ -1050,20 +1029,20 @@ Cohesion: 0.32
 Nodes (12): KeyAlgorithm, deploy_public_key(), generate_private_key(), get_public_key(), persist(), resolve_key_content(), Option, PrivateKey (+4 more)
 
 ### Community 214 - "Session"
-Cohesion: 0.25
-Nodes (14): a_leftover_plaintext_value_is_not_used_for_a_secret_variable(), a_secret_variable_is_exported_from_the_vault(), an_unreadable_secret_is_announced_instead_of_silently_skipped(), is_valid_env_key(), lines(), list_local_shells(), EnvVar, Fn (+6 more)
-
-### Community 215 - "SessionAppearance"
-Cohesion: 0.50
-Nodes (3): Default, Self, SessionAppearance
+Cohesion: 0.20
+Nodes (17): a_leftover_plaintext_value_is_not_used_for_a_secret_variable(), a_secret_variable_is_exported_from_the_vault(), an_unreadable_secret_is_announced_instead_of_silently_skipped(), is_valid_env_key(), lines(), list_local_shells(), NewShellSession, register_shell_session() (+9 more)
 
 ### Community 216 - "KeyId"
-Cohesion: 0.05
-Nodes (57): AnsibleImportPanel(), AnsibleImportPanelProps, AuthKind, AuthKind, BulkEditPanel(), BulkEditPanelProps, DbTunnelPicker(), DbTunnelPickerProps (+49 more)
+Cohesion: 0.07
+Nodes (44): DbTunnelPicker(), DbTunnelPickerProps, ProbeTarget, SsmProbeResult(), GroupForm(), GroupFormData, GroupFormProps, authKindOf() (+36 more)
 
 ### Community 217 - "AwsCliError"
 Cohesion: 0.16
 Nodes (13): AwsCliError, CallerIdentity, parse_caller_identity(), reads_the_caller_identity(), whoami(), delete_sso_session(), login(), rewrite_without_section() (+5 more)
+
+### Community 218 - "SqlConnection"
+Cohesion: 0.27
+Nodes (4): EngineConfig, serializes_flat_with_engine_tag(), SqlConnection, SqlEngine
 
 ### Community 220 - "run"
 Cohesion: 0.31
@@ -1081,13 +1060,17 @@ Nodes (6): clampTerminalFontSize(), nextZoomOffset(), TerminalZoom, useTerminalZ
 Cohesion: 0.18
 Nodes (11): args, clickNav(), errors, light, only, outDir, projectRoot, scenes (+3 more)
 
+### Community 224 - "RemoteFileClient"
+Cohesion: 0.36
+Nodes (8): RemoteFileClient, Sync, copy_remote_to_remote_file(), download_client_to_fresh_temp(), never_cancel(), resolve_local_path(), AtomicBool, PathBuf
+
 ### Community 226 - ".server_channel_open_agent_forward"
-Cohesion: 0.29
-Nodes (7): connect(), probe(), Channel, Error, Msg, PublicKey, Workspace
+Cohesion: 0.38
+Nodes (4): Channel, Error, Msg, PublicKey
 
 ### Community 227 - "MongoSession"
-Cohesion: 0.13
-Nodes (23): clear_secrets(), keys_for(), KnownAccount, load_state(), LocalState, Manager, read_json(), Registry (+15 more)
+Cohesion: 0.20
+Nodes (4): keys_for(), FingerprintTrust, MutexGuard, PathBuf
 
 ### Community 229 - "usePolledHostStat.ts"
 Cohesion: 0.67
@@ -1098,24 +1081,24 @@ Cohesion: 0.40
 Nodes (3): Option, scancode_for(), Scancode
 
 ## Knowledge Gaps
-- **640 isolated node(s):** `HostContext<'a>`, `Section`, `FingerprintTrust`, `Approval`, `RunbookAction` (+635 more)
+- **622 isolated node(s):** `HostContext<'a>`, `Section`, `FingerprintTrust`, `Approval`, `RunbookAction` (+617 more)
   These have ≤1 connection - possible missing edges or undocumented components.
-- **13 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
+- **16 thin communities (<3 nodes) omitted from report** — run `graphify query` to explore isolated nodes.
 
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `result` connect `ui-icons.tsx` to `App.tsx`, `HostId`, `netdiag.rs`, `Workspace`, `aws_sso.rs`, `sql.rs`, `docker.rs`, `aws_inventory.rs`, `crypto.rs`, `sftp.rs`, `vault.rs`, `activity.rs`, `terminal.rs`, `FilePushBackend`, `proxy_command.rs`, `k8s.rs`, `ansible_inventory.rs`, `remote_search.rs`, `redis_client.rs`, `hosts.rs`, `store.rs`, `fleet_history.rs`, `parse_program`, `ssm_tunnel.rs`, `AppState`, `gcp_inventory.rs`, `sql.rs`, `command_history.rs`, `result`, `K8sPaneClient`, `mongo_client.rs`, `DockerPaneClient`, `String`, `aws_databases.rs`, `cloud_cli.rs`, `reachability.rs`, `transfer.rs`, `aws.rs`, `adaptive.rs`, `bulk_edit.rs`, `rdp_view.rs`, `interactive_auth.rs`, `pane_ops.rs`, `Connection`, `main.rs`, `ssh_cert.rs`, `ssh_pool.rs`, `pane_sync.rs`, `AwsFailure`, `aws_account_cache.rs`, `known_hosts.rs`, `String`, `run`, `copy_dir`, `Operation`, `HostContext`, `remote_shell_pane.rs`, `keygen.rs`, `local_shell.rs`, `remote_edit.rs`, `ActivityFilterInput`, `logging.rs`, `export.rs`, `alerts`, `Serialize`, `keys.rs`, `connect`, `ShellExec`, `read_json_line`, `push_clipboard_files`, `secure_file.rs`, `transfer.tsx`, `run`, `defineModule`, `.server_channel_open_agent_forward`, `probe_reachability`, `disk_space`, `plan_step`, `input.rs`, `pollSchedule.ts`, `run`, `run`, `facts.rs`, `local_fs.rs`, `localTerminal.tsx`, `Vec`, `input.rs`, `quote`, `k8s.rs`, `knownHosts.tsx`, `aws.tsx`, `SessionAppearance`, `ssh_pool.rs`, `PersistentSessionsModal.tsx`, `connect_terminal`, `sync.rs`, `azure_auth.rs`, `keys.rs`, `AwsCliError`, `.server_channel_open_agent_forward`, `MongoSession`?**
-  _High betweenness centrality (0.415) - this node is a cross-community bridge._
-- **Why does `HostId` connect `TransferTab.tsx` to `HostId`, `types.ts`, `defineModule`, `Workspace`, `sql.rs`, `TerminalTab.tsx`, `docker.rs`, `FleetTab.tsx`, `aws_inventory.rs`, `adaptive.rs`, `vault.rs`, `activity.rs`, `ansible_inventory.rs`, `remote_search.rs`, `run`, `hosts.rs`, `run`, `fleet_history.rs`, `parse_program`, `facts.rs`, `K8sPaneClient`, `RedisTab.tsx`, `cloud_inventory.rs`, `drift.rs`, `test_host`, `adaptive.rs`, `bulk_edit.rs`, `rdp_view.rs`, `ssh.rs`, `MongoSession`, `k8s.rs`, `aws.tsx`, `SessionAppearance`, `ssh_pool.rs`, `HostExport`, `sync.rs`, `visual-tour.client.tsx`, `AppHandler`, `fleet.rs`, `keys.rs`, `Session`, `facts.rs`, `KeyId`, `remote_shell_pane.rs`, `run`, `lib.rs`, `.server_channel_open_agent_forward`, `usePolledHostStat.ts`, `export.rs`, `Serialize`, `SqlConnectionTab.tsx`, `secure_file.rs`?**
-  _High betweenness centrality (0.125) - this node is a cross-community bridge._
-- **Why does `VaultId` connect `String` to `ActivityFilterInput`, `types.ts`, `TransferTab.tsx`, `known_hosts.rs`, `TerminalTab.tsx`, `probe_reachability`, `disk_space`, `ui-icons.tsx`, `read_json_line`, `terminal.rs`, `fleet.rs`, `KeyId`, `run`, `remote_edit.rs`?**
-  _High betweenness centrality (0.043) - this node is a cross-community bridge._
+- **Why does `result` connect `ui-icons.tsx` to `App.tsx`, `HostId`, `netdiag.rs`, `Workspace`, `aws_sso.rs`, `sql.rs`, `docker.rs`, `azure_inventory.rs`, `aws_inventory.rs`, `crypto.rs`, `sftp.rs`, `vault.rs`, `activity.rs`, `FilePushBackend`, `proxy_command.rs`, `k8s.rs`, `ansible_inventory.rs`, `remote_search.rs`, `redis_client.rs`, `hosts.rs`, `store.rs`, `fleet_history.rs`, `parse_program`, `ssm_tunnel.rs`, `AppState`, `gcp_inventory.rs`, `known_hosts.rs`, `sql.rs`, `command_history.rs`, `result`, `useModalSurface`, `K8sPaneClient`, `mongo_client.rs`, `DockerPaneClient`, `String`, `aws_databases.rs`, `cloud_cli.rs`, `reachability.rs`, `transfer.rs`, `aws.rs`, `adaptive.rs`, `bulk_edit.rs`, `rdp_view.rs`, `interactive_auth.rs`, `pane_ops.rs`, `Connection`, `main.rs`, `ssh_cert.rs`, `ssh_pool.rs`, `pane_sync.rs`, `AwsFailure`, `aws_account_cache.rs`, `known_hosts.rs`, `String`, `run`, `AppHandler`, `copy_dir`, `Operation`, `HostContext`, `remote_shell_pane.rs`, `keygen.rs`, `local_shell.rs`, `remote_edit.rs`, `ActivityFilterInput`, `logging.rs`, `export.rs`, `alerts`, `Serialize`, `keys.rs`, `connect`, `ShellExec`, `read_json_line`, `secure_file.rs`, `transfer.tsx`, `run`, `defineModule`, `local_fs.rs`, `.server_channel_open_agent_forward`, `probe_reachability`, `disk_space`, `Mutex<T>`, `plan_step`, `input.rs`, `pollSchedule.ts`, `run`, `run`, `facts.rs`, `local_fs.rs`, `localTerminal.tsx`, `input.rs`, `quote`, `knownHosts.tsx`, `aws.tsx`, `MongoSession`, `SessionAppearance`, `ssh_pool.rs`, `redis_wsl_smoke.rs`, `connect_terminal`, `sync.rs`, `azure_auth.rs`, `guivault_integration.rs`, `keys.rs`, `AwsCliError`, `RemoteFileClient`, `.server_channel_open_agent_forward`, `MongoSession`?**
+  _High betweenness centrality (0.374) - this node is a cross-community bridge._
+- **Why does `HostId` connect `TransferTab.tsx` to `HostId`, `types.ts`, `Workspace`, `sql.rs`, `TerminalTab.tsx`, `docker.rs`, `FleetTab.tsx`, `Mutex<T>`, `aws_inventory.rs`, `adaptive.rs`, `vault.rs`, `activity.rs`, `terminal.rs`, `remote_search.rs`, `run`, `hosts.rs`, `run`, `fleet_history.rs`, `parse_program`, `command_history.rs`, `facts.rs`, `K8sPaneClient`, `RedisTab.tsx`, `cloud_inventory.rs`, `drift.rs`, `cloud_cli.rs`, `test_host`, `adaptive.rs`, `bulk_edit.rs`, `rdp_view.rs`, `MongoSession`, `aws.tsx`, `registry.ts`, `ssh_pool.rs`, `HostExport`, `sync.rs`, `visual-tour.client.tsx`, `fleet.rs`, `keys.rs`, `Session`, `facts.rs`, `KeyId`, `SqlConnection`, `remote_shell_pane.rs`, `run`, `lib.rs`, `usePolledHostStat.ts`, `export.rs`, `Serialize`, `SqlConnectionTab.tsx`, `secure_file.rs`?**
+  _High betweenness centrality (0.156) - this node is a cross-community bridge._
+- **Why does `AppState` connect `secure_file.rs` to `App.tsx`, `HostId`, `.server_channel_open_agent_forward`, `sql.rs`, `docker.rs`, `ui-icons.tsx`, `Mutex<T>`, `ShellExec`, `sftp.rs`, `plan_step`, `activity.rs`, `pollSchedule.ts`, `remote_search.rs`, `hosts.rs`, `run`, `sql.rs`, `command_history.rs`, `facts.rs`, `localTerminal.tsx`, `aws.rs`, `adaptive.rs`, `rdp_view.rs`, `interactive_auth.rs`, `knownHosts.tsx`, `MongoSession`, `AwsFailure`, `connect_terminal`, `String`, `keys.rs`, `Session`, `remote_shell_pane.rs`, `export.rs`, `Serialize`, `read_json_line`, `transfer.tsx`, `facts.rs`?**
+  _High betweenness centrality (0.047) - this node is a cross-community bridge._
 - **What connects `HostContext<'a>`, `Section`, `FingerprintTrust` to the rest of the system?**
-  _640 weakly-connected nodes found - possible documentation gaps or missing edges._
+  _622 weakly-connected nodes found - possible documentation gaps or missing edges._
 - **Should `App.tsx` be split into smaller, more focused modules?**
   _Cohesion score 0.06768388106416276 - nodes in this community are weakly interconnected._
 - **Should `types.ts` be split into smaller, more focused modules?**
-  _Cohesion score 0.05586741512964448 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.04343629343629344 - nodes in this community are weakly interconnected._
 - **Should `TransferTab.tsx` be split into smaller, more focused modules?**
-  _Cohesion score 0.0474129045557617 - nodes in this community are weakly interconnected._
+  _Cohesion score 0.07401129943502825 - nodes in this community are weakly interconnected._

@@ -5003,4 +5003,36 @@ async function runGuiVaultPanelScenario(browser) {
     return text.includes("Se connecter") || text.includes("Synchroniser") || text.includes("Déverrouiller");
   }), { timeout: 10_000, timeoutMsg: "le panneau GuiVault ne s est pas charge (ni formulaire de connexion, ni compte)" });
   console.log(`GuiVault : OK (guivault_status répond — ${status.configured ? "compte configuré" : "aucun compte"}, ${listed.count} entité(s) listée(s), panneau atteignable).`);
+
+  // « Coller depuis GuiVault » : la commande répond sur l'IPC — la liste
+  // (compte déverrouillé, sans aucune valeur dedans) ou l'erreur typée
+  // « aucun compte / verrouillé » —, et le panneau s'ouvre au raccourci,
+  // à droite, dans l'état qui correspond. Comme l'import cloud : passe avec
+  // ou sans compte sur la machine, sans jamais toucher au profil.
+  const browse = await browser.execute(async () => {
+    try {
+      const entries = await window.__TAURI_INTERNALS__.invoke("guivault_browse");
+      return {
+        count: entries.length,
+        shape: entries.every((e) => typeof e.id === "string" && typeof e.vaultId === "string" && typeof e.kind === "string" && Array.isArray(e.fields)
+          && e.fields.every((f) => typeof f.key === "string" && typeof f.label === "string" && typeof f.secret === "boolean" && !("value" in f))),
+      };
+    } catch (e) {
+      return { __error: String(e) };
+    }
+  });
+  const browseOk = browse.__error ? /compte GuiVault/.test(browse.__error) : browse.shape;
+  if (!browseOk) throw new Error(`invoke("guivault_browse") : ${JSON.stringify(browse)}`);
+
+  await browser.keys(["Control", "Shift", "g"]);
+  await browser.waitUntil(async () => await browser.execute(() => {
+    const panel = document.querySelector("[data-vault-browser]");
+    if (!panel) return false;
+    const text = panel.textContent || "";
+    return text.includes("Aucun compte GuiVault") || text.includes("verrouillé") || text.includes("Lecture des vaults") || text.includes("Coller écrit dans") || text.includes("Aucun terminal actif");
+  }), { timeout: 10_000, timeoutMsg: "le panneau « Coller depuis GuiVault » ne s est pas ouvert au raccourci" });
+  await browser.keys(["Control", "Shift", "g"]);
+  await browser.waitUntil(async () => await browser.execute(() => !document.querySelector("[data-vault-browser]")),
+    { timeout: 5_000, timeoutMsg: "le panneau « Coller depuis GuiVault » ne se referme pas au raccourci" });
+  console.log(`Coller depuis GuiVault : OK (${browse.__error ? "sans compte, erreur typée" : `${browse.count} item(s) listé(s), aucune valeur`}, panneau ouvert et refermé au raccourci).`);
 }

@@ -35,6 +35,7 @@ import type { GuiVaultEntity, GuiVaultEntityKind } from "./types";
 
 export const KIND_LABELS: Record<GuiVaultEntityKind, string> = {
   host: "hôte", group: "dossier", snippet: "snippet", key: "clé", "sql-connection": "connexion", icon: "icône",
+  login: "identifiant", note: "note", card: "carte", identity: "identité",
 };
 
 /** Un emplacement à afficher comme un dossier de premier niveau. */
@@ -68,10 +69,11 @@ const BUCKETS: { kind: GuiVaultEntityKind; label: string }[] = [
   { kind: "snippet", label: "Snippets" },
 ];
 
-/** Ce que le filtre compare — le nom, le chemin, le genre (« clé »). */
+/** Ce que le filtre compare — le nom, le chemin, le genre (« clé »), et ce
+ * que la consultation ajoute (utilisateur, adresse, site, tags). */
 function matches(e: GuiVaultEntity, terms: string[]): boolean {
   if (terms.length === 0) return true;
-  const haystack = `${e.name} ${e.path} ${KIND_LABELS[e.kind]}`.toLowerCase();
+  const haystack = `${e.name} ${e.path} ${KIND_LABELS[e.kind]} ${e.search ?? ""} ${(e.tags ?? []).join(" ")}`.toLowerCase();
   return terms.every((t) => haystack.includes(t));
 }
 

@@ -145,6 +145,13 @@ as I can put it:
   devices, shared vaults with roles, invitations, key rotation when someone
   leaves, and an out-of-band fingerprint check before any share. One Docker
   image; still no cloud account required to use Guiterm without it.
+- **Paste from GuiVault** (Ctrl+Shift+G): browse every vault of the account
+  next to the active terminal — including the logins, notes, cards and
+  identities written by GuiVault's web UI and browser extension — and copy
+  a field, paste it into the terminal, or paste it followed by Enter. Live
+  TOTP codes for an MFA prompt. Values are decrypted one at a time, when
+  you ask; the clipboard is cleared 30 s after a copy. Fully keyboard-driven
+  through the palette too (Ctrl+Shift+P: pick the item, then the field).
 
 **Comfort**
 - Command palette (Ctrl+K), customizable keyboard shortcuts — with

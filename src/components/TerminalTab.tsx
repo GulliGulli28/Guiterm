@@ -23,6 +23,13 @@ import { TerminalZoomBadge } from "./TerminalZoomBadge";
 export interface TerminalTabHandle {
   runCommand: (command: string) => void;
   writeRaw: (data: string) => void;
+  /** Colle `text` comme le ferait Ctrl+Maj+V : par `term.paste`, donc avec
+   * le *bracketed paste* si le programme au premier plan l'a demandé — une
+   * note de trois lignes arrive d'un bloc, pas comme trois Entrées — et
+   * les fins de ligne normalisées. `enter` ajoute la frappe d'Entrée après,
+   * pour un mot de passe qu'on veut valider dans la foulée. Sans terminal
+   * texte (RDP), le texte est tapé tel quel. */
+  paste: (text: string, enter: boolean) => void;
   getScrollbackText: () => string;
   /** Ce que l'utilisateur a surligné, ou `null` s'il n'a rien surligné.
    *
@@ -222,6 +229,17 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
       writeRaw: (data: string) => {
         const id = sessionIdRef.current;
         if (id) api.writeTerminal(id, new TextEncoder().encode(data));
+      },
+      paste: (text: string, enter: boolean) => {
+        const term = termRef.current;
+        const id = sessionIdRef.current;
+        if (!term || !id) return;
+        // `term.paste` passe par `onData`, donc par le même chemin qu'une
+        // frappe : la session reçoit le texte, et la diffusion en direct le
+        // répercute comme elle le ferait d'un collage au clavier.
+        term.paste(text);
+        if (enter) api.writeTerminal(id, new TextEncoder().encode("\r"));
+        term.focus();
       },
       getScrollbackText: () => (termRef.current ? scrollbackText(termRef.current) : ""),
       getSelection: () => termRef.current?.getSelection() || null,

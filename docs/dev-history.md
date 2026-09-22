@@ -2398,3 +2398,89 @@ minutes.
 premier échec devient permanent. Et trois hypothèses réfutées par la mesure
 valent mieux qu'une hypothèse plausible retenue sans preuve — mais il aurait
 fallu regarder l'état de la machine avant de soupçonner le code.
+
+## Coller depuis GuiVault (2026-09-22)
+
+Le besoin : pendant une session, aller chercher un mot de passe (ou un code
+TOTP, une note, une commande) dans ses vaults GuiVault et le mettre dans le
+terminal sans passer par l'interface web. Avec la contrainte que l'extension
+web montre **tout** — identifiants, notes, cartes, identités — et que Guiterm
+ne stockait rien de tout ça.
+
+### Un chemin de lecture à côté de la synchro, pas dedans
+
+`sync.rs` saute volontairement les secrets de l'interface web
+(`SecretItem::is_secret_type`), et `docs/ITEMS.md` côté GuiVault dit
+pourquoi : un item connu de `state.items` mais absent du workspace y passe
+pour une suppression locale et serait **effacé côté serveur** à la synchro
+suivante. Les faire entrer dans la synchro voulait dire les stocker
+localement (pas dans `workspace.json` en clair), leur donner un panneau, des
+formulaires, un cycle de vie — un chantier à part, et ce n'est pas ce qui
+était demandé.
+
+D'où `core/src/guivault/browse.rs` : un module **en lecture seule**, qui lit
+les items lui-même (`/sync` pour les vaults et révisions, puis
+`GET /vaults/{id}/items` par vault), tous types confondus, et n'écrit rien
+nulle part — ni sur le serveur, ni dans l'état de synchro. Le test
+`web_secrets_are_left_alone_by_sync` vérifie maintenant aussi qu'une lecture
+suivie d'une synchro laisse le secret intact.
+
+### Ce qui reste en mémoire, et ce qui traverse l'IPC
+
+Le cache (`browse::Cache`, dans `AppState`) garde les items **chiffrés** de
+chaque vault avec la révision qui les a produits : on ne retélécharge que
+les vaults dont la révision a bougé, comme l'extension. Le déchiffrement se
+fait à la demande, deux fois :
+
+- `guivault_browse` rend l'arbre en **métadonnées seules** — nom, dossier,
+  tags, termes de recherche, et *quels* champs existent (`Field { key, label,
+  secret, multiline, totp }`), jamais une valeur. Le frontend n'a donc aucun
+  secret à garder, et le tour visuel le vérifie (`leaked`).
+- `guivault_browse_field(vault, id, key)` rend **une** valeur, au moment où
+  l'utilisateur appuie sur Copier ou Coller. `guivault_browse_totp` calcule
+  le code du moment (`totp-rs`, promu de dev-dependency en dépendance : une
+  URI `otpauth://` ou un secret base32 nu).
+
+Les entités de Guiterm passent aussi par là (hôtes avec mot de passe,
+passphrase et variables secrètes, connexions SQL, clés, snippets) — et un
+hôte SSH offre en plus une « Commande SSH » prête (`ssh -p 2222 user@host`).
+
+### Coller = `term.paste`, pas `writeRaw`
+
+Le clic droit collait déjà en écrivant les octets du presse-papiers
+directement dans le pty. Pour un secret, ce n'est pas assez : une note de
+trois lignes arriverait comme trois Entrées. `TerminalTabHandle.paste(text,
+enter)` passe par `term.paste()` de xterm — *bracketed paste* si le
+programme au premier plan l'a demandé, fins de ligne normalisées, et le
+même chemin `onData` qu'une frappe, donc la diffusion en direct le
+répercute comme un collage au clavier. `enter` envoie un `\r` après ; sur
+un bureau RDP, le texte est tapé et l'Entrée est une vraie touche.
+
+Deux boutons plutôt qu'un réglage : « Coller » et « Coller puis Entrée ». Un
+mot de passe collé dans une invite puis validé automatiquement est une
+source d'erreurs (mauvais onglet, mauvaise invite) — mais quand on sait ce
+qu'on fait, l'Entrée en plus est la moitié du geste.
+
+### Deux entrées, un contenu
+
+Le panneau (`VaultBrowserPanel`, colonne de droite — celle du formulaire
+d'hôte, qui garde la priorité quand il est ouvert) : même arbre que le
+panneau GuiVault (`buildVaultTreeSections` sur `browseSections`), filtres par
+type comme l'extension, recherche sur nom, chemin, utilisateur, adresse,
+site et tags ; un item se déplie en place. La palette (`vault.paste`,
+Ctrl+Maj+P) : la liste des items (vault et chemin dans le libellé, deux
+« admin » de deux vaults se distinguent), puis la liste des actions du
+choisi. `onClose` de la première ne referme pas la seconde : la palette
+appelle `run()` puis `onClose()` dans la même passe, d'où le
+`setVaultPalette((p) => (p?.step === "items" ? null : p))`.
+
+Le presse-papiers : `copySecret` efface la valeur au bout de trente secondes
+**si elle y est encore** — copier autre chose entre-temps n'est plus notre
+affaire.
+
+### Ce qui n'est pas là
+
+Pas d'écriture (créer, modifier un identifiant) : l'interface web reste le
+lieu pour ça. Pas de stockage local des secrets de l'interface web — un
+panneau hors ligne les exigerait, et c'est le chantier « Panneau Coffre »
+de `docs/ITEMS.md`, pas celui-ci.

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { check as checkForUpdate } from "@tauri-apps/plugin-updater";
 import { api, onSshAuthPrompt } from "./lib/api";
-import type { AwsSsoSession, GroupId, GuiVaultStatus, Host, HostId, PaneSource, SqlConnection, SshAuthPrompt, TabMeta, VaultId, VaultStatus, Workspace } from "./lib/types";
+import type { AwsSsoSession, GroupId, GuiVaultBrowseEntry, GuiVaultStatus, Host, HostId, PaneSource, SqlConnection, SshAuthPrompt, TabMeta, VaultId, VaultStatus, Workspace } from "./lib/types";
 import { isHostBoundTab } from "./lib/types";
 import { Sidebar } from "./components/Sidebar";
 import { HostForm } from "./components/HostForm";
@@ -35,6 +35,10 @@ import { GroupForm, type GroupFormData } from "./components/GroupForm";
 import { SqlConnectionForm } from "./components/SqlConnectionForm";
 import { IconTerminal, IconClose, IconPin } from "./components/ui-icons";
 import { CommandPalette, type PaletteCommand } from "./components/CommandPalette";
+import { VaultBrowserPanel } from "./components/VaultBrowserPanel";
+import { paletteRows } from "./lib/vaultBrowse";
+import { KIND_LABELS as VAULT_KIND_LABELS } from "./lib/vaultTree";
+import { copySecret } from "./lib/secretClipboard";
 import { SnippetPicker } from "./components/SnippetPicker";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { VaultUnlockModal } from "./components/VaultUnlockModal";
@@ -83,6 +87,15 @@ export default function App() {
    * même geste, et une union à deux cas ferait porter à chaque lecture de
    * `paletteOpen` une question qu'elle n'a pas à se poser. */
   const [objectPalette, setObjectPalette] = useState<AppObject | null>(null);
+  /** Coller depuis GuiVault : le panneau à droite du terminal, et le même
+   * contenu en deux palettes successives (l'item, puis le champ) pour le
+   * clavier. Le second est un état à part, comme `objectPalette`. */
+  const [vaultBrowserOpen, setVaultBrowserOpen] = useState(false);
+  const [vaultPalette, setVaultPalette] = useState<
+    | { step: "items"; entries: GuiVaultBrowseEntry[] }
+    | { step: "fields"; entry: GuiVaultBrowseEntry }
+    | null
+  >(null);
   const [snippetPickerOpen, setSnippetPickerOpen] = useState(false);
   /** Which cloud import is on screen. `"picker"` is the provider choice that
    * the single "Importer depuis le cloud" menu entry opens; the others are the
@@ -535,8 +548,68 @@ export default function App() {
       setEditingGroup(null);
       setEditingSqlConnection(null);
     },
+    "vault.browse": () => setVaultBrowserOpen((v) => !v),
+    "vault.paste": () => {
+      if (!guivaultStatus?.configured || !guivaultStatus.unlocked) {
+        reportError(guivaultStatus?.configured
+          ? "Compte GuiVault verrouillé — saisir le mot de passe maître dans le panneau GuiVault."
+          : "Aucun compte GuiVault connecté — voir le panneau GuiVault.");
+        return;
+      }
+      api.guivaultBrowse()
+        .then((entries) => setVaultPalette({ step: "items", entries }))
+        .catch((e) => reportError(String(e)));
+    },
   };
   useGlobalShortcuts(preferences.keyboardShortcuts, shortcutHandlers);
+
+  // ── Coller depuis GuiVault ────────────────────────────────────────────────
+  // Le terminal dans lequel « Coller » écrit : l'onglet actif, s'il a un
+  // terminal (SSH, local, ou un bureau RDP qui tape le texte). Lu à chaque
+  // rendu — la table des poignées n'est pas un état, mais un onglet qui
+  // change en est un, donc le libellé suit.
+  const activeTerminalTab = tabs.find((t) => t.id === activeTabId);
+  const activeTerminalHandle = activeTabId ? terminalRefs.current.get(activeTabId) : undefined;
+  const pasteTargetLabel = activeTerminalHandle && activeTerminalTab ? activeTerminalTab.label : null;
+  const pasteIntoActiveTerminal = (text: string, enter: boolean) => {
+    const handle = activeTabId ? terminalRefs.current.get(activeTabId) : undefined;
+    if (!handle) {
+      reportError("Aucun terminal actif — ouvrir un terminal, puis réessayer (ou utiliser « Copier »).");
+      return;
+    }
+    handle.paste(text, enter);
+  };
+  /** Les actions d'un item, pour la seconde palette : coller, coller puis
+   * Entrée, copier — champ par champ, dans l'ordre où le panneau les montre. */
+  const vaultFieldCommands = (entry: GuiVaultBrowseEntry): PaletteCommand[] => {
+    const read = (field: GuiVaultBrowseEntry["fields"][number]) =>
+      field.totp ? api.guivaultBrowseTotp(entry.vaultId, entry.id).then((t) => t.code) : api.guivaultBrowseField(entry.vaultId, entry.id, field.key);
+    return entry.fields.flatMap((field) => [
+      {
+        id: `vault.paste.${field.key}`,
+        label: `Coller « ${field.label} »`,
+        hint: pasteTargetLabel ?? "aucun terminal",
+        run: () => { read(field).then((v) => pasteIntoActiveTerminal(v, false)).catch((e) => reportError(String(e))); },
+      },
+      {
+        id: `vault.pasteEnter.${field.key}`,
+        label: `Coller « ${field.label} » puis Entrée`,
+        hint: pasteTargetLabel ?? "aucun terminal",
+        run: () => { read(field).then((v) => pasteIntoActiveTerminal(v, true)).catch((e) => reportError(String(e))); },
+      },
+      {
+        id: `vault.copy.${field.key}`,
+        label: `Copier « ${field.label} »`,
+        hint: field.secret ? "effacé après 30 s" : undefined,
+        run: () => {
+          read(field)
+            .then((v) => copySecret(v))
+            .then(() => pushNotification("success", field.secret ? `${field.label} copié — effacé du presse-papiers dans 30 s.` : `${field.label} copié.`))
+            .catch((e) => reportError(String(e)));
+        },
+      },
+    ]);
+  };
 
   // Ctrl+±/Ctrl+0 are handled by the focused terminal itself (see
   // `lib/terminalZoom.ts` for why they aren't rebindable combos) — these are
@@ -750,7 +823,10 @@ export default function App() {
     objectActions: (obj) => actionsForObject(obj, moduleContext, tabOpeners),
   };
 
-  const showRightPanel = !!(editingHost || editingGroup || editingSqlConnection);
+  // Un formulaire ouvert prend la colonne ; le panneau GuiVault revient
+  // quand il se ferme.
+  const showEditForm = !!(editingHost || editingGroup || editingSqlConnection);
+  const showRightPanel = showEditForm || vaultBrowserOpen;
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const activeHostId = activeTab && isHostBoundTab(activeTab) ? activeTab.hostId : null;
 
@@ -854,6 +930,30 @@ export default function App() {
           title={`Envoyer « ${describeObject(objectPalette, workspace)} » vers…`}
           placeholder="Filtrer les actions…"
           onClose={() => setObjectPalette(null)}
+        />
+      )}
+      {vaultPalette?.step === "items" && (
+        <CommandPalette
+          commands={paletteRows(vaultPalette.entries).map(({ entry, label, keywords }) => ({
+            id: `vault.item.${entry.id}`,
+            label,
+            hint: VAULT_KIND_LABELS[entry.kind],
+            keywords,
+            run: () => setVaultPalette({ step: "fields", entry }),
+          }))}
+          title="Coller depuis GuiVault — choisir un item"
+          placeholder="Nom, dossier, utilisateur, site, tag…"
+          // Choisir un item ouvre la seconde liste dans la même passe :
+          // `onClose` ne doit pas la refermer derrière.
+          onClose={() => setVaultPalette((p) => (p?.step === "items" ? null : p))}
+        />
+      )}
+      {vaultPalette?.step === "fields" && (
+        <CommandPalette
+          commands={vaultFieldCommands(vaultPalette.entry)}
+          title={`${vaultPalette.entry.name} — ${VAULT_KIND_LABELS[vaultPalette.entry.kind]}, vault « ${vaultPalette.entry.vaultName} »`}
+          placeholder="Coller, coller puis Entrée, copier…"
+          onClose={() => setVaultPalette(null)}
         />
       )}
       {searchHost && (
@@ -961,11 +1061,13 @@ export default function App() {
           activeTabId={activeTabId}
           splitOpen={splitOpen}
           broadcastActive={broadcastMode}
+          vaultBrowserActive={vaultBrowserOpen}
           fullscreen={fullscreen}
           onSelect={setActiveTabId}
           onClose={requestCloseTab}
           onToggleSplit={toggleSplit}
           onToggleBroadcast={toggleBroadcastMode}
+          onToggleVaultBrowser={() => setVaultBrowserOpen((v) => !v)}
           onToggleFullscreen={toggleFullscreen}
           onReorder={setTabs}
           tabColor={tabColor}
@@ -1122,6 +1224,17 @@ export default function App() {
           style={{ width: showRightPanel ? rightPanel.value : 0 }}
           className={`flex shrink-0 flex-col overflow-hidden bg-[var(--c-bg2)] ${isDragging ? "" : "transition-[width] duration-200 ease-in-out"}`}
         >
+          {vaultBrowserOpen && !showEditForm && (
+            <VaultBrowserPanel
+              status={guivaultStatus}
+              targetLabel={pasteTargetLabel}
+              onPaste={pasteIntoActiveTerminal}
+              onNotify={(m) => pushNotification("success", m)}
+              onError={reportError}
+              onOpenAccount={() => showTargetsPanel("guivault")}
+              onClose={() => setVaultBrowserOpen(false)}
+            />
+          )}
           {/* `key` : passer d'un hôte à l'autre sans fermer le panneau
               remonte le formulaire, sinon React garde l'état du précédent
               (ses champs, et depuis peu son mot de passe) et l'enregistre
