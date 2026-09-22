@@ -9,6 +9,31 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+### Added
+
+- **Coller depuis GuiVault.** Un bouton dans la barre d'onglets (à côté de
+  la diffusion) ou **Ctrl+Maj+G** ouvre, à droite du terminal actif,
+  l'arborescence des vaults du compte — y compris les identifiants, notes,
+  cartes et identités écrits par l'interface web et l'extension de GuiVault,
+  que Guiterm ne synchronise pas mais sait maintenant lire. Une section par
+  vault, les dossiers repliables, des filtres par type et une recherche
+  (nom, dossier, utilisateur, adresse, site, tag). Un item déplié montre ses
+  champs avec leurs valeurs, les secrets masqués et révélables ; par champ :
+  **Copier** (effacé du presse-papiers au bout de 30 s), **Coller** dans le
+  terminal, **Coller puis Entrée**. Le code TOTP d'un identifiant s'affiche
+  en direct avec son compte à rebours — pour une invite MFA. Un hôte offre
+  en plus sa commande `ssh` prête à coller.
+
+  Tout se fait au clavier : dans le panneau, ↑/↓ parcourent items et champs,
+  Entrée colle, Maj+Entrée colle puis Entrée, Ctrl+C copie, Espace révèle ;
+  et **Ctrl+Maj+P** ouvre la palette sur les items puis sur les actions de
+  celui choisi, sans quitter le terminal des yeux. Les deux raccourcis se
+  changent dans les paramètres.
+
+  Les valeurs sont déchiffrées une par une, au moment où on les demande ;
+  le panneau montre toujours le compte connecté, même en vue « Cet
+  appareil ».
+
 ## [4.0.0] - 2026-09-18
 
 Version majeure : Guiterm devient un client de coffre partagé. Rien ne change
