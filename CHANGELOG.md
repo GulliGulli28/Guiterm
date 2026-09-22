@@ -9,6 +9,11 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+## [4.1.0] - 2026-09-22
+
+Deux chantiers : les secrets de GuiVault deviennent collables dans un
+terminal, et toute l'application devient pilotable au clavier.
+
 ### Added
 
 - **Coller depuis GuiVault.** Un bouton dans la barre d'onglets (à côté de
@@ -33,6 +38,37 @@ This changelog starts 2026-07-21 — for earlier versions, see
   Les valeurs sont déchiffrées une par une, au moment où on les demande ;
   le panneau montre toujours le compte connecté, même en vue « Cet
   appareil ».
+
+- **Navigation au clavier de toute l'application.** Quatre zones — la bande
+  de boutons, le panneau latéral, le contenu, la colonne de droite :
+  **F6** / **Maj+F6** en font le tour, **Ctrl+Maj+Espace** va droit au
+  terminal d'où que l'on soit, et **Échap** dans une liste y ramène.
+
+  **Les panneaux de la barre latérale** s'ouvrent par **Alt+1…9** puis
+  **Alt+0** (les dix premiers boutons visibles — la numérotation suit ce que
+  vous masquez dans les réglages, et chaque infobulle dit la sienne), par
+  **Alt+Page suiv./préc.** de proche en proche, ou par leur nom dans la
+  palette. Le panneau ouvert reçoit le focus ; le même Alt+N rend la main au
+  terminal.
+
+  **Toutes les listes** (Hôtes, SFTP, Snippets, Clés, Bases, Runbooks,
+  flotte, diagnostic, GuiVault…) se parcourent aux flèches : ↑/↓/Début/Fin,
+  **Entrée** pour l'action principale (se connecter, ouvrir), **→/←** pour
+  déplier, replier ou remonter au dossier, **Espace** pour cocher,
+  **Maj+F10** pour le menu « … », une lettre pour aller à la recherche du
+  panneau et ↑/↓ pour en revenir. Les catégories des Paramètres se
+  parcourent de la même façon, et **Ctrl+,** les ouvre et les referme.
+
+  La palette de commandes cherche désormais mot à mot : « panneau clés »
+  trouve « Panneau — Clés ».
+
+### Changed
+
+- Trois raccourcis ouvraient un panneau que leur bouton de la barre ouvrait
+  déjà : **Ctrl+Maj+Q** (Bases de données), **Ctrl+Maj+O** (Opérations de
+  flotte) et **Ctrl+Maj+D** (Diagnostic réseau) sont retirés au profit des
+  raccourcis de panneaux ci-dessus. Ctrl+Maj+A (Activité) reste : cet
+  onglet n'a pas de bouton dans la barre.
 
 ## [4.0.0] - 2026-09-18
 
