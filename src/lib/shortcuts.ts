@@ -32,7 +32,10 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
   { id: "tab.newLocalTerminal", label: "Nouveau terminal local", defaultKey: "Ctrl+T" },
   { id: "tab.next", label: "Onglet suivant", defaultKey: "Ctrl+Tab", bubblesThroughTerminal: true },
   { id: "tab.prev", label: "Onglet précédent", defaultKey: "Ctrl+Shift+Tab", bubblesThroughTerminal: true },
-  { id: "settings.open", label: "Ouvrir les paramètres", defaultKey: "Ctrl+," },
+  // Un aller-retour : le même geste ferme les paramètres et rend le focus au
+  // terminal. L'id garde son ancien nom pour ne pas perdre la combinaison
+  // enregistrée dans les préférences des installations existantes.
+  { id: "settings.open", label: "Ouvrir / fermer les paramètres", defaultKey: "Ctrl+," },
   { id: "snippets.quickRun", label: "Exécuter un snippet…", defaultKey: "Ctrl+Shift+R", bubblesThroughTerminal: true },
   { id: "window.fullscreen", label: "Mode plein écran", defaultKey: "F11", bubblesThroughTerminal: true },
 
@@ -83,6 +86,29 @@ export const SHORTCUT_ACTIONS: ShortcutAction[] = [
   // besoin.
   { id: "vault.browse", label: "Coller depuis GuiVault — afficher/masquer le panneau", defaultKey: "Ctrl+Shift+G", bubblesThroughTerminal: true },
   { id: "vault.paste", label: "Coller depuis GuiVault — choisir un item…", defaultKey: "Ctrl+Shift+P", bubblesThroughTerminal: true },
+
+  // Le focus, d'une zone à l'autre (voir `lib/keyboardNav.ts`) : la bande de
+  // boutons, le panneau latéral, le contenu, la colonne de droite. F6 est la
+  // convention Windows ; Ctrl+Maj+Espace va droit au terminal d'où qu'on soit
+  // — après avoir copié un secret dans le panneau GuiVault, typiquement.
+  { id: "focus.terminal", label: "Aller au terminal", defaultKey: "Ctrl+Shift+Space", bubblesThroughTerminal: true },
+  { id: "focus.nextZone", label: "Zone suivante (barre, panneau, contenu, colonne droite)", defaultKey: "F6", bubblesThroughTerminal: true },
+  { id: "focus.prevZone", label: "Zone précédente", defaultKey: "Shift+F6", bubblesThroughTerminal: true },
+
+  // Les panneaux de la barre latérale, par position : Alt+1 est le premier
+  // bouton *visible*, donc la numérotation suit les boutons masqués dans les
+  // réglages, et l'infobulle de chaque bouton dit la sienne. Pas
+  // `Ctrl+Maj+chiffre` : Maj est retiré de la rangée des chiffres par
+  // `comboFromEvent` (AZERTY), ce serait `Ctrl+chiffre`, déjà les onglets.
+  // Alt+chiffre est `digit-argument` dans readline — un préfixe de
+  // répétition que personne ne tape, et que ces actions prennent.
+  ...Array.from({ length: 9 }, (_, i) => ({
+    id: `sidebar.panel${i + 1}`,
+    label: `Ouvrir le panneau n° ${i + 1} de la barre latérale`,
+    defaultKey: `Alt+${i + 1}`,
+    bubblesThroughTerminal: true as const,
+    paletteHidden: true as const,
+  })),
 ];
 
 export function defaultShortcuts(): Record<string, string> {

@@ -57,7 +57,7 @@ export function FleetTargetsPanel({ workspace, onOpenTab }: { workspace: Workspa
         // latérale est étroite, une énumération des champs cherchés y est
         // tronquée avant d'être lue. Ce qui est couvert (dossier, tag, profil
         // AWS) l'est aussi côté SFTP sans être annoncé.
-        placeholder="Rechercher un hôte…"
+        data-panel-search="" placeholder="Rechercher un hôte…"
         className="input pl-8"
       />
     </div>

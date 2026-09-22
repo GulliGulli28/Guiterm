@@ -90,6 +90,12 @@ export function EntityRow({
     <div
       {...dataAttrs}
       data-active={active ? "true" : undefined}
+      // La navigation au clavier (`useRowNavigation`) : une ligne, sa
+      // profondeur, et son action principale — le titre cliquable, qui n'est
+      // pas tabulable pour que Tab ne s'arrête pas sur chaque ligne (le
+      // curseur ↑/↓ fait ça mieux).
+      data-nav-row=""
+      data-nav-depth={depth || undefined}
       // `flex-wrap` : quand le panneau est trop étroit pour le contenu et les
       // actions côte à côte, les actions passent dessous, alignées à droite —
       // le contenu garde au moins 8 rem et reste lisible.
@@ -98,14 +104,14 @@ export function EntityRow({
     >
       {leading && <span className="mt-1 flex shrink-0 items-center gap-1">{leading}</span>}
       {onClick ? (
-        <button onClick={onClick} title={title_} className="flex min-w-[8rem] flex-1 items-start gap-2.5 text-left">
+        <button onClick={onClick} title={title_} tabIndex={-1} data-nav-primary="" className="flex min-w-[8rem] flex-1 items-start gap-2.5 text-left">
           {body}
         </button>
       ) : (
         <span className="flex min-w-[8rem] flex-1 items-start gap-2.5">{body}</span>
       )}
       {(actions || alwaysVisibleActions) && (
-        <span className="-mr-1 -mt-0.5 ml-auto flex shrink-0 items-center gap-0.5">
+        <span data-nav-actions="" className="-mr-1 -mt-0.5 ml-auto flex shrink-0 items-center gap-0.5">
           {actions && (
             <span className="flex items-center gap-0.5 opacity-0 transition-opacity focus-within:opacity-100 group-hover/entity:opacity-100">
               {actions}
@@ -176,11 +182,15 @@ export function GroupRow({
   return (
     <div
       style={{ paddingLeft: 4 + depth * 14 }}
+      data-nav-row=""
+      data-nav-depth={depth || undefined}
       className="group/folder mb-1 mt-1.5 flex min-h-[var(--group-row-h)] items-center gap-1 rounded-md pr-1 hover:bg-[var(--c-hover)]"
     >
       <button
         onClick={onToggle}
         aria-label={expanded ? `Replier ${name}` : `Déplier ${name}`}
+        tabIndex={-1}
+        data-nav-toggle={expanded ? "expanded" : "collapsed"}
         className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-[var(--c-text-muted)] hover:text-[var(--c-text)]"
       >
         <svg width="12" height="12" viewBox="0 0 16 16" fill="none" className={`transition-transform ${expanded ? "rotate-90" : ""}`}>
@@ -190,6 +200,8 @@ export function GroupRow({
       {leading}
       <button
         onClick={onToggle}
+        tabIndex={-1}
+        data-nav-primary=""
         className="flex min-w-0 flex-1 items-center gap-1.5 truncate text-left font-medium text-[var(--c-text)]"
         style={{ fontSize: "var(--group-row-font)" }}
       >
@@ -207,7 +219,7 @@ export function GroupRow({
         {badge}
       </button>
       {actions && (
-        <span className="flex shrink-0 items-center opacity-0 focus-within:opacity-100 group-hover/folder:opacity-100">
+        <span data-nav-actions="" className="flex shrink-0 items-center opacity-0 focus-within:opacity-100 group-hover/folder:opacity-100">
           {actions}
         </span>
       )}

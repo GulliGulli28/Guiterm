@@ -83,6 +83,7 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
         if (enter) api.writeLocalTerminal(id, new TextEncoder().encode("\r"));
         if (focus) term.focus();
       },
+      focus: () => termRef.current?.focus(),
       getScrollbackText: () => (termRef.current ? scrollbackText(termRef.current) : ""),
       getSelection: () => termRef.current?.getSelection() || null,
       getRecordingTarget: () => {
@@ -299,6 +300,11 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
       ghostRef.current?.remeasure();
     }
   }, [isActive]);
+  // Même raison que `TerminalTab` : le conteneur est `invisible` tant que la
+  // session n'est pas ouverte, et un élément invisible ne prend pas le focus.
+  useEffect(() => {
+    if (isActive && status === "open") termRef.current?.focus();
+  }, [isActive, status]);
 
   // Apply preferences dynamically whenever they change — and this terminal's
   // own zoom, which needs the same refit + pty resize.

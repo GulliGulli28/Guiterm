@@ -2508,3 +2508,65 @@ Pas d'écriture (créer, modifier un identifiant) : l'interface web reste le
 lieu pour ça. Pas de stockage local des secrets de l'interface web — un
 panneau hors ligne les exigerait, et c'est le chantier « Panneau Coffre »
 de `docs/ITEMS.md`, pas celui-ci.
+
+## Navigation au clavier de toute l'app (2026-09-22)
+
+Après « Coller depuis GuiVault », le constat : on pouvait copier un secret
+au clavier, mais pas revenir au terminal sans la souris ; rien n'allait aux
+panneaux de la barre latérale ; `Ctrl+,` ouvrait les paramètres sans les
+fermer ; et aucune liste de la barre latérale n'avait de curseur (Tab
+s'arrêtait sur chaque ligne, sans ↑/↓ ni Entrée).
+
+### Quatre zones, un curseur par liste
+
+`lib/keyboardNav.ts` (logique pure, testée) et `lib/focusZonesDom.ts` (le
+DOM) : la bande de boutons, le panneau ouvert, le contenu, la colonne de
+droite — chacune un `[data-focus-zone]`. **F6 / Maj+F6** en font le tour,
+**Ctrl+Maj+Espace** va droit au terminal, **Échap** dans une liste y
+ramène aussi. **Alt+1…9** ouvre le n-ième bouton *visible* de la barre
+(l'infobulle dit le numéro ; le même Alt+N depuis le panneau focalisé rend
+le terminal). Pas `Ctrl+Maj+chiffre` : `comboFromEvent` retire Maj de la
+rangée des chiffres (AZERTY), ce serait `Ctrl+chiffre`, déjà les onglets.
+`Ctrl+,` est devenu un aller-retour (l'id `settings.open` garde son nom pour
+ne pas perdre la combinaison enregistrée).
+
+`hooks/useRowNavigation.ts` : un seul hook pour les douze panneaux. Le
+conteneur est focalisable ; les lignes sont lues dans le DOM
+(`[data-nav-row]`, posé une fois pour toutes par `EntityRow`, `GroupRow`
+et `TargetTreeList`), le curseur est l'élément marqué `data-nav-cursor`.
+↑/↓, Entrée = `[data-nav-primary]`, →/← = `[data-nav-toggle]` ou remonte
+au parent (`data-nav-depth`), Espace = la case, Maj+F10 = `[data-nav-menu]`
+(le « … » d'un hôte), une lettre = focus sur `[data-panel-search]` — le
+navigateur y insère le caractère lui-même, puisqu'il le fait *après* les
+gestionnaires de `keydown` : ni `preventDefault` ni écriture dans un état
+que le hook ne connaît pas. ↑/↓ depuis cette recherche reviennent à la
+liste. Les boutons de ligne passent en `tabIndex={-1}` : Tab n'a plus à
+traverser chaque ligne.
+
+### Trois pièges rencontrés en route
+
+- **Un élément `invisible` ne prend pas le focus.** `TerminalTab` appelait
+  `term.focus()` au montage, mais son conteneur est `visibility: hidden`
+  tant que la session n'est pas ouverte : l'appel tombait dans le vide, et
+  la liste d'hôtes qui venait de dire « Entrée » gardait le focus. Le
+  `focus()` se fait aussi à l'ouverture de la session (`status === "open"`),
+  dans les deux terminaux. Trouvé en patchant `HTMLElement.prototype.focus`
+  dans le tour visuel pour tracer chaque appel avec sa pile.
+- **Un menu vit dans le DOM de sa liste.** ↓ dans le menu « … » d'un hôte
+  faisait aussi avancer le curseur de la liste dessous, qui reprenait le
+  focus au passage. `lib/menuKeyboard.ts` (`handleMenuKey`) arrête la
+  propagation, et le hook ignore ce qui vient d'un `[role=menu]`, d'un
+  `.popover` ou d'une modale. Échap referme et rend le focus à la liste.
+- **Faire défiler au `mousedown` casse le clic.** Le curseur se pose aussi
+  au clic (pour que les flèches repartent de là) ; `scrollIntoView` à ce
+  moment déplaçait la case sous la souris, et le `click` n'arrivait jamais
+  — la scène `33b` (cocher une entité dans « Ajouter ») l'a attrapé. Au
+  clic, on marque sans défiler.
+
+Vérifié : `keyboardNav.test.ts`, scènes `45`–`47` du tour visuel (Alt+N
+aller-retour, ↑/↓/→/← dans Hôtes, lettre → recherche → ↓, Entrée se
+connecte et le focus arrive dans le terminal, Maj+F10 → menu → Échap →
+liste, F6, Ctrl+Maj+Espace, Ctrl+, aller-retour), et un scénario E2E dans
+la vraie webview (tout traverse xterm, le focus arrive dans son textarea).
+Les lookups E2E des boutons de la barre passent par
+`data-sidebar-button`, l'infobulle portant maintenant le raccourci.

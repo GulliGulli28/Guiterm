@@ -692,7 +692,7 @@ function VaultContents({ vault, vaults, onChanged, onError, onNotify }: {
       {here.length > 6 && (
         <div className="relative">
           <div className="pointer-events-none absolute inset-y-0 left-2.5 flex items-center"><IconSearch size={12} className="text-[var(--c-text-muted)]" /></div>
-          <input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Filtrer le contenu" aria-label="Filtrer le contenu" className="input h-7 w-full pl-7 text-[12px]" />
+          <input value={query} onChange={(e) => setQuery(e.target.value)} data-panel-search="" placeholder="Filtrer le contenu" aria-label="Filtrer le contenu" className="input h-7 w-full pl-7 text-[12px]" />
         </div>
       )}
       {canWrite && here.length > 0 && (

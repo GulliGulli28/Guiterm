@@ -192,6 +192,9 @@ export interface TabOpeners {
  * vérifier pour lui-même.
  */
 export interface SidebarActions extends TabOpeners {
+  /** Rendre le focus au terminal (ou au contenu) de l'onglet actif — Échap
+   * dans une liste de la barre latérale. */
+  focusTerminal: () => void;
 
   // ── Ouvrir un formulaire ou une modale ────────────────────────────────
   newHost: () => void;

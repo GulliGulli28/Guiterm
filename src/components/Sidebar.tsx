@@ -1,4 +1,5 @@
-import { Suspense, type ComponentType } from "react";
+import { Suspense, useRef, type ComponentType } from "react";
+import { useRowNavigation } from "../hooks/useRowNavigation";
 import { alertTone, describeAlert } from "../lib/awsIdentities";
 import { SIDEBAR_BUTTONS, isSidebarButtonVisible, type SidebarButtonId, type SidebarPanelKind } from "../lib/sidebarButtons";
 
@@ -47,6 +48,25 @@ const BUTTON_ICONS: Record<SidebarButtonId, ComponentType<{ size?: number }>> = 
 export function Sidebar({ panel, onPanelChange, ctx, actions }: SidebarProps) {
   const tone = alertTone(actions.awsAlerts);
   const hidden = ctx.preferences.hiddenSidebarButtons;
+  const visibleButtons = SIDEBAR_BUTTONS.filter((b) => isSidebarButtonVisible(b.id, hidden));
+
+  // Deux zones de focus (voir `lib/keyboardNav.ts`) : la bande de boutons,
+  // où ↑/↓ passent d'un bouton à l'autre et Entrée ouvre ; et le panneau,
+  // où le même curseur parcourt les lignes de n'importe quel module — c'est
+  // `EntityRow`/`GroupRow` qui les marquent, pas les panneaux. Échap ramène
+  // au terminal, une lettre va à la recherche du panneau s'il en a une.
+  const navRef = useRef<HTMLElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  const navKeys = useRowNavigation(navRef, { onEscape: actions.focusTerminal });
+  const panelKeys = useRowNavigation(panelRef, {
+    onEscape: actions.focusTerminal,
+    onType: () => panelRef.current?.querySelector<HTMLElement>("[data-panel-search]") ?? null,
+  });
+  /** Le raccourci du n-ième bouton visible, pour l'infobulle. */
+  const comboOf = (index: number): string | undefined => {
+    const combo = ctx.preferences.keyboardShortcuts[`sidebar.panel${index + 1}`];
+    return combo ? combo.replace("Shift", "Maj") : undefined;
+  };
 
   // `fleet` et `netdiag` ouvrent leur panneau **et** leur onglet de travail.
   // Le panneau ne porte que le choix des cibles : l'ouvrir seul donnerait un
@@ -62,18 +82,34 @@ export function Sidebar({ panel, onPanelChange, ctx, actions }: SidebarProps) {
   return (
     <aside className="flex min-w-0 flex-1 overflow-hidden">
       {/* Vertical nav strip — fixed 44px, never overflows regardless of sidebar width */}
-      <nav className="relative flex w-11 shrink-0 flex-col items-center gap-px border-r border-[var(--c-border)] bg-[var(--c-bg)] py-1.5">
-        {SIDEBAR_BUTTONS.filter((b) => isSidebarButtonVisible(b.id, hidden)).map((b) => {
+      <nav
+        ref={navRef}
+        tabIndex={0}
+        data-focus-zone="sidebar-nav"
+        aria-label="Panneaux"
+        onKeyDown={navKeys.onKeyDown}
+        onMouseDownCapture={navKeys.onMouseDownCapture}
+        onFocus={navKeys.onFocus}
+        className="nav-zone relative flex w-11 shrink-0 flex-col items-center gap-px border-r border-[var(--c-border)] bg-[var(--c-bg)] py-1.5 outline-none"
+      >
+        {visibleButtons.map((b, index) => {
           const Icon = BUTTON_ICONS[b.id];
           const active = panel === b.id;
           // The dot only ever belongs to the AWS tab, and only when something
           // that carries work is about to lapse — see `aws_sso::alerts`.
           const alerting = b.id === "aws" && tone !== null;
-          const label = b.hint ? `${b.label} — ${b.hint}` : b.label;
+          const combo = comboOf(index);
+          // Le raccourci après un tiret, comme le complément : ce qui précède
+          // le premier « — » reste le libellé nu, sur lequel les tests s'appuient.
+          const label = [b.label, b.hint, combo].filter(Boolean).join(" — ");
           return (
             <button
               key={b.id}
               onClick={() => activate(b.id)}
+              tabIndex={-1}
+              data-nav-row=""
+              data-sidebar-button={b.id}
+              aria-keyshortcuts={combo}
               // The reason goes in the tooltip rather than the badge: a bare
               // dot says "something", and the hosts are what makes it a
               // decision.
@@ -101,7 +137,10 @@ export function Sidebar({ panel, onPanelChange, ctx, actions }: SidebarProps) {
         <div className="mt-auto">
           <button
             onClick={() => onPanelChange(panel === "settings" ? "hosts" : "settings")}
-            title="Paramètres"
+            tabIndex={-1}
+            data-nav-row=""
+            data-sidebar-button="settings"
+            title={["Paramètres", ctx.preferences.keyboardShortcuts["settings.open"]?.replace("Shift", "Maj")].filter(Boolean).join(" — ")}
             className={`relative flex h-9 w-9 items-center justify-center rounded-md transition-colors duration-100 ${
               panel === "settings"
                 ? "bg-[var(--c-accent-dim)] text-[var(--c-accent-text)] before:absolute before:-left-[5px] before:top-2 before:bottom-2 before:w-0.5 before:rounded-r before:bg-[var(--c-accent)]"
@@ -138,7 +177,16 @@ export function Sidebar({ panel, onPanelChange, ctx, actions }: SidebarProps) {
             en E2E que le panneau demandé rend bien quelque chose. Sans lui, le
             test devrait viser des classes utilitaires Tailwind, qui changent
             au premier ajustement de style. */}
-        <div data-sidebar-panel={panel} className="min-h-0 min-w-0 flex-1 overflow-hidden p-3">
+        <div
+          ref={panelRef}
+          tabIndex={0}
+          data-focus-zone="sidebar-panel"
+          data-sidebar-panel={panel}
+          onKeyDown={panelKeys.onKeyDown}
+          onMouseDownCapture={panelKeys.onMouseDownCapture}
+          onFocus={panelKeys.onFocus}
+          className="nav-zone min-h-0 min-w-0 flex-1 overflow-hidden p-3 outline-none"
+        >
           <Suspense fallback={<TabLoadingFallback />}>
             {renderModulePanel(panel, ctx, actions)}
           </Suspense>

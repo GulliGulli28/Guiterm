@@ -148,6 +148,8 @@ export function TargetTreeList<T extends TargetLike>({
                   <button
                     onClick={() => toggleCollapsed(row.id)}
                     aria-label={expanded ? "Replier" : "Déplier"}
+                    tabIndex={-1}
+                    data-nav-toggle={expanded ? "expanded" : "collapsed"}
                     className="flex h-5 w-5 shrink-0 items-center justify-center rounded-sm text-[var(--c-text-muted)] hover:text-[var(--c-text)]"
                   >
                     {expanded ? <IconChevronDown size={12} /> : <IconChevronRight size={12} />}

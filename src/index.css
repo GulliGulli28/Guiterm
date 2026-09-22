@@ -355,6 +355,12 @@ input[type="checkbox"]:disabled {
   .list-row[data-active="true"] {
     background: var(--c-accent-dim);
   }
+  /* Le curseur clavier d'une liste (`useRowNavigation`) : un anneau sur la
+     ligne, seulement quand sa zone a le focus — posé à la souris, il ne doit
+     pas se voir. */
+  .nav-zone:focus [data-nav-cursor="true"] {
+    box-shadow: inset 0 0 0 1px var(--c-accent);
+  }
   .list-row[data-active="true"]::before {
     content: "";
     position: absolute;

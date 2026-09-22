@@ -132,7 +132,7 @@ export function SftpPanel({ workspace, vaultSections: sections, onOpenTransfer }
         <input
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Rechercher un hôte…"
+          data-panel-search="" placeholder="Rechercher un hôte…"
           className="input pl-8"
         />
       </div>

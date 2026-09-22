@@ -615,6 +615,160 @@ const scenes = [
     const expected = ["Coller « Utilisateur »", "Coller « Utilisateur » puis Entrée", "Copier « Utilisateur »", "Coller « Mot de passe »", "Coller « Mot de passe » puis Entrée", "Copier « Mot de passe »"];
     if (actions.rows.join("|") !== expected.join("|")) throw new Error(`palette des champs : ${JSON.stringify(actions.rows)}`);
   }],
+  // ── Navigation au clavier de l'app entière ─────────────────────────
+  // Alt+N ouvre le n-ième panneau visible et lui donne le focus, curseur sur
+  // la première ligne ; le même Alt+N rend la main au terminal.
+  ["45-clavier-panneaux", async (page) => {
+    await page.keyboard.press("Escape");
+    await settle(page, 200);
+    await page.keyboard.press("Alt+3");
+    await settle(page, 400);
+    const sftp = await page.evaluate(() => ({
+      panel: document.querySelector("[data-sidebar-panel]")?.getAttribute("data-sidebar-panel"),
+      focus: document.activeElement?.getAttribute("data-focus-zone"),
+      cursor: !!document.querySelector("[data-focus-zone='sidebar-panel'] [data-nav-cursor]"),
+      title: document.querySelector("[data-sidebar-button='sftp']")?.getAttribute("title"),
+    }));
+    if (sftp.panel !== "sftp" || sftp.focus !== "sidebar-panel" || !sftp.cursor) throw new Error(`Alt+3 : ${JSON.stringify(sftp)}`);
+    if (!/Alt\+3/.test(sftp.title ?? "")) throw new Error(`l'infobulle ne dit pas le raccourci : ${sftp.title}`);
+    await page.keyboard.press("Alt+3");
+    await settle(page, 200);
+    const back = await page.evaluate(() => document.activeElement?.closest(".xterm") !== null);
+    if (!back) throw new Error("le second Alt+3 n'a pas rendu le focus au terminal");
+    await page.keyboard.press("Alt+2");
+    await settle(page, 400);
+  }],
+  // Dans le panneau Hôtes : ↑/↓ parcourent dossiers et hôtes, → déplie, ←
+  // replie puis remonte, Entrée se connecte, une lettre va à la recherche
+  // et ↓ en revient, Échap rend le terminal.
+  ["46-clavier-hotes", async (page) => {
+    const cursorText = () => page.evaluate(() => document.querySelector("[data-focus-zone='sidebar-panel'] [data-nav-cursor]")?.textContent?.trim().slice(0, 30) ?? null);
+    const panel = await page.evaluate(() => document.querySelector("[data-sidebar-panel]")?.getAttribute("data-sidebar-panel"));
+    if (panel !== "hosts") throw new Error(`panneau attendu : Hôtes, vu ${panel}`);
+    await page.keyboard.press("Home");
+    const first = await cursorText();
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowDown");
+    const third = await cursorText();
+    if (!first || !third || first === third) throw new Error(`le curseur ne bouge pas : ${first} → ${third}`);
+    // Un dossier : ← le replie, → le redéplie ; le nombre de lignes visibles
+    // le prouve.
+    await page.keyboard.press("Home");
+    const folderRow = await page.evaluate(() => {
+      const row = document.querySelector("[data-focus-zone='sidebar-panel'] [data-nav-cursor]");
+      return { folder: !!row?.querySelector("[data-nav-toggle]"), state: row?.querySelector("[data-nav-toggle]")?.getAttribute("data-nav-toggle") };
+    });
+    if (!folderRow.folder) throw new Error("la première ligne du panneau Hôtes devrait être un dossier");
+    const count = () => page.evaluate(() => Array.from(document.querySelectorAll("[data-focus-zone='sidebar-panel'] [data-nav-row]")).filter((r) => r.offsetParent !== null).length);
+    const before = await count();
+    await page.keyboard.press(folderRow.state === "expanded" ? "ArrowLeft" : "ArrowRight");
+    await settle(page, 200);
+    const after = await count();
+    if (after === before) throw new Error(`←/→ n'a pas replié/déplié le dossier (${before} → ${after})`);
+    await page.keyboard.press(folderRow.state === "expanded" ? "ArrowRight" : "ArrowLeft");
+    await settle(page, 200);
+    // ← sur un hôte remonte à son dossier.
+    await page.keyboard.press("ArrowDown");
+    const child = await cursorText();
+    await page.keyboard.press("ArrowLeft");
+    const parent = await cursorText();
+    if (parent === child) throw new Error("← sur un hôte devrait remonter au dossier");
+    // Une lettre va à la recherche, et la reçoit ; ↓ revient à la liste.
+    await page.keyboard.press("w");
+    await settle(page, 200);
+    const search = await page.evaluate(() => ({ focused: document.activeElement?.hasAttribute("data-panel-search"), value: document.activeElement?.value }));
+    if (!search.focused || search.value !== "w") throw new Error(`la lettre n'est pas allée à la recherche : ${JSON.stringify(search)}`);
+    await page.keyboard.type("eb-01");
+    await settle(page, 300);
+    await page.keyboard.press("ArrowDown");
+    await settle(page, 100);
+    const focusBack = await page.evaluate(() => document.activeElement?.getAttribute("data-focus-zone"));
+    if (focusBack !== "sidebar-panel") throw new Error(`↓ depuis la recherche ne revient pas à la liste : ${focusBack}`);
+    // Entrée sur l'hôte trouvé : un onglet de plus, le terminal a le focus.
+    await page.keyboard.press("End");
+    const target = await cursorText();
+    if (!/web-01/.test(target ?? "")) throw new Error(`le curseur devrait être sur web-01 : ${target}`);
+    const tabsBefore = await page.evaluate(() => document.querySelectorAll("[data-tab-id]").length);
+    await page.keyboard.press("Enter");
+    await settle(page, 1200);
+    const tabsAfter = await page.evaluate(() => document.querySelectorAll("[data-tab-id]").length);
+    if (tabsAfter <= tabsBefore) throw new Error(`Entrée n'a pas ouvert d'onglet (${tabsBefore} → ${tabsAfter})`);
+    // Le focus est dans le nouveau terminal.
+    const inTerm = await page.evaluate(() => document.activeElement?.closest(".xterm") !== null);
+    if (!inTerm) throw new Error("après connexion, le focus devrait être dans le terminal");
+  }],
+  // Maj+F10 ouvre le menu « … » de l'hôte sous le curseur, ↓ y circule,
+  // Échap le ferme.
+  ["46b-clavier-menu-hote", async (page) => {
+    await page.keyboard.press("Alt+2");
+    await settle(page, 300);
+    await page.keyboard.press("End");
+    await settle(page, 100);
+    const where = await page.evaluate(() => ({ zone: document.activeElement?.closest("[data-focus-zone]")?.getAttribute("data-focus-zone"), cursor: document.querySelector("[data-focus-zone='sidebar-panel'] [data-nav-cursor]")?.textContent?.trim().slice(0, 20), menuBtn: !!document.querySelector("[data-focus-zone='sidebar-panel'] [data-nav-cursor] [data-nav-menu]") }));
+    await page.keyboard.press("Shift+F10");
+    await settle(page, 300);
+    const menu = await page.evaluate(() => ({
+      open: !!document.querySelector("[role='menu']"),
+      focused: document.activeElement?.classList.contains("menu-item"),
+      first: document.activeElement?.textContent?.trim(),
+      where: null,
+    }));
+    menu.where = where;
+    if (!menu.open || !menu.focused) throw new Error(`Maj+F10 : ${JSON.stringify(menu)}`);
+    await page.keyboard.press("ArrowDown");
+    const second = await page.evaluate(() => document.activeElement?.textContent?.trim());
+    if (second === menu.first) throw new Error("↓ dans le menu ne bouge pas");
+    await page.keyboard.press("Escape");
+    await settle(page, 200);
+    const closed = await page.evaluate(() => !document.querySelector("[role='menu']"));
+    if (!closed) throw new Error("Échap ne ferme pas le menu");
+    // Le focus est revenu à la liste, curseur toujours sur l'hôte.
+    const backInList = await page.evaluate(() => document.activeElement?.getAttribute("data-focus-zone"));
+    if (backInList !== "sidebar-panel") throw new Error(`après le menu, le focus devrait revenir à la liste : ${backInList}`);
+  }],
+  // F6 fait le tour des zones ; Ctrl+Maj+Espace va droit au terminal ;
+  // Ctrl+, ouvre les paramètres avec le focus, et les referme.
+  ["47-clavier-zones", async (page) => {
+    await page.keyboard.press("Control+Shift+Space");
+    await settle(page, 100);
+    const zone = () => page.evaluate(() => document.activeElement?.closest("[data-focus-zone]")?.getAttribute("data-focus-zone") ?? null);
+    if ((await zone()) !== "main") throw new Error(`Ctrl+Maj+Espace : ${await zone()}`);
+    await page.keyboard.press("F6");
+    await settle(page, 100);
+    const z1 = await zone();
+    await page.keyboard.press("F6");
+    await settle(page, 100);
+    const z2 = await zone();
+    await page.keyboard.press("F6");
+    await settle(page, 100);
+    const z3 = await zone();
+    if ([z1, z2, z3].join(">") !== "sidebar-nav>sidebar-panel>main") throw new Error(`F6 : ${[z1, z2, z3].join(">")}`);
+    await page.keyboard.press("Shift+F6");
+    await settle(page, 100);
+    if ((await zone()) !== "sidebar-panel") throw new Error(`Maj+F6 : ${await zone()}`);
+    // Dans la bande : ↓ puis Entrée ouvre un autre panneau.
+    await page.keyboard.press("Shift+F6");
+    await settle(page, 100);
+    await page.keyboard.press("Home");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("ArrowDown");
+    await page.keyboard.press("Enter");
+    await settle(page, 300);
+    const opened = await page.evaluate(() => document.querySelector("[data-sidebar-panel]")?.getAttribute("data-sidebar-panel"));
+    if (opened !== "snippets") throw new Error(`Entrée dans la bande : ${opened}`);
+    // Les paramètres, aller-retour.
+    await page.keyboard.press("Control+,");
+    await settle(page, 400);
+    const settings = await page.evaluate(() => ({ panel: document.querySelector("[data-sidebar-panel]")?.getAttribute("data-sidebar-panel"), zone: document.activeElement?.closest("[data-focus-zone]")?.getAttribute("data-focus-zone") }));
+    if (settings.panel !== "settings" || settings.zone !== "sidebar-panel") throw new Error(`Ctrl+, : ${JSON.stringify(settings)}`);
+    await page.keyboard.press("Control+,");
+    await settle(page, 400);
+    const closed = await page.evaluate(() => ({ panel: document.querySelector("[data-sidebar-panel]")?.getAttribute("data-sidebar-panel"), inTerm: document.activeElement?.closest(".xterm") !== null }));
+    if (closed.panel !== "snippets" || !closed.inTerm) throw new Error(`second Ctrl+, : ${JSON.stringify(closed)}`);
+    await page.keyboard.press("Alt+2");
+    await settle(page, 300);
+  }],
 ];
 
 try {

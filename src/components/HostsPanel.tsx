@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { focusFirstMenuItem, handleMenuKey } from "../lib/menuKeyboard";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { api } from "../lib/api";
 import type { Group, GroupId, GuiVaultFollower, Host, HostId, SqlConnection, VaultId, VaultPlace, Workspace } from "../lib/types";
@@ -402,6 +403,7 @@ export function HostsPanel({
             className={`btn btn-ghost btn-sm btn-icon ${menuOpen ? "bg-[var(--c-active)] text-[var(--c-text)]" : ""}`}
             title="Options"
             aria-label={`Options de ${host.label}`}
+            data-nav-menu=""
           >
             <IconDotsVertical size={14} />
           </button>
@@ -423,7 +425,13 @@ export function HostsPanel({
     return (
       <>
         <div className="fixed inset-0 z-30" onMouseDown={close} />
-        <div className="popover fixed z-40 max-h-[calc(100vh-16px)] w-60 overflow-y-auto py-1" style={menuAnchor} role="menu">
+        <div
+          className="popover fixed z-40 max-h-[calc(100vh-16px)] w-60 overflow-y-auto py-1"
+          style={menuAnchor}
+          role="menu"
+          ref={focusFirstMenuItem}
+          onKeyDown={(e) => handleMenuKey(e, close)}
+        >
           <button onClick={() => { onEditHost(host); close(); }} className="menu-item"><IconEdit size={13} /> Modifier</button>
           {kind === "ssh" && (
             <button
@@ -574,7 +582,7 @@ export function HostsPanel({
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           onKeyDown={(e) => { if (e.key === "Enter" && quickSSH) handleQuickConnect(); }}
-          placeholder="Rechercher, ou ssh user@hôte"
+          data-panel-search="" placeholder="Rechercher, ou ssh user@hôte"
           className="input pl-8"
         />
       </div>
@@ -734,7 +742,13 @@ export function HostsPanel({
         // Le menu « … » d'un vault : même ancrage flottant que celui d'un hôte.
         <>
           <div className="fixed inset-0 z-30" onMouseDown={() => setVaultMenu(null)} />
-          <div className="popover fixed z-40 w-60 py-1" style={{ top: vaultMenu.top, right: vaultMenu.right }} role="menu">
+          <div
+            className="popover fixed z-40 w-60 py-1"
+            style={{ top: vaultMenu.top, right: vaultMenu.right }}
+            role="menu"
+            ref={focusFirstMenuItem}
+            onKeyDown={(e) => handleMenuKey(e, () => setVaultMenu(null))}
+          >
             <p className="eyebrow px-2.5 pb-1 pt-1.5">{vaultMenu.section.name}</p>
             {vaultMenu.section.role !== "reader" && onNewHostInVault && (
               <button onClick={() => { onNewHostInVault(vaultMenu.section.id); setVaultMenu(null); }} className="menu-item" role="menuitem"><IconPlus size={13} /> Nouvel hôte ici</button>

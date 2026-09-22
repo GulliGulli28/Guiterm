@@ -264,6 +264,7 @@ async function runScenarios(browser) {
   await runObjectBusScenario(browser);
   await runPaneElevationScenario(browser);
   await runGuiVaultPanelScenario(browser);
+  await runKeyboardZonesScenario(browser);
   await runTransferPanesPersistScenario(browser);
   await runObjectBusSelectionScenario(browser);
   await runAdaptiveComposerScenario(browser);
@@ -955,7 +956,7 @@ async function runRemoteSearchScenario(browser) {
   // the sidebar elsewhere.
   await browser.execute(() => {
     const tab = Array.from(document.querySelectorAll("button"))
-      .find((b) => (b.getAttribute("title") || "") === "Hôtes");
+      .find((b) => b.getAttribute("data-sidebar-button") === "hosts");
     if (tab instanceof HTMLElement) tab.click();
   });
   // Every host's menu in turn, not just the first: the entry only exists on an
@@ -1013,7 +1014,7 @@ async function runRemoteSearchScenario(browser) {
 async function runAnsibleImportScenario(browser) {
   await browser.execute(() => {
     const tab = Array.from(document.querySelectorAll("button"))
-      .find((b) => (b.getAttribute("title") || "") === "Hôtes");
+      .find((b) => b.getAttribute("data-sidebar-button") === "hosts");
     if (tab instanceof HTMLElement) tab.click();
   });
   // Matched on a prefix, not on equality: the label carries a trailing
@@ -1075,7 +1076,7 @@ async function runAnsibleImportScenario(browser) {
 async function runBulkEditScenario(browser) {
   await browser.execute(() => {
     const tab = Array.from(document.querySelectorAll("button"))
-      .find((b) => (b.getAttribute("title") || "") === "Hôtes");
+      .find((b) => b.getAttribute("data-sidebar-button") === "hosts");
     if (tab instanceof HTMLElement) tab.click();
   });
 
@@ -1254,6 +1255,49 @@ async function runTabShortcutScenario(browser) {
 }
 
 /**
+ * La navigation au clavier entre zones, à travers la vraie webview : Alt+3
+ * (depuis xterm) ouvre le troisième panneau visible et lui donne le focus,
+ * F6 fait le tour, Ctrl+Maj+Espace revient dans xterm, Ctrl+, ouvre et
+ * referme les paramètres. Le tour visuel vérifie le détail (curseur, Entrée,
+ * menus) dans Chromium ; ici, ce qui ne se voit que dans la webview : que
+ * ces combinaisons traversent xterm et que le focus arrive vraiment dans
+ * son textarea.
+ */
+async function runKeyboardZonesScenario(browser) {
+  const zone = () => browser.execute(() => document.activeElement?.closest("[data-focus-zone]")?.getAttribute("data-focus-zone") ?? null);
+  const inTerminal = () => browser.execute(() => document.activeElement?.closest(".xterm") !== null);
+
+  await focusVisibleTerminal(browser);
+  await browser.keys(["Alt", "3"]);
+  await browser.waitUntil(async () => (await browser.execute(() => document.querySelector("[data-sidebar-panel]")?.getAttribute("data-sidebar-panel"))) === "sftp" && (await zone()) === "sidebar-panel", {
+    timeout: 5_000,
+    timeoutMsg: "Alt+3 depuis xterm n a pas ouvert et focalisé le panneau SFTP",
+  });
+  await browser.keys(["Alt", "3"]);
+  await browser.waitUntil(inTerminal, { timeout: 5_000, timeoutMsg: "le second Alt+3 n a pas rendu le focus au terminal" });
+
+  await browser.keys("F6");
+  await browser.waitUntil(async () => (await zone()) === "sidebar-nav", { timeout: 5_000, timeoutMsg: "F6 depuis xterm n a pas mené à la bande de boutons" });
+  await browser.keys(["Control", "Shift", " "]);
+  await browser.waitUntil(inTerminal, { timeout: 5_000, timeoutMsg: "Ctrl+Maj+Espace n a pas rendu le focus au terminal" });
+
+  await browser.keys(["Control", ","]);
+  await browser.waitUntil(async () => (await browser.execute(() => document.querySelector("[data-sidebar-panel]")?.getAttribute("data-sidebar-panel"))) === "settings" && (await zone()) === "sidebar-panel", {
+    timeout: 5_000,
+    timeoutMsg: "Ctrl+, n a pas ouvert les paramètres avec le focus",
+  });
+  await browser.keys(["Control", ","]);
+  await browser.waitUntil(async () => (await browser.execute(() => document.querySelector("[data-sidebar-panel]")?.getAttribute("data-sidebar-panel"))) !== "settings" && (await inTerminal()), {
+    timeout: 5_000,
+    timeoutMsg: "le second Ctrl+, n a pas refermé les paramètres ni rendu le terminal",
+  });
+  await browser.keys(["Alt", "2"]);
+  await browser.waitUntil(async () => (await browser.execute(() => document.querySelector("[data-sidebar-panel]")?.getAttribute("data-sidebar-panel"))) === "hosts", { timeout: 5_000, timeoutMsg: "Alt+2 n a pas ramené le panneau Hôtes" });
+  await focusVisibleTerminal(browser);
+  console.log("Zones au clavier : OK (Alt+3 aller-retour, F6, Ctrl+Maj+Espace, Ctrl+, aller-retour — tout traverse xterm).");
+}
+
+/**
  * The Azure and GCP imports are reachable, and their commands are registered.
  *
  * This is the scenario that answers "can the user actually get there" — the
@@ -1273,7 +1317,7 @@ async function runTabShortcutScenario(browser) {
 async function runCloudImportScenario(browser) {
   await browser.execute(() => {
     const tab = Array.from(document.querySelectorAll("button"))
-      .find((b) => (b.getAttribute("title") || "") === "Hôtes");
+      .find((b) => b.getAttribute("data-sidebar-button") === "hosts");
     if (tab instanceof HTMLElement) tab.click();
   });
 
@@ -1433,7 +1477,7 @@ async function runRollbackScenario(browser) {
 async function runCertificateFieldScenario(browser) {
   await browser.execute(() => {
     const tab = Array.from(document.querySelectorAll("button"))
-      .find((b) => (b.getAttribute("title") || "") === "Hôtes");
+      .find((b) => b.getAttribute("data-sidebar-button") === "hosts");
     if (tab instanceof HTMLElement) tab.click();
   });
   const opened = await browser.execute(() => {
@@ -1846,7 +1890,7 @@ async function runObjectBusScenario(browser) {
 
   await browser.execute(() => {
     const btn = Array.from(document.querySelectorAll("aside nav button"))
-      .find((b) => (b.getAttribute("title") || "") === "Hôtes");
+      .find((b) => b.getAttribute("data-sidebar-button") === "hosts");
     if (btn instanceof HTMLElement) btn.click();
   });
   await clickButtonByText(browser, "Ajouter…");
@@ -2102,7 +2146,7 @@ async function runTransferPanesPersistScenario(browser) {
 
   await browser.execute(() => {
     const btn = Array.from(document.querySelectorAll("aside nav button"))
-      .find((b) => (b.getAttribute("title") || "") === "Hôtes");
+      .find((b) => b.getAttribute("data-sidebar-button") === "hosts");
     if (btn instanceof HTMLElement) btn.click();
   });
   await clickButtonByText(browser, "Ajouter…");
@@ -2464,7 +2508,7 @@ async function runHostAttachmentsScenario(browser) {
 
   await browser.execute(() => {
     const btn = Array.from(document.querySelectorAll("aside nav button"))
-      .find((b) => (b.getAttribute("title") || "") === "Hôtes");
+      .find((b) => b.getAttribute("data-sidebar-button") === "hosts");
     if (btn instanceof HTMLElement) btn.click();
   });
   await clickButtonByText(browser, "Ajouter…");
@@ -2583,7 +2627,7 @@ async function runSqlTabScenario(browser) {
 
   await browser.execute(() => {
     const btn = Array.from(document.querySelectorAll("aside nav button"))
-      .find((b) => (b.getAttribute("title") || "") === "Bases de données");
+      .find((b) => b.getAttribute("data-sidebar-button") === "database");
     if (btn instanceof HTMLElement) btn.click();
   });
   await clickButtonContaining(browser, "Nouvelle connexion");
@@ -2685,7 +2729,7 @@ async function runSshTerminalTabScenario(browser) {
   // de l'app n'apparaîtrait tout simplement pas dans le panneau (constaté).
   await browser.execute(() => {
     const btn = Array.from(document.querySelectorAll("aside nav button"))
-      .find((b) => (b.getAttribute("title") || "") === "Hôtes");
+      .find((b) => b.getAttribute("data-sidebar-button") === "hosts");
     if (btn instanceof HTMLElement) btn.click();
   });
   await clickButtonByText(browser, "Ajouter…");
@@ -3698,7 +3742,7 @@ async function runSidebarPanelsScenario(browser) {
   // Remettre la barre sur son panneau d'origine pour les scénarios suivants.
   await browser.execute(() => {
     const btn = Array.from(document.querySelectorAll("aside nav button"))
-      .find((b) => (b.getAttribute("title") || "") === "Hôtes");
+      .find((b) => b.getAttribute("data-sidebar-button") === "hosts");
     if (btn instanceof HTMLElement) btn.click();
   });
 
@@ -3757,7 +3801,7 @@ function toggleSidebarButtonRow(browser, label) {
 async function runSidebarButtonsScenario(browser) {
   await browser.execute(() => {
     const btn = Array.from(document.querySelectorAll("aside nav button"))
-      .find((b) => (b.getAttribute("title") || "") === "Paramètres");
+      .find((b) => (b.getAttribute("title") || "").split(" — ")[0] === "Paramètres");
     if (btn instanceof HTMLElement) btn.click();
   });
   await browser.waitUntil(async () => await browser.execute(() =>
@@ -3828,7 +3872,7 @@ async function runTunnelEditScenario(browser) {
 
   await browser.execute(() => {
     const tab = Array.from(document.querySelectorAll("button"))
-      .find((b) => (b.getAttribute("title") || "") === "Tunnels");
+      .find((b) => b.getAttribute("data-sidebar-button") === "tunnels");
     if (tab instanceof HTMLElement) tab.click();
   });
 
@@ -4119,7 +4163,7 @@ async function runNetDiagScenario(browser) {
 async function runAwsIdentitiesPanelScenario(browser) {
   await browser.execute(() => {
     const tab = Array.from(document.querySelectorAll("button"))
-      .find((b) => (b.getAttribute("title") || "") === "Identités AWS");
+      .find((b) => b.getAttribute("data-sidebar-button") === "aws");
     if (tab instanceof HTMLElement) tab.click();
   });
 
@@ -4253,7 +4297,7 @@ async function runHostTreePickerScenario(browser) {
   try {
     await browser.execute(() => {
       const btn = Array.from(document.querySelectorAll("aside nav button"))
-        .find((b) => (b.getAttribute("title") || "") === "Hôtes");
+        .find((b) => b.getAttribute("data-sidebar-button") === "hosts");
       if (btn instanceof HTMLElement) btn.click();
     });
 
@@ -4343,7 +4387,7 @@ async function runHostTreePickerScenario(browser) {
     // représentatif des onze autres.
     await browser.execute(() => {
       const tab = Array.from(document.querySelectorAll("button"))
-        .find((b) => (b.getAttribute("title") || "") === "Tunnels");
+        .find((b) => b.getAttribute("data-sidebar-button") === "tunnels");
       if (tab instanceof HTMLElement) tab.click();
     });
     await browser.waitUntil(async () => await browser.execute(() =>
@@ -4480,7 +4524,7 @@ async function runHostPasswordScenario(browser) {
 
   await browser.execute(() => {
     const btn = Array.from(document.querySelectorAll("aside nav button"))
-      .find((b) => (b.getAttribute("title") || "") === "Hôtes");
+      .find((b) => b.getAttribute("data-sidebar-button") === "hosts");
     if (btn instanceof HTMLElement) btn.click();
   });
   await clickButtonByText(browser, "Ajouter…");
@@ -4580,7 +4624,7 @@ async function runPersistentSessionScenario(browser) {
 
   await browser.execute(() => {
     const btn = Array.from(document.querySelectorAll("aside nav button"))
-      .find((b) => (b.getAttribute("title") || "") === "Hôtes");
+      .find((b) => b.getAttribute("data-sidebar-button") === "hosts");
     if (btn instanceof HTMLElement) btn.click();
   });
   await clickButtonByText(browser, "Ajouter…");
@@ -4745,7 +4789,7 @@ async function runSessionManagerScenario(browser) {
   // panneau et la partie interface de ce scénario se contenterait de passer.
   await browser.execute(() => {
     const btn = Array.from(document.querySelectorAll("aside nav button"))
-      .find((b) => (b.getAttribute("title") || "") === "Hôtes");
+      .find((b) => b.getAttribute("data-sidebar-button") === "hosts");
     if (btn instanceof HTMLElement) btn.click();
   });
   await clickButtonByText(browser, "Ajouter…");
@@ -4879,7 +4923,7 @@ async function runResumeOnLaunchScenario(browser) {
 
   await browser.execute(() => {
     const btn = Array.from(document.querySelectorAll("aside nav button"))
-      .find((b) => (b.getAttribute("title") || "") === "Paramètres");
+      .find((b) => (b.getAttribute("title") || "").split(" — ")[0] === "Paramètres");
     if (btn instanceof HTMLElement) btn.click();
   });
   // Les catégories du panneau sont des boutons à icône : leur libellé est dans

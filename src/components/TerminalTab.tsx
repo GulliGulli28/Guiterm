@@ -32,6 +32,9 @@ export interface TerminalTabHandle {
    * l'on colle souvent plusieurs champs d'affilée. Sans terminal texte
    * (RDP), le texte est tapé tel quel. */
   paste: (text: string, enter: boolean, focus: boolean) => void;
+  /** Donne le focus au terminal (au canevas, pour RDP) — « Aller au
+   * terminal », F6, Échap depuis une liste. */
+  focus: () => void;
   getScrollbackText: () => string;
   /** Ce que l'utilisateur a surligné, ou `null` s'il n'a rien surligné.
    *
@@ -243,6 +246,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
         if (enter) api.writeTerminal(id, new TextEncoder().encode("\r"));
         if (focus) term.focus();
       },
+      focus: () => termRef.current?.focus(),
       getScrollbackText: () => (termRef.current ? scrollbackText(termRef.current) : ""),
       getSelection: () => termRef.current?.getSelection() || null,
       getRecordingTarget: () => {
@@ -554,6 +558,13 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
       termRef.current.focus();
     }
   }, [isActive, syncGeometry]);
+  // Et quand la session s'ouvre : jusque-là le conteneur est `invisible`, et
+  // un élément invisible ne prend pas le focus — le `focus()` du montage
+  // tombait dans le vide, et la liste d'hôtes qui venait de dire « Entrée »
+  // le gardait.
+  useEffect(() => {
+    if (isActive && status === "open") termRef.current?.focus();
+  }, [isActive, status]);
 
   // Apply preferences dynamically whenever they change — and this terminal's
   // own zoom, which lands in the same place: changing the size means refitting

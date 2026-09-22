@@ -217,14 +217,13 @@
   "215": "SessionAppearance",
   "216": "KeyId",
   "217": "AwsCliError",
+  "218": ".put_item",
+  "219": ".list",
   "220": "run",
-  "221": "build_url",
-  "222": "terminalZoom.ts",
   "223": "visual-tour.mjs",
   "226": ".server_channel_open_agent_forward",
   "227": "MongoSession",
   "229": "usePolledHostStat.ts",
   "230": "input.rs",
-  "231": "GhostTextController",
   "232": "paneElevation.test.ts"
 }

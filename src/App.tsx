@@ -39,6 +39,9 @@ import { VaultBrowserPanel } from "./components/VaultBrowserPanel";
 import { paletteRows } from "./lib/vaultBrowse";
 import { KIND_LABELS as VAULT_KIND_LABELS } from "./lib/vaultTree";
 import { copySecret } from "./lib/secretClipboard";
+import { sidebarButtonAt } from "./lib/keyboardNav";
+import { cycleZone, focusZone } from "./lib/focusZonesDom";
+import { SIDEBAR_BUTTONS, isSidebarButtonVisible } from "./lib/sidebarButtons";
 import { SnippetPicker } from "./components/SnippetPicker";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { VaultUnlockModal } from "./components/VaultUnlockModal";
@@ -60,6 +63,8 @@ export default function App() {
   const [workspace, setWorkspace] = useState<Workspace | null>(null);
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [sidebarPanel, setSidebarPanel] = useState<SidebarPanelKind>("hosts");
+  /** Le panneau d'avant les paramètres, pour y revenir en les fermant. */
+  const panelBeforeSettings = useRef<SidebarPanelKind>("hosts");
   const [editingHost, setEditingHost] = useState<Host | "new" | null>(null);
   const [editingGroup, setEditingGroup] = useState<GroupFormData | null>(null);
   const [editingSqlConnection, setEditingSqlConnection] = useState<SqlConnection | "new" | null>(null);
@@ -484,7 +489,9 @@ export default function App() {
       const idx = tabs.findIndex((t) => t.id === activeTabId);
       setActiveTabId(tabs[(idx - 1 + tabs.length) % tabs.length].id);
     },
-    "settings.open": () => { setSidebarVisible(true); setSidebarPanel("settings"); },
+    // Un aller-retour : ouvrir donne le focus au panneau ; rouvrir (ou
+    // Échap dedans) revient au panneau d'avant et au terminal.
+    "settings.open": () => toggleSettings(),
     "snippets.quickRun": () => setSnippetPickerOpen(true),
     "window.fullscreen": () => toggleFullscreen(),
 
@@ -549,6 +556,25 @@ export default function App() {
       setEditingSqlConnection(null);
     },
     "vault.browse": () => setVaultBrowserOpen((v) => !v),
+    "focus.terminal": () => focusTerminal(),
+    "focus.nextZone": () => cycleZone(1, focusTerminal),
+    "focus.prevZone": () => cycleZone(-1, focusTerminal),
+    // Alt+N : le n-ième bouton visible. Le panneau déjà ouvert et focalisé
+    // rend la main au terminal — un seul geste pour l'aller et le retour.
+    ...Object.fromEntries(Array.from({ length: 9 }, (_, i) => [
+      `sidebar.panel${i + 1}`,
+      () => {
+        const visible = SIDEBAR_BUTTONS.filter((b) => isSidebarButtonVisible(b.id, preferences.hiddenSidebarButtons));
+        const button = sidebarButtonAt(visible, i + 1);
+        if (!button) return;
+        const panelHasFocus = !!document.activeElement?.closest('[data-focus-zone="sidebar-panel"]');
+        if (sidebarVisible && sidebarPanel === button.id && panelHasFocus) { focusTerminal(); return; }
+        showTargetsPanel(button.id);
+        if (button.id === "fleet") openFleetTab();
+        if (button.id === "netdiag") openNetdiagTab(null);
+        focusSidebarPanelSoon();
+      },
+    ])),
     "vault.paste": () => {
       if (!guivaultStatus?.configured || !guivaultStatus.unlocked) {
         reportError(guivaultStatus?.configured
@@ -562,6 +588,50 @@ export default function App() {
     },
   };
   useGlobalShortcuts(preferences.keyboardShortcuts, shortcutHandlers);
+
+  // ── Le focus, entre les zones ─────────────────────────────────────────
+  // Le terminal de l'onglet actif, sinon le contenu lui-même (un onglet SQL,
+  // l'écran vide) — pour que « Aller au terminal » ait toujours un endroit
+  // où aller.
+  function focusTerminal() {
+    const handle = activeTabId ? terminalRefs.current.get(activeTabId) : undefined;
+    if (handle) handle.focus();
+    else document.querySelector<HTMLElement>('[data-focus-zone="main"]')?.focus();
+  }
+  // L'onglet actif change (ouvert, ou choisi dans la barre) : le focus va
+  // à son terminal. Le terminal le fait déjà lui-même en montant… quand il
+  // monte assez tôt : un module chargé à la demande arrive après, et la
+  // liste qui vient de dire « Entrée » garde alors le focus. D'où l'attente,
+  // courte et bornée, que la poignée soit enregistrée.
+  const focusedForTab = useRef<string | null>(null);
+  useEffect(() => {
+    if (!activeTabId || focusedForTab.current === activeTabId) return;
+    focusedForTab.current = activeTabId;
+    let tries = 0;
+    const attempt = () => {
+      const handle = terminalRefs.current.get(activeTabId);
+      if (handle) { handle.focus(); return; }
+      if (++tries < 20) window.setTimeout(attempt, 50);
+    };
+    attempt();
+  }, [activeTabId]);
+
+  /** Le panneau latéral vient d'être (ré)ouvert : son conteneur n'existe
+   * qu'au rendu suivant. */
+  function focusSidebarPanelSoon() {
+    requestAnimationFrame(() => focusZone("sidebar-panel", focusTerminal));
+  }
+  function toggleSettings() {
+    if (sidebarVisible && sidebarPanel === "settings") {
+      setSidebarPanel(panelBeforeSettings.current);
+      focusTerminal();
+      return;
+    }
+    panelBeforeSettings.current = sidebarPanel === "settings" ? "hosts" : sidebarPanel;
+    setSidebarVisible(true);
+    setSidebarPanel("settings");
+    focusSidebarPanelSoon();
+  }
 
   // ── Coller depuis GuiVault ────────────────────────────────────────────────
   // Le terminal dans lequel « Coller » écrit : l'onglet actif, s'il a un
@@ -834,6 +904,9 @@ export default function App() {
   // contenu qu'avant, mais déclaré **une** fois : `SidebarProps` et les 90
   // lignes de passe-plat de `Sidebar.tsx` ont disparu avec.
   const sidebarActions: SidebarActions = {
+    // Échap dans une liste : les paramètres se ferment, tout revient au
+    // terminal.
+    focusTerminal: () => { if (sidebarPanel === "settings") toggleSettings(); else focusTerminal(); },
     ...tabOpeners,
 
     newHost: () => { setEditingHost("new"); setNewHostDefaultGroupId(null); setNewHostDefaultVaultId(undefined); setEditingGroup(null); setEditingSqlConnection(null); },
@@ -1118,7 +1191,7 @@ export default function App() {
         )}
 
         {/* Main content */}
-        <main className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--c-bg2)]">
+        <main data-focus-zone="main" tabIndex={-1} className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--c-bg2)] outline-none">
           {tabs.length === 0 ? (
             <div className="flex flex-1 select-none flex-col items-center justify-center gap-5">
               <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-[var(--c-border)] bg-[var(--c-bg2)] text-[var(--c-text-muted)]">
@@ -1221,6 +1294,7 @@ export default function App() {
 
         {/* Right edit panel */}
         <div
+          data-focus-zone="right"
           style={{ width: showRightPanel ? rightPanel.value : 0 }}
           className={`flex shrink-0 flex-col overflow-hidden bg-[var(--c-bg2)] ${isDragging ? "" : "transition-[width] duration-200 ease-in-out"}`}
         >
@@ -1231,8 +1305,8 @@ export default function App() {
               onPaste={pasteIntoActiveTerminal}
               onNotify={(m) => pushNotification("success", m)}
               onError={reportError}
-              onOpenAccount={() => showTargetsPanel("guivault")}
-              onClose={() => setVaultBrowserOpen(false)}
+              onOpenAccount={() => { showTargetsPanel("guivault"); focusSidebarPanelSoon(); }}
+              onClose={() => { setVaultBrowserOpen(false); focusTerminal(); }}
             />
           )}
           {/* `key` : passer d'un hôte à l'autre sans fermer le panneau

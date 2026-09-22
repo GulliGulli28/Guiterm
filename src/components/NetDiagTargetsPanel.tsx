@@ -49,7 +49,7 @@ export function NetDiagTargetsPanel({ workspace, onOpenTab }: { workspace: Works
         <input
           value={filter}
           onChange={(e) => setFilter(e.target.value)}
-          placeholder="Rechercher un hôte…"
+          data-panel-search="" placeholder="Rechercher un hôte…"
           className="input pl-8"
         />
       </div>
