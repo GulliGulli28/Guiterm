@@ -13,7 +13,7 @@
 use guivault_protocol::Role;
 use termius_core::guivault::account::{FingerprintTrust, MemoryStore};
 use termius_core::guivault::transfer::{self, Followers, Move, Place};
-use termius_core::guivault::{LoginStep, Manager, sharing, sync};
+use termius_core::guivault::{LoginStep, Manager, browse, sharing, sync};
 use termius_core::model::{Group, Host, Snippet, VaultId, Workspace};
 use termius_core::vault::{self as local_vault, SecretKind};
 use std::time::Duration;
@@ -176,7 +176,7 @@ async fn web_secrets_are_left_alone_by_sync() {
             username: "alice".into(),
             password: "pw".into(),
             uris: vec![],
-            totp: None,
+            totp: Some("JBSWY3DPEHPK3PXP".into()),
             passkeys: vec![],
             password_history: vec![],
         },
@@ -200,6 +200,30 @@ async fn web_secrets_are_left_alone_by_sync() {
     let remote = page.items.iter().find(|i| i.id == login.id()).expect("le secret est toujours sur le serveur");
     assert!(!remote.deleted);
     assert_eq!(a1.ws.hosts.len(), 1, "l'hôte, lui, est synchronisé normalement");
+
+    // Le panneau « Coller depuis GuiVault », lui, le voit — à côté de l'hôte,
+    // sans en exposer la valeur avant qu'on la demande.
+    let mut cache = browse::Cache::default();
+    let fetched = browse::fetch(&a1.manager, &cache.revisions()).await.unwrap();
+    cache.absorb(fetched);
+    let entries = browse::list(&a1.manager, &cache).unwrap();
+    let seen = entries.iter().find(|e| e.id == login.id()).expect("le login est listé");
+    assert_eq!((seen.kind.as_str(), seen.name.as_str(), seen.vault_id), ("login", "GitHub", vault.id));
+    assert!(entries.iter().any(|e| e.kind == "host" && e.name == "db-1"));
+    assert!(!serde_json::to_string(&entries).unwrap().contains("\"pw\""), "aucune valeur dans la liste");
+    assert_eq!(browse::read_field(&a1.manager, &cache, vault.id, login.id(), "password").unwrap(), "pw");
+    assert_eq!(browse::read_field(&a1.manager, &cache, vault.id, login.id(), "username").unwrap(), "alice");
+    assert_eq!(browse::totp(&a1.manager, &cache, vault.id, login.id()).unwrap().code.len(), 6);
+    assert!(browse::read_field(&a1.manager, &cache, vault.id, login.id(), "nope").is_err());
+
+    // Rien fetché deux fois quand rien n'a bougé ; et la lecture n'a laissé
+    // aucune trace dans la synchro — le secret survit toujours.
+    let again = browse::fetch(&a1.manager, &cache.revisions()).await.unwrap();
+    assert!(again.vaults.is_empty(), "révisions inchangées, rien à relire");
+    let r = a1.sync().await;
+    assert_eq!((r.pulled, r.pushed, r.deleted_remotely), (0, 0, 0), "{r:?}");
+    let page = client.items(vault.id, None).await.unwrap();
+    assert!(page.items.iter().any(|i| i.id == login.id() && !i.deleted), "toujours là après une lecture");
 }
 
 #[tokio::test]

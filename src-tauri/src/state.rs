@@ -154,6 +154,10 @@ pub struct AppState {
     /// « Transférer le profil local dans ce compte » demandé sur une
     /// connexion arrêtée au second facteur — rejoué à `guivault_login_totp`.
     pub guivault_pending_adopt: Mutex<bool>,
+    /// Les items chiffrés du compte, tels que le panneau « Coller depuis
+    /// GuiVault » les a reçus — un cache par révision de vault, jamais du
+    /// clair (voir `termius_core::guivault::browse`). Vidé à la déconnexion.
+    pub guivault_browse: Mutex<termius_core::guivault::browse::Cache>,
     pub terminals: Mutex<HashMap<String, TerminalSession>>,
     pub local_terminals: Mutex<HashMap<String, LocalTerminalSession>>,
     pub panes: Mutex<HashMap<String, Pane>>,

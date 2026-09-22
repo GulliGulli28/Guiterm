@@ -173,11 +173,13 @@ sha2 = "0.10"
 thiserror = "2"
 chrono = { version = "0.4", features = ["serde"] }
 
+# `guivault::browse` : le code TOTP du moment d'un identifiant du coffre, pour
+# le coller dans une invite MFA (et `guivault_integration` joue avec
+# l'application d'authentification pour l'enrôlement TOTP du compte).
+totp-rs = { version = "5", features = ["otpauth"] }
+
 [dev-dependencies]
 tempfile = "3"
-# `guivault_integration` : joue l'application d'authentification de
-# l'utilisateur pour l'enrôlement TOTP.
-totp-rs = { version = "5", features = ["otpauth"] }
 
 [[example]]
 name = "docker_ssh_debug"

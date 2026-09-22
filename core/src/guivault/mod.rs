@@ -9,7 +9,11 @@
 //! - [`sharing`] : vaults partagés, membres, invitations, empreintes.
 //! - [`transfer`] : déplacer des entités entre profil local, vault personnel
 //!   et vaults partagés.
+//! - [`browse`] : consulter tout le contenu du compte (secrets de l'interface
+//!   web compris) pour copier/coller dans un terminal — sans passer par la
+//!   synchro.
 pub mod account;
+pub mod browse;
 pub mod client;
 pub mod entity;
 pub mod sharing;

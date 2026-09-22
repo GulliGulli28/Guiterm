@@ -5,7 +5,7 @@ use crate::state::AppState;
 use guivault_protocol::Role;
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager as _, State};
-use termius_core::guivault::{LoginStep, Report, Status, VaultSummary, sharing, sync, transfer};
+use termius_core::guivault::{LoginStep, Report, Status, VaultSummary, browse, sharing, sync, transfer};
 use termius_core::model::{VaultId, Workspace};
 use termius_core::store;
 use termius_core::sync_ext::MutexExt;
@@ -417,6 +417,7 @@ pub async fn guivault_totp_disable(state: State<'_, AppState>, code: String) -> 
 #[tauri::command]
 pub async fn guivault_logout(state: State<'_, AppState>) -> Result<Status, String> {
     let was_active = state.guivault.active_user_id().is_some();
+    state.guivault_browse.lock_recover().clear();
     let status = state.guivault.logout().await.map_err(err)?;
     if was_active {
         activate_local_workspace(&state)?;
@@ -429,10 +430,42 @@ pub async fn guivault_logout(state: State<'_, AppState>) -> Result<Status, Strin
 #[tauri::command]
 pub async fn guivault_forget(state: State<'_, AppState>, user_id: uuid::Uuid) -> Result<Status, String> {
     if state.guivault.active_user_id() == Some(user_id) {
+        state.guivault_browse.lock_recover().clear();
         state.guivault.logout().await.map_err(err)?;
         activate_local_workspace(&state)?;
     }
     state.guivault.forget(user_id).await.map_err(err)
+}
+
+// ─── Coller depuis GuiVault ──────────────────────────────────────────────────
+
+/// Tout le contenu du compte — hôtes, connexions, clés, snippets **et** les
+/// secrets de l'interface web (identifiants, notes, cartes, identités) —
+/// sans aucune valeur secrète : le panneau et la palette s'en servent pour
+/// naviguer, puis demandent une valeur à la fois (`guivault_browse_field`).
+/// Rafraîchit d'abord le cache (réseau hors verrou) : les vaults dont la
+/// révision a bougé sont relus, les autres pas.
+#[tauri::command]
+pub async fn guivault_browse(state: State<'_, AppState>) -> Result<Vec<browse::Entry>, String> {
+    let known = state.guivault_browse.lock_recover().revisions();
+    let fetched = browse::fetch(&state.guivault, &known).await.map_err(err)?;
+    let mut cache = state.guivault_browse.lock_recover();
+    cache.absorb(fetched);
+    browse::list(&state.guivault, &cache).map_err(err)
+}
+
+/// La valeur d'un champ, au moment où l'utilisateur la copie ou la colle.
+#[tauri::command]
+pub fn guivault_browse_field(state: State<'_, AppState>, vault_id: VaultId, id: Uuid, key: String) -> Result<String, String> {
+    let cache = state.guivault_browse.lock_recover();
+    browse::read_field(&state.guivault, &cache, vault_id, id, &key).map_err(err)
+}
+
+/// Le code TOTP du moment d'un identifiant, avec ce qu'il lui reste à vivre.
+#[tauri::command]
+pub fn guivault_browse_totp(state: State<'_, AppState>, vault_id: VaultId, id: Uuid) -> Result<browse::TotpCode, String> {
+    let cache = state.guivault_browse.lock_recover();
+    browse::totp(&state.guivault, &cache, vault_id, id).map_err(err)
 }
 
 #[tauri::command]
