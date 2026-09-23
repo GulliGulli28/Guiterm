@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { api } from "../lib/api";
-import type { AwsCallerIdentity, AwsProfile, AwsSessionAlert, AwsSsoSession, AwsSsoSessionStatus, Workspace } from "../lib/types";
+import type { AwsCallerIdentity, AwsProfile, AwsSessionAlert, AwsSsoSession, AwsSsoSessionStatus, GuiVaultBrowseEntry, Workspace } from "../lib/types";
 import { describeAlert, describeState, groupIdentities, roleFromArn } from "../lib/awsIdentities";
 import { profileLabel } from "../lib/awsInstances";
 import { useAwsAccountNames } from "../hooks/useAwsAccountNames";
-import { IconCloud, IconPlus, IconRefresh, IconTrash } from "./ui-icons";
+import { IconCloud, IconPlus, IconRefresh, IconTrash, IconVault } from "./ui-icons";
 
 interface AwsIdentitiesPanelProps {
   /** Hosts pinning this profile are refreshed from here after a reassignment,
@@ -66,6 +66,17 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
   const [checks, setChecks] = useState<Record<string, Check>>({});
   const [checking, setChecking] = useState<string | null>(null);
   const [confirming, setConfirming] = useState<string | null>(null);
+  /** Les accès AWS du coffre GuiVault — `null` sans compte connecté et
+   * déverrouillé : ni la section ni les boutons « GuiVault » n'apparaissent. */
+  const [vaultAccess, setVaultAccess] = useState<GuiVaultBrowseEntry[] | null>(null);
+  const [vaultBusy, setVaultBusy] = useState<string | null>(null);
+  const [vaultNotice, setVaultNotice] = useState<{ tone: "ok" | "danger"; text: string } | null>(null);
+
+  const loadVault = useCallback(() => {
+    api.guivaultBrowse()
+      .then((entries) => setVaultAccess(entries.filter((e) => e.kind === "aws")))
+      .catch(() => setVaultAccess(null));
+  }, []);
 
   /** Sessions come from a file read and profiles from the CLI, so a missing
    * `aws` binary still lists the sessions — with the reason it can't say more
@@ -91,6 +102,39 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
   }, [loadSessions]);
 
   useEffect(load, [load, refreshToken]);
+  useEffect(loadVault, [loadVault, refreshToken]);
+
+  /** Une session de ce poste → le coffre (mise à jour si elle y est). */
+  const saveToVault = (name: string) => {
+    setVaultBusy(`save:${name}`);
+    setVaultNotice(null);
+    api.guivaultAwsSaveSession(name)
+      .then((saved) => {
+        setVaultNotice({ tone: "ok", text: `« ${saved.name} » ${saved.updated ? "mis à jour" : "enregistré"} dans ${saved.vaultName} (${saved.profiles} profil${saved.profiles > 1 ? "s" : ""}).` });
+        loadVault();
+      })
+      .catch((e) => setVaultNotice({ tone: "danger", text: e.message ?? String(e) }))
+      .finally(() => setVaultBusy(null));
+  };
+
+  /** Un accès du coffre → `~/.aws/config` de ce poste. */
+  const applyFromVault = (entry: GuiVaultBrowseEntry) => {
+    setVaultBusy(`apply:${entry.id}`);
+    setVaultNotice(null);
+    api.guivaultAwsApply(entry.vaultId, entry.id)
+      .then((applied) => {
+        const what = applied.profiles.length ? ` et ${applied.profiles.length} profil${applied.profiles.length > 1 ? "s" : ""}` : "";
+        setVaultNotice({
+          tone: "ok",
+          text: applied.ssoSession
+            ? `Session « ${applied.ssoSession} »${what} écrits dans ~/.aws/config — « Se connecter » sur sa carte.`
+            : `Clés écrites dans ~/.aws/credentials${what}.`,
+        });
+        load();
+      })
+      .catch((e) => setVaultNotice({ tone: "danger", text: e.message ?? String(e) }))
+      .finally(() => setVaultBusy(null));
+  };
   // Names need a valid token, so they arrive late or not at all; profiles show
   // their account id meanwhile rather than waiting on a round trip.
 
@@ -181,6 +225,10 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
           </div>
         )}
 
+        {vaultNotice && (
+          <p className={`callout ${vaultNotice.tone === "ok" ? "" : "callout-danger"} text-[11px]`} role="status">{vaultNotice.text}</p>
+        )}
+
         {groups.map((group) => {
           const status = group.session;
           const badge = status ? describeState(status.state) : null;
@@ -267,6 +315,17 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
                           Reconnecter
                         </button>
                       </>
+                    )}
+                    {vaultAccess && (
+                      <button
+                        onClick={() => saveToVault(status.name)}
+                        disabled={vaultBusy !== null}
+                        title="Enregistrer cette session et ses profils dans GuiVault, pour la retrouver sur tes autres postes"
+                        aria-label={`Enregistrer ${status.name} dans GuiVault`}
+                        className="rounded-md bg-[var(--c-bg2)] px-2 py-1 text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)] disabled:opacity-50"
+                      >
+                        {vaultBusy === `save:${status.name}` ? "…" : <IconVault size={12} />}
+                      </button>
                     )}
                   </div>
                 </>
@@ -425,6 +484,34 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
             </div>
           );
         })}
+
+        {/* Ce que le coffre connaît : les accès enregistrés depuis un autre
+            poste (ou l'interface web), à écrire dans ~/.aws/config d'ici. */}
+        {vaultAccess && vaultAccess.length > 0 && (
+          <div className="space-y-1 pt-1">
+            <p className="eyebrow flex items-center gap-1.5 px-1"><IconVault size={11} /> Dans GuiVault</p>
+            {vaultAccess.map((entry) => {
+              const here = sessions.some((s) => entry.search.includes(s.startUrl) && entry.search.split(" ").includes(s.name));
+              return (
+                <div key={entry.id} className="flex items-center gap-2 rounded-lg bg-[var(--c-bg3)] px-2.5 py-2">
+                  <IconCloud size={13} className="shrink-0 text-[var(--c-text-muted)]" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-[12px] text-[var(--c-text)]">{entry.name}</p>
+                    <p className="truncate text-[10px] text-[var(--c-text-muted)]">{entry.vaultName}{here ? " · déjà sur ce poste" : ""}</p>
+                  </div>
+                  <button
+                    onClick={() => applyFromVault(entry)}
+                    disabled={vaultBusy !== null}
+                    title="Écrire la session et ses profils dans ~/.aws/config (les sections de même nom sont remplacées)"
+                    className="btn btn-secondary btn-sm shrink-0 disabled:opacity-50"
+                  >
+                    {vaultBusy === `apply:${entry.id}` ? "…" : here ? "Réécrire" : "Configurer ce poste"}
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );

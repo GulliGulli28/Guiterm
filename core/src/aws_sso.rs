@@ -136,7 +136,7 @@ fn profile_header(name: &str) -> String {
 /// and `aws configure list-profiles` lists them alongside the config ones. A
 /// deletion that only touched `~/.aws/config` would therefore leave the profile
 /// in the picker and look like it silently failed.
-fn credentials_path() -> Option<PathBuf> {
+pub fn credentials_path() -> Option<PathBuf> {
     directories::BaseDirs::new().map(|dirs| dirs.home_dir().join(".aws").join("credentials"))
 }
 
@@ -184,14 +184,21 @@ fn rewrite_without_section(path: &std::path::Path, header: &str) -> Result<(), A
     })
 }
 
-fn read_config() -> String {
-    config_path()
-        .and_then(|path| std::fs::read_to_string(path).ok())
+pub(crate) fn read_config() -> String {
+    read_file(config_path())
+}
+
+pub(crate) fn read_file(path: Option<PathBuf>) -> String {
+    path.and_then(|path| std::fs::read_to_string(path).ok())
         .unwrap_or_default()
 }
 
-fn write_config(content: &str) -> Result<(), AwsCliError> {
-    let path = config_path().ok_or_else(|| AwsCliError::Unreadable {
+pub(crate) fn write_config(content: &str) -> Result<(), AwsCliError> {
+    write_file(config_path(), content)
+}
+
+pub(crate) fn write_file(path: Option<PathBuf>, content: &str) -> Result<(), AwsCliError> {
+    let path = path.ok_or_else(|| AwsCliError::Unreadable {
         message: "impossible de déterminer le dossier personnel".to_string(),
     })?;
     if let Some(parent) = path.parent() {

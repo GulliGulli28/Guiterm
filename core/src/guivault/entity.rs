@@ -7,7 +7,7 @@
 //! L'empreinte SHA-256 de ce JSON est ce qui dit « a changé depuis la dernière
 //! synchronisation » — calculée à la volée, elle évite d'instrumenter les
 //! dizaines de chemins qui modifient le workspace.
-use crate::model::{CustomIcon, Group, Host, PrivateKey, Snippet, SqlConnection, VaultId, Workspace};
+use crate::model::{CustomIcon, Group, Host, PrivateKey, Runbook, Snippet, SqlConnection, VaultId, Workspace};
 use crate::vault::{self as local_vault, SecretKind};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
@@ -19,6 +19,9 @@ pub const TYPE_GROUP: &str = "group";
 pub const TYPE_SNIPPET: &str = "snippet";
 pub const TYPE_KEY: &str = "key";
 pub const TYPE_SQL: &str = "sql-connection";
+/// Un runbook : rangé à part comme les snippets (pas de dossier), sans
+/// secret. L'interface web de GuiVault le lit et l'écrit aussi.
+pub const TYPE_RUNBOOK: &str = "runbook";
 /// Une icône personnalisée (`Workspace.custom_icons`) : pas une entité aux
 /// yeux de l'utilisateur, mais ce qu'un hôte ou un dossier référence par
 /// id — sans elle, les autres membres verraient une case vide. Synchronisée
@@ -78,6 +81,9 @@ pub enum Payload {
     Icon {
         icon: CustomIcon,
     },
+    Runbook {
+        runbook: Runbook,
+    },
 }
 
 impl Payload {
@@ -89,6 +95,7 @@ impl Payload {
             Payload::Key { .. } => TYPE_KEY,
             Payload::SqlConnection { .. } => TYPE_SQL,
             Payload::Icon { .. } => TYPE_ICON,
+            Payload::Runbook { .. } => TYPE_RUNBOOK,
         }
     }
 
@@ -101,6 +108,7 @@ impl Payload {
             Payload::SqlConnection { connection, .. } => connection.id,
             // `collect` n'émet une icône que si son id est un uuid.
             Payload::Icon { icon } => icon_uuid(icon).unwrap_or(Uuid::nil()),
+            Payload::Runbook { runbook } => runbook.id,
         }
     }
 
@@ -234,6 +242,9 @@ pub fn collect(workspace: &Workspace, personal: VaultId) -> anyhow::Result<Vec<L
     for i in workspace.custom_icons.iter().filter(|i| icon_uuid(i).is_some()) {
         push(Payload::Icon { icon: i.clone() })?;
     }
+    for r in &workspace.runbooks {
+        push(Payload::Runbook { runbook: r.clone() })?;
+    }
     Ok(out)
 }
 
@@ -304,6 +315,7 @@ pub fn apply(workspace: &mut Workspace, payload: Payload) {
             set_secret(connection.id, SecretKind::SqlPassword, &password);
             upsert(&mut workspace.sql_connections, connection.id, |c| c.id, connection);
         }
+        Payload::Runbook { runbook } => upsert(&mut workspace.runbooks, runbook.id, |r| r.id, runbook),
         Payload::Icon { icon } => {
             let id = icon.id.clone();
             match workspace.custom_icons.iter_mut().find(|i| i.id == id) {
@@ -337,6 +349,7 @@ pub fn remove(workspace: &mut Workspace, item_type: &str, id: Uuid) {
             }
         }
         TYPE_SNIPPET => workspace.snippets.retain(|s| s.id != id),
+        TYPE_RUNBOOK => workspace.runbooks.retain(|r| r.id != id),
         TYPE_KEY => {
             workspace.keychain.retain(|k| k.id != id);
             let _ = local_vault::delete_key_content(id);
@@ -388,6 +401,29 @@ mod tests {
         assert_eq!(h.id, host.id);
         remove(&mut ws, TYPE_HOST, host.id);
         assert!(ws.hosts.is_empty());
+    }
+
+    #[test]
+    fn a_runbook_written_by_the_web_ui_is_read_and_synced_back() {
+        // Le JSON de `RunbookForm.tsx` (interface web de GuiVault).
+        let json = r#"{"kind":"runbook","runbook":{"id":"6f1d5b3e-0d5c-4c39-9f4e-1f0a2b3c4d5e","name":"Mise à jour",
+            "description":"web","steps":[{"id":"7f1d5b3e-0d5c-4c39-9f4e-1f0a2b3c4d5e","title":"apt","notes":"",
+            "action":{"kind":"command","command":"apt-get update"},"scope":{"tags":["web"],"groups":["Prod Paris"]},
+            "onFailure":"dropFailed","approval":"always"},{"id":"8f1d5b3e-0d5c-4c39-9f4e-1f0a2b3c4d5e","title":"site",
+            "notes":"","action":{"kind":"playbook","relayHostId":"9f1d5b3e-0d5c-4c39-9f4e-1f0a2b3c4d5e",
+            "relayHostLabel":"ctl","playbook":"site.yml","inventory":""},"scope":{"tags":[],"groups":[]},
+            "onFailure":"stop","approval":"beforeIrreversible"}]}}"#;
+        let payload = Payload::from_json(json.as_bytes()).unwrap();
+        assert_eq!(payload.item_type(), TYPE_RUNBOOK);
+        let mut ws = Workspace::default();
+        apply(&mut ws, payload);
+        assert_eq!(ws.runbooks.len(), 1);
+        assert_eq!(ws.runbooks[0].steps[0].scope.groups, vec!["Prod Paris"]);
+        let all = collect(&ws, Uuid::new_v4()).unwrap();
+        let rb = all.iter().find(|e| e.item_type == TYPE_RUNBOOK).expect("le runbook repart à la synchro");
+        assert_eq!(rb.id.to_string(), "6f1d5b3e-0d5c-4c39-9f4e-1f0a2b3c4d5e");
+        remove(&mut ws, TYPE_RUNBOOK, rb.id);
+        assert!(ws.runbooks.is_empty());
     }
 
     #[test]

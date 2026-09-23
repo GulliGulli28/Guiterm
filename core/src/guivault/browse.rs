@@ -292,6 +292,41 @@ fn open_secret(item: SecretItem) -> Opened {
             o.secret_base(&id.base);
             o
         }
+        SecretItem::Aws { aws } => {
+            let mut o = Opened::new(&aws.base.name, aws.base.group_id, &aws.base.tags);
+            o.searchable(&aws.sso_start_url);
+            o.searchable(&aws.sso_session_name);
+            o.searchable(&aws.access_key_id);
+            for p in &aws.profiles {
+                o.searchable(&p.name);
+                o.searchable(&p.account_id);
+            }
+            o.text("ssoStartUrl", "Portail SSO", &aws.sso_start_url)
+                .text("ssoSessionName", "Session SSO", &aws.sso_session_name)
+                .text("accessKeyId", "Clé d'accès", &aws.access_key_id)
+                .secret("secretAccessKey", "Clé d'accès secrète", &aws.secret_access_key)
+                .text("region", "Région", &aws.region);
+            let profiles = aws.profiles.iter().map(|p| p.name.as_str()).filter(|n| !n.is_empty()).collect::<Vec<_>>().join(", ");
+            o.text("profiles", "Profils", &profiles);
+            let (config, credentials) = super::aws::config_text(&aws);
+            o.multiline("awsConfig", "~/.aws/config", &config, false)
+                .multiline("awsCredentials", "~/.aws/credentials", &credentials, true);
+            o.secret_base(&aws.base);
+            o
+        }
+        SecretItem::ApiKey { api_key: k } => {
+            let mut o = Opened::new(&k.base.name, k.base.group_id, &k.base.tags);
+            o.searchable(&k.service);
+            o.searchable(&k.url);
+            o.text("service", "Service", &k.service)
+                .text("url", "URL", &k.url)
+                .text("keyId", "Identifiant", &k.key_id)
+                .secret("secret", "Secret", &k.secret)
+                .text("scopes", "Portée", &k.scopes)
+                .text("expiresAt", "Expire le", &k.expires_at);
+            o.secret_base(&k.base);
+            o
+        }
     }
 }
 
@@ -361,6 +396,17 @@ fn open_entity(payload: Payload) -> Option<Opened> {
             }
             o
         }
+        Payload::Runbook { runbook } => {
+            let mut o = Opened::new(&runbook.name, None, &[]);
+            o.multiline("description", "Description", &runbook.description, false);
+            for (i, step) in runbook.steps.iter().enumerate() {
+                o.searchable(&step.title);
+                if let crate::model::RunbookAction::Command { command } = &step.action {
+                    o.multiline(&format!("step:{i}"), &format!("Étape {} — {}", i + 1, step.title), command, false);
+                }
+            }
+            o
+        }
         Payload::Icon { .. } => return None,
     })
 }
@@ -407,6 +453,18 @@ fn open_cached(manager: &Manager, cache: &Cache, vault: VaultId, id: Uuid) -> an
     let item = cache.item(vault, id).ok_or_else(|| anyhow::anyhow!("item inconnu — rouvrir le panneau pour le relire"))?;
     let plain = decrypt(manager, item)?;
     open(&item.item_type, &plain)?.ok_or_else(|| anyhow::anyhow!("cet item n'a rien à copier"))
+}
+
+/// Un accès AWS du coffre tel quel (pour [`super::aws::apply`]).
+pub fn aws_access(manager: &Manager, cache: &Cache, vault: VaultId, id: Uuid) -> anyhow::Result<guivault_items::AwsAccess> {
+    let item = cache.item(vault, id).ok_or_else(|| anyhow::anyhow!("item inconnu — rouvrir le panneau pour le relire"))?;
+    if item.item_type != guivault_items::TYPE_AWS {
+        anyhow::bail!("cet item n'est pas un accès AWS");
+    }
+    match SecretItem::from_json(&decrypt(manager, item)?)? {
+        SecretItem::Aws { aws } => Ok(aws),
+        _ => anyhow::bail!("cet item n'est pas un accès AWS"),
+    }
 }
 
 /// Un champ avec sa valeur — ce qu'un item déplié montre.

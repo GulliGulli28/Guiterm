@@ -329,6 +329,8 @@ fn main() {
             commands::guivault::guivault_browse_item,
             commands::guivault::guivault_browse_field,
             commands::guivault::guivault_browse_totp,
+            commands::guivault::guivault_aws_save_session,
+            commands::guivault::guivault_aws_apply,
             commands::guivault::guivault_transfer_entities,
             commands::guivault::guivault_transfer_plan,
             commands::guivault::guivault_repatriate_vault,

@@ -5,7 +5,7 @@ use crate::state::AppState;
 use guivault_protocol::Role;
 use serde::Deserialize;
 use tauri::{AppHandle, Emitter, Manager as _, State};
-use termius_core::guivault::{LoginStep, Report, Status, VaultSummary, browse, sharing, sync, transfer};
+use termius_core::guivault::{LoginStep, Report, Status, VaultSummary, aws, browse, sharing, sync, transfer};
 use termius_core::model::{VaultId, Workspace};
 use termius_core::store;
 use termius_core::sync_ext::MutexExt;
@@ -475,6 +475,24 @@ pub fn guivault_browse_field(state: State<'_, AppState>, vault_id: VaultId, id: 
 pub fn guivault_browse_totp(state: State<'_, AppState>, vault_id: VaultId, id: Uuid) -> Result<browse::TotpCode, String> {
     let cache = state.guivault_browse.lock_recover();
     browse::totp(&state.guivault, &cache, vault_id, id).map_err(err)
+}
+
+/// Enregistre dans le coffre une session SSO de `~/.aws/config` et ses
+/// profils (mis à jour si le coffre l'a déjà) — voir `guivault::aws`.
+#[tauri::command]
+pub async fn guivault_aws_save_session(state: State<'_, AppState>, name: String) -> Result<aws::Saved, String> {
+    aws::save_session(&state.guivault, name.trim()).await.map_err(err)
+}
+
+/// Écrit un accès AWS du coffre dans `~/.aws/config` (et `credentials`).
+/// L'item vient du cache de `guivault_browse`, comme les autres lectures.
+#[tauri::command]
+pub fn guivault_aws_apply(state: State<'_, AppState>, vault_id: VaultId, id: Uuid) -> Result<aws::Applied, String> {
+    let access = {
+        let cache = state.guivault_browse.lock_recover();
+        browse::aws_access(&state.guivault, &cache, vault_id, id).map_err(err)?
+    };
+    aws::apply(&access).map_err(|e| e.message())
 }
 
 #[tauri::command]

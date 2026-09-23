@@ -55,8 +55,8 @@
     "semantic_hash": ""
   },
   "core/src/aws_sso.rs": {
-    "mtime": 1790172585.2571428,
-    "ast_hash": "8a11c0948ecc532f0d9f7788b2d3139e",
+    "mtime": 1786449981.861544,
+    "ast_hash": "2ff4f92388148a4f6b71b3056f12befb",
     "semantic_hash": ""
   },
   "core/src/azure_auth.rs": {
@@ -380,8 +380,8 @@
     "semantic_hash": ""
   },
   "package.json": {
-    "mtime": 1790089881.445967,
-    "ast_hash": "df2929a02a87433d8aec258bfc8718da",
+    "mtime": 1789984624.6437814,
+    "ast_hash": "11cc6032444d9566226a5c9ddd123d16",
     "semantic_hash": ""
   },
   "postcss.config.js": {
@@ -675,8 +675,8 @@
     "semantic_hash": ""
   },
   "src-tauri/src/main.rs": {
-    "mtime": 1790172585.2571428,
-    "ast_hash": "cd09ab937d1d58d090a8c30cd1fa62e3",
+    "mtime": 1790067935.529564,
+    "ast_hash": "5dffa50da000ed4e9f747f21b716cba2",
     "semantic_hash": ""
   },
   "src-tauri/src/state.rs": {
@@ -720,8 +720,8 @@
     "semantic_hash": ""
   },
   "src/components/AwsIdentitiesPanel.tsx": {
-    "mtime": 1790172585.2571428,
-    "ast_hash": "84d3e3e0118ac0825bacd0e1a30dbd23",
+    "mtime": 1789380308.6458783,
+    "ast_hash": "a229288b1f76b26acfccee3d33356d07",
     "semantic_hash": ""
   },
   "src/components/AwsImportPanel.tsx": {
@@ -1105,8 +1105,8 @@
     "semantic_hash": ""
   },
   "src/lib/api.ts": {
-    "mtime": 1790172585.2571428,
-    "ast_hash": "bc28f4aea8018dec4b5be32cb26a1767",
+    "mtime": 1790067935.5384622,
+    "ast_hash": "a66bff499a2c3b4bc0cd3113bad5260d",
     "semantic_hash": ""
   },
   "src/lib/awsIdentities.test.ts": {
@@ -1410,8 +1410,8 @@
     "semantic_hash": ""
   },
   "src/lib/types.ts": {
-    "mtime": 1790172585.2571428,
-    "ast_hash": "3fc8d0cb0e3df0c209de017b81b945a8",
+    "mtime": 1790067935.5354183,
+    "ast_hash": "dd1a641d0e6d1625c84d00c6a1672230",
     "semantic_hash": ""
   },
   "src/lib/xtermRenderer.ts": {
@@ -1575,13 +1575,13 @@
     "semantic_hash": ""
   },
   "CHANGELOG.md": {
-    "mtime": 1790089880.7019675,
-    "ast_hash": "470166368296feebde5fa56fa027d155",
+    "mtime": 1790070214.914155,
+    "ast_hash": "ab7f0efde32ba5febee6f0de051cd155",
     "semantic_hash": ""
   },
   "CLAUDE.md": {
-    "mtime": 1790172612.467194,
-    "ast_hash": "268bdae4c7215437ee26e082862278ae",
+    "mtime": 1789676024.8168502,
+    "ast_hash": "94621a98e3c102863c6ed1c36b6aefb0",
     "semantic_hash": ""
   },
   "CONTRIBUTING.md": {
@@ -2100,13 +2100,13 @@
     "semantic_hash": ""
   },
   "core/src/guivault/entity.rs": {
-    "mtime": 1790172585.2571428,
-    "ast_hash": "441a4f5290948a21375d631e6b7bd19b",
+    "mtime": 1790005439.0249767,
+    "ast_hash": "ae8f1409f893b2e44b0b7bd6d53ebbd2",
     "semantic_hash": ""
   },
   "core/src/guivault/mod.rs": {
-    "mtime": 1790172585.2571428,
-    "ast_hash": "9e382d861ae7919a86de4ef02415371a",
+    "mtime": 1790066246.8111875,
+    "ast_hash": "0729b317982579956aa6e76cfa177b7d",
     "semantic_hash": ""
   },
   "core/src/guivault/sharing.rs": {
@@ -2115,8 +2115,8 @@
     "semantic_hash": ""
   },
   "core/src/guivault/sync.rs": {
-    "mtime": 1790172585.2571428,
-    "ast_hash": "77f2430d4272934f1b33b8e622b9b5c9",
+    "mtime": 1789979363.101764,
+    "ast_hash": "aeec71c0b006ec8705c42469877c30f2",
     "semantic_hash": ""
   },
   "core/src/sudo_pane.rs": {
@@ -2130,8 +2130,8 @@
     "semantic_hash": ""
   },
   "core/tests/guivault_integration.rs": {
-    "mtime": 1790172585.2571428,
-    "ast_hash": "13b4e95b11093d00b34215757d26c6a7",
+    "mtime": 1790066246.8111875,
+    "ast_hash": "bbaad293b9966dfecc57248a7a1dcf15",
     "semantic_hash": ""
   },
   "core/tests/sudo_pane_integration.rs": {
@@ -2140,18 +2140,18 @@
     "semantic_hash": ""
   },
   "scripts/visual-tour.client.tsx": {
-    "mtime": 1790172585.2571428,
-    "ast_hash": "f8f877d087c5e6896f272d7f1e80f3b9",
+    "mtime": 1790068298.5075524,
+    "ast_hash": "fabacffbc4a0e0f4f388849d990cc5eb",
     "semantic_hash": ""
   },
   "scripts/visual-tour.mjs": {
-    "mtime": 1790172585.2571428,
-    "ast_hash": "5e248c53c538c1333ae6e34e520106f0",
+    "mtime": 1790088629.427647,
+    "ast_hash": "bc4c54726f35972f9781063042e504ac",
     "semantic_hash": ""
   },
   "src-tauri/src/commands/guivault.rs": {
-    "mtime": 1790172585.2571428,
-    "ast_hash": "3554230f46c86c8dc29cc40fba6fd381",
+    "mtime": 1790067935.527911,
+    "ast_hash": "dd380556973a2e7bc919faad8a3217cd",
     "semantic_hash": ""
   },
   "src/components/ContextMenu.tsx": {
@@ -2235,13 +2235,13 @@
     "semantic_hash": ""
   },
   "core/src/guivault/transfer.rs": {
-    "mtime": 1790172585.2571428,
-    "ast_hash": "8aad58c60834257417ac13ef2c9fbd68",
+    "mtime": 1789675701.5369394,
+    "ast_hash": "c56eb4f271f6e19364fb0678ae149138",
     "semantic_hash": ""
   },
   "src/components/VaultEntityTree.tsx": {
-    "mtime": 1790172585.2571428,
-    "ast_hash": "5d425cb285a818e8c224772228f7530f",
+    "mtime": 1790066246.8151875,
+    "ast_hash": "4be4bc1917830615b3683aabc2ba32e6",
     "semantic_hash": ""
   },
   "src/components/VaultSectionList.tsx": {
@@ -2265,8 +2265,8 @@
     "semantic_hash": ""
   },
   "src/lib/vaultTree.ts": {
-    "mtime": 1790172585.2584589,
-    "ast_hash": "5d23d67ef54f2cfe4f8d00836e257b22",
+    "mtime": 1790066246.8191874,
+    "ast_hash": "7de6a570faa8c357fa211903491d8a07",
     "semantic_hash": ""
   },
   "src/components/ProfileBar.tsx": {
@@ -2295,8 +2295,8 @@
     "semantic_hash": ""
   },
   "core/src/guivault/browse.rs": {
-    "mtime": 1790172585.2571428,
-    "ast_hash": "758afac95637cbc3a2c67642dd2da977",
+    "mtime": 1790067935.5215151,
+    "ast_hash": "f2dbac691905b23f47bf61cc8c7dde34",
     "semantic_hash": ""
   },
   "src/components/VaultBrowserPanel.tsx": {
@@ -2320,8 +2320,8 @@
     "semantic_hash": ""
   },
   "src/lib/vaultBrowse.ts": {
-    "mtime": 1790172585.2571428,
-    "ast_hash": "f9b7a587ff570bab7eaea2dfcceb2ccf",
+    "mtime": 1790067935.542198,
+    "ast_hash": "ced62df61686d91cfbf527450a85792d",
     "semantic_hash": ""
   },
   "src/hooks/useRowNavigation.ts": {
@@ -2347,11 +2347,6 @@
   "src/lib/menuKeyboard.ts": {
     "mtime": 1790072027.6791613,
     "ast_hash": "de4fcc25db0ad6f9cb366f718cc6e086",
-    "semantic_hash": ""
-  },
-  "core/src/guivault/aws.rs": {
-    "mtime": 1790172285.8932486,
-    "ast_hash": "5d192c6ae9ffbd00eeada272cdc10d40",
     "semantic_hash": ""
   }
 }

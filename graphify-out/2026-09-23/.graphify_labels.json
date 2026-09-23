@@ -224,16 +224,8 @@
   "222": "permissionDenied.ts",
   "223": "visual-tour.mjs",
   "224": ".list",
-  "225": "terminalZoom.ts",
   "226": ".server_channel_open_agent_forward",
-  "227": ".client",
-  "228": "disk_space",
   "229": "usePolledHostStat.ts",
   "230": "input.rs",
-  "231": "runbook.tsx",
-  "232": "paneElevation.test.ts",
-  "233": "fleet.tsx",
-  "234": "remote_search.rs",
-  "235": ".fingerprint_trust",
-  "236": ".put_item"
+  "232": "paneElevation.test.ts"
 }

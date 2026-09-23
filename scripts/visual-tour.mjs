@@ -728,6 +728,17 @@ const scenes = [
   }],
   // F6 fait le tour des zones ; Ctrl+Maj+Espace va droit au terminal ;
   // Ctrl+, ouvre les paramètres avec le focus, et les referme.
+  // Identités AWS ↔ GuiVault : une session de ce poste s'enregistre dans le
+  // coffre, un accès du coffre s'écrit dans ~/.aws/config.
+  ["50-aws-guivault", async (page) => {
+    await page.locator("[data-sidebar-button='aws']").first().click();
+    await page.getByText("Dans GuiVault").first().waitFor({ timeout: 5_000 });
+    await page.getByRole("button", { name: "Enregistrer org dans GuiVault" }).click();
+    await page.getByText("« AWS — org » enregistré dans Personnel (2 profils).").waitFor({ timeout: 5_000 });
+    await page.getByRole("button", { name: "Configurer ce poste" }).click();
+    await page.getByText("Session « equipe » et 2 profils écrits dans ~/.aws/config").waitFor({ timeout: 5_000 });
+    await settle(page, 300);
+  }],
   ["47-clavier-zones", async (page) => {
     await page.keyboard.press("Control+Shift+Space");
     await settle(page, 100);

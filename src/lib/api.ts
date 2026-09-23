@@ -1,7 +1,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { RdpPointerUpdate } from "./rdpCursor";
-import type { GuiVaultAuditEntry, GuiVaultBrowseEntry, GuiVaultBrowseValue, GuiVaultEntity, GuiVaultInvitation, GuiVaultLoginStep, GuiVaultTotpCode, GuiVaultTotpSetup, GuiVaultMember, GuiVaultReport, GuiVaultSession, GuiVaultStatus, GuiVaultTransferPlan, GuiVaultUserLookup, GuiVaultVault, VaultId, VaultPlace, VaultRole } from "./types";
+import type { GuiVaultAuditEntry, GuiVaultAwsApplied, GuiVaultAwsSaved, GuiVaultBrowseEntry, GuiVaultBrowseValue, GuiVaultEntity, GuiVaultInvitation, GuiVaultLoginStep, GuiVaultTotpCode, GuiVaultTotpSetup, GuiVaultMember, GuiVaultReport, GuiVaultSession, GuiVaultStatus, GuiVaultTransferPlan, GuiVaultUserLookup, GuiVaultVault, VaultId, VaultPlace, VaultRole } from "./types";
 import type { ActivityEvent, ActivityFilter, CommandEntry, AuthMethod, BulkEdit, DiagTool, NetdiagOutcome, AwsCallerIdentity, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSessionAlert, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, AwsSsoSessionStatus, CloudInstance, CloudScope, CloudSelection, ArchiveFormat, CollectionInfo, ConflictPolicy, CopyConflict, ColumnInfo, CollectFactsResult, ComposeResult, DbTunnel, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FileDiff, FleetOutcome, FleetRun, FleetTarget, GroupId, HostDrift, HostId, HostKind, HostSecrets, ImportSelection, Inventory, InventoryDiff, InventorySelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneComparison, PaneDiskSpace, PaneFindOutcome, PaneListed, PaneOpened, PaneSource, PersistentShellMode, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, ReachabilityOutcome, RedisKeyDetail, RemoteSearchMode, RemoteSearchOutcome, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, RollbackPlan, Runbook, RunbookApprovalRequest, RunbookId, RunbookRun, RunbookRunStatus, ScanPage, SessionListing, SessionOptions, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SkippedTarget, SshAuthPrompt, SshConfigHost, SsmProbe, SyncItem, TableInfo, TerminalOpened, TransferProgressEvent, VaultStatus, Workspace } from "./types";
 
 /** Mirrors the 12-byte little-endian header `commands::rdp_view::connect_rdp_view`
@@ -330,6 +330,11 @@ export const api = {
   guivaultBrowseField: (vaultId: VaultId, id: string, key: string) => invoke<string>("guivault_browse_field", { vaultId, id, key }),
   /** Le code TOTP du moment d'un identifiant. */
   guivaultBrowseTotp: (vaultId: VaultId, id: string) => invoke<GuiVaultTotpCode>("guivault_browse_totp", { vaultId, id }),
+  /** Une session SSO de `~/.aws/config` et ses profils → un accès AWS du
+   * coffre (mis à jour s'il y est déjà). */
+  guivaultAwsSaveSession: (name: string) => invoke<GuiVaultAwsSaved>("guivault_aws_save_session", { name }),
+  /** Un accès AWS du coffre (lu par `guivaultBrowse`) → `~/.aws/config`. */
+  guivaultAwsApply: (vaultId: VaultId, id: string) => invoke<GuiVaultAwsApplied>("guivault_aws_apply", { vaultId, id }),
   /** Déplace (ou copie, `copy`) des entités entre deux emplacements — profil
    * local, vault personnel, vault partagé — dans n'importe quel sens, avec ce
    * qui doit les suivre (dossiers, clé, sous-arbre). Rend le nombre d'entités

@@ -226,6 +226,63 @@ async fn web_secrets_are_left_alone_by_sync() {
     assert!(page.items.iter().any(|i| i.id == login.id() && !i.deleted), "toujours là après une lecture");
 }
 
+/// Les runbooks voyagent comme les snippets ; un accès AWS écrit par
+/// l'interface web traverse la synchro sans bruit mais se lit dans le
+/// panneau de consultation, avec sa `~/.aws/config` prête.
+#[tokio::test]
+async fn runbooks_sync_and_web_aws_access_is_browsed() {
+    if !server_available().await {
+        return;
+    }
+    let email = format!("alice-{}@test.local", Uuid::new_v4().simple());
+    let mut a1 = Device::register(&email, "alice-master").await;
+    let runbook: termius_core::model::Runbook = serde_json::from_str(
+        r#"{"id":"6f1d5b3e-0d5c-4c39-9f4e-1f0a2b3c4d5e","name":"Mise à jour","description":"web",
+        "steps":[{"id":"7f1d5b3e-0d5c-4c39-9f4e-1f0a2b3c4d5e","title":"apt","notes":"",
+        "action":{"kind":"command","command":"apt-get update"},"scope":{"tags":[],"groups":[]},
+        "onFailure":"stop","approval":"beforeIrreversible"}]}"#,
+    )
+    .unwrap();
+    a1.ws.runbooks.push(runbook.clone());
+    let r = a1.sync().await;
+    assert_eq!(r.pushed, 1, "{r:?}");
+
+    let mut a2 = Device::login(&email, "alice-master").await;
+    let r = a2.sync().await;
+    assert_eq!(r.pulled, 1, "{r:?}");
+    assert_eq!(a2.ws.runbooks[0].name, "Mise à jour");
+    assert_eq!(a2.ws.runbooks[0].steps.len(), 1);
+
+    // Un accès AWS tel que l'interface web l'écrit.
+    let client = a1.manager.client().unwrap();
+    let vault = a1.manager.vault_infos().into_iter().next().unwrap();
+    let id = Uuid::new_v4();
+    let json = format!(
+        r#"{{"kind":"aws","aws":{{"id":"{id}","name":"Org","groupId":null,"tags":[],"authType":"sso","ssoSessionName":"org",
+        "ssoStartUrl":"https://org.awsapps.com/start","ssoRegion":"eu-west-1","accessKeyId":"","secretAccessKey":"","mfaSerial":"",
+        "region":"eu-west-3","profiles":[{{"name":"prod","accountId":"123456789012","roleName":"Admin","region":""}}]}}}}"#
+    );
+    let ct = guivault_crypto::seal_item(&vault.key, &vault.id.to_string(), &id.to_string(), "aws", json.as_bytes()).unwrap();
+    client
+        .put_item(vault.id, id, &guivault_protocol::PutItemRequest { item_type: "aws".into(), ciphertext: ct, base_revision: None })
+        .await
+        .unwrap();
+    for _ in 0..2 {
+        let r = a1.sync().await;
+        assert!(r.warnings.is_empty() && r.pulled == 0 && r.deleted_remotely == 0, "{r:?}");
+    }
+    let mut cache = browse::Cache::default();
+    cache.absorb(browse::fetch(&a1.manager, &cache.revisions()).await.unwrap());
+    let entries = browse::list(&a1.manager, &cache).unwrap();
+    assert!(entries.iter().any(|e| e.kind == "runbook" && e.name == "Mise à jour"));
+    let aws = entries.iter().find(|e| e.id == id).expect("l'accès AWS est listé");
+    assert_eq!(aws.kind, "aws");
+    let config = browse::read_field(&a1.manager, &cache, vault.id, id, "awsConfig").unwrap();
+    assert!(config.contains("[profile prod]") && config.contains("sso_account_id = 123456789012"), "{config}");
+    let access = browse::aws_access(&a1.manager, &cache, vault.id, id).unwrap();
+    assert_eq!(access.profiles[0].role_name, "Admin");
+}
+
 #[tokio::test]
 async fn shared_vault_with_fingerprint_gate_roles_and_rotation() {
     if !server_available().await {

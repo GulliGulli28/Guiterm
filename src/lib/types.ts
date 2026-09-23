@@ -606,11 +606,31 @@ export interface GuiVaultStatus {
 }
 
 /** `icon` n'apparaît jamais dans la liste d'un vault — seulement comme
- * suiveur d'un hôte ou d'un dossier dans un plan de transfert. Les quatre
- * derniers sont les secrets de l'interface web de GuiVault (identifiants,
- * notes, cartes, identités) : Guiterm ne les synchronise pas, il ne les
- * voit qu'en consultation (`guivaultBrowse`). */
-export type GuiVaultEntityKind = "host" | "group" | "snippet" | "key" | "sql-connection" | "icon" | "login" | "note" | "card" | "identity";
+ * suiveur d'un hôte ou d'un dossier dans un plan de transfert. `runbook` se
+ * synchronise comme un snippet. Les six derniers sont les secrets de
+ * l'interface web de GuiVault (identifiants, notes, cartes, identités,
+ * accès AWS, clés d'API) : Guiterm ne les synchronise pas, il ne les voit
+ * qu'en consultation (`guivaultBrowse`) — un accès AWS s'écrit aussi dans
+ * `~/.aws/config` (`guivaultAwsApply`). */
+export type GuiVaultEntityKind = "host" | "group" | "snippet" | "runbook" | "key" | "sql-connection" | "icon" | "login" | "note" | "card" | "identity" | "aws" | "api-key";
+
+/** `guivaultAwsSaveSession` : l'item écrit (ou mis à jour) dans le coffre. */
+export interface GuiVaultAwsSaved {
+  id: string;
+  vaultId: VaultId;
+  vaultName: string;
+  name: string;
+  profiles: number;
+  updated: boolean;
+}
+
+/** `guivaultAwsApply` : ce qui a été écrit dans `~/.aws`. */
+export interface GuiVaultAwsApplied {
+  /** La session SSO à connecter ensuite (`null` pour des clés). */
+  ssoSession: string | null;
+  profiles: string[];
+  credentials: boolean;
+}
 
 /** Une entité telle que le menu des vaults la liste. */
 export interface GuiVaultEntity {

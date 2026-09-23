@@ -20,10 +20,13 @@ export const BROWSE_FILTERS: { kind: GuiVaultEntityKind; label: string }[] = [
   { kind: "note", label: "Notes" },
   { kind: "card", label: "Cartes" },
   { kind: "identity", label: "Identités" },
+  { kind: "api-key", label: "Clés d'API" },
+  { kind: "aws", label: "AWS" },
   { kind: "host", label: "Hôtes" },
   { kind: "sql-connection", label: "Connexions" },
   { kind: "key", label: "Clés" },
   { kind: "snippet", label: "Snippets" },
+  { kind: "runbook", label: "Runbooks" },
 ];
 
 export type BrowseFilter = "all" | GuiVaultEntityKind;

@@ -432,6 +432,18 @@ comptes contre un vrai serveur (`docker compose up` dans `~/GuiVault` avec
 d'un même processus partagent le coffre local mémoire — un retrait chez
 l'un efface les secrets de l'autre, d'où l'ordre de certaines assertions.
 
+**Runbooks** (2026-09-23) : synchronisés comme les snippets (`Payload::Runbook`,
+pas de dossier, seau « Runbooks » dans les arbres de vault) ; l'interface web
+de GuiVault les écrit au même format. `SYNC_FORMAT` 3 force la relecture de
+ceux qu'elle avait écrits avant. **Accès AWS** (`guivault/aws.rs`) : un item
+`aws` de `guivault-items` (session SSO + profils, ou clés) ↔ `~/.aws/config`.
+Panneau Identités AWS : l'icône coffre d'une session l'enregistre
+(`guivault_aws_save_session` — met à jour l'item de même URL et même nom
+de session où qu'il soit, garde les profils des autres postes), la section
+« Dans GuiVault » écrit un accès sur ce poste (`guivault_aws_apply`, section
+par section via `aws_sso::upsert_section`, testé par `apply_to` sans
+fichier). Ces secrets restent **hors de la synchro**, lus comme `browse`.
+
 Frontend : module `modules/guivault.tsx` → `GuiVaultPanel.tsx` ; le statut
 vit dans `App` (le formulaire d'hôte en a besoin pour son champ « Vault »).
 L'événement `guivault-synced` fait recharger le workspace.

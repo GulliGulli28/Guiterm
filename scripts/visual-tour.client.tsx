@@ -148,7 +148,10 @@ const responses: Record<string, Invoke> = {
   master_password_status: async () => ({ enabled: false, unlocked: false }),
   list_aws_session_alerts: async () => [],
   list_aws_sso_sessions: async () => [],
-  list_aws_sso_status: async () => [],
+  list_aws_sso_status: async () => [{ name: "org", startUrl: "https://org.awsapps.com/start", region: "eu-west-1", state: { kind: "valid", expiresAt: null, secondsLeft: null } }],
+  // Accès AWS ↔ coffre (panneau Identités AWS).
+  guivault_aws_save_session: async (_cmd, args) => ({ id: "b-aws-org", vaultId: "v-perso", vaultName: "Personnel", name: `AWS — ${(args as { name?: string })?.name ?? ""}`, profiles: 2, updated: false }),
+  guivault_aws_apply: async () => ({ ssoSession: "equipe", profiles: ["equipe-prod", "equipe-dev"], credentials: false }),
   list_aws_profiles: async () => [],
   list_known_hosts: async () => [
     { identity: "203.0.113.10:22", label: "web-01", publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGx0d2Vic2VydmVyMDF0ZXN0a2V5" },
@@ -228,6 +231,7 @@ const responses: Record<string, Invoke> = {
       { id: "b-l3", vaultId: "v-infra", vaultName: "Équipe infra", kind: "login", name: "Console cloud", parentId: "e-1", tags: [], search: "infra@example.com https://console.example.com", fields: [f("username", "Utilisateur"), f("password", "Mot de passe", true)] },
       { id: "e-4", vaultId: "v-infra", vaultName: "Équipe infra", kind: "key", name: "deploy-ed25519", parentId: null, tags: [], search: "", fields: [f("passphrase", "Passphrase", true), f("content", "Clé privée", true, true)] },
       { id: "e-8", vaultId: "v-infra", vaultName: "Équipe infra", kind: "snippet", name: "Journal nginx", parentId: null, tags: [], search: "", fields: [f("command", "Commande", false, true)] },
+      { id: "b-aws1", vaultId: "v-infra", vaultName: "Équipe infra", kind: "aws", name: "AWS — équipe", parentId: null, tags: ["aws"], search: "https://equipe.awsapps.com/start equipe equipe-prod", fields: [f("ssoStartUrl", "Portail SSO"), f("awsConfig", "~/.aws/config", false, true)] },
     ];
   },
   guivault_browse_field: async (_cmd, args) => `valeur:${(args as { key?: string })?.key ?? ""}`,

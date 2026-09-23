@@ -12,7 +12,9 @@
 //! - [`browse`] : consulter tout le contenu du compte (secrets de l'interface
 //!   web compris) pour copier/coller dans un terminal — sans passer par la
 //!   synchro.
+//! - [`aws`] : les accès AWS du coffre ↔ `~/.aws/config`.
 pub mod account;
+pub mod aws;
 pub mod browse;
 pub mod client;
 pub mod entity;

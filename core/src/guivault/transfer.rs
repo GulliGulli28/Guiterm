@@ -86,6 +86,9 @@ pub fn list(ws: &Workspace) -> Vec<EntitySummary> {
     for s in &ws.snippets {
         out.push(EntitySummary { id: s.id, kind: "snippet", name: s.name.clone(), path: String::new(), parent_id: None, vault_id: vault_of(s.id) });
     }
+    for r in &ws.runbooks {
+        out.push(EntitySummary { id: r.id, kind: "runbook", name: r.name.clone(), path: String::new(), parent_id: None, vault_id: vault_of(r.id) });
+    }
     for c in &ws.sql_connections {
         out.push(EntitySummary { id: c.id, kind: "sql-connection", name: c.label.clone(), path: group_path(ws, c.group_id), parent_id: c.group_id, vault_id: vault_of(c.id) });
     }
@@ -314,6 +317,7 @@ pub fn transfer(from: &mut Workspace, to: &mut Workspace, set: &BTreeSet<Uuid>, 
     move_list!(hosts, id);
     move_list!(keychain, id);
     move_list!(snippets, id);
+    move_list!(runbooks, id);
     move_list!(sql_connections, id);
     // Les icônes : par id textuel, et jamais retirées de l'origine — une
     // icône est un décor partagé par tout ce qui la référence.

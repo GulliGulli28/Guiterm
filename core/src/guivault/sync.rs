@@ -63,6 +63,7 @@ fn label_of(json: &str) -> String {
             Payload::Key { key, .. } => format!("clé « {} »", key.name),
             Payload::SqlConnection { connection, .. } => format!("connexion « {} »", connection.label),
             Payload::Icon { icon } => format!("icône « {} »", icon.name),
+            Payload::Runbook { runbook } => format!("runbook « {} »", runbook.name),
         })
         .unwrap_or_else(|_| "entité".to_string())
 }
@@ -76,8 +77,9 @@ fn conflict_current(e: &ClientError) -> Option<Item> {
 
 /// À incrémenter quand les règles de fusion changent de façon à ce qu'un
 /// état déjà « à jour » doive être relu (2 : résolution d'une entité
-/// présente dans deux vaults).
-pub const SYNC_FORMAT: u32 = 2;
+/// présente dans deux vaults ; 3 : les runbooks, jusque-là ignorés — ceux
+/// déjà écrits par l'interface web doivent être relus).
+pub const SYNC_FORMAT: u32 = 3;
 
 pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec<Change>, Report)> {
     let client = manager.client()?;

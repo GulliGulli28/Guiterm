@@ -34,8 +34,8 @@ import type { GuiVaultEntity, GuiVaultEntityKind } from "./types";
  */
 
 export const KIND_LABELS: Record<GuiVaultEntityKind, string> = {
-  host: "hôte", group: "dossier", snippet: "snippet", key: "clé", "sql-connection": "connexion", icon: "icône",
-  login: "identifiant", note: "note", card: "carte", identity: "identité",
+  host: "hôte", group: "dossier", snippet: "snippet", runbook: "runbook", key: "clé", "sql-connection": "connexion", icon: "icône",
+  login: "identifiant", note: "note", card: "carte", identity: "identité", aws: "accès AWS", "api-key": "clé d'API",
 };
 
 /** Un emplacement à afficher comme un dossier de premier niveau. */
@@ -67,6 +67,7 @@ export interface VaultTree {
 const BUCKETS: { kind: GuiVaultEntityKind; label: string }[] = [
   { kind: "key", label: "Clés" },
   { kind: "snippet", label: "Snippets" },
+  { kind: "runbook", label: "Runbooks" },
 ];
 
 /** Ce que le filtre compare — le nom, le chemin, le genre (« clé »), et ce
