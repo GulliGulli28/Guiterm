@@ -378,7 +378,26 @@ impl Client {
         self.authed(Method::PUT, &format!("/vaults/{vault}/items/{item}"), Some(req)).await
     }
 
+    /// Suppression : l'item part dans la corbeille du vault (côté serveur).
     pub async fn delete_item(&self, vault: Uuid, item: Uuid) -> ClientResult<()> {
         self.authed(Method::DELETE, &format!("/vaults/{vault}/items/{item}"), Self::NO_BODY).await
+    }
+
+    /// Retrait d'un vault parce que l'entité vit ailleurs (déplacement,
+    /// copie en trop) : ce n'est pas une suppression, rien dans la corbeille.
+    pub async fn move_out_item(&self, vault: Uuid, item: Uuid) -> ClientResult<()> {
+        self.authed(Method::DELETE, &format!("/vaults/{vault}/items/{item}?moved=true"), Self::NO_BODY).await
+    }
+
+    /// La corbeille d'un vault : les items supprimés récemment, avec leur
+    /// dernière version (à restaurer par `put_item`, telle quelle).
+    pub async fn trash(&self, vault: Uuid) -> ClientResult<Vec<TrashedItem>> {
+        self.authed(Method::GET, &format!("/vaults/{vault}/trash"), Self::NO_BODY).await
+    }
+
+    /// Toutes les versions précédentes gardées pour un vault (historique et
+    /// corbeille) : ce qu'une rotation de clé doit re-chiffrer.
+    pub async fn vault_versions(&self, vault: Uuid) -> ClientResult<Vec<ItemVersion>> {
+        self.authed(Method::GET, &format!("/vaults/{vault}/versions"), Self::NO_BODY).await
     }
 }

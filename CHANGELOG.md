@@ -9,6 +9,22 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+### Fixed
+
+- **GuiVault : une entité modifiée puis supprimée d'une synchro à l'autre
+  revenait.** Sa propre écriture, relue à la synchro suivante, passait pour
+  une nouveauté du serveur et annulait la suppression locale. Une version
+  déjà connue telle quelle (même révision) n'apprend plus rien à la
+  synchronisation.
+
+### Changed
+
+- **GuiVault : corbeille et historique.** Le serveur garde désormais les
+  versions précédentes des éléments (chiffrées) et une corbeille ; Guiterm
+  n'y met pas ce qui ne fait que changer de vault (déplacement, copie en
+  trop), et sa rotation de clé re-chiffre l'historique au lieu de le
+  perdre. La corbeille et l'historique se consultent dans l'interface web.
+
 ### Security
 
 - **GuiVault : paramètres de dérivation contrôlés avant la connexion.** Le

@@ -163,9 +163,9 @@ bson = { version = "3", features = ["serde_json-1"] }
 # dans les vaults et que ce client ne fait encore que reconnaître (voir
 # `sync.rs`). Épinglé sur un commit : le format des blobs est un contrat ;
 # le même commit dans `src-tauri/Cargo.toml`, sinon deux copies du crate.
-guivault-crypto = { git = "https://github.com/GulliGulli28/GuiVault.git", rev = "536dfad" }
-guivault-protocol = { git = "https://github.com/GulliGulli28/GuiVault.git", rev = "536dfad" }
-guivault-items = { git = "https://github.com/GulliGulli28/GuiVault.git", rev = "536dfad" }
+guivault-crypto = { git = "https://github.com/GulliGulli28/GuiVault.git", rev = "7460596" }
+guivault-protocol = { git = "https://github.com/GulliGulli28/GuiVault.git", rev = "7460596" }
+guivault-items = { git = "https://github.com/GulliGulli28/GuiVault.git", rev = "7460596" }
 # `guivault::entity` : empreinte SHA-256 du JSON d'une entité, pour savoir ce
 # qui a changé depuis la dernière synchronisation sans instrumenter chaque
 # chemin de modification du workspace.

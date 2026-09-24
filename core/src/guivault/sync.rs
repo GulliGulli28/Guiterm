@@ -205,12 +205,23 @@ pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec
             let st = st.as_ref();
             let local_modified = local.is_some_and(|l| st.is_none_or(|s| s.hash != l.hash));
 
+            // Déjà connu tel quel : c'est la version qu'on a tirée ou poussée
+            // nous-mêmes (notre propre écriture revient tant que la révision
+            // connue du vault, lue avant nos écritures, ne l'a pas dépassée).
+            // Rien à en apprendre ; ce que ce poste en a fait depuis —
+            // modifié, supprimé, déplacé — est l'affaire des phases
+            // suivantes. Sans ça, une entité modifiée puis supprimée d'une
+            // synchro à l'autre revenait.
+            if !item.deleted && st.is_some_and(|s| s.vault_id == v.id && s.revision == item.revision) {
+                continue;
+            }
+
             if resuming && let Some(s) = st {
                 // Rangée ici dans un autre vault : la copie de celui-ci date
                 // d'avant le déplacement (sa tombale est perdue) — elle part.
                 if s.vault_id != v.id {
                     if v.role.can_write_items() {
-                        match client.delete_item(v.id, item.id).await {
+                        match client.move_out_item(v.id, item.id).await {
                             Ok(()) => report.deleted_remotely += 1,
                             Err(e) if e.code() == Some("not_found") => {}
                             Err(e) => return Err(super::account::user_error(e)),
@@ -288,7 +299,7 @@ pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec
             {
                 let w_shared = vaults.get(&l.vault_id).is_some_and(|w| w.kind == VaultKind::Shared);
                 if v.kind == VaultKind::Personal && w_shared {
-                    match client.delete_item(v.id, item.id).await {
+                    match client.move_out_item(v.id, item.id).await {
                         Ok(()) => report.deleted_remotely += 1,
                         Err(e) if e.code() == Some("not_found") => {}
                         Err(e) => return Err(super::account::user_error(e)),
@@ -296,7 +307,7 @@ pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec
                     continue;
                 }
                 if l.vault_id == personal.id {
-                    match client.delete_item(personal.id, item.id).await {
+                    match client.move_out_item(personal.id, item.id).await {
                         Ok(()) => report.deleted_remotely += 1,
                         Err(e) if e.code() == Some("not_found") => {}
                         Err(e) => return Err(super::account::user_error(e)),
@@ -404,7 +415,7 @@ pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec
         }
         if moved {
             let old = st.as_ref().expect("moved implies state");
-            match client.delete_item(old.vault_id, id).await {
+            match client.move_out_item(old.vault_id, id).await {
                 Ok(()) => {}
                 Err(e) if matches!(e.code(), Some("not_found") | Some("forbidden")) => {}
                 Err(e) => return Err(super::account::user_error(e)),
@@ -568,10 +579,28 @@ pub async fn rotate_vault_key(manager: &Manager, vault_id: VaultId) -> anyhow::R
             wrapped_vault_key: gc::wrap_vault_key(&account.keypair, &pk, &vault_id.to_string(), &new_key)?,
         });
     }
+    // L'historique et la corbeille suivent la clé. Une version qui ne
+    // s'ouvre plus (altérée) repart telle quelle : illisible avant, illisible
+    // après, mais elle ne bloque pas la rotation.
+    let history = client.vault_versions(vault_id).await.map_err(super::account::user_error)?;
+    let mut versions = Vec::with_capacity(history.len());
+    for v in history {
+        let (vid, iid) = (vault_id.to_string(), v.item_id.to_string());
+        let ciphertext = match gc::open_item(&vault.key, &vid, &iid, &v.item_type, &v.ciphertext) {
+            Ok(plain) => gc::seal_item(&new_key, &vid, &iid, &v.item_type, &plain)?,
+            Err(_) => v.ciphertext,
+        };
+        versions.push(proto::RotatedVersion {
+            item_id: v.item_id,
+            revision: v.revision,
+            ciphertext,
+        });
+    }
     let req = proto::RotateVaultKeyRequest {
         name_enc: gc::seal_vault_name(&new_key, &vault_id.to_string(), &vault_now.name)?,
         members: wrapped,
         items,
+        versions: Some(versions),
         base_revision: vault_now.revision,
     };
     let updated = client.rotate_vault_key(vault_id, &req).await.map_err(super::account::user_error)?;

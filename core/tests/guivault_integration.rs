@@ -852,3 +852,45 @@ async fn vault_key_provenance_is_known_and_verifiable() {
     assert_eq!(key_from(&bob, team.id).unwrap().0, KeyFrom::Member { fingerprint: alice_fp });
     assert!(bob.ws.snippets.iter().any(|s| s.id == snippet.id));
 }
+
+#[tokio::test]
+async fn trash_and_history_follow_moves_deletions_and_rotation() {
+    if !server_available().await {
+        return;
+    }
+    let email = format!("trash-{}@test.local", Uuid::new_v4().simple());
+    let mut a = Device::register(&email, "trash-master").await;
+    a.sync().await;
+    let personal = a.manager.status().vaults.iter().find(|v| v.kind == guivault_protocol::VaultKind::Personal).unwrap().id;
+    let team = sharing::create_vault(&a.manager, "Équipe").await.unwrap();
+    let client = a.manager.client().unwrap();
+
+    // Un hôte du vault personnel déplacé vers l'équipe : pas une suppression.
+    let host = Host::new("web-9", "10.0.0.9", "ops");
+    a.ws.hosts.push(host.clone());
+    a.sync().await;
+    a.ws.vault_bindings.insert(host.id, team.id);
+    let r = a.sync().await;
+    assert_eq!(r.pushed, 1, "{r:?}");
+    assert!(client.trash(personal).await.unwrap().is_empty(), "un déplacement ne remplit pas la corbeille");
+
+    // Modifié puis supprimé dans l'équipe, d'une synchro à l'autre : il ne
+    // revient pas (notre propre écriture relue n'annule pas la suppression),
+    // et il est dans la corbeille, avec sa dernière version.
+    a.host_mut(host.id).label = "web-9-final".into();
+    a.sync().await;
+    a.ws.hosts.retain(|h| h.id != host.id);
+    let r = a.sync().await;
+    assert_eq!(r.deleted_remotely, 1, "{r:?}");
+    let trash = client.trash(team.id).await.unwrap();
+    assert_eq!(trash.len(), 1);
+    assert_eq!(trash[0].item_id, host.id);
+
+    // Une rotation de clé par Guiterm emporte la corbeille avec elle.
+    sync::rotate_vault_key(&a.manager, team.id).await.unwrap();
+    let key = a.manager.vault_info(team.id).unwrap().key;
+    let trash = client.trash(team.id).await.unwrap();
+    let plain = guivault_crypto::open_item(&key, &team.id.to_string(), &host.id.to_string(), "host", &trash[0].ciphertext)
+        .expect("la corbeille s'ouvre avec la nouvelle clé");
+    assert!(String::from_utf8(plain).unwrap().contains("web-9-final"));
+}
