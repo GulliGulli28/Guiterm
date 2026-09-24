@@ -685,3 +685,40 @@ async fn totp_login_in_two_steps_and_live_events() {
     let d4 = Device::new();
     assert!(matches!(d4.manager.login(&server_url(), &email, "pw-a", None).await.unwrap(), LoginStep::Connected(_)));
 }
+
+#[tokio::test]
+async fn kdf_params_are_pinned_and_a_downgrade_is_refused() {
+    if !server_available().await {
+        return;
+    }
+    let default = guivault_crypto::KdfParams::default();
+    let email = format!("kdf-{}@test.local", Uuid::new_v4().simple());
+    let d = Device::register(&email, "kdf-master").await;
+    // L'inscription épingle les paramètres du compte, dans le registre.
+    assert_eq!(d.manager.pinned_kdf(&server_url(), &email), Some(default));
+    assert_eq!(d.manager.status().accounts[0].kdf, Some(default));
+
+    // La dernière connexion d'ici avait plus de mémoire que ce que le serveur
+    // annonce maintenant : c'est ce que ferait un serveur compromis qui
+    // abaisse les paramètres pour casser la clé d'auth. Refus avant de
+    // dériver — e-mail en majuscules : la comparaison ignore la casse.
+    d.manager.logout().await.unwrap();
+    let path = d._dir.path().join("guivault/accounts.json");
+    let mut reg: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&path).unwrap()).unwrap();
+    reg["accounts"][0]["kdf"]["m_cost"] = serde_json::json!(default.m_cost * 2);
+    std::fs::write(&path, reg.to_string()).unwrap();
+    d.manager.restore().unwrap();
+    let err = match d.manager.login(&server_url(), &email.to_uppercase(), "kdf-master", None).await {
+        Ok(_) => panic!("connexion acceptée malgré des paramètres plus faibles que ceux épinglés"),
+        Err(e) => e,
+    };
+    assert!(err.to_string().contains("plus faible"), "{err}");
+    assert!(!d.manager.status().configured, "aucune session ne doit s'ouvrir");
+
+    // Sur une autre machine (rien d'épinglé), la connexion passe et épingle ;
+    // le changement de mot de passe vérifie puis ré-épingle.
+    let d2 = Device::login(&email, "kdf-master").await;
+    assert_eq!(d2.manager.pinned_kdf(&server_url(), &email), Some(default));
+    d2.manager.change_password("kdf-master", "kdf-master-2").await.unwrap();
+    assert_eq!(d2.manager.pinned_kdf(&server_url(), &email), Some(default));
+}

@@ -2657,7 +2657,7 @@ dependencies = [
 [[package]]
 name = "guivault-crypto"
 version = "0.1.0"
-source = "git+https://github.com/GulliGulli28/GuiVault.git?rev=394a9aa#394a9aa8a23fd6f9cd8a0d561776770a3e9db575"
+source = "git+https://github.com/GulliGulli28/GuiVault.git?rev=c319081#c31908106497e7329128ef808ca699bc0887b74c"
 dependencies = [
  "argon2 0.5.3",
  "base64 0.22.1",
@@ -2675,7 +2675,7 @@ dependencies = [
 [[package]]
 name = "guivault-items"
 version = "0.1.0"
-source = "git+https://github.com/GulliGulli28/GuiVault.git?rev=394a9aa#394a9aa8a23fd6f9cd8a0d561776770a3e9db575"
+source = "git+https://github.com/GulliGulli28/GuiVault.git?rev=c319081#c31908106497e7329128ef808ca699bc0887b74c"
 dependencies = [
  "serde",
  "serde_json",
@@ -2685,7 +2685,7 @@ dependencies = [
 [[package]]
 name = "guivault-protocol"
 version = "0.1.0"
-source = "git+https://github.com/GulliGulli28/GuiVault.git?rev=394a9aa#394a9aa8a23fd6f9cd8a0d561776770a3e9db575"
+source = "git+https://github.com/GulliGulli28/GuiVault.git?rev=c319081#c31908106497e7329128ef808ca699bc0887b74c"
 dependencies = [
  "base64 0.22.1",
  "chrono",
@@ -3118,7 +3118,7 @@ dependencies = [
  "js-sys",
  "log",
  "wasm-bindgen",
- "windows-core 0.61.2",
+ "windows-core 0.62.2",
 ]
 
 [[package]]

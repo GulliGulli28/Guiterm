@@ -9,6 +9,17 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+### Security
+
+- **GuiVault : paramètres de dérivation contrôlés avant la connexion.** Le
+  serveur dicte les paramètres Argon2id au moment de la connexion ; un
+  serveur compromis pouvait les abaisser pour rendre la clé envoyée assez
+  bon marché à casser, et retrouver le mot de passe maître hors ligne.
+  Guiterm refuse maintenant de dériver sous le minimum de l'OWASP (19 Mio,
+  2 passes) et, au-dessus, retient ceux de la dernière connexion réussie
+  sur cette machine : un serveur qui les fait baisser voit la connexion
+  (et le changement de mot de passe) refusée avant que rien ne parte.
+
 ## [4.1.0] - 2026-09-22
 
 Deux chantiers : les secrets de GuiVault deviennent collables dans un

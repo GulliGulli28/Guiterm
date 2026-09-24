@@ -107,6 +107,14 @@ pub struct KnownAccount {
     pub email: String,
     pub server_url: String,
     pub last_used_at: DateTime<Utc>,
+    /// Paramètres Argon2id de la dernière connexion réussie depuis cette
+    /// machine, épinglés après le déverrouillage de la user key (qui prouve
+    /// qu'ils sont les vrais). Le serveur les dicte au prelogin : un
+    /// prelogin qui les fait baisser est refusé avant de dériver, rien ne
+    /// part. Voir `docs/SECURITY.md` de GuiVault. `None` : registre d'avant
+    /// l'épinglage, rempli à la prochaine connexion.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub kdf: Option<gc::KdfParams>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
@@ -399,6 +407,9 @@ struct PendingLogin {
     server_url: String,
     client: Client,
     stretched_key: gc::SymmetricKey,
+    /// Les paramètres qui ont dérivé `stretched_key`, à épingler si elle
+    /// ouvre la user key.
+    kdf: gc::KdfParams,
     totp_token: String,
     device_name: Option<String>,
 }
@@ -566,6 +577,7 @@ impl Manager {
                 email: st.email.clone(),
                 server_url: st.server_url.clone(),
                 last_used_at: Utc::now(),
+                kdf: None,
             }],
             active: Some(st.user_id),
             view_local: false,
@@ -690,6 +702,7 @@ impl Manager {
 
         let password = password.to_string();
         let (material, account) = tokio::task::spawn_blocking(move || gc::create_account(&password)).await??;
+        let kdf = material.kdf;
         let personal_id = Uuid::new_v4();
         let personal_key = gc::SymmetricKey::random();
         let req = proto::RegisterRequest {
@@ -708,7 +721,7 @@ impl Manager {
             device_name: Some(device_name.clone().unwrap_or_else(device_name_default)),
         };
         let resp = client.register(&req).await?;
-        self.install(server_url, resp, client, account, device_name).await
+        self.install(server_url, resp, client, account, device_name, kdf).await
     }
 
     /// Se connecte à un compte existant depuis cette machine. Si le compte a
@@ -719,6 +732,8 @@ impl Manager {
     pub async fn login(&self, server_url: &str, email: &str, password: &str, device_name: Option<String>) -> anyhow::Result<LoginStep> {
         let client = Client::new(server_url, None)?;
         let pre = client.prelogin(email).await?;
+        self.require_kdf_not_downgraded(server_url, email, &pre.kdf)?;
+        let kdf = pre.kdf;
         let password = password.to_string();
         let lm = tokio::task::spawn_blocking(move || gc::prepare_login(&password, &pre.kdf_salt, pre.kdf)).await??;
         let outcome = client
@@ -734,7 +749,7 @@ impl Manager {
             })?;
         match outcome {
             LoginOutcome::Session(resp) => {
-                let status = self.finish_login(server_url, resp, client, lm.stretched_key, device_name).await?;
+                let status = self.finish_login(server_url, resp, client, lm.stretched_key, kdf, device_name).await?;
                 Ok(LoginStep::Connected(status))
             }
             LoginOutcome::TotpRequired(challenge) => {
@@ -742,6 +757,7 @@ impl Manager {
                     server_url: server_url.to_string(),
                     client,
                     stretched_key: lm.stretched_key,
+                    kdf,
                     totp_token: challenge.totp_token,
                     device_name,
                 });
@@ -779,8 +795,15 @@ impl Manager {
                 return Err(if msg.is_empty() { anyhow::anyhow!(e) } else { anyhow::anyhow!(msg) });
             }
         };
-        self.finish_login(&pending.server_url, resp, pending.client, pending.stretched_key, pending.device_name)
-            .await
+        self.finish_login(
+            &pending.server_url,
+            resp,
+            pending.client,
+            pending.stretched_key,
+            pending.kdf,
+            pending.device_name,
+        )
+        .await
     }
 
     async fn finish_login(
@@ -789,11 +812,13 @@ impl Manager {
         resp: proto::LoginResponse,
         client: Client,
         stretched_key: gc::SymmetricKey,
+        kdf: gc::KdfParams,
         device_name: Option<String>,
     ) -> anyhow::Result<Status> {
         let account = gc::unlock_account(&stretched_key, &resp.protected_user_key, &resp.protected_private_key)
             .map_err(|_| anyhow::anyhow!("le serveur a accepté la connexion mais les clés ne s'ouvrent pas — mot de passe ou compte incohérent"))?;
-        self.install(server_url, resp, client, account, device_name).await
+        // La user key s'est ouverte : ces paramètres sont les vrais.
+        self.install(server_url, resp, client, account, device_name, kdf).await
     }
 
     fn lock_pending(&self) -> std::sync::MutexGuard<'_, Option<PendingLogin>> {
@@ -832,6 +857,7 @@ impl Manager {
         client: Client,
         account: gc::UnlockedAccount,
         device_name: Option<String>,
+        kdf: gc::KdfParams,
     ) -> anyhow::Result<Status> {
         if let Some(active) = self.active_user_id()
             && active != resp.user.id
@@ -875,6 +901,7 @@ impl Manager {
                 email: state.email.clone(),
                 server_url: state.server_url.clone(),
                 last_used_at: Utc::now(),
+                kdf: Some(kdf),
             });
             reg.active = Some(state.user_id);
             reg.view_local = false;
@@ -960,8 +987,9 @@ impl Manager {
     pub async fn change_password(&self, current: &str, new: &str) -> anyhow::Result<()> {
         let client = self.client()?;
         let account = self.account()?;
-        let email = self.with_state(|s| s.email.clone())?;
+        let (server_url, email, user_id) = self.with_state(|s| (s.server_url.clone(), s.email.clone(), s.user_id))?;
         let pre = client.prelogin(&email).await?;
+        self.require_kdf_not_downgraded(&server_url, &email, &pre.kdf)?;
         let (current, new) = (current.to_string(), new.to_string());
         let (lm, rk) = tokio::task::spawn_blocking(move || -> anyhow::Result<_> {
             let lm = gc::prepare_login(&current, &pre.kdf_salt, pre.kdf)?;
@@ -969,6 +997,7 @@ impl Manager {
             Ok((lm, rk))
         })
         .await??;
+        let new_kdf = rk.kdf;
         client
             .change_password(&proto::ChangePasswordRequest {
                 current_auth_key: lm.auth_key.as_bytes().to_vec(),
@@ -982,6 +1011,53 @@ impl Manager {
                 Some("invalid_credentials") => anyhow::anyhow!("mot de passe maître actuel incorrect"),
                 _ => anyhow::anyhow!(e),
             })?;
+        self.pin_kdf(user_id, new_kdf)
+    }
+
+    // ─── Paramètres Argon2id épinglés ────────────────────────────────────
+
+    /// Ceux de la dernière connexion réussie à `email` sur `server_url`
+    /// depuis cette machine.
+    pub fn pinned_kdf(&self, server_url: &str, email: &str) -> Option<gc::KdfParams> {
+        let server = server_url.trim_end_matches('/');
+        self.lock_registry()
+            .accounts
+            .iter()
+            .filter(|a| a.server_url.trim_end_matches('/') == server && a.email.eq_ignore_ascii_case(email.trim()))
+            .filter_map(|a| a.kdf.map(|k| (a.last_used_at, k)))
+            .max_by_key(|(at, _)| *at)
+            .map(|(_, k)| k)
+    }
+
+    /// Avant de dériver. Le plancher de `KdfParams::is_sane` (dans
+    /// `prepare_login`) bloque l'absurde, pas un compte de 64 MiB/3 ramené à
+    /// 19 MiB/2 — ~5 fois moins cher à casser. Aucun client ne choisit de
+    /// paramètres plus faibles que les précédents : une baisse vient du
+    /// serveur.
+    fn require_kdf_not_downgraded(&self, server_url: &str, email: &str, kdf: &gc::KdfParams) -> anyhow::Result<()> {
+        if let Some(pinned) = self.pinned_kdf(server_url, email)
+            && kdf.weaker_than(&pinned)
+        {
+            anyhow::bail!(
+                "le serveur demande une dérivation plus faible qu'à la dernière connexion depuis cette machine \
+                 (Argon2id m={} Kio, t={} au lieu de m={} Kio, t={}) : connexion refusée, rien n'a été envoyé. \
+                 Le serveur est peut-être compromis — prévenir son administrateur.",
+                kdf.m_cost,
+                kdf.t_cost,
+                pinned.m_cost,
+                pinned.t_cost
+            );
+        }
+        Ok(())
+    }
+
+    /// Après un changement de mot de passe : les nouveaux paramètres.
+    fn pin_kdf(&self, user_id: Uuid, kdf: gc::KdfParams) -> anyhow::Result<()> {
+        let mut reg = self.lock_registry();
+        if let Some(a) = reg.accounts.iter_mut().find(|a| a.user_id == user_id) {
+            a.kdf = Some(kdf);
+            self.save_registry(&reg)?;
+        }
         Ok(())
     }
 
