@@ -52,6 +52,35 @@ pub struct SyncState {
     pub vault_revisions: BTreeMap<VaultId, i64>,
     #[serde(default)]
     pub items: BTreeMap<Uuid, ItemState>,
+    /// Vaults **revenus en arrière** : le serveur a annoncé une révision plus
+    /// basse que celle déjà vue d'ici. Sa synchronisation est suspendue — ni
+    /// pull, ni push, ni suppression — jusqu'à ce que l'utilisateur la
+    /// reprenne ([`Manager::resume_after_rollback`]). Voir `sync::run`.
+    #[serde(default)]
+    pub rollbacks: BTreeMap<VaultId, VaultRollback>,
+    /// Vaults dont la synchronisation reprend après un retour en arrière :
+    /// la prochaine synchro les relit en entier et y renvoie ce que ce poste
+    /// connaît (voir [`Manager::resume_after_rollback`]).
+    #[serde(default)]
+    pub resuming: std::collections::BTreeSet<VaultId>,
+}
+
+/// Un vault dont la révision a reculé côté serveur. Le serveur ne fait que
+/// la monter (une par écriture) : un recul, c'est une base restaurée depuis
+/// une sauvegarde (des écritures perdues) ou un serveur qui sert une
+/// ancienne version du vault — un ancien mot de passe, une clé supprimée qui
+/// revient. La révision n'est pas authentifiée : un serveur qui ment aussi
+/// sur elle passe ; c'est le recul grossier, ou honnête, qui est attrapé.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct VaultRollback {
+    pub vault_id: VaultId,
+    pub name: String,
+    /// La révision déjà vue d'ici.
+    pub known: i64,
+    /// Celle que le serveur annonçait à la détection.
+    pub seen: i64,
+    pub detected_at: DateTime<Utc>,
 }
 
 fn default_auto_sync() -> u64 {
@@ -377,6 +406,9 @@ pub struct Status {
     pub persist_unlock: bool,
     pub last_sync_at: Option<DateTime<Utc>>,
     pub vaults: Vec<VaultSummary>,
+    /// Vaults revenus en arrière, synchronisation suspendue (voir
+    /// [`VaultRollback`]).
+    pub rollbacks: Vec<VaultRollback>,
     /// Les comptes déjà utilisés sur cette machine, le plus récent en tête —
     /// ce que le panneau propose une fois déconnecté.
     pub accounts: Vec<KnownAccount>,
@@ -395,6 +427,9 @@ pub struct Manager {
 }
 
 /// Où en est une connexion.
+// `large_enum_variant` : un `Status` pèse plus que rien du tout, et alors ?
+// Une valeur par connexion, aussitôt sérialisée vers l'interface.
+#[allow(clippy::large_enum_variant)]
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase", tag = "step")]
 pub enum LoginStep {
@@ -618,6 +653,10 @@ impl Manager {
             persist_unlock: state.as_ref().map(|s| s.persist_unlock).unwrap_or(true),
             last_sync_at: state.as_ref().and_then(|s| s.last_sync_at),
             vaults,
+            rollbacks: state
+                .as_ref()
+                .map(|s| s.sync.rollbacks.values().cloned().collect())
+                .unwrap_or_default(),
             accounts: {
                 let mut a = self.lock_registry().accounts.clone();
                 a.sort_by_key(|x| std::cmp::Reverse(x.last_used_at));
@@ -1012,6 +1051,28 @@ impl Manager {
                 _ => anyhow::anyhow!(e),
             })?;
         self.pin_kdf(user_id, new_kdf)
+    }
+
+    // ─── Retour en arrière d'un vault ─────────────────────────────────────
+
+    /// Reprend la synchronisation d'un vault revenu en arrière : ce que ce
+    /// poste connaît fait foi. La synchro suivante relit tout le vault ; une
+    /// entité dont le serveur a une autre version (plus ancienne) y est
+    /// renvoyée, une qu'il a perdue y est recréée, une supprimée ici y est
+    /// supprimée. Ce que le serveur a et que ce poste ne connaît pas est
+    /// accepté — y compris, si c'est un retour en arrière, une entité
+    /// supprimée depuis : l'utilisateur en est prévenu avant de reprendre.
+    pub fn resume_after_rollback(&self, vault_id: VaultId) -> anyhow::Result<()> {
+        self.update_state(|s| {
+            if s.sync.rollbacks.remove(&vault_id).is_some() {
+                s.sync.resuming.insert(vault_id);
+                s.sync.vault_revisions.remove(&vault_id);
+                // Empreinte vide : « à renvoyer » (voir `sync::run`).
+                for st in s.sync.items.values_mut().filter(|st| st.vault_id == vault_id) {
+                    st.hash.clear();
+                }
+            }
+        })
     }
 
     // ─── Paramètres Argon2id épinglés ────────────────────────────────────

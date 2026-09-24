@@ -338,6 +338,7 @@ fn main() {
             commands::guivault::guivault_set_preferences,
             commands::guivault::guivault_change_password,
             commands::guivault::guivault_sync,
+            commands::guivault::guivault_resume_after_rollback,
             commands::guivault::guivault_sessions,
             commands::guivault::guivault_revoke_session,
             commands::guivault::guivault_create_vault,

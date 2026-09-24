@@ -172,6 +172,9 @@ const responses: Record<string, Invoke> = {
     configured: true, unlocked: true, serverUrl: "https://vault.example.com", email: "alice@example.com",
     userId: "u-alice", fingerprint: "3f2a-91c0-77de-0b4e-aa12-5c6d-e8f9-1a2b", deviceName: "Guiterm sur poste-alice",
     autoSyncSecs: 300, persistUnlock: true, lastSyncAt: new Date().toISOString(), viewLocal: false,
+    // Un vault revenu en arrière (sauvegarde restaurée côté serveur) : l'alerte
+    // en tête du panneau et le badge « suspendu ».
+    rollbacks: [{ vaultId: "v-infra", name: "Équipe infra", known: 40, seen: 31, detectedAt: new Date().toISOString() }],
     vaults: [
       { id: "v-perso", name: "Personnel", kind: "personal", role: "owner", revision: 12 },
       { id: "v-infra", name: "Équipe infra", kind: "shared", role: "owner", revision: 40 },

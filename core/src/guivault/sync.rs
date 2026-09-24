@@ -18,14 +18,14 @@
 //! - une entité supprimée en face mais modifiée ici : recréée en face ;
 //! - une entité liée à un vault qu'on ne voit plus (quitté, supprimé, accès
 //!   retiré) : retirée d'ici, ce n'est plus la nôtre.
-use super::account::{ItemState, Manager};
+use super::account::{ItemState, Manager, VaultRollback};
 use super::client::{Client, ClientError};
 use super::entity::{self, LocalEntity, Payload};
 use crate::model::{VaultId, Workspace};
 use guivault_crypto as gc;
 use guivault_protocol::{self as proto, Item, VaultKind};
 use serde::Serialize;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use uuid::Uuid;
 
 /// Une modification à jouer sur le workspace en mémoire.
@@ -68,9 +68,12 @@ fn label_of(json: &str) -> String {
         .unwrap_or_else(|_| "entité".to_string())
 }
 
-fn conflict_current(e: &ClientError) -> Option<Item> {
+/// Sur un 409 `revision_mismatch` : `Some(item courant)`, ou `Some(None)`
+/// quand le serveur n'a pas du tout l'item (base restaurée d'avant sa
+/// création) — on le recrée.
+fn conflict_current(e: &ClientError) -> Option<Option<Item>> {
     match e {
-        ClientError::Api { code, body, .. } if code == "revision_mismatch" => serde_json::from_value(body["current"].clone()).ok(),
+        ClientError::Api { code, body, .. } if code == "revision_mismatch" => Some(serde_json::from_value(body["current"].clone()).ok()),
         _ => None,
     }
 }
@@ -104,6 +107,39 @@ pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec
     }
     let mut changes = Vec::new();
 
+    // ─── Retour en arrière ───────────────────────────────────────────────
+    // Le serveur ne fait que monter la révision d'un vault. S'il en annonce
+    // une plus basse que celle déjà vue d'ici, le vault est suspendu jusqu'à
+    // ce que l'utilisateur reprenne (`Manager::resume_after_rollback`) :
+    // sinon `?since=` sauterait en silence tout ce qui s'écrit ensuite sous
+    // des révisions déjà « vues », et de vieilles versions pourraient
+    // remplacer celles d'ici.
+    state.rollbacks.retain(|id, _| vaults.contains_key(id));
+    state.resuming.retain(|id| vaults.contains_key(id));
+    for v in vaults.values() {
+        if let Some(&known) = state.vault_revisions.get(&v.id)
+            && v.revision < known
+            && !state.rollbacks.contains_key(&v.id)
+        {
+            report.warnings.push(format!(
+                "le vault « {} » est revenu en arrière sur le serveur (révision {}, alors que {known} a déjà été vue d'ici) : \
+                 sa synchronisation est suspendue, voir le panneau GuiVault",
+                v.name, v.revision
+            ));
+            state.rollbacks.insert(
+                v.id,
+                VaultRollback {
+                    vault_id: v.id,
+                    name: v.name.clone(),
+                    known,
+                    seen: v.revision,
+                    detected_at: chrono::Utc::now(),
+                },
+            );
+        }
+    }
+    let frozen: HashSet<VaultId> = state.rollbacks.keys().copied().collect();
+
     // ─── Vue locale ──────────────────────────────────────────────────────
     let mut locals: HashMap<Uuid, LocalEntity> = entity::collect(snapshot, personal.id)?
         .into_iter()
@@ -134,6 +170,17 @@ pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec
     let mut ordered: Vec<_> = vaults.values().collect();
     ordered.sort_by_key(|v| v.id);
     for v in ordered {
+        if frozen.contains(&v.id) {
+            continue;
+        }
+        // Reprise après un retour en arrière : le vault est relu en entier
+        // (`vault_revisions` oublié) et ce que ce poste connaît y fait foi —
+        // sauf en lecture seule, où il n'y a rien à renvoyer : le serveur
+        // l'emporte, comme à une première synchro.
+        let resuming = state.resuming.remove(&v.id);
+        if resuming && !v.role.can_write_items() {
+            state.items.retain(|_, s| s.vault_id != v.id);
+        }
         let known = state.vault_revisions.get(&v.id).copied();
         if known.is_some_and(|k| k >= v.revision) {
             continue;
@@ -157,6 +204,26 @@ pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec
             let st = state.items.get(&item.id).cloned();
             let st = st.as_ref();
             let local_modified = local.is_some_and(|l| st.is_none_or(|s| s.hash != l.hash));
+
+            if resuming && let Some(s) = st {
+                // Rangée ici dans un autre vault : la copie de celui-ci date
+                // d'avant le déplacement (sa tombale est perdue) — elle part.
+                if s.vault_id != v.id {
+                    if v.role.can_write_items() {
+                        match client.delete_item(v.id, item.id).await {
+                            Ok(()) => report.deleted_remotely += 1,
+                            Err(e) if e.code() == Some("not_found") => {}
+                            Err(e) => return Err(super::account::user_error(e)),
+                        }
+                    }
+                    continue;
+                }
+                // Supprimée ici : la phase de suppression s'en charge, elle
+                // ne revient pas.
+                if local.is_none() {
+                    continue;
+                }
+            }
 
             if item.deleted {
                 // Une tombale ne concerne que l'entité qui vit dans *ce*
@@ -266,13 +333,18 @@ pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec
             let local_modified = local.is_some_and(|l| st.as_ref().is_none_or(|s| s.hash != l.hash));
             if local_modified && let Some(mut s) = st {
                 // Les deux côtés ont bougé : le local gagne, en se posant sur
-                // la révision du serveur pour que le push passe.
+                // la révision du serveur pour que le push passe. En reprise
+                // (empreinte vidée), ce n'est pas un conflit : le serveur a
+                // une version plus ancienne, la nôtre y retourne.
+                let resent = s.hash.is_empty();
                 s.revision = item.revision;
                 state.items.insert(item.id, s);
-                report.conflicts.push(format!(
-                    "{} modifié des deux côtés : votre version conservée",
-                    label_of(&local.expect("local_modified").json)
-                ));
+                if !resent {
+                    report.conflicts.push(format!(
+                        "{} modifié des deux côtés : votre version conservée",
+                        label_of(&local.expect("local_modified").json)
+                    ));
+                }
                 continue;
             }
             let vault = (v.kind != VaultKind::Personal).then_some(v.id);
@@ -311,6 +383,9 @@ pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec
     for id in ids {
         let local = &locals[&id];
         let st = state.items.get(&id).cloned();
+        if frozen.contains(&local.vault_id) || st.as_ref().is_some_and(|s| frozen.contains(&s.vault_id)) {
+            continue;
+        }
         let vault = &vaults[&local.vault_id];
         let moved = st.as_ref().is_some_and(|s| s.vault_id != local.vault_id);
         let changed = st.as_ref().is_none_or(|s| s.hash != local.hash);
@@ -340,9 +415,13 @@ pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec
             Ok(item) => item,
             Err(e) => match conflict_current(&e) {
                 Some(current) => {
-                    // Quelqu'un a écrit entre-temps : le local gagne.
-                    let base = (!current.deleted).then_some(current.revision);
-                    report.conflicts.push(format!("{} modifié des deux côtés : votre version conservée", label_of(&local.json)));
+                    // Quelqu'un a écrit entre-temps : le local gagne. En
+                    // reprise après un retour en arrière (empreinte vidée),
+                    // c'est le serveur qui a perdu l'item : il est recréé.
+                    let base = current.filter(|c| !c.deleted).map(|c| c.revision);
+                    if st.as_ref().is_none_or(|s| !s.hash.is_empty()) {
+                        report.conflicts.push(format!("{} modifié des deux côtés : votre version conservée", label_of(&local.json)));
+                    }
                     match put(&client, vault, local, base).await {
                         Ok(item) => item,
                         Err(e) => {
@@ -374,6 +453,9 @@ pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec
         .map(|(id, s)| (*id, s.clone()))
         .collect();
     for (id, s) in gone {
+        if frozen.contains(&s.vault_id) {
+            continue;
+        }
         let Some(vault) = vaults.get(&s.vault_id) else {
             state.items.remove(&id);
             continue;

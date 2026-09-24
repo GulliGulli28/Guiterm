@@ -357,6 +357,8 @@ export const api = {
   guivaultSetPreferences: (autoSyncSecs: number, persistUnlock: boolean) => invoke<GuiVaultStatus>("guivault_set_preferences", { autoSyncSecs, persistUnlock }),
   guivaultChangePassword: (current: string, next: string) => invoke<void>("guivault_change_password", { current, new: next }),
   guivaultSync: () => invoke<GuiVaultReport>("guivault_sync"),
+  /** Reprend la synchro d'un vault revenu en arrière — ce poste fait foi. */
+  guivaultResumeAfterRollback: (vaultId: VaultId) => invoke<GuiVaultStatus>("guivault_resume_after_rollback", { vaultId }),
   guivaultSessions: () => invoke<GuiVaultSession[]>("guivault_sessions"),
   guivaultRevokeSession: (id: string) => invoke<void>("guivault_revoke_session", { id }),
   guivaultCreateVault: (name: string) => invoke<GuiVaultVault>("guivault_create_vault", { name }),

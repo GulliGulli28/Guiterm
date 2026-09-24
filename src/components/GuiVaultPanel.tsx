@@ -3,7 +3,7 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { api } from "../lib/api";
 import type {
   FingerprintTrust, GuiVaultAuditEntry, GuiVaultEntity, GuiVaultInvitation, GuiVaultKnownAccount, GuiVaultMember,
-  GuiVaultFollower, GuiVaultReport, GuiVaultSession, GuiVaultStatus, GuiVaultUserLookup, GuiVaultVault, VaultId, VaultPlace, VaultRole, Workspace,
+  GuiVaultFollower, GuiVaultReport, GuiVaultRollback, GuiVaultSession, GuiVaultStatus, GuiVaultUserLookup, GuiVaultVault, VaultId, VaultPlace, VaultRole, Workspace,
 } from "../lib/types";
 import { buildVaultTree, buildVaultTreeSections } from "../lib/vaultTree";
 import { useModalSurface } from "../hooks/useModalSurface";
@@ -502,6 +502,52 @@ function AccountCard({ status, onStatusChange, onError, onNotify }: { status: Gu
 }
 
 // ─── Invitations reçues ──────────────────────────────────────────────────────
+
+/** Vaults revenus en arrière sur le serveur (`VaultRollback` côté Rust) :
+ * leur synchro reste suspendue jusqu'à ce qu'on la reprenne, et c'est alors
+ * cet appareil qui fait foi. */
+function RollbackAlerts({ rollbacks, onStatusChange, onError, onNotify }: { rollbacks: GuiVaultRollback[]; onStatusChange: () => void; onError: (m: string) => void; onNotify: (m: string) => void }) {
+  const [confirm, setConfirm] = useState<GuiVaultRollback | null>(null);
+  const [busy, setBusy] = useState(false);
+  if (rollbacks.length === 0) return null;
+  const resume = async (r: GuiVaultRollback) => {
+    setConfirm(null);
+    setBusy(true);
+    try {
+      await api.guivaultResumeAfterRollback(r.vaultId);
+      onStatusChange();
+      onNotify(`Synchronisation de « ${r.name} » reprise : la version de cet appareil y a été renvoyée.`);
+    } catch (e) {
+      onError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <div className="space-y-1.5">
+      {rollbacks.map((r) => (
+        <div key={r.vaultId} role="alert" className="callout callout-danger space-y-1.5 text-[12px]">
+          <p className="font-medium">Le vault « {r.name} » est revenu en arrière — synchronisation suspendue.</p>
+          <p>
+            Le serveur annonce la révision {r.seen}, alors que cet appareil a déjà vu la {r.known}. Soit sa base a été restaurée
+            depuis une sauvegarde — les modifications faites depuis y sont perdues —, soit il est compromis et sert une ancienne
+            version du vault. Rien n'est envoyé ni reçu pour ce vault tant que la synchronisation n'est pas reprise.
+          </p>
+          <button onClick={() => setConfirm(r)} disabled={busy} className="btn btn-secondary btn-sm">Reprendre la synchronisation…</button>
+        </div>
+      ))}
+      {confirm && (
+        <ConfirmDialog
+          title={`Reprendre la synchronisation de « ${confirm.name} » ?`}
+          message="Cet appareil fera foi : ce qu'il connaît est renvoyé au serveur — les entités plus anciennes là-bas sont remplacées, celles qu'il a perdues recréées, celles supprimées ici supprimées. Ce que le serveur a et que cet appareil ne connaît pas est gardé : si le serveur ment, une entité supprimée depuis peut revenir, vérifiez le vault ensuite. En cas de doute, prévenez d'abord l'administrateur du serveur."
+          confirmLabel="Reprendre"
+          onConfirm={() => void resume(confirm)}
+          onCancel={() => setConfirm(null)}
+        />
+      )}
+    </div>
+  );
+}
 
 function ReceivedInvitations({ invitations, onChange, onError }: { invitations: GuiVaultInvitation[]; onChange: () => void; onError: (m: string) => void }) {
   if (invitations.length === 0) return null;
@@ -1221,6 +1267,7 @@ export function GuiVaultPanel({ workspace, status, onStatusChange, focus, onErro
         )}
         {status && unlocked && !selectedVault && (
           <div className="space-y-3">
+            <RollbackAlerts rollbacks={status.rollbacks} onStatusChange={onStatusChange} onError={onError} onNotify={onNotify} />
             <AccountCard status={status} onStatusChange={onStatusChange} onError={onError} onNotify={onNotify} />
             <ReceivedInvitations invitations={received} onChange={() => { loadReceived(); onStatusChange(); }} onError={onError} />
             <div className="space-y-1.5">
@@ -1248,6 +1295,9 @@ export function GuiVaultPanel({ workspace, status, onStatusChange, focus, onErro
                     <span className="min-w-[6rem] flex-1 truncate text-[12.5px] text-[var(--c-text)]" title={v.name}>{v.name}</span>
                     <span className="text-[11px] tabular-nums text-[var(--c-text-muted)]" title="Entités dans ce vault">{count}</span>
                     {v.kind === "shared" && <span className="tag" title={ROLE_HINTS[v.role]}>{ROLE_LABELS[v.role]}</span>}
+                    {status.rollbacks.some((r) => r.vaultId === v.id) && (
+                      <span className="tag text-[var(--c-danger)]" title="Revenu en arrière sur le serveur : synchronisation suspendue">suspendu</span>
+                    )}
                   </button>
                 );
               })}

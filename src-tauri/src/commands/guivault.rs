@@ -513,6 +513,15 @@ pub async fn guivault_sync(app: AppHandle, state: State<'_, AppState>) -> Result
     run_sync(&app, &state).await.map_err(err)
 }
 
+/// Reprend la synchronisation d'un vault revenu en arrière (voir
+/// `Manager::resume_after_rollback`) et la lance aussitôt.
+#[tauri::command]
+pub async fn guivault_resume_after_rollback(app: AppHandle, state: State<'_, AppState>, vault_id: VaultId) -> Result<Status, String> {
+    state.guivault.resume_after_rollback(vault_id).map_err(err)?;
+    run_sync(&app, &state).await.map_err(err)?;
+    Ok(state.guivault.status())
+}
+
 #[tauri::command]
 pub async fn guivault_sessions(state: State<'_, AppState>) -> Result<Vec<guivault_protocol::Session>, String> {
     sharing::sessions(&state.guivault).await.map_err(err)

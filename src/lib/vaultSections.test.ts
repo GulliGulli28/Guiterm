@@ -4,7 +4,7 @@ import { sectionRoleLabel, splitByVault, vaultSections } from "./vaultSections";
 
 const status = (over: Partial<GuiVaultStatus> = {}): GuiVaultStatus => ({
   configured: true, unlocked: true, serverUrl: "https://v", email: "a@b", userId: "u", fingerprint: null, deviceName: null,
-  autoSyncSecs: 0, persistUnlock: true, lastSyncAt: null, accounts: [], viewLocal: false,
+  autoSyncSecs: 0, persistUnlock: true, lastSyncAt: null, accounts: [], viewLocal: false, rollbacks: [],
   vaults: [
     { id: "v-perso", name: "Personnel", kind: "personal", role: "owner", revision: 1 },
     { id: "v-infra", name: "Équipe infra", kind: "shared", role: "writer", revision: 1 },

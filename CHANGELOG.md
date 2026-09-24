@@ -19,6 +19,16 @@ This changelog starts 2026-07-21 — for earlier versions, see
   2 passes) et, au-dessus, retient ceux de la dernière connexion réussie
   sur cette machine : un serveur qui les fait baisser voit la connexion
   (et le changement de mot de passe) refusée avant que rien ne parte.
+- **GuiVault : un vault revenu en arrière suspend sa synchronisation.** La
+  révision d'un vault ne fait que monter sur le serveur ; s'il en annonce
+  une plus basse que celle déjà vue d'ici — base restaurée depuis une
+  sauvegarde, ou serveur qui sert une ancienne version —, Guiterm le
+  signale, marque le vault « suspendu » et n'y envoie ni n'en reçoit plus
+  rien. Jusqu'ici, il cessait simplement d'en tirer quoi que ce soit, et
+  manquait en silence les écritures suivantes. « Reprendre la
+  synchronisation… » (panneau GuiVault) fait foi de ce poste : ses versions
+  sont renvoyées, ce que le serveur a perdu est recréé, ce qui a été
+  supprimé ici l'est là-bas.
 
 ## [4.1.0] - 2026-09-22
 

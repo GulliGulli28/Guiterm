@@ -722,3 +722,78 @@ async fn kdf_params_are_pinned_and_a_downgrade_is_refused() {
     d2.manager.change_password("kdf-master", "kdf-master-2").await.unwrap();
     assert_eq!(d2.manager.pinned_kdf(&server_url(), &email), Some(default));
 }
+
+#[tokio::test]
+async fn vault_rollback_suspends_sync_until_resumed() {
+    if !server_available().await {
+        return;
+    }
+    let email = format!("rollback-{}@test.local", Uuid::new_v4().simple());
+    let mut a1 = Device::register(&email, "rollback-master").await;
+    let host = Host::new("web-1", "10.0.0.2", "deploy");
+    let doomed = Host::new("old-1", "10.0.0.3", "root");
+    let snippet = Snippet { id: Uuid::new_v4(), name: "uptime".into(), command: "uptime".into(), tags: vec![], adaptive: false };
+    a1.ws.hosts.extend([host.clone(), doomed.clone()]);
+    a1.ws.snippets.push(snippet.clone());
+    assert_eq!(a1.sync().await.pushed, 3);
+    // Les vaults ne sont connus qu'après une première synchro.
+    let personal = a1.manager.status().vaults.iter().find(|v| v.kind == guivault_protocol::VaultKind::Personal).unwrap().id;
+
+    // Un autre appareil fait diverger le serveur : une autre version de
+    // l'hôte, le snippet supprimé (ce que le serveur « aura perdu »).
+    let mut a2 = Device::login(&email, "rollback-master").await;
+    a2.sync().await;
+    a2.host_mut(host.id).label = "version-du-serveur".into();
+    a2.ws.snippets.clear();
+    let r = a2.sync().await;
+    assert_eq!((r.pushed, r.deleted_remotely), (1, 1), "{r:?}");
+
+    // a1 croit avoir vu une révision plus haute (de 2) que celle du serveur :
+    // pour lui, la base a été restaurée (ou le serveur ment). La révision
+    // courante : celle que a2 lit en tête d'une synchro sans changement.
+    a2.sync().await;
+    let server_rev = a2.manager.status().vaults.iter().find(|v| v.id == personal).unwrap().revision;
+    a1.manager.update_state(|s| {
+        s.sync.vault_revisions.insert(personal, server_rev + 2);
+    }).unwrap();
+    a1.ws.snippets.push(Snippet { id: Uuid::new_v4(), name: "df".into(), command: "df -h".into(), tags: vec![], adaptive: false });
+    a1.ws.hosts.retain(|h| h.id != doomed.id);
+    let r = a1.sync().await;
+    assert!(r.warnings.iter().any(|w| w.contains("revenu en arrière")), "{r:?}");
+    // Suspendu : rien reçu (l'hôte garde sa version d'ici), rien envoyé,
+    // rien supprimé.
+    assert_eq!((r.pulled, r.pushed, r.deleted_remotely), (0, 0, 0), "{r:?}");
+    assert_eq!(a1.ws.hosts.iter().find(|h| h.id == host.id).unwrap().label, "web-1");
+    let rollbacks = a1.manager.status().rollbacks;
+    assert_eq!(rollbacks.len(), 1);
+    assert_eq!(rollbacks[0].vault_id, personal);
+    // Le serveur repart de sa révision et la dépasse bientôt : sans la
+    // suspension, `?since=` sauterait tout ce qui s'écrit sous des révisions
+    // déjà « vues ». Toujours suspendu, sans nouvelle alerte.
+    for n in 1..=3 {
+        a2.ws.snippets.push(Snippet { id: Uuid::new_v4(), name: format!("a2-{n}"), command: "true".into(), tags: vec![], adaptive: false });
+    }
+    assert_eq!(a2.sync().await.pushed, 3);
+    let r = a1.sync().await;
+    assert_eq!((r.pulled, r.pushed), (0, 0), "{r:?}");
+    assert!(r.warnings.is_empty(), "{r:?}");
+
+    // Reprise : cet appareil fait foi. L'hôte y retourne dans sa version,
+    // le snippet « perdu » est recréé, le nouveau envoyé, l'hôte supprimé
+    // ici supprimé là-bas — sans conflit annoncé ; ce qu'il ne connaissait
+    // pas (les trois de a2) est reçu.
+    a1.manager.resume_after_rollback(personal).unwrap();
+    let r = a1.sync().await;
+    assert!(r.conflicts.is_empty() && r.warnings.is_empty(), "{r:?}");
+    assert_eq!((r.pulled, r.pushed, r.deleted_remotely), (3, 3, 1), "{r:?}");
+    assert!(a1.manager.status().rollbacks.is_empty());
+    assert_eq!(a1.sync().await.pushed, 0, "une synchro de plus ne renvoie rien");
+
+    // L'autre appareil reçoit la version de a1.
+    a2.sync().await;
+    assert_eq!(a2.ws.hosts.iter().find(|h| h.id == host.id).unwrap().label, "web-1");
+    assert!(a2.ws.hosts.iter().all(|h| h.id != doomed.id));
+    let mut names: Vec<_> = a2.ws.snippets.iter().map(|s| s.name.as_str()).collect();
+    names.sort();
+    assert_eq!(names, ["a2-1", "a2-2", "a2-3", "df", "uptime"]);
+}

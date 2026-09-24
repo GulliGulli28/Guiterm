@@ -585,6 +585,18 @@ export interface GuiVaultVault {
   revision: number;
 }
 
+/** `termius_core::guivault::account::VaultRollback` : le serveur a annoncé
+ * pour ce vault une révision (`seen`) plus basse que celle déjà vue d'ici
+ * (`known`) — sauvegarde restaurée ou serveur qui sert une ancienne version.
+ * Sa synchronisation est suspendue jusqu'à `guivaultResumeAfterRollback`. */
+export interface GuiVaultRollback {
+  vaultId: VaultId;
+  name: string;
+  known: number;
+  seen: number;
+  detectedAt: string;
+}
+
 export interface GuiVaultStatus {
   configured: boolean;
   unlocked: boolean;
@@ -599,6 +611,8 @@ export interface GuiVaultStatus {
   persistUnlock: boolean;
   lastSyncAt: string | null;
   vaults: GuiVaultVault[];
+  /** Vaults revenus en arrière sur le serveur : synchro suspendue. */
+  rollbacks: GuiVaultRollback[];
   /** Comptes déjà utilisés sur cet appareil, le plus récent en tête. */
   accounts: GuiVaultKnownAccount[];
   /** Compte connecté mais profil local affiché (synchro en pause). */
