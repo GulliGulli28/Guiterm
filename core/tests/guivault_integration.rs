@@ -801,6 +801,7 @@ async fn vault_rollback_suspends_sync_until_resumed() {
 #[tokio::test]
 async fn vault_key_provenance_is_known_and_verifiable() {
     use termius_core::guivault::KeyFrom;
+    use termius_core::guivault::sharing::InvitationKey;
     if !server_available().await {
         return;
     }
@@ -824,7 +825,16 @@ async fn vault_key_provenance_is_known_and_verifiable() {
     // vérifiée ; épinglée, elle l'est.
     alice.manager.pin_fingerprint(&bob_email, &bob.manager.status().fingerprint.unwrap()).unwrap();
     sharing::invite(&alice.manager, team.id, &bob_email, Role::Writer).await.unwrap();
+    // Avant d'accepter, l'enveloppe jointe dit qui remet la clé…
     let inv = sharing::my_invitations(&bob.manager).await.unwrap().remove(0);
+    assert_eq!(
+        inv.inviter_key,
+        Some(InvitationKey::Member { fingerprint: alice_fp.clone(), trust: FingerprintTrust::Unknown })
+    );
+    // … et le signale si Bob avait vérifié une autre clé pour Alice.
+    bob.manager.pin_fingerprint(&alice_email, "0000-1111-2222-3333-4444-5555-6666-7777").unwrap();
+    let inv = sharing::my_invitations(&bob.manager).await.unwrap().remove(0);
+    assert!(matches!(inv.inviter_key, Some(InvitationKey::Member { trust: FingerprintTrust::Changed { .. }, .. })), "{inv:?}");
     sharing::accept_invitation(&bob.manager, inv.id).await.unwrap();
     bob.sync().await;
     assert_eq!(key_from(&bob, team.id).unwrap(), (KeyFrom::Member { fingerprint: alice_fp.clone() }, None));

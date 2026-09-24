@@ -802,9 +802,20 @@ export interface GuiVaultInvitation {
   role: VaultRole;
   status: InvitationStatus;
   hasKey: boolean;
+  /** Invitation reçue : ce que dit l'enveloppe jointe, avant d'accepter. */
+  inviterKey: GuiVaultInvitationKey | null;
   createdAt: string;
   expiresAt: string;
 }
+
+/** `termius_core::guivault::sharing::InvitationKey` : qui remet la clé du
+ * vault d'une invitation reçue — une empreinte (et sa confiance pour
+ * l'inviteur affiché), l'ancien format anonyme, ou une enveloppe qui ne
+ * s'ouvre pas. */
+export type GuiVaultInvitationKey =
+  | { kind: "member"; fingerprint: string; trust: FingerprintTrust }
+  | { kind: "anonymous" }
+  | { kind: "unreadable" };
 
 export interface GuiVaultAuditEntry {
   id: number;

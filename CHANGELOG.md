@@ -37,7 +37,9 @@ This changelog starts 2026-07-21 — for earlier versions, see
   fiche d'un vault, qui a remis la clé avec son empreinte à vérifier, et
   marque « clé non vérifiée » dans la liste tant qu'elle ne l'est pas. Les
   anciennes enveloppes se lisent toujours. **Demande un serveur GuiVault à
-  jour.**
+  jour.** Dès l'invitation, avant d'accepter : l'empreinte de qui remet la
+  clé, et « Accepter » désactivé si l'enveloppe ne s'ouvre pas ou vient
+  d'une autre clé que celle déjà vérifiée pour l'inviteur.
 
 ## [4.1.0] - 2026-09-22
 

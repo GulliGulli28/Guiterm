@@ -184,7 +184,7 @@ const responses: Record<string, Invoke> = {
     accounts: [{ userId: "u-alice", email: "alice@example.com", serverUrl: "https://vault.example.com", lastUsedAt: new Date().toISOString() }],
   }),
   guivault_my_invitations: async () => [
-    { id: "inv-1", vaultId: "v-x", vaultName: null, inviterEmail: "bob.martin@example.com", inviteeEmail: "alice@example.com", inviteePublicKey: null, inviteeFingerprint: null, inviteeTrust: null, role: "writer", status: "pending", hasKey: true, createdAt: new Date().toISOString(), expiresAt: new Date().toISOString() },
+    { id: "inv-1", vaultId: "v-x", vaultName: null, inviterEmail: "bob.martin@example.com", inviteeEmail: "alice@example.com", inviteePublicKey: null, inviteeFingerprint: null, inviteeTrust: null, role: "writer", status: "pending", hasKey: true, inviterKey: { kind: "member", fingerprint: "5e2d-8a10-c4f7-39b6-0d21-e98c-7a45-b3f0", trust: { kind: "unknown" } }, createdAt: new Date().toISOString(), expiresAt: new Date().toISOString() },
   ],
   guivault_members: async () => [
     { userId: "u-alice", email: "alice@example.com", fingerprint: "3f2a-91c0-77de-0b4e-aa12-5c6d-e8f9-1a2b", role: "owner", trust: { kind: "pinned" }, isMe: true },
@@ -192,7 +192,7 @@ const responses: Record<string, Invoke> = {
     { userId: "u-carol", email: "carol.dupont-lefebvre@example.com", fingerprint: "1111-2222-3333-4444-5555-6666-7777-8888", role: "reader", trust: { kind: "changed", previous: "0000-0000-0000-0000-0000-0000-0000-0000" }, isMe: false },
   ],
   guivault_vault_invitations: async () => [
-    { id: "inv-2", vaultId: "v-infra", vaultName: "Équipe infra", inviterEmail: "alice@example.com", inviteeEmail: "dave@example.com", inviteePublicKey: "AA==", inviteeFingerprint: "abcd-ef01-2345-6789-abcd-ef01-2345-6789", inviteeTrust: { kind: "unknown" }, role: "writer", status: "awaiting_key", hasKey: false, createdAt: new Date().toISOString(), expiresAt: new Date().toISOString() },
+    { id: "inv-2", vaultId: "v-infra", vaultName: "Équipe infra", inviterEmail: "alice@example.com", inviteeEmail: "dave@example.com", inviteePublicKey: "AA==", inviteeFingerprint: "abcd-ef01-2345-6789-abcd-ef01-2345-6789", inviteeTrust: { kind: "unknown" }, role: "writer", status: "awaiting_key", hasKey: false, inviterKey: null, createdAt: new Date().toISOString(), expiresAt: new Date().toISOString() },
   ],
   // Le contenu des vaults, tel que `transfer::list` le rend : dossiers avec
   // leur `parentId`, hôtes et connexions dedans, clés et snippets à part —

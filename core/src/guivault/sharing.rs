@@ -173,8 +173,44 @@ pub struct InvitationView {
     pub role: Role,
     pub status: InvitationStatus,
     pub has_key: bool,
+    /// Pour une invitation **reçue** : ce que dit l'enveloppe jointe, lue
+    /// avant d'accepter. `None` sans enveloppe (émise avant l'inscription,
+    /// serveur ancien) ou côté inviteur.
+    pub inviter_key: Option<InvitationKey>,
     pub created_at: chrono::DateTime<chrono::Utc>,
     pub expires_at: chrono::DateTime<chrono::Utc>,
+}
+
+/// Qui remet la clé du vault d'une invitation reçue. Le serveur choisit
+/// l'e-mail affiché comme inviteur ; l'enveloppe authentifiée, elle, ne peut
+/// venir que du détenteur de la clé dont on montre l'empreinte.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum InvitationKey {
+    /// `trust` : cette empreinte comparée à celle épinglée pour l'inviteur —
+    /// `Changed`, c'est une autre clé que celle qu'on a vérifiée.
+    Member { fingerprint: String, trust: FingerprintTrust },
+    /// Ancien format, anonyme.
+    Anonymous,
+    /// Ne s'ouvre pas avec ce compte, ou pas pour ce vault : à refuser.
+    Unreadable,
+}
+
+fn inviter_key(manager: &Manager, inv: &Invitation) -> Option<InvitationKey> {
+    let wrapped = inv.wrapped_vault_key.as_deref()?;
+    let account = manager.account().ok()?;
+    Some(match gc::unwrap_vault_key(&account, &inv.vault_id.to_string(), wrapped) {
+        Err(_) => InvitationKey::Unreadable,
+        Ok(opened) => match opened.sender {
+            None => InvitationKey::Anonymous,
+            Some(pk) if pk == account.keypair.public => return None,
+            Some(pk) => {
+                let fingerprint = gc::fingerprint(&pk);
+                let trust = manager.fingerprint_trust(&inv.inviter_email, &fingerprint);
+                InvitationKey::Member { fingerprint, trust }
+            }
+        },
+    })
 }
 
 fn view(manager: &Manager, inv: Invitation) -> InvitationView {
@@ -194,6 +230,7 @@ fn view(manager: &Manager, inv: Invitation) -> InvitationView {
         role: inv.role,
         status: inv.status,
         has_key: inv.has_key,
+        inviter_key: None,
         created_at: inv.created_at,
         expires_at: inv.expires_at,
     }
@@ -250,7 +287,16 @@ pub async fn vault_invitations(manager: &Manager, vault_id: VaultId) -> anyhow::
 pub async fn my_invitations(manager: &Manager) -> anyhow::Result<Vec<InvitationView>> {
     let client = manager.client()?;
     let list = to_user(client.my_invitations().await)?;
-    Ok(list.into_iter().map(|i| view(manager, i)).collect())
+    Ok(list
+        .into_iter()
+        .map(|i| {
+            let key = inviter_key(manager, &i);
+            InvitationView {
+                inviter_key: key,
+                ..view(manager, i)
+            }
+        })
+        .collect())
 }
 
 pub async fn accept_invitation(manager: &Manager, id: Uuid) -> anyhow::Result<InvitationView> {

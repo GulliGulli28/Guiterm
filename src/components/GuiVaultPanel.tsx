@@ -549,6 +549,41 @@ function RollbackAlerts({ rollbacks, onStatusChange, onError, onNotify }: { roll
   );
 }
 
+/** Une invitation dont l'enveloppe ne s'ouvre pas, ou vient d'une autre clé
+ * que celle déjà vérifiée pour l'inviteur, ne s'accepte pas en l'état. */
+function acceptable(inv: GuiVaultInvitation): boolean {
+  const k = inv.inviterKey;
+  return !(k?.kind === "unreadable" || (k?.kind === "member" && k.trust.kind === "changed"));
+}
+
+/** Qui remet la clé du vault, lu dans l'enveloppe jointe — avant d'accepter.
+ * Le serveur choisit l'e-mail affiché comme inviteur ; l'enveloppe, elle, ne
+ * peut venir que du détenteur de la clé dont on montre l'empreinte. */
+function InvitationKeyInfo({ inv, onPinned }: { inv: GuiVaultInvitation; onPinned: () => void }) {
+  const k = inv.inviterKey;
+  if (!k) return null;
+  if (k.kind === "unreadable") {
+    return <p className="callout callout-danger text-[11.5px]">La clé jointe ne s'ouvre pas avec votre compte : elle n'est pas pour vous, ou pas pour ce vault. Ne l'acceptez pas, et prévenez {inv.inviterEmail} par un autre canal.</p>;
+  }
+  if (k.kind === "anonymous") {
+    return <p className="text-[11.5px] text-[var(--c-text-muted)]">Enveloppe à l'ancien format : elle ne dit pas qui vous remet la clé. Vérifiez l'invitation auprès de {inv.inviterEmail} par un autre canal.</p>;
+  }
+  const changed = k.trust.kind === "changed";
+  return (
+    <div className={changed ? "callout callout-danger space-y-1" : "space-y-1"}>
+      <p className="text-[11.5px] text-[var(--c-text-secondary)]">
+        {changed
+          ? `La clé jointe n'est pas celle de ${inv.inviterEmail} que vous avez vérifiée : quelqu'un se fait peut-être passer pour elle, ou le serveur ment. Vérifiez à nouveau avant d'accepter.`
+          : `Clé remise par ${inv.inviterEmail} — vérifiez son empreinte par un autre canal avant d'y ranger des secrets :`}
+      </p>
+      <div className="flex flex-wrap items-center gap-1.5">
+        <Fingerprint value={k.fingerprint} />
+        <TrustBadge email={inv.inviterEmail} fingerprint={k.fingerprint} trust={k.trust} onPinned={onPinned} />
+      </div>
+    </div>
+  );
+}
+
 function ReceivedInvitations({ invitations, onChange, onError }: { invitations: GuiVaultInvitation[]; onChange: () => void; onError: (m: string) => void }) {
   if (invitations.length === 0) return null;
   return (
@@ -559,12 +594,20 @@ function ReceivedInvitations({ invitations, onChange, onError }: { invitations: 
           <p className="text-[12.5px] text-[var(--c-text)]">
             <span className="font-medium">{inv.inviterEmail}</span> vous invite dans un vault comme <span className="font-medium">{ROLE_LABELS[inv.role]}</span>.
           </p>
+          <InvitationKeyInfo inv={inv} onPinned={onChange} />
           {inv.status === "awaiting_key" ? (
             <p className="text-[11.5px] text-[var(--c-text-muted)]">Acceptée — en attente que {inv.inviterEmail} vérifie votre empreinte et vous transmette la clé.</p>
           ) : (
             <div className="flex justify-end gap-1.5">
               <button onClick={() => api.guivaultDeclineInvitation(inv.id).then(onChange).catch((e) => onError(String(e)))} className="btn btn-ghost btn-sm">Refuser</button>
-              <button onClick={() => api.guivaultAcceptInvitation(inv.id).then(onChange).catch((e) => onError(String(e)))} className="btn btn-primary btn-sm">Accepter</button>
+              <button
+                onClick={() => api.guivaultAcceptInvitation(inv.id).then(onChange).catch((e) => onError(String(e)))}
+                disabled={!acceptable(inv)}
+                title={acceptable(inv) ? undefined : "La clé jointe n'est pas celle qu'on attend : voir ci-dessus"}
+                className="btn btn-primary btn-sm"
+              >
+                Accepter
+              </button>
             </div>
           )}
         </div>
