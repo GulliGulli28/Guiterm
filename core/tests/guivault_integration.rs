@@ -797,3 +797,48 @@ async fn vault_rollback_suspends_sync_until_resumed() {
     names.sort();
     assert_eq!(names, ["a2-1", "a2-2", "a2-3", "df", "uptime"]);
 }
+
+#[tokio::test]
+async fn vault_key_provenance_is_known_and_verifiable() {
+    use termius_core::guivault::KeyFrom;
+    if !server_available().await {
+        return;
+    }
+    let tag = Uuid::new_v4().simple();
+    let alice_email = format!("alice-{tag}@test.local");
+    let bob_email = format!("bob-{tag}@test.local");
+    let mut alice = Device::register(&alice_email, "pw-a").await;
+    let mut bob = Device::register(&bob_email, "pw-b").await;
+    alice.sync().await;
+    bob.sync().await;
+    let alice_fp = alice.manager.status().fingerprint.unwrap();
+    let key_from = |d: &Device, id| d.manager.status().vaults.into_iter().find(|v| v.id == id).map(|v| (v.key_from, v.key_from_pinned_as));
+
+    // Son vault personnel et ceux qu'on crée : clé de soi.
+    let personal = alice.manager.status().vaults.iter().find(|v| v.kind == guivault_protocol::VaultKind::Personal).unwrap().id;
+    assert_eq!(key_from(&alice, personal).unwrap().0, KeyFrom::Own);
+    let team = sharing::create_vault(&alice.manager, "Équipe").await.unwrap();
+    assert_eq!(key_from(&alice, team.id).unwrap().0, KeyFrom::Own);
+
+    // Bob reçoit la clé d'Alice : il sait qu'elle vient d'elle, pas encore
+    // vérifiée ; épinglée, elle l'est.
+    alice.manager.pin_fingerprint(&bob_email, &bob.manager.status().fingerprint.unwrap()).unwrap();
+    sharing::invite(&alice.manager, team.id, &bob_email, Role::Writer).await.unwrap();
+    let inv = sharing::my_invitations(&bob.manager).await.unwrap().remove(0);
+    sharing::accept_invitation(&bob.manager, inv.id).await.unwrap();
+    bob.sync().await;
+    assert_eq!(key_from(&bob, team.id).unwrap(), (KeyFrom::Member { fingerprint: alice_fp.clone() }, None));
+    bob.manager.pin_fingerprint(&alice_email, &alice_fp).unwrap();
+    assert_eq!(key_from(&bob, team.id).unwrap().1.as_deref(), Some(alice_email.as_str()));
+
+    // Alice renouvelle la clé : toujours d'elle pour Bob, et Bob lit ce
+    // qu'elle y range avec la nouvelle.
+    sync::rotate_vault_key(&alice.manager, team.id).await.unwrap();
+    let snippet = Snippet { id: Uuid::new_v4(), name: "après rotation".into(), command: "true".into(), tags: vec![], adaptive: false };
+    alice.ws.snippets.push(snippet.clone());
+    alice.ws.vault_bindings.insert(snippet.id, team.id);
+    alice.sync().await;
+    bob.sync().await;
+    assert_eq!(key_from(&bob, team.id).unwrap().0, KeyFrom::Member { fingerprint: alice_fp });
+    assert!(bob.ws.snippets.iter().any(|s| s.id == snippet.id));
+}

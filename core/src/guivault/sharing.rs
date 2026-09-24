@@ -36,7 +36,7 @@ pub async fn create_vault(manager: &Manager, name: &str) -> anyhow::Result<Vault
     let req = proto::CreateVaultRequest {
         id,
         name_enc: gc::seal_vault_name(&key, &id.to_string(), name)?,
-        wrapped_vault_key: gc::wrap_vault_key(&account.keypair.public, &key)?,
+        wrapped_vault_key: gc::wrap_vault_key(&account.keypair, &account.keypair.public, &id.to_string(), &key)?,
     };
     to_user(client.create_vault(&req).await)?;
     let vaults = refresh_vaults(manager).await?;
@@ -210,7 +210,7 @@ pub async fn invite(manager: &Manager, vault_id: VaultId, email: &str, role: Rol
         Some(u) => {
             manager.require_pinned(&u.email, &u.fingerprint)?;
             let pk = fetch_public_key(&client, &u.email, &u.fingerprint).await?;
-            Some(gc::wrap_vault_key(&pk, &vault.key)?)
+            Some(gc::wrap_vault_key(&manager.account()?.keypair, &pk, &vault_id.to_string(), &vault.key)?)
         }
         None => None,
     };
@@ -293,7 +293,7 @@ pub async fn complete_invitation(manager: &Manager, vault_id: VaultId, id: Uuid)
             .complete_invitation(
                 id,
                 &proto::CompleteInvitationRequest {
-                    wrapped_vault_key: gc::wrap_vault_key(&pk, &vault.key)?,
+                    wrapped_vault_key: gc::wrap_vault_key(&manager.account()?.keypair, &pk, &vault.id.to_string(), &vault.key)?,
                 },
             )
             .await,

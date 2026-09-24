@@ -29,6 +29,15 @@ This changelog starts 2026-07-21 — for earlier versions, see
   synchronisation… » (panneau GuiVault) fait foi de ce poste : ses versions
   sont renvoyées, ce que le serveur a perdu est recréé, ce qui a été
   supprimé ici l'est là-bas.
+- **GuiVault : on sait qui vous a remis la clé d'un vault.** Les clés de
+  vault voyageaient dans des boîtes scellées anonymes, que le serveur
+  pouvait fabriquer lui-même — pour faire rejoindre un vault dont il tient
+  la clé. Elles sont désormais authentifiées par la clé de qui les envoie
+  (création, invitation, rotation) : le panneau GuiVault montre, dans la
+  fiche d'un vault, qui a remis la clé avec son empreinte à vérifier, et
+  marque « clé non vérifiée » dans la liste tant qu'elle ne l'est pas. Les
+  anciennes enveloppes se lisent toujours. **Demande un serveur GuiVault à
+  jour.**
 
 ## [4.1.0] - 2026-09-22
 

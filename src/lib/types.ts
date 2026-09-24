@@ -577,12 +577,21 @@ export type VaultId = string;
 export type VaultRole = "reader" | "writer" | "admin" | "owner";
 export type VaultKind = "personal" | "shared";
 
+/** Qui a remis la clé d'un vault à ce compte (`termius_core::guivault::
+ * account::KeyFrom`, même JSON que dans l'interface web de GuiVault) : soi-
+ * même, la détentrice d'une clé publique (enveloppe authentifiée), ou on ne
+ * sait pas (ancien format, anonyme). */
+export type GuiVaultKeyFrom = { kind: "self" } | { kind: "member"; fingerprint: string } | { kind: "anonymous" };
+
 export interface GuiVaultVault {
   id: VaultId;
   name: string;
   kind: VaultKind;
   role: VaultRole;
   revision: number;
+  keyFrom: GuiVaultKeyFrom;
+  /** L'e-mail sous lequel l'empreinte de `keyFrom` est épinglée ici. */
+  keyFromPinnedAs: string | null;
 }
 
 /** `termius_core::guivault::account::VaultRollback` : le serveur a annoncé

@@ -3,7 +3,7 @@ import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { api } from "../lib/api";
 import type {
   FingerprintTrust, GuiVaultAuditEntry, GuiVaultEntity, GuiVaultInvitation, GuiVaultKnownAccount, GuiVaultMember,
-  GuiVaultFollower, GuiVaultReport, GuiVaultRollback, GuiVaultSession, GuiVaultStatus, GuiVaultUserLookup, GuiVaultVault, VaultId, VaultPlace, VaultRole, Workspace,
+  GuiVaultFollower, GuiVaultKeyFrom, GuiVaultReport, GuiVaultRollback, GuiVaultSession, GuiVaultStatus, GuiVaultUserLookup, GuiVaultVault, VaultId, VaultPlace, VaultRole, Workspace,
 } from "../lib/types";
 import { buildVaultTree, buildVaultTreeSections } from "../lib/vaultTree";
 import { useModalSurface } from "../hooks/useModalSurface";
@@ -961,6 +961,49 @@ function AddToVaultDialog({ vault, vaults, onClose, onDone, onError }: {
 
 // ─── Détail d'un vault ───────────────────────────────────────────────────────
 
+/** Qui a remis la clé de ce vault (`GuiVaultKeyFrom`). Une enveloppe
+ * authentifiée n'a pu être produite que par le détenteur de la clé privée de
+ * son expéditeur : son empreinte, vérifiée, dit que ce vault vient bien de
+ * lui, et pas d'un serveur qui l'aurait fabriqué pour qu'on y range des
+ * secrets. */
+function KeyProvenance({ keyFrom, members, onPinned }: { keyFrom: GuiVaultKeyFrom; members: GuiVaultMember[]; onPinned: () => void }) {
+  const title = <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">Clé du vault</p>;
+  if (keyFrom.kind === "self") {
+    return <div className="space-y-1">{title}<p className="text-[12px] text-[var(--c-text-secondary)]">Créée ou renouvelée par vous.</p></div>;
+  }
+  if (keyFrom.kind === "anonymous") {
+    return (
+      <div className="space-y-1">
+        {title}
+        <p className="callout">Enveloppe à l'ancien format : elle ne dit pas qui vous a remis la clé de ce vault. Un admin peut la renouveler (« Faire tourner la clé ») pour que chaque membre sache de qui il la tient.</p>
+      </div>
+    );
+  }
+  const sender = members.find((m) => m.fingerprint === keyFrom.fingerprint);
+  return (
+    <div className="space-y-1">
+      {title}
+      {sender ? (
+        <>
+          <p className="text-[12px] text-[var(--c-text)]">Remise par {sender.email}</p>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <Fingerprint value={keyFrom.fingerprint} />
+            <TrustBadge email={sender.email} fingerprint={keyFrom.fingerprint} trust={sender.trust} onPinned={onPinned} />
+          </div>
+          <p className="text-[11.5px] text-[var(--c-text-muted)]">Seul le détenteur de cette clé a pu vous la remettre. Vérifiez son empreinte avant d'y ranger des secrets : c'est ce qui distingue un vault partagé par un collègue d'un vault fabriqué par le serveur.</p>
+        </>
+      ) : (
+        members.length > 0 && (
+          <div className="callout callout-warn space-y-1">
+            <p>Remise par une clé qui n'est celle d'aucun membre actuel. Son auteur a peut-être quitté le vault depuis ; sinon, le serveur est peut-être compromis — n'y rangez rien avant d'avoir vérifié avec les membres.</p>
+            <Fingerprint value={keyFrom.fingerprint} />
+          </div>
+        )
+      )}
+    </div>
+  );
+}
+
 function VaultDetail({ vault, vaults, workspace, onBack, onStatusChange, onError, onNotify }: {
   vault: GuiVaultVault; vaults: GuiVaultVault[]; workspace: Workspace; onBack: () => void; onStatusChange: () => void; onError: (m: string) => void; onNotify: (m: string) => void;
 }) {
@@ -1032,6 +1075,8 @@ function VaultDetail({ vault, vaults, workspace, onBack, onStatusChange, onError
         <span className="tag" title={ROLE_HINTS[vault.role]}>{ROLE_LABELS[vault.role]}</span>
       </div>
       <VaultContents vault={vault} vaults={vaults} onChanged={onStatusChange} onError={onError} onNotify={onNotify} />
+
+      {!isPersonal && <KeyProvenance keyFrom={vault.keyFrom} members={members} onPinned={() => { reload(); onStatusChange(); }} />}
 
       {!isPersonal && (
       <div className="space-y-1">
@@ -1295,6 +1340,9 @@ export function GuiVaultPanel({ workspace, status, onStatusChange, focus, onErro
                     <span className="min-w-[6rem] flex-1 truncate text-[12.5px] text-[var(--c-text)]" title={v.name}>{v.name}</span>
                     <span className="text-[11px] tabular-nums text-[var(--c-text-muted)]" title="Entités dans ce vault">{count}</span>
                     {v.kind === "shared" && <span className="tag" title={ROLE_HINTS[v.role]}>{ROLE_LABELS[v.role]}</span>}
+                    {v.keyFrom.kind === "member" && !v.keyFromPinnedAs && (
+                      <span className="tag" style={{ color: "var(--c-warn)" }} title="La clé de ce vault vous a été remise par quelqu'un dont vous n'avez pas vérifié l'empreinte — ouvrir le vault pour la vérifier">clé non vérifiée</span>
+                    )}
                     {status.rollbacks.some((r) => r.vaultId === v.id) && (
                       <span className="tag text-[var(--c-danger)]" title="Revenu en arrière sur le serveur : synchronisation suspendue">suspendu</span>
                     )}

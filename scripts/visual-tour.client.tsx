@@ -176,9 +176,10 @@ const responses: Record<string, Invoke> = {
     // en tête du panneau et le badge « suspendu ».
     rollbacks: [{ vaultId: "v-infra", name: "Équipe infra", known: 40, seen: 31, detectedAt: new Date().toISOString() }],
     vaults: [
-      { id: "v-perso", name: "Personnel", kind: "personal", role: "owner", revision: 12 },
-      { id: "v-infra", name: "Équipe infra", kind: "shared", role: "owner", revision: 40 },
-      { id: "v-lect", name: "Lecture seule — prod bancaire", kind: "shared", role: "reader", revision: 3 },
+      { id: "v-perso", name: "Personnel", kind: "personal", role: "owner", revision: 12, keyFrom: { kind: "self" }, keyFromPinnedAs: null },
+      { id: "v-infra", name: "Équipe infra", kind: "shared", role: "owner", revision: 40, keyFrom: { kind: "self" }, keyFromPinnedAs: null },
+      // Clé remise par quelqu'un dont l'empreinte n'est pas vérifiée : le badge.
+      { id: "v-lect", name: "Lecture seule — prod bancaire", kind: "shared", role: "reader", revision: 3, keyFrom: { kind: "member", fingerprint: "9c41-07ab-52e0-d1f3-66b8-0a9e-3f27-c85d" }, keyFromPinnedAs: null },
     ],
     accounts: [{ userId: "u-alice", email: "alice@example.com", serverUrl: "https://vault.example.com", lastUsedAt: new Date().toISOString() }],
   }),

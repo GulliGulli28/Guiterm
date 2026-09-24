@@ -535,6 +535,9 @@ pub fn apply_changes(workspace: &mut Workspace, changes: Vec<Change>) {
 pub async fn rotate_vault_key(manager: &Manager, vault_id: VaultId) -> anyhow::Result<()> {
     let client = manager.client()?;
     let vault = manager.vault_info(vault_id)?;
+    // Les nouvelles enveloppes portent notre clé : chaque membre saura qui a
+    // renouvelé la clé du vault.
+    let account = manager.account()?;
     // Révision et membres à jour d'abord.
     let remote = client.sync().await.map_err(super::account::user_error)?;
     manager.update_session(|s| s.absorb_vaults(&remote.vaults))?;
@@ -562,7 +565,7 @@ pub async fn rotate_vault_key(manager: &Manager, vault_id: VaultId) -> anyhow::R
         }
         wrapped.push(proto::RotatedMemberKey {
             user_id: m.user_id,
-            wrapped_vault_key: gc::wrap_vault_key(&pk, &new_key)?,
+            wrapped_vault_key: gc::wrap_vault_key(&account.keypair, &pk, &vault_id.to_string(), &new_key)?,
         });
     }
     let req = proto::RotateVaultKeyRequest {

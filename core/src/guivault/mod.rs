@@ -22,5 +22,5 @@ pub mod sharing;
 pub mod sync;
 pub mod transfer;
 
-pub use account::{FingerprintTrust, KnownAccount, LoginStep, Manager, Status, VaultSummary};
+pub use account::{FingerprintTrust, KeyFrom, KnownAccount, LoginStep, Manager, Status, VaultSummary};
 pub use sync::Report;

@@ -297,6 +297,24 @@ fn clear_secrets(store: &dyn SecretStore, k: &Keys) {
 
 // ─── Session en mémoire ─────────────────────────────────────────────────────
 
+/// Qui a remis la clé d'un vault à ce compte (`gc::unwrap_vault_key`). Une
+/// enveloppe de format 2 n'a pu être produite que par le détenteur de la
+/// clé privée de son expéditeur : son empreinte, vérifiée, dit que le vault
+/// vient bien de lui — pas d'un serveur qui l'aurait fabriqué pour qu'on y
+/// range des secrets. Même JSON que `KeyFrom` dans l'interface web.
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase", tag = "kind")]
+pub enum KeyFrom {
+    /// Vault créé ou clé renouvelée par ce compte.
+    #[serde(rename = "self")]
+    Own,
+    /// La détentrice de cette clé publique.
+    Member { fingerprint: String },
+    /// Ancien format (boîte scellée anonyme) : n'importe qui connaissant
+    /// notre clé publique — le serveur compris — a pu la fabriquer.
+    Anonymous,
+}
+
 /// Un vault tel que le client le voit : nom déchiffré, rôle, et sa clé.
 #[derive(Clone)]
 pub struct VaultInfo {
@@ -306,6 +324,7 @@ pub struct VaultInfo {
     pub role: Role,
     pub revision: i64,
     pub key: gc::SymmetricKey,
+    pub key_from: KeyFrom,
 }
 
 /// Résumé sérialisable d'un vault, pour le frontend (sans la clé).
@@ -317,6 +336,10 @@ pub struct VaultSummary {
     pub kind: VaultKind,
     pub role: Role,
     pub revision: i64,
+    pub key_from: KeyFrom,
+    /// L'e-mail sous lequel l'empreinte de `key_from` a été épinglée ici,
+    /// s'il y en a un (rempli par [`Manager::status`]).
+    pub key_from_pinned_as: Option<String>,
 }
 
 impl From<&VaultInfo> for VaultSummary {
@@ -327,6 +350,8 @@ impl From<&VaultInfo> for VaultSummary {
             kind: v.kind,
             role: v.role,
             revision: v.revision,
+            key_from: v.key_from.clone(),
+            key_from_pinned_as: None,
         }
     }
 }
@@ -366,8 +391,18 @@ impl Session {
         for v in vaults {
             // Ré-ouverte à chaque fois (1 µs) : la clé ne change qu'à une
             // rotation, et alors l'enveloppe aussi.
-            let key = gc::unwrap_vault_key(&account, &v.wrapped_vault_key)
+            // Format 2 : liée à ce vault (le serveur ne peut pas reposer
+            // l'enveloppe d'un autre), et on sait qui l'a produite.
+            let opened = gc::unwrap_vault_key(&account, &v.id.to_string(), &v.wrapped_vault_key)
                 .map_err(|e| anyhow::anyhow!("clé du vault {} illisible : {e}", v.id))?;
+            let key_from = match &opened.sender {
+                None => KeyFrom::Anonymous,
+                Some(pk) if *pk == account.keypair.public => KeyFrom::Own,
+                Some(pk) => KeyFrom::Member {
+                    fingerprint: gc::fingerprint(pk),
+                },
+            };
+            let key = opened.key;
             let name = gc::open_vault_name(&key, &v.id.to_string(), &v.name_enc)
                 .unwrap_or_else(|_| "(nom illisible)".to_string());
             next.insert(
@@ -379,6 +414,7 @@ impl Session {
                     role: v.role,
                     revision: v.revision,
                     key,
+                    key_from,
                 },
             );
         }
@@ -636,9 +672,23 @@ impl Manager {
             .as_ref()
             .and_then(|s| gc::PublicKey::try_from(s.public_key.as_slice()).ok())
             .map(|pk| gc::fingerprint(&pk));
+        let pins = state.as_ref().map(|s| &s.pinned_fingerprints);
         let mut vaults: Vec<VaultSummary> = session
             .as_ref()
-            .map(|s| s.vaults.values().map(VaultSummary::from).collect())
+            .map(|s| {
+                s.vaults
+                    .values()
+                    .map(|v| {
+                        let mut summary = VaultSummary::from(v);
+                        if let KeyFrom::Member { fingerprint } = &v.key_from {
+                            summary.key_from_pinned_as = pins
+                                .and_then(|p| p.iter().find(|(_, fp)| *fp == fingerprint))
+                                .map(|(email, _)| email.clone());
+                        }
+                        summary
+                    })
+                    .collect()
+            })
             .unwrap_or_default();
         vaults.sort_by_key(|v| (v.kind != VaultKind::Personal, v.name.to_lowercase()));
         Status {
@@ -755,7 +805,7 @@ impl Manager {
             personal_vault: proto::CreateVaultRequest {
                 id: personal_id,
                 name_enc: gc::seal_vault_name(&personal_key, &personal_id.to_string(), "Personnel")?,
-                wrapped_vault_key: gc::wrap_vault_key(&account.keypair.public, &personal_key)?,
+                wrapped_vault_key: gc::wrap_vault_key(&account.keypair, &account.keypair.public, &personal_id.to_string(), &personal_key)?,
             },
             device_name: Some(device_name.clone().unwrap_or_else(device_name_default)),
         };
