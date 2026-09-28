@@ -601,6 +601,11 @@ pub async fn rotate_vault_key(manager: &Manager, vault_id: VaultId) -> anyhow::R
         members: wrapped,
         items,
         versions: Some(versions),
+        // Les contacts d'urgence du vault (s'il y en a) ne sont pas
+        // ré-enveloppés d'ici : le serveur marque leurs enveloppes « à
+        // renouveler », et la page Accès d'urgence de l'interface web du
+        // propriétaire les refait sous la nouvelle clé.
+        emergency: None,
         base_revision: vault_now.revision,
     };
     let updated = client.rotate_vault_key(vault_id, &req).await.map_err(super::account::user_error)?;

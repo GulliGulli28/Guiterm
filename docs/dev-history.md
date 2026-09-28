@@ -2616,3 +2616,30 @@ générique qui les prend.
 Scènes `48` (Alt+0, Alt+Page suiv./préc., les trois panneaux dans la
 palette, ouverture par son nom) et `49` (Entrée dans la bande → focus
 panneau ; catégories des Paramètres aux flèches, le contenu suit).
+
+## GuiVault : accès d'urgence et liens de partage, côté Guiterm (2026-09-28)
+
+GuiVault (`2c5bdee`) gagne deux fonctions, réglées dans son interface web :
+les **liens de partage** (un secret transmis à quelqu'un sans compte, la
+clé dans le fragment de l'URL) et l'**accès d'urgence** (un proche désigné
+lit certains vaults si le propriétaire ne refuse pas sa demande avant la
+fin d'un délai ; les clés lui sont enveloppées côté client, sous un contexte
+à part — `wrap_emergency_key`).
+
+Guiterm n'en affiche rien, mais deux choses le touchent :
+
+- **La rotation de clé.** Le serveur attend du propriétaire, en plus des
+  membres, les enveloppes d'urgence du vault sous la nouvelle clé
+  (`RotateVaultKeyRequest.emergency`). Guiterm envoie `None` : les
+  enveloppes sont marquées « à renouveler » plutôt que perdues, et la page
+  Accès d'urgence du propriétaire les refait au prochain passage dans le
+  web. Faire mieux d'ici demanderait les désignations (`GET /emergency`) et
+  l'empreinte épinglée de chaque contact — c'est noté dans la feuille de
+  route de GuiVault.
+- **Les événements.** `emergency_changed` arrive sur le même flux SSE ; il
+  ne change rien de ce que Guiterm synchronise, `spawn_event_listener` le
+  laisse passer sans lancer de synchro.
+
+Vérifié : épinglage remonté (`core` et `src-tauri`, quatre lignes de
+`Cargo.lock`), `core/tests/guivault_integration.rs` (douze scénarios, dont
+les rotations) contre un serveur à ce commit, clippy `-D warnings`.

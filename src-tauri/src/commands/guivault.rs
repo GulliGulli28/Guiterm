@@ -214,6 +214,12 @@ pub fn spawn_event_listener(app: AppHandle) {
                     backoff = 5;
                     while let Some(ev) = events.next().await {
                         tracing::debug!(?ev, "événement GuiVault");
+                        // L'accès d'urgence (désignation, demande, accord) se
+                        // règle dans l'interface web : rien de ce que Guiterm
+                        // synchronise n'a bougé.
+                        if matches!(ev, guivault_protocol::ServerEvent::EmergencyChanged { .. }) {
+                            continue;
+                        }
                         // Plusieurs événements peuvent arriver d'un coup (une
                         // rotation, un import) : on laisse passer une seconde
                         // et une seule synchro les couvre tous.

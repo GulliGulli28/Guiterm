@@ -144,7 +144,10 @@ as I can put it:
   before leaving it, the server holds no key. Personal vault across your
   devices, shared vaults with roles, invitations, key rotation when someone
   leaves, and an out-of-band fingerprint check before any share. One Docker
-  image; still no cloud account required to use Guiterm without it.
+  image; still no cloud account required to use Guiterm without it. The
+  server's web UI adds emergency access (a trusted contact can read chosen
+  vaults after a waiting period you can veto) and expiring share links,
+  both zero-knowledge — Guiterm works alongside them.
 - **Paste from GuiVault** (Ctrl+Shift+G): browse every vault of the account
   next to the active terminal — including the logins, notes, cards and
   identities written by GuiVault's web UI and browser extension — and copy

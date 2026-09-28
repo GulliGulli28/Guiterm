@@ -455,6 +455,17 @@ spawn_event_listener` tient le flux SSE `/events` ouvert et lance une
 synchro à chaque événement (une seconde de regroupement) ; la boucle
 périodique reste le filet de sécurité.
 
+**Accès d'urgence et liens de partage** (GuiVault `2c5bdee`) : réglés dans
+l'interface web de GuiVault, pas dans Guiterm. Deux points de contact :
+la rotation de clé (`sync::rotate_vault_key`) envoie `emergency: None` — le
+serveur marque alors « à renouveler » les enveloppes des contacts d'urgence
+du vault, et la page Accès d'urgence du propriétaire, côté web, les refait
+sous la nouvelle clé ; et `ServerEvent::EmergencyChanged` est ignoré par
+`spawn_event_listener` (rien de synchronisé n'a bougé). Ré-envelopper depuis
+Guiterm demanderait `GET /emergency`, `wrap_emergency_key` et l'empreinte
+épinglée de chaque contact (`require_pinned`) — voir `docs/API.md` de
+GuiVault.
+
 ## RDP intégré (rendu réel) : architecture sidecar
 
 Le rendu RDP intégré (`RdpTab.tsx`, onglet « Aperçu intégré ») ne tourne

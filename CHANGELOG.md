@@ -19,6 +19,12 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ### Changed
 
+- **GuiVault : compatible avec l'accès d'urgence et les liens de partage**
+  que le serveur propose désormais (réglés dans son interface web). Une
+  rotation de clé faite depuis Guiterm laisse « à renouveler » les clés
+  confiées aux contacts d'urgence du vault ; l'interface web du
+  propriétaire les refait d'elle-même. Les notifications d'accès d'urgence
+  ne déclenchent plus de synchronisation.
 - **GuiVault : corbeille et historique.** Le serveur garde désormais les
   versions précédentes des éléments (chiffrées) et une corbeille ; Guiterm
   n'y met pas ce qui ne fait que changer de vault (déplacement, copie en
