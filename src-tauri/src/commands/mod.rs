@@ -29,5 +29,6 @@ pub mod remote_search;
 pub mod runbook;
 pub mod sftp;
 pub mod sql;
+pub mod ssh_agent;
 pub mod terminal;
 pub mod vault;

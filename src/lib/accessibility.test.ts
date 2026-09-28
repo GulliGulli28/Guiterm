@@ -77,6 +77,8 @@ describe("sémantique des fenêtres modales", () => {
     // premier plan) — ce qui ne change rien ici : le voile et le piège à focus
     // sont les mêmes, c'est le parent DOM qui diffère.
     "components/RunbookApprovalModal.tsx",
+    // La confirmation d'une signature demandée à l'agent SSH.
+    "components/SshAgentConfirmModal.tsx",
     "components/SshAuthPromptModal.tsx",
     // « Ces entités suivront » — la confirmation d'un transfert de vault.
     "components/TransferConfirmDialog.tsx",

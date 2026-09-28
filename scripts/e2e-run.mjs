@@ -285,6 +285,7 @@ async function runScenarios(browser) {
   await runHostPasswordScenario(browser);
   await runSessionManagerScenario(browser);
   await runResumeOnLaunchScenario(browser);
+  await runSshAgentScenario(browser);
 
   await mkdir(outDir, { recursive: true });
   const screenshotPath = path.join(outDir, "e2e-smoke.png");
@@ -3782,6 +3783,74 @@ function toggleSidebarButtonRow(browser, label) {
     if (!input.disabled) input.click();
     return { found: true, disabled: input.disabled, before, after: input.checked };
   }, label);
+}
+
+/**
+ * L'agent SSH, de bout en bout : Paramètres › Agent SSH, l'allumer depuis la
+ * case, le voir écouter, puis le joindre **de l'extérieur** comme le ferait un
+ * terminal — `ssh-add -L` sur sa socket. Code 1 (« aucune identité ») prouve
+ * qu'un agent a répondu ; 2 voudrait dire que rien n'écoute. Le réglage est
+ * celui du vrai profil : remis comme il était à la fin.
+ */
+async function runSshAgentScenario(browser) {
+  if (process.platform === "win32") return; // la sonde `ssh-add` vise la socket Unix
+  const invoke = (cmd, args) => browser.execute(async (c, a) => {
+    try {
+      return await window.__TAURI_INTERNALS__.invoke(c, a ?? {});
+    } catch (e) {
+      return { __error: String(e) };
+    }
+  }, cmd, args);
+  const initial = await invoke("ssh_agent_status");
+  if (!initial || initial.__error) throw new Error(`ssh_agent_status : ${JSON.stringify(initial)}`);
+
+  // Le bouton de la barre ouvre **et referme** les Paramètres : le scénario
+  // précédent peut les avoir laissés ouverts.
+  await browser.execute(() => {
+    if (document.querySelector('[data-sidebar-panel="settings"]')) return;
+    const btn = Array.from(document.querySelectorAll("aside nav button"))
+      .find((b) => (b.getAttribute("title") || "").split(" — ")[0] === "Paramètres");
+    if (btn instanceof HTMLElement) btn.click();
+  });
+  await browser.waitUntil(async () => await browser.execute(() => {
+    const cat = document.querySelector('[data-settings-category="agent"]');
+    if (cat instanceof HTMLElement) cat.click();
+    return document.body.innerText.includes("Activer l'agent SSH de Guiterm");
+  }), { timeout: 15_000, timeoutMsg: "la catégorie « Agent SSH » est absente des Paramètres" });
+  const toggle = async () => browser.execute(() => {
+    const row = Array.from(document.querySelectorAll("label")).find((l) => l.textContent?.includes("Activer l'agent SSH de Guiterm"));
+    const box = row?.querySelector("input[type=checkbox]");
+    if (box instanceof HTMLInputElement) box.click();
+    return !!box;
+  });
+
+  try {
+    if (!initial.enabled) {
+      if (!(await toggle())) throw new Error("case « Activer l'agent SSH » introuvable");
+    }
+    await browser.waitUntil(async () => await browser.execute(() => document.body.innerText.includes("À l'écoute sur")),
+      { timeout: 10_000, timeoutMsg: "l'agent SSH allumé ne dit pas qu'il écoute" });
+    const status = await invoke("ssh_agent_status");
+    if (!status.running || !status.endpoint) throw new Error(`agent allumé mais pas en marche : ${JSON.stringify(status)}`);
+
+    const probe = await new Promise((resolve) => {
+      const child = spawn("ssh-add", ["-L"], { env: { ...process.env, SSH_AUTH_SOCK: status.endpoint } });
+      let out = "";
+      child.stdout.on("data", (d) => { out += d; });
+      child.stderr.on("data", (d) => { out += d; });
+      child.on("close", (code) => resolve({ code, out }));
+      child.on("error", (e) => resolve({ code: -1, out: String(e) }));
+    });
+    const expected = status.keys.some((k) => k.enabled) ? 0 : 1;
+    if (probe.code !== expected) throw new Error(`ssh-add -L sur ${status.endpoint} : code ${probe.code} (attendu ${expected}) — ${probe.out}`);
+    console.log(`Agent SSH : OK (allumé depuis les Paramètres, ssh-add -L répond sur ${status.endpoint}, réglage remis comme avant).`);
+  } finally {
+    if (!initial.enabled) {
+      await toggle();
+      await browser.waitUntil(async () => !(await browser.execute(() => document.body.innerText.includes("À l'écoute sur"))),
+        { timeout: 10_000, timeoutMsg: "l'agent SSH n'a pas pu être éteint à la fin du scénario" });
+    }
+  }
 }
 
 /**

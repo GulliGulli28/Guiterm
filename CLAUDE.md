@@ -466,6 +466,37 @@ Guiterm demanderait `GET /emergency`, `wrap_emergency_key` et l'empreinte
 épinglée de chaque contact (`require_pinned`) — voir `docs/API.md` de
 GuiVault.
 
+## Agent SSH adossé au trousseau
+
+`core/src/ssh_agent/` : un agent SSH (draft-miller-ssh-agent) servi par
+Guiterm — `protocol.rs` (trames, pur), `purpose.rs` (ce qui est signé :
+connexion SSH RFC 4252, `SSHSIG` de `ssh-keygen -Y sign` / Git), `mod.rs`
+(`Agent` : clés présentées selon l'hôte, confirmation, accords « 10 min »,
+signature RSA au hachage demandé), `server.rs` (socket Unix 0600 dans
+`$XDG_RUNTIME_DIR/gui-termius/`, tube nommé `\\.\pipe\guiterm-ssh-agent`
+sous Windows), `keyring.rs` (clés du trousseau : contenu dans le coffre, le
+workspace ou le fichier, phrase de passe dans le coffre ; partie publique lue
+sans la phrase quand le format OpenSSH le permet), `settings.rs`
+(`ssh_agent.json`, **local au poste**, éteint et sans clé par défaut).
+
+« La bonne clé » : le client OpenSSH ≥ 8.9 envoie `session-bind@openssh.com`
+(clé d'hôte + sa signature sur l'id de session, **vérifiée**) ; l'hôte est
+retrouvé par `known_hosts::identities_with_key`, et seules les clés que les
+hôtes correspondants utilisent sont présentées. La confirmation passe par un
+[`Backend`] que `src-tauri/src/commands/ssh_agent.rs` implémente (événement
+`ssh-agent-confirm`, fenêtre ramenée au premier plan, réponse
+`ssh_agent_answer`, refus au bout d'une minute) — même forme que
+`interactive_auth`. Un agent **transféré** (la demande vient d'un serveur)
+redemande toujours. Frontend : `SshAgentSettings.tsx` (Paramètres › Agent
+SSH), `SshAgentConfirmModal.tsx` (file dans `App.tsx`).
+
+Tests : `core/tests/ssh_agent_integration.rs` contre les vrais outils
+OpenSSH — `ssh-add -L`, `ssh-keygen -Y sign -n git` puis vérification, refus,
+et un vrai `ssh` vers le `sshd` de test : `ssh -v` doit dire « bound agent to
+hostkey » et « agent returned 1 keys » (2 quand l'hôte est inconnu). E2E :
+`runSshAgentScenario` (allumer depuis les Paramètres, `ssh-add -L` sur la
+socket).
+
 ## RDP intégré (rendu réel) : architecture sidecar
 
 Le rendu RDP intégré (`RdpTab.tsx`, onglet « Aperçu intégré ») ne tourne

@@ -55,7 +55,7 @@
     "semantic_hash": ""
   },
   "core/src/aws_sso.rs": {
-    "mtime": 1790233428.5310283,
+    "mtime": 1790172585.2571428,
     "ast_hash": "8a11c0948ecc532f0d9f7788b2d3139e",
     "semantic_hash": ""
   },
@@ -165,13 +165,13 @@
     "semantic_hash": ""
   },
   "core/src/known_hosts.rs": {
-    "mtime": 1790582636.1985517,
-    "ast_hash": "9712d8793c4d42e4b8127c0984abbc3e",
+    "mtime": 1787057194.0427737,
+    "ast_hash": "a88147339d2159a87aead59c23fd6127",
     "semantic_hash": ""
   },
   "core/src/lib.rs": {
-    "mtime": 1790582636.1989725,
-    "ast_hash": "76be84fa3fe9cca44c4c9bacef7c5a3d",
+    "mtime": 1789464725.552431,
+    "ast_hash": "87924571db0e5812e4046cacecd6ed53",
     "semantic_hash": ""
   },
   "core/src/local_fs.rs": {
@@ -330,8 +330,8 @@
     "semantic_hash": ""
   },
   "core/tests/common/mod.rs": {
-    "mtime": 1790582636.197239,
-    "ast_hash": "468843410ddca60a7a5f303ae426f9b7",
+    "mtime": 1786008513.9423385,
+    "ast_hash": "2e4e276713bee4c5115cbe0e67373beb",
     "semantic_hash": ""
   },
   "core/tests/drift_integration.rs": {
@@ -425,8 +425,8 @@
     "semantic_hash": ""
   },
   "scripts/e2e-run.mjs": {
-    "mtime": 1790584234.4665413,
-    "ast_hash": "2a48941c4fb93d543accf8510b0d83a4",
+    "mtime": 1790072325.003497,
+    "ast_hash": "704fef2998c9f341909ba0aa26ba83ea",
     "semantic_hash": ""
   },
   "scripts/install-macos.sh": {
@@ -610,8 +610,8 @@
     "semantic_hash": ""
   },
   "src-tauri/src/commands/mod.rs": {
-    "mtime": 1790582927.529797,
-    "ast_hash": "40f78f9db3a8a51846a5f12bce52ee00",
+    "mtime": 1789464725.552431,
+    "ast_hash": "64b58a1b986019d52445da2938e4bc79",
     "semantic_hash": ""
   },
   "src-tauri/src/commands/mongo.rs": {
@@ -675,13 +675,13 @@
     "semantic_hash": ""
   },
   "src-tauri/src/main.rs": {
-    "mtime": 1790582946.8582783,
-    "ast_hash": "fc5683aa46bae98f2c31a943bc0b8478",
+    "mtime": 1790172585.2571428,
+    "ast_hash": "cd09ab937d1d58d090a8c30cd1fa62e3",
     "semantic_hash": ""
   },
   "src-tauri/src/state.rs": {
-    "mtime": 1790582946.8574452,
-    "ast_hash": "b6cb40d78214eddb95450828bfb17a13",
+    "mtime": 1790066246.8151875,
+    "ast_hash": "d6f00034fd77edbfedde8b0c6933eb25",
     "semantic_hash": ""
   },
   "src-tauri/tauri.conf.json": {
@@ -690,8 +690,8 @@
     "semantic_hash": ""
   },
   "src/App.tsx": {
-    "mtime": 1790583074.8576522,
-    "ast_hash": "0c074b055a8ebe1c7d3537f546446ee9",
+    "mtime": 1790088775.86341,
+    "ast_hash": "0a13f42728191e62ac0aa807bf9cac6c",
     "semantic_hash": ""
   },
   "src/components/ActivityTab.tsx": {
@@ -720,7 +720,7 @@
     "semantic_hash": ""
   },
   "src/components/AwsIdentitiesPanel.tsx": {
-    "mtime": 1790233428.5670278,
+    "mtime": 1790172585.2571428,
     "ast_hash": "84d3e3e0118ac0825bacd0e1a30dbd23",
     "semantic_hash": ""
   },
@@ -895,8 +895,8 @@
     "semantic_hash": ""
   },
   "src/components/SettingsPanel.tsx": {
-    "mtime": 1790583074.8740814,
-    "ast_hash": "d7a97b06ee569f73aa6fff314030eda4",
+    "mtime": 1790088388.3708947,
+    "ast_hash": "ed615363be8c97cce046a7feab73c54a",
     "semantic_hash": ""
   },
   "src/components/SftpPanel.tsx": {
@@ -1090,8 +1090,8 @@
     "semantic_hash": ""
   },
   "src/lib/accessibility.test.ts": {
-    "mtime": 1790583564.9879234,
-    "ast_hash": "c437da1c44d2316d9d72c1ee5e2adf3b",
+    "mtime": 1789660665.3110225,
+    "ast_hash": "c726df1885f99a30896c22ce78af5a38",
     "semantic_hash": ""
   },
   "src/lib/activity.test.ts": {
@@ -1105,8 +1105,8 @@
     "semantic_hash": ""
   },
   "src/lib/api.ts": {
-    "mtime": 1790583046.3198779,
-    "ast_hash": "c413cbd3e172ce3968e41527fad96a6b",
+    "mtime": 1790172585.2571428,
+    "ast_hash": "bc28f4aea8018dec4b5be32cb26a1767",
     "semantic_hash": ""
   },
   "src/lib/awsIdentities.test.ts": {
@@ -1410,8 +1410,8 @@
     "semantic_hash": ""
   },
   "src/lib/types.ts": {
-    "mtime": 1790583046.3031127,
-    "ast_hash": "72b6b30e5aea2c80c1e3e43b2ae69288",
+    "mtime": 1790172585.2571428,
+    "ast_hash": "3fc8d0cb0e3df0c209de017b81b945a8",
     "semantic_hash": ""
   },
   "src/lib/xtermRenderer.ts": {
@@ -1480,8 +1480,8 @@
     "semantic_hash": ""
   },
   "src/modules/registry.ts": {
-    "mtime": 1790583601.1597178,
-    "ast_hash": "29c10de0e0a9b10bb18c758f68f8047f",
+    "mtime": 1789464725.5564313,
+    "ast_hash": "02a2334cbcd3f2a1cc44634f65477946",
     "semantic_hash": ""
   },
   "src/modules/settings.tsx": {
@@ -1575,13 +1575,13 @@
     "semantic_hash": ""
   },
   "CHANGELOG.md": {
-    "mtime": 1790583779.019183,
-    "ast_hash": "8d0dab20727b2dd51db3c99ae27d8921",
+    "mtime": 1790089880.7019675,
+    "ast_hash": "470166368296feebde5fa56fa027d155",
     "semantic_hash": ""
   },
   "CLAUDE.md": {
-    "mtime": 1790583779.0225244,
-    "ast_hash": "068030b1b9f9b0adf2a883725ed0e62b",
+    "mtime": 1790172612.467194,
+    "ast_hash": "268bdae4c7215437ee26e082862278ae",
     "semantic_hash": ""
   },
   "CONTRIBUTING.md": {
@@ -1590,8 +1590,8 @@
     "semantic_hash": ""
   },
   "README.md": {
-    "mtime": 1790583779.0133805,
-    "ast_hash": "de1d1740eebd32d09410225b7831e103",
+    "mtime": 1790066459.5068152,
+    "ast_hash": "fcbc6d55fec2be9f2d7d8f1b3b2e7e57",
     "semantic_hash": ""
   },
   "RELEASING.md": {
@@ -1625,8 +1625,8 @@
     "semantic_hash": ""
   },
   "docs/dev-history.md": {
-    "mtime": 1790583779.0415595,
-    "ast_hash": "b13f05837122d5e1f57979d41260a0d0",
+    "mtime": 1790089242.704291,
+    "ast_hash": "c86b9e945a1a7838be5427cbf3a3fa8e",
     "semantic_hash": ""
   },
   "index.html": {
@@ -2090,33 +2090,33 @@
     "semantic_hash": ""
   },
   "core/src/guivault/account.rs": {
-    "mtime": 1790238931.67145,
-    "ast_hash": "119085771118108b45530d9711fb154d",
+    "mtime": 1789487187.1568632,
+    "ast_hash": "d45b6ae85fe6c99f30791ea883ff9e6d",
     "semantic_hash": ""
   },
   "core/src/guivault/client.rs": {
-    "mtime": 1790244020.609424,
-    "ast_hash": "dc20fa7bf7809279546939707534ba96",
+    "mtime": 1789474258.438115,
+    "ast_hash": "ba40b1a1185f3a6082fb8a6f008488a0",
     "semantic_hash": ""
   },
   "core/src/guivault/entity.rs": {
-    "mtime": 1790233428.5310283,
+    "mtime": 1790172585.2571428,
     "ast_hash": "441a4f5290948a21375d631e6b7bd19b",
     "semantic_hash": ""
   },
   "core/src/guivault/mod.rs": {
-    "mtime": 1790238931.6746693,
-    "ast_hash": "0b27fb490050b3b87ca6bf4ab50da8ae",
+    "mtime": 1790172585.2571428,
+    "ast_hash": "9e382d861ae7919a86de4ef02415371a",
     "semantic_hash": ""
   },
   "core/src/guivault/sharing.rs": {
-    "mtime": 1790241285.886786,
-    "ast_hash": "551ea038f835d94b4372f206ceff26bd",
+    "mtime": 1789463063.9383147,
+    "ast_hash": "ea2567f2c5eea95be03d1eaf02b8c802",
     "semantic_hash": ""
   },
   "core/src/guivault/sync.rs": {
-    "mtime": 1790579783.726541,
-    "ast_hash": "636b0165838a74e0ab50e3aef0ba2741",
+    "mtime": 1790172585.2571428,
+    "ast_hash": "77f2430d4272934f1b33b8e622b9b5c9",
     "semantic_hash": ""
   },
   "core/src/sudo_pane.rs": {
@@ -2130,8 +2130,8 @@
     "semantic_hash": ""
   },
   "core/tests/guivault_integration.rs": {
-    "mtime": 1790244227.6853507,
-    "ast_hash": "fadac05439c2462de805320da72fc1fb",
+    "mtime": 1790172585.2571428,
+    "ast_hash": "13b4e95b11093d00b34215757d26c6a7",
     "semantic_hash": ""
   },
   "core/tests/sudo_pane_integration.rs": {
@@ -2140,18 +2140,18 @@
     "semantic_hash": ""
   },
   "scripts/visual-tour.client.tsx": {
-    "mtime": 1790241313.244216,
-    "ast_hash": "b20fa6d4e331368d5fbcda2d6af1fcd1",
+    "mtime": 1790172585.2571428,
+    "ast_hash": "f8f877d087c5e6896f272d7f1e80f3b9",
     "semantic_hash": ""
   },
   "scripts/visual-tour.mjs": {
-    "mtime": 1790233428.5670278,
+    "mtime": 1790172585.2571428,
     "ast_hash": "5e248c53c538c1333ae6e34e520106f0",
     "semantic_hash": ""
   },
   "src-tauri/src/commands/guivault.rs": {
-    "mtime": 1790579840.2221053,
-    "ast_hash": "fe25a53ba45e1755f5a208df7dce6ab6",
+    "mtime": 1790172585.2571428,
+    "ast_hash": "3554230f46c86c8dc29cc40fba6fd381",
     "semantic_hash": ""
   },
   "src/components/ContextMenu.tsx": {
@@ -2165,8 +2165,8 @@
     "semantic_hash": ""
   },
   "src/components/GuiVaultPanel.tsx": {
-    "mtime": 1790241304.8052988,
-    "ast_hash": "ca710ef1061222eec7f089b65652a24a",
+    "mtime": 1790070657.1780963,
+    "ast_hash": "3b3390462862b867e6a46277311c4e16",
     "semantic_hash": ""
   },
   "src/components/RemoteFilePicker.tsx": {
@@ -2235,12 +2235,12 @@
     "semantic_hash": ""
   },
   "core/src/guivault/transfer.rs": {
-    "mtime": 1790233428.5310283,
+    "mtime": 1790172585.2571428,
     "ast_hash": "8aad58c60834257417ac13ef2c9fbd68",
     "semantic_hash": ""
   },
   "src/components/VaultEntityTree.tsx": {
-    "mtime": 1790233428.5670278,
+    "mtime": 1790172585.2571428,
     "ast_hash": "5d425cb285a818e8c224772228f7530f",
     "semantic_hash": ""
   },
@@ -2250,8 +2250,8 @@
     "semantic_hash": ""
   },
   "src/lib/vaultSections.test.ts": {
-    "mtime": 1790239023.2600498,
-    "ast_hash": "603ca2cc9e03ab0f2ae65122981c5d9b",
+    "mtime": 1789652381.2097764,
+    "ast_hash": "c4927a9e22eaa622a6177077edd19e4c",
     "semantic_hash": ""
   },
   "src/lib/vaultSections.ts": {
@@ -2265,7 +2265,7 @@
     "semantic_hash": ""
   },
   "src/lib/vaultTree.ts": {
-    "mtime": 1790233428.5670278,
+    "mtime": 1790172585.2584589,
     "ast_hash": "5d23d67ef54f2cfe4f8d00836e257b22",
     "semantic_hash": ""
   },
@@ -2295,7 +2295,7 @@
     "semantic_hash": ""
   },
   "core/src/guivault/browse.rs": {
-    "mtime": 1790233428.5310283,
+    "mtime": 1790172585.2571428,
     "ast_hash": "758afac95637cbc3a2c67642dd2da977",
     "semantic_hash": ""
   },
@@ -2320,7 +2320,7 @@
     "semantic_hash": ""
   },
   "src/lib/vaultBrowse.ts": {
-    "mtime": 1790233428.5670278,
+    "mtime": 1790172585.2571428,
     "ast_hash": "f9b7a587ff570bab7eaea2dfcceb2ccf",
     "semantic_hash": ""
   },
@@ -2350,58 +2350,8 @@
     "semantic_hash": ""
   },
   "core/src/guivault/aws.rs": {
-    "mtime": 1790233428.5310283,
+    "mtime": 1790172285.8932486,
     "ast_hash": "5d192c6ae9ffbd00eeada272cdc10d40",
-    "semantic_hash": ""
-  },
-  "core/src/ssh_agent/keyring.rs": {
-    "mtime": 1790582659.9422743,
-    "ast_hash": "f7e260eb83bee7acddda16e3bf9a8207",
-    "semantic_hash": ""
-  },
-  "core/src/ssh_agent/mod.rs": {
-    "mtime": 1790582927.5091856,
-    "ast_hash": "38a8e4685780b3e34c79beb3d8a4a604",
-    "semantic_hash": ""
-  },
-  "core/src/ssh_agent/protocol.rs": {
-    "mtime": 1790582448.8643706,
-    "ast_hash": "2c5599a5fd07851e99cf4974a94ffb32",
-    "semantic_hash": ""
-  },
-  "core/src/ssh_agent/purpose.rs": {
-    "mtime": 1790582467.056255,
-    "ast_hash": "a6df557d9a96bb3c94c7897273d16687",
-    "semantic_hash": ""
-  },
-  "core/src/ssh_agent/server.rs": {
-    "mtime": 1790582682.1155944,
-    "ast_hash": "591102bb28d34e25cace4f34874a12f6",
-    "semantic_hash": ""
-  },
-  "core/src/ssh_agent/settings.rs": {
-    "mtime": 1790582636.2050653,
-    "ast_hash": "a5f4186d9e7e3cefbfe837715cfc43f4",
-    "semantic_hash": ""
-  },
-  "core/tests/ssh_agent_integration.rs": {
-    "mtime": 1790583200.4941518,
-    "ast_hash": "2440d11d523fcbb1a388b1eae65a5d9e",
-    "semantic_hash": ""
-  },
-  "src-tauri/src/commands/ssh_agent.rs": {
-    "mtime": 1790582975.5073469,
-    "ast_hash": "f35c6d8108b2e8a1d8c5afeeaf2f67be",
-    "semantic_hash": ""
-  },
-  "src/components/SshAgentConfirmModal.tsx": {
-    "mtime": 1790583046.3231125,
-    "ast_hash": "6dc96fbac96b3ea022f0097a1c2c2ff9",
-    "semantic_hash": ""
-  },
-  "src/components/SshAgentSettings.tsx": {
-    "mtime": 1790583074.8614197,
-    "ast_hash": "e870a4f987a2d2c2e92937ea3e18f4b4",
     "semantic_hash": ""
   }
 }

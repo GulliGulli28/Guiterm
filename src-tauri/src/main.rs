@@ -102,6 +102,8 @@ fn main() {
             // workspace) : boucle de synchronisation et flux d'événements.
             commands::guivault::spawn_auto_sync(app.handle().clone());
             commands::guivault::spawn_event_listener(app.handle().clone());
+            // L'agent SSH, s'il était allumé (réglages, propres à ce poste).
+            commands::ssh_agent::spawn_at_startup(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -368,6 +370,10 @@ fn main() {
             commands::vault::disable_master_password,
             commands::interactive_auth::submit_ssh_auth_prompt,
             commands::interactive_auth::cancel_ssh_auth_prompt,
+            commands::ssh_agent::ssh_agent_status,
+            commands::ssh_agent::ssh_agent_set_enabled,
+            commands::ssh_agent::ssh_agent_set_key,
+            commands::ssh_agent::ssh_agent_answer,
             commands::command_history::get_sql_history,
             commands::command_history::append_sql_history,
             commands::command_history::get_local_history,

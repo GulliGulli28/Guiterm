@@ -138,6 +138,14 @@ as I can put it:
   locked at launch, configurable auto-lock.
 - SSH key generation (Ed25519 by default, RSA 4096 optional) and one-click
   deployment to a remote `authorized_keys` (an `ssh-copy-id` equivalent).
+- **Built-in SSH agent** backed by the keychain (Settings › SSH agent, off by
+  default): `ssh`, `git`, `scp` run outside Guiterm sign with your keychain
+  keys without them ever leaving the app. Each use is confirmed (or once per
+  key for 10 minutes) with what is being signed — an SSH login to which host,
+  a Git commit — and by which program; when the client announces its server
+  (OpenSSH 8.9+), only the key that host uses is offered. Git commit signing
+  (`gpg.format ssh`) works through it. Unix socket on Linux/macOS, named pipe
+  on Windows.
 - **Optional sync and team sharing through a self-hosted
   [GuiVault](https://github.com/GulliGulli28/GuiVault) server** — end-to-end
   encrypted: hosts, keys, passwords and snippets are encrypted in Guiterm

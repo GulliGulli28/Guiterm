@@ -11,9 +11,10 @@ import { TERMINAL_THEMES, FONT_FAMILIES, UI_FONT_FAMILIES, ACCENT_COLORS, BG_THE
 import { EntityRow, EntityMono, EntityTags, GroupRow } from "./EntityRow";
 import { SHORTCUT_ACTIONS, comboConflicts, defaultShortcuts, comboFromEvent, shellBindingWarning, shortcutLabel } from "../lib/shortcuts";
 import { SIDEBAR_BUTTONS, ALWAYS_VISIBLE_SIDEBAR_BUTTONS, isSidebarButtonVisible } from "../lib/sidebarButtons";
-import { IconUpload, IconDownload, IconPalette, IconTerminal, IconTransfer, IconKeyboard, IconBell, IconSettings, IconSun, IconMoon, IconRefresh, IconShield, IconCheck, IconWarning, IconFolderFilled, IconFileFilled, IconFolder } from "./ui-icons";
+import { IconUpload, IconDownload, IconPalette, IconTerminal, IconTransfer, IconKeyboard, IconBell, IconSettings, IconSun, IconMoon, IconRefresh, IconShield, IconCheck, IconWarning, IconFolderFilled, IconFileFilled, IconFolder, IconKeychain } from "./ui-icons";
 import { VaultSettings } from "./VaultSettings";
 import { AdaptiveEngineSettings } from "./AdaptiveEngineSettings";
+import { SshAgentSettings } from "./SshAgentSettings";
 
 type UpdateStatus = "idle" | "checking" | "upToDate" | "available" | "installing" | "error";
 
@@ -29,13 +30,14 @@ interface SettingsPanelProps {
 
 type ImportPending = { path: string };
 
-type SettingsCategory = "apparence" | "terminal" | "sftp" | "securite" | "raccourcis" | "notifications" | "general";
+type SettingsCategory = "apparence" | "terminal" | "sftp" | "securite" | "agent" | "raccourcis" | "notifications" | "general";
 
 const CATEGORIES: { key: SettingsCategory; label: string; Icon: ComponentType<{ size?: number; className?: string }> }[] = [
   { key: "apparence", label: "Apparence", Icon: IconPalette },
   { key: "terminal", label: "Terminal", Icon: IconTerminal },
   { key: "sftp", label: "SFTP", Icon: IconTransfer },
   { key: "securite", label: "Sécurité", Icon: IconShield },
+  { key: "agent", label: "Agent SSH", Icon: IconKeychain },
   { key: "raccourcis", label: "Raccourcis", Icon: IconKeyboard },
   { key: "notifications", label: "Notifications", Icon: IconBell },
   { key: "general", label: "Général", Icon: IconSettings },
@@ -759,6 +761,8 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
             <AdaptiveEngineSettings />
           </div>
         )}
+
+        {category === "agent" && <SshAgentSettings onError={onError} />}
 
         {category === "raccourcis" && (
           <section className="space-y-2">

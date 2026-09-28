@@ -125,6 +125,20 @@ pub fn list() -> Vec<(String, String, String)> {
     entries
 }
 
+/// Les identités (ids d'hôtes) dont la clé approuvée est `key` — pour
+/// reconnaître un hôte à sa clé quand un client de l'agent SSH l'annonce
+/// (`crate::ssh_agent`). Comparé par la clé elle-même, pas par son encodage
+/// (un commentaire ne compte pas).
+pub fn identities_with_key(key: &PublicKey) -> Vec<String> {
+    read()
+        .unwrap_or_default()
+        .0
+        .into_iter()
+        .filter(|(_, entry)| PublicKey::from_openssh(&entry.public_key).is_ok_and(|k| k.key_data() == key.key_data()))
+        .map(|(identity, _)| identity)
+        .collect()
+}
+
 /// Revokes trust for `identity` — the next connection to it will be treated as newly seen.
 pub fn remove(identity: &str) -> anyhow::Result<()> {
     let mut store = read()?;

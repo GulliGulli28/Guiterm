@@ -2643,3 +2643,49 @@ Guiterm n'en affiche rien, mais deux choses le touchent :
 Vérifié : épinglage remonté (`core` et `src-tauri`, quatre lignes de
 `Cargo.lock`), `core/tests/guivault_integration.rs` (douze scénarios, dont
 les rotations) contre un serveur à ce commit, clippy `-D warnings`.
+
+## Agent SSH adossé au trousseau (2026-09-28)
+
+Le point 3 de la feuille de route de GuiVault : « l'agent SSH de Bitwarden
+essaie les clés une par une, sans lien hôte → clé, et casse régulièrement la
+signature Git ; ici chaque hôte connaît sa clé ».
+
+**Pourquoi pas l'agent de russh.** `russh::keys::agent::server` est un agent
+générique en mémoire (on y ajoute des clés par le protocole) : pas d'état
+par connexion, pas de `session-bind@openssh.com`, et son crochet de
+confirmation ne voit que la clé, pas ce qui est signé. Le protocole est
+petit (lister, signer, extensions) : `ssh_agent::protocol` le parle, le
+reste (ajout, retrait, verrou) est refusé — les clés viennent du trousseau.
+
+**La bonne clé pour le bon hôte.** OpenSSH 8.9+ envoie, avant de demander
+les identités, la clé d'hôte du serveur et la signature de celui-ci sur l'id
+de session. La signature est vérifiée (sinon un processus local pourrait
+faire afficher le nom d'un hôte de confiance), l'hôte est retrouvé dans les
+`known_hosts` de Guiterm (clés rangées par id d'hôte, comparées par
+`key_data`, pas par encodage), et seules les clés que ces hôtes utilisent
+sont présentées ; hôte inconnu : toutes. Une connexion avec `ProxyJump` fait
+un `session-bind` par saut : on les garde tous, la confirmation affiche
+l'hôte dont l'id de session correspond aux données signées.
+
+**Ce que dit la confirmation.** Les données d'une signature d'agent sont
+reconnaissables : une authentification SSH (RFC 4252 §7 : id de session,
+`SSH_MSG_USERAUTH_REQUEST`, utilisateur, `publickey` ou sa variante liée à
+l'hôte) ou une signature `SSHSIG` (`ssh-keygen -Y sign`, espace de noms
+`git` pour les commits). Le programme demandeur vient de `SO_PEERCRED`
+(`/proc/<pid>/comm` sous Linux). « Ne plus demander 10 minutes » vaut par
+clé et jamais pour un agent transféré.
+
+**RSA.** Le client choisit le hachage par drapeaux (`SSH_AGENT_RSA_SHA2_256`
+/ `_512`) : signé par `Signer` sur `(&RsaKeypair, Option<HashAlg>)`, la même
+voie que russh pour l'authentification.
+
+**Le test qui compte.** Le premier jet vérifiait « une seule confirmation »
+lors d'un vrai `ssh` : il serait passé sans le filtrage, puisque le serveur
+refuse une clé inconnue *avant* toute signature. Le test lit désormais ce
+que `ssh -v` dit de l'agent (`bound agent to hostkey`, `agent returned 1
+keys`) — et 2 clés quand l'hôte est inconnu.
+
+**Windows.** Tube nommé `\\.\pipe\guiterm-ssh-agent`, `first_pipe_instance`
+(pas d'installation à côté d'un autre agent) ; `SSH_AUTH_SOCK` à poser pour
+OpenSSH de Windows. Le client n'y est pas identifié (pas de pid).
+

@@ -1997,3 +1997,51 @@ export type Tab =
   | { id: string; kind: "terminal"; hostId: HostId; label: string; sessionId: string | null; status: "connecting" | "open" | "failed"; error?: string }
   | { id: string; kind: "transfer"; hostId: HostId; label: string; left: PaneState; right: PaneState };
 
+
+// ─── Agent SSH (commands::ssh_agent) ───────────────────────────────────────
+
+/** Une clé du trousseau vue par l'agent. */
+export interface SshAgentKey {
+  id: KeyId;
+  name: string;
+  /** Proposée par l'agent (cochée dans les réglages). */
+  enabled: boolean;
+  /** `ssh-ed25519 AAAA… nom` — pour `git config user.signingkey` ; `null` si
+   * la clé est illisible (fichier disparu, PEM chiffré sans phrase de passe). */
+  publicKey: string | null;
+  fingerprint: string | null;
+  /** Hôtes du workspace qui s'authentifient avec elle. */
+  hosts: number;
+}
+
+export interface SshAgentStatus {
+  enabled: boolean;
+  running: boolean;
+  /** Ce qu'il faut mettre dans `SSH_AUTH_SOCK`. */
+  endpoint: string | null;
+  error: string | null;
+  windows: boolean;
+  keys: SshAgentKey[];
+}
+
+/** Ce qu'on demande à l'agent de signer. */
+export type SshAgentPurpose =
+  | { kind: "sshLogin"; user: string; hosts: { id: string; label: string }[]; fingerprint: string | null }
+  | { kind: "gitSignature" }
+  | { kind: "sshsig"; namespace: string }
+  | { kind: "unknown" };
+
+/** Événement `ssh-agent-confirm` : une signature attend l'accord de
+ * l'utilisateur (`api.sshAgentAnswer` avec le même `id`). */
+export interface SshAgentConfirm {
+  id: string;
+  request: {
+    keyId: string;
+    keyName: string;
+    keyFingerprint: string;
+    purpose: SshAgentPurpose;
+    client: { pid: number | null; program: string | null };
+    /** Vient d'un hôte distant par un agent transféré. */
+    forwarded: boolean;
+  };
+}

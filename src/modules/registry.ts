@@ -64,13 +64,16 @@ export const MODULES = [
  * Ce sont les transversaux de la section 3 du document d'architecture : le
  * coffre (tout module qui touche à un secret passe par lui), l'authentification
  * interactive (elle se joue pendant la poignée de main SSH, sous le pool, donc
- * sous les modules), et l'historique de commandes (partagé par le terminal SSH
- * et le terminal local, sans propriétaire naturel).
+ * sous les modules), l'historique de commandes (partagé par le terminal SSH
+ * et le terminal local, sans propriétaire naturel), et l'agent SSH (il sert
+ * des programmes hors de l'application — `ssh`, `git` — à partir du
+ * trousseau, sans onglet ni panneau à lui ; ses réglages vivent dans
+ * Paramètres).
  *
  * Cette liste est le pendant assumé de l'attribution : y inscrire un domaine
  * est une décision, pas un contournement. Elle ne doit pas servir de dépotoir
  * pour un domaine qu'on n'a pas envie de rattacher. */
-export const CORE_COMMAND_DOMAINS: readonly string[] = ["vault", "interactive_auth", "command_history"];
+export const CORE_COMMAND_DOMAINS: readonly string[] = ["vault", "interactive_auth", "command_history", "ssh_agent"];
 
 type AssertNever<T extends never> = T;
 

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { check as checkForUpdate } from "@tauri-apps/plugin-updater";
-import { api, onSshAuthPrompt } from "./lib/api";
-import type { AwsSsoSession, GroupId, GuiVaultBrowseEntry, GuiVaultStatus, Host, HostId, PaneSource, SqlConnection, SshAuthPrompt, TabMeta, VaultId, VaultStatus, Workspace } from "./lib/types";
+import { api, onSshAgentConfirm, onSshAuthPrompt } from "./lib/api";
+import type { AwsSsoSession, GroupId, GuiVaultBrowseEntry, GuiVaultStatus, Host, HostId, PaneSource, SqlConnection, SshAgentConfirm, SshAuthPrompt, TabMeta, VaultId, VaultStatus, Workspace } from "./lib/types";
 import { isHostBoundTab } from "./lib/types";
 import { Sidebar } from "./components/Sidebar";
 import { HostForm } from "./components/HostForm";
@@ -46,6 +46,7 @@ import { SnippetPicker } from "./components/SnippetPicker";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { VaultUnlockModal } from "./components/VaultUnlockModal";
 import { SshAuthPromptModal } from "./components/SshAuthPromptModal";
+import { SshAgentConfirmModal } from "./components/SshAgentConfirmModal";
 import { SHORTCUT_ACTIONS, useGlobalShortcuts } from "./lib/shortcuts";
 import { formatDuration } from "./lib/longCommand";
 import { useNotifications } from "./hooks/useNotifications";
@@ -163,6 +164,21 @@ export default function App() {
   useEffect(() => {
     const pending = onSshAuthPrompt((prompt) => setAuthPrompts((prev) => [...prev, prompt]));
     return () => { pending.then((unlisten) => unlisten()); };
+  }, []);
+
+  // ── Agent SSH : les signatures qui attendent un accord ───────────────────
+  // Une file aussi : `git rebase --exec` ou plusieurs `ssh` peuvent demander
+  // en même temps, et chacun attend sa réponse.
+  const [agentPrompts, setAgentPrompts] = useState<SshAgentConfirm[]>([]);
+
+  useEffect(() => {
+    const pending = onSshAgentConfirm((prompt) => setAgentPrompts((prev) => [...prev, prompt]));
+    return () => { pending.then((unlisten) => unlisten()); };
+  }, []);
+
+  const answerAgent = useCallback((id: string, allow: boolean, remember: boolean) => {
+    api.sshAgentAnswer(id, allow, remember).catch(() => {});
+    setAgentPrompts((prev) => prev.filter((p) => p.id !== id));
   }, []);
 
   const resolveAuthPrompt = useCallback((id: string, answers: string[] | null) => {
@@ -811,6 +827,12 @@ export default function App() {
       prompt={authPrompts[0]}
       onSubmit={(answers) => resolveAuthPrompt(authPrompts[0].id, answers)}
       onCancel={() => resolveAuthPrompt(authPrompts[0].id, null)}
+    />
+  ) : agentPrompts[0] ? (
+    <SshAgentConfirmModal
+      key={agentPrompts[0].id}
+      prompt={agentPrompts[0]}
+      onAnswer={(allow, remember) => answerAgent(agentPrompts[0].id, allow, remember)}
     />
   ) : null;
 

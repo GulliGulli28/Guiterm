@@ -217,6 +217,12 @@ pub struct AppState {
     /// see `commands::interactive_auth`. Never holds the answers themselves,
     /// only the channel they'll arrive on.
     pub auth_prompts: Mutex<HashMap<String, tokio::sync::oneshot::Sender<Vec<String>>>>,
+    /// L'agent SSH adossé au trousseau, s'il est allumé (voir
+    /// `commands::ssh_agent`).
+    pub ssh_agent: Mutex<crate::commands::ssh_agent::AgentRuntime>,
+    /// Les demandes de signature qui attendent la réponse de l'utilisateur
+    /// (événement `ssh-agent-confirm`), par id.
+    pub ssh_agent_prompts: Mutex<HashMap<String, tokio::sync::oneshot::Sender<termius_core::ssh_agent::Decision>>>,
     /// Remote files currently open in the user's own editor, keyed by edit id
     /// — each holds a private temp copy plus what's needed to push it back.
     /// See `termius_core::remote_edit`, and `commands::remote_edit` for when

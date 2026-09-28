@@ -1,6 +1,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { RdpPointerUpdate } from "./rdpCursor";
+import type { SshAgentConfirm, SshAgentStatus } from "./types";
 import type { GuiVaultAuditEntry, GuiVaultAwsApplied, GuiVaultAwsSaved, GuiVaultBrowseEntry, GuiVaultBrowseValue, GuiVaultEntity, GuiVaultInvitation, GuiVaultLoginStep, GuiVaultTotpCode, GuiVaultTotpSetup, GuiVaultMember, GuiVaultReport, GuiVaultSession, GuiVaultStatus, GuiVaultTransferPlan, GuiVaultUserLookup, GuiVaultVault, VaultId, VaultPlace, VaultRole } from "./types";
 import type { ActivityEvent, ActivityFilter, CommandEntry, AuthMethod, BulkEdit, DiagTool, NetdiagOutcome, AwsCallerIdentity, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSessionAlert, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, AwsSsoSessionStatus, CloudInstance, CloudScope, CloudSelection, ArchiveFormat, CollectionInfo, ConflictPolicy, CopyConflict, ColumnInfo, CollectFactsResult, ComposeResult, DbTunnel, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FileDiff, FleetOutcome, FleetRun, FleetTarget, GroupId, HostDrift, HostId, HostKind, HostSecrets, ImportSelection, Inventory, InventoryDiff, InventorySelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneComparison, PaneDiskSpace, PaneFindOutcome, PaneListed, PaneOpened, PaneSource, PersistentShellMode, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, ReachabilityOutcome, RedisKeyDetail, RemoteSearchMode, RemoteSearchOutcome, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, RollbackPlan, Runbook, RunbookApprovalRequest, RunbookId, RunbookRun, RunbookRunStatus, ScanPage, SessionListing, SessionOptions, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SkippedTarget, SshAuthPrompt, SshConfigHost, SsmProbe, SyncItem, TableInfo, TerminalOpened, TransferProgressEvent, VaultStatus, Workspace } from "./types";
 
@@ -297,6 +298,14 @@ export const api = {
   /** Abandons a pending prompt — fails that authentication now rather than
    * leaving the handshake waiting out its timeout. */
   cancelSshAuthPrompt: (id: string) => invoke<void>("cancel_ssh_auth_prompt", { id }),
+
+  /** L'agent SSH adossé au trousseau (`commands::ssh_agent`). */
+  sshAgentStatus: () => invoke<SshAgentStatus>("ssh_agent_status"),
+  sshAgentSetEnabled: (enabled: boolean) => invoke<SshAgentStatus>("ssh_agent_set_enabled", { enabled }),
+  sshAgentSetKey: (keyId: string, enabled: boolean) => invoke<SshAgentStatus>("ssh_agent_set_key", { keyId, enabled }),
+  /** Répond à un `ssh-agent-confirm` ; `remember` : plus de question pour
+   * cette clé pendant 10 minutes. */
+  sshAgentAnswer: (id: string, allow: boolean, remember: boolean) => invoke<void>("ssh_agent_answer", { id, allow, remember }),
   startForward: (forwardId: PortForwardId) => invoke<void>("start_forward", { forwardId }),
   stopForward: (forwardId: PortForwardId) => invoke<void>("stop_forward", { forwardId }),
   runningForwards: () => invoke<PortForwardId[]>("running_forwards"),
@@ -845,6 +854,11 @@ export function onNetdiagOutcome(handler: (outcome: NetdiagOutcome) => void): Pr
 /** Closes a diagnostic run — every cell that was going to answer has. */
 export function onNetdiagDone(handler: (runId: string) => void): Promise<UnlistenFn> {
   return listen<{ runId: string }>("netdiag-done", (event) => handler(event.payload.runId));
+}
+
+/** Une signature demandée à l'agent SSH attend l'accord de l'utilisateur. */
+export function onSshAgentConfirm(handler: (prompt: SshAgentConfirm) => void): Promise<UnlistenFn> {
+  return listen<SshAgentConfirm>("ssh-agent-confirm", (event) => handler(event.payload));
 }
 
 export function onSshAuthPrompt(handler: (prompt: SshAuthPrompt) => void): Promise<UnlistenFn> {

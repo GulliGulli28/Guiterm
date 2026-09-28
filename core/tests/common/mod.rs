@@ -149,6 +149,13 @@ pub fn wait_until_listening(child: &mut Child, port: u16) -> bool {
     false
 }
 
+impl TestSshd {
+    /// La clé publique d'hôte de ce `sshd` (format OpenSSH).
+    pub fn host_public_key_path(&self) -> PathBuf {
+        self.dir.join("host_key.pub")
+    }
+}
+
 impl Drop for TestSshd {
     fn drop(&mut self) {
         let _ = self.child.kill();

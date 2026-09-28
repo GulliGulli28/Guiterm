@@ -9,6 +9,21 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+### Added
+
+- **Agent SSH adossé au trousseau** (Paramètres › Agent SSH, éteint par
+  défaut) : `ssh`, `git`, `scp` lancés hors de Guiterm signent avec les clés
+  du trousseau, qui ne quittent jamais l'application. Chaque usage est
+  confirmé — ou une fois par clé pour 10 minutes — en disant ce qui est signé
+  (une connexion SSH, à quel hôte et sous quel utilisateur ; un commit Git) et
+  quel programme le demande. Quand le client annonce son serveur (OpenSSH
+  8.9 et plus), l'agent le reconnaît à sa clé d'hôte et ne présente que la
+  clé de cet hôte : fini les « Too many authentication failures ». Signer
+  ses commits Git (`gpg.format ssh`) passe par lui, la configuration est à
+  copier depuis le réglage. Socket Unix (Linux, macOS), tube nommé
+  (Windows). Les clés se cochent une à une ; rien ne s'y ajoute par le
+  protocole.
+
 ### Fixed
 
 - **GuiVault : une entité modifiée puis supprimée d'une synchro à l'autre
