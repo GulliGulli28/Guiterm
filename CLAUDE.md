@@ -466,26 +466,28 @@ Guiterm demanderait `GET /emergency`, `wrap_emergency_key` et l'empreinte
 épinglée de chaque contact (`require_pinned`) — voir `docs/API.md` de
 GuiVault.
 
-**Manifeste de vault — à implémenter ici avant son activation** (GuiVault
-`70510fe`, détail dans `~/GuiVault/docs/MANIFESTE.md`). Chaque vault
-portera un manifeste chiffré (id d'item → SHA-256 du chiffré, compteur) ;
-le serveur **refuse** (`409 manifest_required`) toute écriture sans
-manifeste sur un vault qui en a un. Il n'est pas encore activé
-(`AUTO_ENABLE_MANIFEST` du web à `false`), donc Guiterm fonctionne tel
-quel ; mais avant de l'activer, Guiterm doit : monter l'épinglage des
-crates GuiVault sur `70510fe` ou plus (le format et `verify_manifest` sont
-dans `guivault_crypto::manifest`) ; vérifier au pull sur l'état complet
-reconstitué depuis ses deltas `?since=` (`ItemsPage.manifest`) et retenir
-le plus grand compteur vu par vault à côté de `SyncState::vault_revisions` ;
-réécrire le manifeste à chaque push et suppression
-(`PutItemRequest.manifest`, `DeleteItemRequest` en corps du `DELETE`, base =
-révision lue, reprise sur `409 manifest_conflict` depuis `current`) et à la
-rotation (`RotateVaultKeyRequest.manifest`) ; en cas d'écart, **suspendre**
-la synchronisation du vault comme pour un retour en arrière de révision,
-avec une reprise explicite qui réécrit le manifeste
-(`PUT /vaults/{id}/manifest`). Les structures du protocole ont gagné des
-champs : monter l'épinglage fera échouer la compilation là où Guiterm les
-construit, c'est voulu.
+**Manifeste de vault** (GuiVault, `~/GuiVault/docs/MANIFESTE.md`) :
+`core/src/guivault/manifest.rs`. Chaque vault peut porter un manifeste
+chiffré (id d'item → SHA-256 du chiffré, compteur) ; le serveur refuse
+(`409 manifest_required`) toute écriture sans lui sur un vault qui en a un.
+C'est l'interface web qui l'active ; Guiterm n'en crée jamais, il entretient
+ceux qui existent. `SyncState::integrity` tient par vault l'**état complet**
+reconstitué des deltas `?since=` (`VaultIntegrity::absorb` : empreinte de
+chaque item vivant, secrets de l'interface web compris — une tombale reste en
+base côté serveur, un delta dit toujours ce qui est parti), le dernier
+manifeste connu (base des écritures) et le plus grand compteur vu. Au pull,
+`verify` ; un écart suspend le vault par le mécanisme des retours en arrière
+(`VaultRollback::manifest` porte les écarts, `RollbackAlerts` les affiche),
+et la reprise (`resuming`) réécrit le manifeste d'après ce que sert le
+serveur (`VaultIntegrity::rewrite`, `PUT /vaults/{id}/manifest`) avant que
+ce poste renvoie ses versions. **Toute écriture d'item passe par
+`manifest::put_item` / `manifest::delete_item`** (push, suppression, retrait
+d'un vault après déplacement, accès AWS) : manifeste + changement, compteur
++ 1, reprise sur `409 manifest_conflict` depuis `current` et sur
+`manifest_required`. La rotation de clé le re-scelle
+(`RotateVaultKeyRequest.manifest`) et refuse un vault en écart ou suspendu.
+`SYNC_FORMAT` 4 force une relecture complète (l'état reconstitué part de là).
+Test : `vault_manifest_is_maintained_and_checked` (`guivault_integration`).
 
 ## Agent SSH adossé au trousseau
 

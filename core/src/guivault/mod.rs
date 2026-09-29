@@ -6,6 +6,8 @@
 //! - [`account`] : compte sur cette machine (état persistant, session, clés).
 //! - [`entity`] : entités du workspace ↔ items chiffrés.
 //! - [`sync`] : le moteur de réconciliation.
+//! - [`manifest`] : le manifeste de chaque vault — vérifié au pull, réécrit à
+//!   chaque écriture (`~/GuiVault/docs/MANIFESTE.md`).
 //! - [`sharing`] : vaults partagés, membres, invitations, empreintes.
 //! - [`transfer`] : déplacer des entités entre profil local, vault personnel
 //!   et vaults partagés.
@@ -18,6 +20,7 @@ pub mod aws;
 pub mod browse;
 pub mod client;
 pub mod entity;
+pub mod manifest;
 pub mod sharing;
 pub mod sync;
 pub mod transfer;

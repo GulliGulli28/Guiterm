@@ -250,11 +250,14 @@ pub async fn save_session(manager: &Manager, name: &str) -> anyhow::Result<Saved
     manager.update_session(|s| s.absorb_vaults(&remote.vaults))?;
     let vaults = manager.vault_infos();
 
-    // Le même accès, s'il est déjà quelque part où l'on peut écrire.
+    // Le même accès, s'il est déjà quelque part où l'on peut écrire. Les
+    // pages lues sont gardées : celle du vault où l'on écrit sert à vérifier
+    // son manifeste avant d'écrire.
     let mut found: Option<(super::account::VaultInfo, proto::Item, AwsAccess)> = None;
+    let mut pages: std::collections::HashMap<Uuid, proto::ItemsPage> = std::collections::HashMap::new();
     for v in vaults.iter().filter(|v| v.role != Role::Reader) {
         let page = client.items(v.id, None).await.map_err(super::account::user_error)?;
-        for item in page.items.into_iter().filter(|i| !i.deleted && i.item_type == TYPE_AWS) {
+        for item in page.items.iter().filter(|i| !i.deleted && i.item_type == TYPE_AWS).cloned() {
             let Ok(plain) = gc::open_item(&v.key, &v.id.to_string(), &item.id.to_string(), &item.item_type, &item.ciphertext) else { continue };
             let Ok(SecretItem::Aws { aws }) = SecretItem::from_json(&plain) else { continue };
             if aws.auth_type == AwsAuthType::Sso && aws.sso_start_url.trim() == session.start_url.trim() && aws.sso_session_name == session.name {
@@ -262,6 +265,7 @@ pub async fn save_session(manager: &Manager, name: &str) -> anyhow::Result<Saved
                 break;
             }
         }
+        pages.insert(v.id, page);
         if found.is_some() {
             break;
         }
@@ -282,8 +286,24 @@ pub async fn save_session(manager: &Manager, name: &str) -> anyhow::Result<Saved
     let json = SecretItem::Aws { aws: access.clone() }.to_json()?;
     let ciphertext = gc::seal_item(&vault.key, &vault.id.to_string(), &id.to_string(), TYPE_AWS, json.as_bytes())
         .map_err(|e| anyhow::anyhow!("chiffrement : {e}"))?;
-    client
-        .put_item(vault.id, id, &proto::PutItemRequest { item_type: TYPE_AWS.to_string(), ciphertext, base_revision: base })
+    // Le vault doit correspondre à son manifeste (comme à la synchro), et
+    // l'écriture le réécrit.
+    let page = match pages.remove(&vault.id) {
+        Some(p) => p,
+        None => client.items(vault.id, None).await.map_err(super::account::user_error)?,
+    };
+    let mut integrity = manager.with_state(|s| s.sync.integrity.get(&vault.id).cloned().unwrap_or_default())?;
+    integrity.absorb(&page.items, true);
+    let verified = integrity.verify(&vault, page.manifest.as_ref());
+    if let Some(p) = verified.problems.first() {
+        anyhow::bail!(
+            "« {} » ne correspond pas à son manifeste ({}) : rien n'y est écrit, voir le panneau GuiVault",
+            vault.name,
+            super::manifest::problem_text(p, |_| None)
+        );
+    }
+    integrity.accept(verified);
+    super::manifest::put_item(&client, &vault, &mut integrity, id, TYPE_AWS, ciphertext, base)
         .await
         .map_err(super::account::user_error)?;
     manager.persist_tokens();

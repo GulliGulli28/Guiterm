@@ -21,6 +21,7 @@
 use super::account::{ItemState, Manager, VaultRollback};
 use super::client::{Client, ClientError};
 use super::entity::{self, LocalEntity, Payload};
+use super::manifest::{self, VaultIntegrity};
 use crate::model::{VaultId, Workspace};
 use guivault_crypto as gc;
 use guivault_protocol::{self as proto, Item, VaultKind};
@@ -81,8 +82,9 @@ fn conflict_current(e: &ClientError) -> Option<Option<Item>> {
 /// À incrémenter quand les règles de fusion changent de façon à ce qu'un
 /// état déjà « à jour » doive être relu (2 : résolution d'une entité
 /// présente dans deux vaults ; 3 : les runbooks, jusque-là ignorés — ceux
-/// déjà écrits par l'interface web doivent être relus).
-pub const SYNC_FORMAT: u32 = 3;
+/// déjà écrits par l'interface web doivent être relus ; 4 : l'état complet de
+/// chaque vault, que le manifeste vérifie, reconstitué d'une lecture entière).
+pub const SYNC_FORMAT: u32 = 4;
 
 pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec<Change>, Report)> {
     let client = manager.client()?;
@@ -134,11 +136,12 @@ pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec
                     known,
                     seen: v.revision,
                     detected_at: chrono::Utc::now(),
+                    manifest: Vec::new(),
                 },
             );
         }
     }
-    let frozen: HashSet<VaultId> = state.rollbacks.keys().copied().collect();
+    let mut frozen: HashSet<VaultId> = state.rollbacks.keys().copied().collect();
 
     // ─── Vue locale ──────────────────────────────────────────────────────
     let mut locals: HashMap<Uuid, LocalEntity> = entity::collect(snapshot, personal.id)?
@@ -186,6 +189,48 @@ pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec
             continue;
         }
         let page = client.items(v.id, known).await.map_err(super::account::user_error)?;
+
+        // ─── Manifeste ───────────────────────────────────────────────────
+        // L'état complet du vault (ce delta sur le précédent) contre son
+        // manifeste. Un écart suspend le vault comme un retour en arrière :
+        // rien n'est tiré de ce qu'il sert, rien n'y est écrit. En reprise,
+        // ce que sert le serveur devient la référence (manifeste réécrit),
+        // puis ce poste y renvoie ses versions.
+        let integrity = state.integrity.entry(v.id).or_default();
+        integrity.absorb(&page.items, known.is_none());
+        if resuming {
+            integrity
+                .rewrite(&client, v, page.manifest.as_ref(), page.revision)
+                .await
+                .map_err(super::account::user_error)?;
+        } else {
+            let verified = integrity.verify(v, page.manifest.as_ref());
+            if verified.problems.is_empty() {
+                integrity.accept(verified);
+            } else {
+                let name_of = |id: &str| Uuid::parse_str(id).ok().and_then(|id| locals.get(&id)).map(|l| label_of(&l.json));
+                let problems: Vec<String> = verified.problems.iter().map(|p| manifest::problem_text(p, name_of)).collect();
+                report.warnings.push(format!(
+                    "le vault « {} » ne correspond pas à son manifeste ({}) : sa synchronisation est suspendue, voir le panneau GuiVault",
+                    v.name,
+                    problems.join(" ; ")
+                ));
+                state.rollbacks.insert(
+                    v.id,
+                    VaultRollback {
+                        vault_id: v.id,
+                        name: v.name.clone(),
+                        known: known.unwrap_or(page.revision),
+                        seen: page.revision,
+                        detected_at: chrono::Utc::now(),
+                        manifest: problems,
+                    },
+                );
+                frozen.insert(v.id);
+                continue;
+            }
+        }
+
         for item in page.items {
             // Les secrets de l'interface web de GuiVault (identifiants,
             // notes, cartes, identités — `guivault-items`) : ce client ne
@@ -221,7 +266,7 @@ pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec
                 // d'avant le déplacement (sa tombale est perdue) — elle part.
                 if s.vault_id != v.id {
                     if v.role.can_write_items() {
-                        match client.move_out_item(v.id, item.id).await {
+                        match manifest::delete_item(&client, v, state.integrity.entry(v.id).or_default(), item.id, true).await {
                             Ok(()) => report.deleted_remotely += 1,
                             Err(e) if e.code() == Some("not_found") => {}
                             Err(e) => return Err(super::account::user_error(e)),
@@ -299,7 +344,7 @@ pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec
             {
                 let w_shared = vaults.get(&l.vault_id).is_some_and(|w| w.kind == VaultKind::Shared);
                 if v.kind == VaultKind::Personal && w_shared {
-                    match client.move_out_item(v.id, item.id).await {
+                    match manifest::delete_item(&client, v, state.integrity.entry(v.id).or_default(), item.id, true).await {
                         Ok(()) => report.deleted_remotely += 1,
                         Err(e) if e.code() == Some("not_found") => {}
                         Err(e) => return Err(super::account::user_error(e)),
@@ -307,7 +352,7 @@ pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec
                     continue;
                 }
                 if l.vault_id == personal.id {
-                    match client.move_out_item(personal.id, item.id).await {
+                    match manifest::delete_item(&client, &personal, state.integrity.entry(personal.id).or_default(), item.id, true).await {
                         Ok(()) => report.deleted_remotely += 1,
                         Err(e) if e.code() == Some("not_found") => {}
                         Err(e) => return Err(super::account::user_error(e)),
@@ -415,14 +460,17 @@ pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec
         }
         if moved {
             let old = st.as_ref().expect("moved implies state");
-            match client.move_out_item(old.vault_id, id).await {
-                Ok(()) => {}
-                Err(e) if matches!(e.code(), Some("not_found") | Some("forbidden")) => {}
-                Err(e) => return Err(super::account::user_error(e)),
+            // Un ancien vault qu'on ne voit plus : rien à y retirer.
+            if let Some(old_vault) = vaults.get(&old.vault_id) {
+                match manifest::delete_item(&client, old_vault, state.integrity.entry(old.vault_id).or_default(), id, true).await {
+                    Ok(()) => {}
+                    Err(e) if matches!(e.code(), Some("not_found") | Some("forbidden")) => {}
+                    Err(e) => return Err(super::account::user_error(e)),
+                }
             }
         }
         let base = if moved { None } else { st.as_ref().map(|s| s.revision) };
-        let item = match put(&client, vault, local, base).await {
+        let item = match put(&client, vault, state.integrity.entry(vault.id).or_default(), local, base).await {
             Ok(item) => item,
             Err(e) => match conflict_current(&e) {
                 Some(current) => {
@@ -433,7 +481,7 @@ pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec
                     if st.as_ref().is_none_or(|s| !s.hash.is_empty()) {
                         report.conflicts.push(format!("{} modifié des deux côtés : votre version conservée", label_of(&local.json)));
                     }
-                    match put(&client, vault, local, base).await {
+                    match put(&client, vault, state.integrity.entry(vault.id).or_default(), local, base).await {
                         Ok(item) => item,
                         Err(e) => {
                             report.warnings.push(format!("{} non envoyé : {e}", label_of(&local.json)));
@@ -479,7 +527,7 @@ pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec
             report.warnings.push(format!("suppression non permise dans « {} » : l'entité reviendra", vault.name));
             continue;
         }
-        match client.delete_item(s.vault_id, id).await {
+        match manifest::delete_item(&client, vault, state.integrity.entry(s.vault_id).or_default(), id, false).await {
             Ok(()) => report.deleted_remotely += 1,
             Err(e) if e.code() == Some("not_found") => {}
             Err(e) => return Err(super::account::user_error(e)),
@@ -495,20 +543,10 @@ pub async fn run(manager: &Manager, snapshot: &Workspace) -> anyhow::Result<(Vec
     Ok((changes, report))
 }
 
-async fn put(client: &Client, vault: &super::account::VaultInfo, local: &LocalEntity, base: Option<i64>) -> Result<Item, ClientError> {
+async fn put(client: &Client, vault: &super::account::VaultInfo, integrity: &mut VaultIntegrity, local: &LocalEntity, base: Option<i64>) -> Result<Item, ClientError> {
     let ct = gc::seal_item(&vault.key, &vault.id.to_string(), &local.id.to_string(), local.item_type, local.json.as_bytes())
         .map_err(|e| ClientError::Decode(e.to_string()))?;
-    client
-        .put_item(
-            vault.id,
-            local.id,
-            &proto::PutItemRequest {
-                item_type: local.item_type.to_string(),
-                ciphertext: ct,
-                base_revision: base,
-            },
-        )
-        .await
+    manifest::put_item(client, vault, integrity, local.id, local.item_type, ct, base).await
 }
 
 /// Joue les changements sur le workspace vivant.
@@ -555,6 +593,24 @@ pub async fn rotate_vault_key(manager: &Manager, vault_id: VaultId) -> anyhow::R
     let vault_now = manager.vault_info(vault_id)?;
     let members = client.members(vault_id).await.map_err(super::account::user_error)?;
     let page = client.items(vault_id, None).await.map_err(super::account::user_error)?;
+    // Le manifeste suit la clé. Un vault en écart (ou suspendu) ne tourne
+    // pas d'ici : ce serait re-sceller sous la nouvelle clé ce que le serveur
+    // a pu altérer.
+    let (mut integrity, suspended) = manager.with_state(|s| {
+        (s.sync.integrity.get(&vault_id).cloned().unwrap_or_default(), s.sync.rollbacks.contains_key(&vault_id))
+    })?;
+    if suspended {
+        anyhow::bail!("la synchronisation de « {} » est suspendue : reprenez-la avant de renouveler sa clé", vault.name);
+    }
+    integrity.absorb(&page.items, true);
+    let verified = integrity.verify(&vault, page.manifest.as_ref());
+    if let Some(p) = verified.problems.first() {
+        anyhow::bail!(
+            "« {} » ne correspond pas à son manifeste ({}) : clé non renouvelée",
+            vault.name,
+            manifest::problem_text(p, |_| None)
+        );
+    }
 
     let new_key = gc::SymmetricKey::random();
     let mut items = Vec::with_capacity(page.items.len());
@@ -596,8 +652,15 @@ pub async fn rotate_vault_key(manager: &Manager, vault_id: VaultId) -> anyhow::R
             ciphertext,
         });
     }
+    // Les empreintes des items re-chiffrés, sous la nouvelle clé (compteur :
+    // révision du manifeste + 1) ; seulement si le vault en a un.
+    let rotated_manifest = page
+        .manifest
+        .as_ref()
+        .map(|m| gc::Manifest::of(m.revision + 1, items.iter().map(|i| (i.id.to_string(), i.ciphertext.as_slice())).collect::<Vec<_>>().iter().map(|(id, ct)| (id.as_str(), *ct))));
     let req = proto::RotateVaultKeyRequest {
         name_enc: gc::seal_vault_name(&new_key, &vault_id.to_string(), &vault_now.name)?,
+        manifest: rotated_manifest.as_ref().map(|m| gc::seal_manifest(&new_key, &vault_id.to_string(), m)).transpose()?,
         members: wrapped,
         items,
         versions: Some(versions),
@@ -617,9 +680,15 @@ pub async fn rotate_vault_key(manager: &Manager, vault_id: VaultId) -> anyhow::R
         Ok(())
     })?;
     // Les révisions des items ont changé : forcer un re-téléchargement (les
-    // empreintes locales restent valides, donc rien ne sera re-poussé).
+    // empreintes locales restent valides, donc rien ne sera re-poussé). Le
+    // manifeste re-scellé devient la base des écritures suivantes.
     manager.update_state(|s| {
         s.sync.vault_revisions.remove(&vault_id);
+        let integrity = s.sync.integrity.entry(vault_id).or_default();
+        if let Some(m) = rotated_manifest {
+            integrity.seen = Some(m.counter);
+            integrity.manifest = Some(m);
+        }
     })?;
     manager.persist_tokens();
     Ok(())

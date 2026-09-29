@@ -596,14 +596,18 @@ export interface GuiVaultVault {
 
 /** `termius_core::guivault::account::VaultRollback` : le serveur a annoncé
  * pour ce vault une révision (`seen`) plus basse que celle déjà vue d'ici
- * (`known`) — sauvegarde restaurée ou serveur qui sert une ancienne version.
- * Sa synchronisation est suspendue jusqu'à `guivaultResumeAfterRollback`. */
+ * (`known`) — sauvegarde restaurée ou serveur qui sert une ancienne version —,
+ * ou (`manifest` non vide) il ne correspond pas à son manifeste : une version
+ * rejouée, un élément retenu ou revenu. Sa synchronisation est suspendue
+ * jusqu'à `guivaultResumeAfterRollback`. */
 export interface GuiVaultRollback {
   vaultId: VaultId;
   name: string;
   known: number;
   seen: number;
   detectedAt: string;
+  /** Les écarts au manifeste, un par ligne ; vide pour une révision qui recule. */
+  manifest: string[];
 }
 
 export interface GuiVaultStatus {

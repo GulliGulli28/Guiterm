@@ -527,19 +527,38 @@ function RollbackAlerts({ rollbacks, onStatusChange, onError, onNotify }: { roll
     <div className="space-y-1.5">
       {rollbacks.map((r) => (
         <div key={r.vaultId} role="alert" className="callout callout-danger space-y-1.5 text-[12px]">
-          <p className="font-medium">Le vault « {r.name} » est revenu en arrière — synchronisation suspendue.</p>
-          <p>
-            Le serveur annonce la révision {r.seen}, alors que cet appareil a déjà vu la {r.known}. Soit sa base a été restaurée
-            depuis une sauvegarde — les modifications faites depuis y sont perdues —, soit il est compromis et sert une ancienne
-            version du vault. Rien n'est envoyé ni reçu pour ce vault tant que la synchronisation n'est pas reprise.
-          </p>
+          {r.manifest?.length ? (
+            <>
+              <p className="font-medium">Le vault « {r.name} » ne correspond pas à son manifeste — synchronisation suspendue.</p>
+              <p>
+                Le manifeste, scellé sous la clé du vault, dit ce que ses membres y ont laissé ; le serveur ne peut pas le
+                contrefaire. Ce qu'il sert en diffère :
+              </p>
+              <ul className="list-disc space-y-0.5 pl-4">
+                {r.manifest.map((m, i) => <li key={i}>{m.charAt(0).toUpperCase() + m.slice(1)}.</li>)}
+              </ul>
+              <p>
+                Soit sa base a été restaurée ou modifiée à la main, soit il est compromis. Rien n'est envoyé ni reçu pour ce
+                vault tant que la synchronisation n'est pas reprise.
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="font-medium">Le vault « {r.name} » est revenu en arrière — synchronisation suspendue.</p>
+              <p>
+                Le serveur annonce la révision {r.seen}, alors que cet appareil a déjà vu la {r.known}. Soit sa base a été restaurée
+                depuis une sauvegarde — les modifications faites depuis y sont perdues —, soit il est compromis et sert une ancienne
+                version du vault. Rien n'est envoyé ni reçu pour ce vault tant que la synchronisation n'est pas reprise.
+              </p>
+            </>
+          )}
           <button onClick={() => setConfirm(r)} disabled={busy} className="btn btn-secondary btn-sm">Reprendre la synchronisation…</button>
         </div>
       ))}
       {confirm && (
         <ConfirmDialog
           title={`Reprendre la synchronisation de « ${confirm.name} » ?`}
-          message="Cet appareil fera foi : ce qu'il connaît est renvoyé au serveur — les entités plus anciennes là-bas sont remplacées, celles qu'il a perdues recréées, celles supprimées ici supprimées. Ce que le serveur a et que cet appareil ne connaît pas est gardé : si le serveur ment, une entité supprimée depuis peut revenir, vérifiez le vault ensuite. En cas de doute, prévenez d'abord l'administrateur du serveur."
+          message={`${confirm.manifest?.length ? "Le manifeste est d'abord réécrit d'après ce que sert le serveur (il devient la référence pour tous les membres), puis c" : "C"}et appareil fera foi : ce qu'il connaît est renvoyé au serveur — les entités plus anciennes là-bas sont remplacées, celles qu'il a perdues recréées, celles supprimées ici supprimées. Ce que le serveur a et que cet appareil ne connaît pas est gardé : si le serveur ment, une entité supprimée depuis peut revenir, vérifiez le vault ensuite. En cas de doute, prévenez d'abord l'administrateur du serveur.`}
           confirmLabel="Reprendre"
           onConfirm={() => void resume(confirm)}
           onCancel={() => setConfirm(null)}

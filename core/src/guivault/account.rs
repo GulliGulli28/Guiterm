@@ -63,6 +63,11 @@ pub struct SyncState {
     /// connaît (voir [`Manager::resume_after_rollback`]).
     #[serde(default)]
     pub resuming: std::collections::BTreeSet<VaultId>,
+    /// Par vault : l'état complet reconstitué des deltas, le dernier
+    /// manifeste connu et le plus grand compteur vu (voir
+    /// [`super::manifest`]).
+    #[serde(default)]
+    pub integrity: BTreeMap<VaultId, super::manifest::VaultIntegrity>,
 }
 
 /// Un vault dont la révision a reculé côté serveur. Le serveur ne fait que
@@ -81,6 +86,12 @@ pub struct VaultRollback {
     /// Celle que le serveur annonçait à la détection.
     pub seen: i64,
     pub detected_at: DateTime<Utc>,
+    /// Suspendu parce que le vault ne correspond pas à son **manifeste**
+    /// (une version rejouée, un élément retenu ou revenu, un manifeste qui
+    /// recule) plutôt que pour une révision qui recule : les écarts, un par
+    /// ligne. Vide pour un retour en arrière de révision.
+    #[serde(default)]
+    pub manifest: Vec<String>,
 }
 
 fn default_auto_sync() -> u64 {

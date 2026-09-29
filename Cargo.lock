@@ -2657,7 +2657,7 @@ dependencies = [
 [[package]]
 name = "guivault-crypto"
 version = "0.1.0"
-source = "git+https://github.com/GulliGulli28/GuiVault.git?rev=2c5bdee#2c5bdee4876cb0462ff892c1a10a4de0cf577f08"
+source = "git+https://github.com/GulliGulli28/GuiVault.git?rev=dde4cf2#dde4cf279f4ba98ec6a03fcfb2ff7c5d88d12825"
 dependencies = [
  "argon2 0.5.3",
  "base64 0.22.1",
@@ -2667,6 +2667,7 @@ dependencies = [
  "hkdf 0.12.4",
  "hmac 0.12.1",
  "serde",
+ "serde_json",
  "sha2 0.10.9",
  "subtle",
  "thiserror 2.0.18",
@@ -2676,7 +2677,7 @@ dependencies = [
 [[package]]
 name = "guivault-items"
 version = "0.1.0"
-source = "git+https://github.com/GulliGulli28/GuiVault.git?rev=2c5bdee#2c5bdee4876cb0462ff892c1a10a4de0cf577f08"
+source = "git+https://github.com/GulliGulli28/GuiVault.git?rev=dde4cf2#dde4cf279f4ba98ec6a03fcfb2ff7c5d88d12825"
 dependencies = [
  "serde",
  "serde_json",
@@ -2686,7 +2687,7 @@ dependencies = [
 [[package]]
 name = "guivault-protocol"
 version = "0.1.0"
-source = "git+https://github.com/GulliGulli28/GuiVault.git?rev=2c5bdee#2c5bdee4876cb0462ff892c1a10a4de0cf577f08"
+source = "git+https://github.com/GulliGulli28/GuiVault.git?rev=dde4cf2#dde4cf279f4ba98ec6a03fcfb2ff7c5d88d12825"
 dependencies = [
  "base64 0.22.1",
  "chrono",

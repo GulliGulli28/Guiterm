@@ -174,7 +174,7 @@ const responses: Record<string, Invoke> = {
     autoSyncSecs: 300, persistUnlock: true, lastSyncAt: new Date().toISOString(), viewLocal: false,
     // Un vault revenu en arrière (sauvegarde restaurée côté serveur) : l'alerte
     // en tête du panneau et le badge « suspendu ».
-    rollbacks: [{ vaultId: "v-infra", name: "Équipe infra", known: 40, seen: 31, detectedAt: new Date().toISOString() }],
+    rollbacks: [{ vaultId: "v-infra", name: "Équipe infra", known: 40, seen: 31, detectedAt: new Date().toISOString(), manifest: [] }],
     vaults: [
       { id: "v-perso", name: "Personnel", kind: "personal", role: "owner", revision: 12, keyFrom: { kind: "self" }, keyFromPinnedAs: null },
       { id: "v-infra", name: "Équipe infra", kind: "shared", role: "owner", revision: 40, keyFrom: { kind: "self" }, keyFromPinnedAs: null },

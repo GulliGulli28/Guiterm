@@ -184,7 +184,7 @@ async fn web_secrets_are_left_alone_by_sync() {
     let json = login.to_json().unwrap();
     let ct = guivault_crypto::seal_item(&vault.key, &vault.id.to_string(), &login.id().to_string(), login.item_type(), json.as_bytes()).unwrap();
     client
-        .put_item(vault.id, login.id(), &guivault_protocol::PutItemRequest { item_type: login.item_type().into(), ciphertext: ct, base_revision: None })
+        .put_item(vault.id, login.id(), &guivault_protocol::PutItemRequest { item_type: login.item_type().into(), ciphertext: ct, base_revision: None, manifest: None })
         .await
         .unwrap();
 
@@ -264,7 +264,7 @@ async fn runbooks_sync_and_web_aws_access_is_browsed() {
     );
     let ct = guivault_crypto::seal_item(&vault.key, &vault.id.to_string(), &id.to_string(), "aws", json.as_bytes()).unwrap();
     client
-        .put_item(vault.id, id, &guivault_protocol::PutItemRequest { item_type: "aws".into(), ciphertext: ct, base_revision: None })
+        .put_item(vault.id, id, &guivault_protocol::PutItemRequest { item_type: "aws".into(), ciphertext: ct, base_revision: None, manifest: None })
         .await
         .unwrap();
     for _ in 0..2 {
@@ -893,4 +893,141 @@ async fn trash_and_history_follow_moves_deletions_and_rotation() {
     let plain = guivault_crypto::open_item(&key, &team.id.to_string(), &host.id.to_string(), "host", &trash[0].ciphertext)
         .expect("la corbeille s'ouvre avec la nouvelle clé");
     assert!(String::from_utf8(plain).unwrap().contains("web-9-final"));
+}
+
+/// Le manifeste du vault tel que le serveur le sert, vérifié contre tous ses
+/// items : il doit s'ouvrir et les décrire exactement.
+async fn server_manifest(d: &Device, vault: VaultId) -> guivault_crypto::Manifest {
+    let client = d.manager.client().unwrap();
+    let info = d.manager.vault_info(vault).unwrap();
+    let page = client.items(vault, None).await.unwrap();
+    let served = page.manifest.clone().expect("le vault a un manifeste");
+    let items: Vec<(String, Vec<u8>)> = page.items.iter().map(|i| (i.id.to_string(), i.ciphertext.clone())).collect();
+    let v = guivault_crypto::verify_manifest(
+        &info.key,
+        &vault.to_string(),
+        Some((served.revision, &served.ciphertext)),
+        items.iter().map(|(id, ct)| (id.as_str(), ct.as_slice())),
+        None,
+    );
+    assert!(v.problems.is_empty(), "le serveur et son manifeste divergent : {:?}", v.problems);
+    v.manifest.unwrap()
+}
+
+/// Le manifeste de vault (GuiVault `docs/MANIFESTE.md`) : activé comme le
+/// fait l'interface web, Guiterm l'entretient à chaque écriture — push,
+/// suppression, écriture sur un manifeste en retard, rotation de clé —, et un
+/// vault qui ne lui correspond plus suspend la synchro jusqu'à la reprise.
+#[tokio::test]
+async fn vault_manifest_is_maintained_and_checked() {
+    use guivault_crypto as gc;
+    use termius_core::guivault::entity::Payload;
+    use termius_core::guivault::manifest;
+    if !server_available().await {
+        return;
+    }
+    let email = format!("manifest-{}@test.local", Uuid::new_v4().simple());
+    let mut a1 = Device::register(&email, "manifest-master").await;
+    let host = Host::new("web-1", "10.0.0.2", "deploy");
+    let snippet = Snippet { id: Uuid::new_v4(), name: "uptime".into(), command: "uptime".into(), tags: vec![], adaptive: false };
+    a1.ws.hosts.push(host.clone());
+    a1.ws.snippets.push(snippet.clone());
+    assert_eq!(a1.sync().await.pushed, 2);
+    let personal = a1.manager.status().vaults.iter().find(|v| v.kind == guivault_protocol::VaultKind::Personal).unwrap().id;
+    let client = a1.manager.client().unwrap();
+    // Guiterm n'en crée pas : c'est l'interface web qui active le manifeste.
+    assert!(client.manifest(personal).await.unwrap().is_none());
+
+    // L'interface web le crée (base 0), d'après ce que sert le serveur.
+    let info = a1.manager.vault_info(personal).unwrap();
+    let page = client.items(personal, None).await.unwrap();
+    let items: Vec<(String, Vec<u8>)> = page.items.iter().map(|i| (i.id.to_string(), i.ciphertext.clone())).collect();
+    let first = gc::Manifest::of(1, items.iter().map(|(id, ct)| (id.as_str(), ct.as_slice())));
+    client
+        .put_manifest(
+            personal,
+            &guivault_protocol::PutManifestRequest {
+                ciphertext: gc::seal_manifest(&info.key, &personal.to_string(), &first).unwrap(),
+                base_revision: 0,
+                vault_revision: page.revision,
+            },
+        )
+        .await
+        .unwrap();
+
+    // Relu et vérifié, puis entretenu : une modification, une création, une
+    // suppression — trois écritures, trois versions du manifeste.
+    let r = a1.sync().await;
+    assert!(r.warnings.is_empty(), "{r:?}");
+    a1.host_mut(host.id).label = "web-1b".into();
+    a1.ws.snippets.clear();
+    a1.ws.snippets.push(Snippet { id: Uuid::new_v4(), name: "df".into(), command: "df -h".into(), tags: vec![], adaptive: false });
+    let r = a1.sync().await;
+    assert!(r.warnings.is_empty() && r.conflicts.is_empty(), "{r:?}");
+    assert_eq!((r.pushed, r.deleted_remotely), (2, 1), "{r:?}");
+    let m = server_manifest(&a1, personal).await;
+    assert_eq!((m.counter, m.items.len()), (4, 2));
+
+    // Un second appareil le vérifie à sa première lecture, et écrit à son tour.
+    let mut a2 = Device::login(&email, "manifest-master").await;
+    let r = a2.sync().await;
+    assert!(r.warnings.is_empty(), "{r:?}");
+    assert_eq!(r.pulled, 2, "{r:?}");
+    a2.host_mut(host.id).label = "depuis-a2".into();
+    assert_eq!(a2.sync().await.pushed, 1);
+
+    // Une écriture sur un manifeste en retard (a2 a écrit depuis) : 409
+    // manifest_conflict, reprise depuis le courant, acceptée.
+    let mut stale = a1.manager.with_state(|s| s.sync.integrity[&personal].clone()).unwrap();
+    let extra = Snippet { id: Uuid::new_v4(), name: "extra".into(), command: "true".into(), tags: vec![], adaptive: false };
+    let json = Payload::Snippet { snippet: extra.clone() }.to_json().unwrap();
+    let ct = gc::seal_item(&info.key, &personal.to_string(), &extra.id.to_string(), "snippet", json.as_bytes()).unwrap();
+    manifest::put_item(&client, &info, &mut stale, extra.id, "snippet", ct, None).await.unwrap();
+    assert_eq!(stale.manifest.as_ref().unwrap().counter, 6);
+    let r = a1.sync().await;
+    assert!(r.warnings.is_empty(), "{r:?}");
+    assert_eq!(r.pulled, 2, "l'hôte de a2 et le snippet écrit à part : {r:?}");
+    assert_eq!(server_manifest(&a1, personal).await.items.len(), 3);
+
+    // Rotation de clé : le manifeste est re-scellé sous la nouvelle clé, et
+    // l'autre appareil le relit sans écart.
+    sync::rotate_vault_key(&a1.manager, personal).await.unwrap();
+    let m = server_manifest(&a1, personal).await;
+    assert_eq!((m.counter, m.items.len()), (7, 3));
+    let r = a2.sync().await;
+    assert!(r.warnings.is_empty(), "{r:?}");
+    assert!(a1.sync().await.warnings.is_empty());
+
+    // Le serveur retient un élément : joué ici en retirant l'hôte de l'état
+    // que a1 a reconstitué — c'est ce que verrait a1 si le serveur ne le
+    // servait plus. À la lecture suivante, le vault est suspendu : rien reçu,
+    // rien envoyé.
+    a1.manager
+        .update_state(|s| {
+            s.sync.integrity.get_mut(&personal).unwrap().items.remove(&host.id);
+        })
+        .unwrap();
+    a2.ws.snippets.push(Snippet { id: Uuid::new_v4(), name: "a2".into(), command: "true".into(), tags: vec![], adaptive: false });
+    assert_eq!(a2.sync().await.pushed, 1);
+    a1.ws.snippets.push(Snippet { id: Uuid::new_v4(), name: "pendant".into(), command: "true".into(), tags: vec![], adaptive: false });
+    let r = a1.sync().await;
+    assert!(r.warnings.iter().any(|w| w.contains("ne correspond pas à son manifeste")), "{r:?}");
+    assert_eq!((r.pulled, r.pushed, r.deleted_remotely), (0, 0, 0), "{r:?}");
+    let rollbacks = a1.manager.status().rollbacks;
+    assert_eq!(rollbacks.len(), 1);
+    assert!(
+        rollbacks[0].manifest.iter().any(|p| p.contains("hôte « depuis-a2 »") && p.contains("ne le sert pas")),
+        "{:?}",
+        rollbacks[0].manifest
+    );
+
+    // Reprise : le manifeste est réécrit d'après ce que sert le serveur, puis
+    // ce poste y renvoie ce qu'il a — le serveur et son manifeste concordent.
+    a1.manager.resume_after_rollback(personal).unwrap();
+    let r = a1.sync().await;
+    assert!(r.warnings.is_empty(), "{r:?}");
+    assert!(a1.manager.status().rollbacks.is_empty());
+    assert_eq!(server_manifest(&a1, personal).await.items.len(), 5);
+    assert!(a1.sync().await.warnings.is_empty());
+    assert!(a2.sync().await.warnings.is_empty());
 }

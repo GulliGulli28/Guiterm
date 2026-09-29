@@ -66,6 +66,18 @@ This changelog starts 2026-07-21 — for earlier versions, see
   synchronisation… » (panneau GuiVault) fait foi de ce poste : ses versions
   sont renvoyées, ce que le serveur a perdu est recréé, ce qui a été
   supprimé ici l'est là-bas.
+- **GuiVault : le manifeste de vault, vérifié et entretenu.** Un serveur
+  compromis pouvait, sans rien déchiffrer, resservir l'ancienne version d'une
+  entité (un ancien mot de passe qui revient), en faire disparaître une, ou
+  ressusciter une entité supprimée. Les vaults peuvent désormais porter un
+  manifeste — la liste chiffrée de ce qu'ils contiennent, que le serveur ne
+  sait pas contrefaire. Guiterm le vérifie à chaque synchronisation (secrets
+  de l'interface web compris) et le réécrit avec chacune de ses écritures ; un
+  vault qui ne lui correspond plus est suspendu comme un vault revenu en
+  arrière, l'alerte dit quelle entité est en cause, et la reprise réécrit le
+  manifeste d'après le serveur avant de renvoyer les versions de ce poste.
+  C'est l'interface web de GuiVault qui l'active sur un vault ; **à partir de
+  là, seul un Guiterm à jour peut écrire dans ce vault.**
 - **GuiVault : on sait qui vous a remis la clé d'un vault.** Les clés de
   vault voyageaient dans des boîtes scellées anonymes, que le serveur
   pouvait fabriquer lui-même — pour faire rejoindre un vault dont il tient

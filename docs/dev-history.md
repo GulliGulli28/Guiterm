@@ -2689,3 +2689,48 @@ keys`) — et 2 clés quand l'hôte est inconnu.
 (pas d'installation à côté d'un autre agent) ; `SSH_AUTH_SOCK` à poser pour
 OpenSSH de Windows. Le client n'y est pas identifié (pas de pid).
 
+
+## GuiVault : le manifeste de vault, côté Guiterm (2026-09-29)
+
+GuiVault ajoute un manifeste par vault (`~/GuiVault/docs/MANIFESTE.md`) : la
+liste authentifiée de ses items, que chaque écriture réécrit. Sans lui, un
+serveur compromis pouvait rejouer l'ancien chiffré d'un item, en retenir un
+ou en ressusciter un supprimé — l'AAD lie un item à son vault, pas à sa
+révision. Le web, l'extension et `gv` le vérifiaient déjà ; tant que Guiterm
+ne savait pas l'entretenir, l'activer lui aurait interdit d'écrire.
+
+**Des deltas à l'état complet.** La vérification demande tous les items
+vivants du vault ; Guiterm ne lit que des deltas. Plutôt que de garder les
+chiffrés, il garde leurs empreintes (`VaultIntegrity::items`), mises à jour
+delta après delta — secrets de l'interface web compris, que la synchro
+ignore par ailleurs — et par ses propres écritures. Ça ne tient que si un
+delta dit toujours ce qui est parti : vérifié côté serveur, la purge de la
+corbeille n'efface que les *versions* d'un item supprimé, sa tombale reste.
+`guivault-crypto` a gagné `verify_manifest_digests` pour vérifier sur des
+empreintes sans dupliquer la logique. `SYNC_FORMAT` 4 force une relecture
+complète au premier lancement, d'où l'état part.
+
+**Suspendre comme un retour en arrière.** Un écart ne bloque pas seulement
+les écritures (ce que fait le web) : Guiterm *applique* ce qu'il lit à un
+workspace, donc un item rejoué écraserait la bonne version locale. Le vault
+est suspendu par le même mécanisme que les révisions qui reculent
+(`VaultRollback`, qui porte maintenant les écarts), l'alerte du panneau les
+nomme. La reprise réécrit d'abord le manifeste d'après ce que sert le
+serveur — avant toute écriture de la reprise, sinon `vault_revision` ne
+correspondrait plus —, puis ce poste renvoie ses versions, qui le remettent
+à jour à leur tour.
+
+**Écrire.** Tous les chemins d'écriture passent par `manifest::put_item` et
+`manifest::delete_item` (le client ne sait plus supprimer sans dire s'il
+s'agit d'un déplacement ni sans manifeste) : les quatre retraits de vault de
+la synchro, le push, les suppressions, et l'enregistrement d'un accès AWS,
+qui vérifie le vault sur la page qu'il vient de lire. Sur `409
+manifest_conflict`, on repart du manifeste joint : il vient d'un membre, le
+serveur ne sait pas le fabriquer — on vérifie seulement qu'il s'ouvre, porte
+la révision annoncée et ne recule pas.
+
+**Tester un serveur qui ment.** Le test d'intégration n'a que l'URL du
+serveur : un élément « retenu » y est joué en le retirant de l'état
+reconstitué de l'appareil, ce qui est exactement ce que verrait la
+vérification. Le conflit, lui, est réel : une écriture faite avec un
+manifeste en retard (un autre appareil a écrit depuis) doit être reprise.

@@ -378,15 +378,25 @@ impl Client {
         self.authed(Method::PUT, &format!("/vaults/{vault}/items/{item}"), Some(req)).await
     }
 
-    /// Suppression : l'item part dans la corbeille du vault (côté serveur).
-    pub async fn delete_item(&self, vault: Uuid, item: Uuid) -> ClientResult<()> {
-        self.authed(Method::DELETE, &format!("/vaults/{vault}/items/{item}"), Self::NO_BODY).await
+    /// Suppression : l'item part dans la corbeille du vault (côté serveur) ;
+    /// `moved` : retrait d'un vault parce que l'entité vit ailleurs
+    /// (déplacement, copie en trop) — ce n'est pas une suppression, rien dans
+    /// la corbeille. Le manifeste sans l'item, si le vault en a un. Passer
+    /// par `guivault::manifest::delete_item`, qui l'entretient.
+    pub async fn delete_item(&self, vault: Uuid, item: Uuid, moved: bool, manifest: Option<ManifestWrite>) -> ClientResult<()> {
+        let query = if moved { "?moved=true" } else { "" };
+        self.authed(Method::DELETE, &format!("/vaults/{vault}/items/{item}{query}"), Some(&DeleteItemRequest { manifest })).await
     }
 
-    /// Retrait d'un vault parce que l'entité vit ailleurs (déplacement,
-    /// copie en trop) : ce n'est pas une suppression, rien dans la corbeille.
-    pub async fn move_out_item(&self, vault: Uuid, item: Uuid) -> ClientResult<()> {
-        self.authed(Method::DELETE, &format!("/vaults/{vault}/items/{item}?moved=true"), Self::NO_BODY).await
+    /// Le manifeste d'un vault (`None` : il n'en a pas).
+    pub async fn manifest(&self, vault: Uuid) -> ClientResult<Option<VaultManifest>> {
+        self.authed(Method::GET, &format!("/vaults/{vault}/manifest"), Self::NO_BODY).await
+    }
+
+    /// Réécrire le manifeste d'après ce que sert le serveur (reprise après un
+    /// écart), ou le créer (`base_revision` 0).
+    pub async fn put_manifest(&self, vault: Uuid, req: &PutManifestRequest) -> ClientResult<VaultManifest> {
+        self.authed(Method::PUT, &format!("/vaults/{vault}/manifest"), Some(req)).await
     }
 
     /// La corbeille d'un vault : les items supprimés récemment, avec leur
