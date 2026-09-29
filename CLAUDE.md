@@ -466,6 +466,27 @@ Guiterm demanderait `GET /emergency`, `wrap_emergency_key` et l'empreinte
 épinglée de chaque contact (`require_pinned`) — voir `docs/API.md` de
 GuiVault.
 
+**Manifeste de vault — à implémenter ici avant son activation** (GuiVault
+`70510fe`, détail dans `~/GuiVault/docs/MANIFESTE.md`). Chaque vault
+portera un manifeste chiffré (id d'item → SHA-256 du chiffré, compteur) ;
+le serveur **refuse** (`409 manifest_required`) toute écriture sans
+manifeste sur un vault qui en a un. Il n'est pas encore activé
+(`AUTO_ENABLE_MANIFEST` du web à `false`), donc Guiterm fonctionne tel
+quel ; mais avant de l'activer, Guiterm doit : monter l'épinglage des
+crates GuiVault sur `70510fe` ou plus (le format et `verify_manifest` sont
+dans `guivault_crypto::manifest`) ; vérifier au pull sur l'état complet
+reconstitué depuis ses deltas `?since=` (`ItemsPage.manifest`) et retenir
+le plus grand compteur vu par vault à côté de `SyncState::vault_revisions` ;
+réécrire le manifeste à chaque push et suppression
+(`PutItemRequest.manifest`, `DeleteItemRequest` en corps du `DELETE`, base =
+révision lue, reprise sur `409 manifest_conflict` depuis `current`) et à la
+rotation (`RotateVaultKeyRequest.manifest`) ; en cas d'écart, **suspendre**
+la synchronisation du vault comme pour un retour en arrière de révision,
+avec une reprise explicite qui réécrit le manifeste
+(`PUT /vaults/{id}/manifest`). Les structures du protocole ont gagné des
+champs : monter l'épinglage fera échouer la compilation là où Guiterm les
+construit, c'est voulu.
+
 ## Agent SSH adossé au trousseau
 
 `core/src/ssh_agent/` : un agent SSH (draft-miller-ssh-agent) servi par
