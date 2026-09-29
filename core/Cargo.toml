@@ -178,6 +178,11 @@ chrono = { version = "0.4", features = ["serde"] }
 # l'application d'authentification pour l'enrôlement TOTP du compte).
 totp-rs = { version = "5", features = ["otpauth"] }
 
+# `ssh_agent::server` : le nom du programme qui demande une signature, sous
+# macOS (`proc_name`, libproc) — Linux le lit dans `/proc`.
+[target.'cfg(target_os = "macos")'.dependencies]
+libc = "0.2"
+
 [dev-dependencies]
 tempfile = "3"
 

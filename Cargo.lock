@@ -7690,6 +7690,7 @@ dependencies = [
  "k8s-openapi",
  "keyring",
  "kube",
+ "libc",
  "libsqlite3-sys",
  "mongodb",
  "redis",

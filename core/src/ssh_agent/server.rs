@@ -97,16 +97,31 @@ pub async fn start(endpoint: &str, agent: Arc<Agent>) -> anyhow::Result<Running>
     Ok(Running { endpoint: endpoint.to_string(), task })
 }
 
-/// Le processus au bout de la socket : son pid, et sous Linux son nom
-/// (`/proc/<pid>/comm`) — « git », « ssh », « scp »…
+/// Le processus au bout de la socket : son pid, et son nom — « git »,
+/// « ssh », « scp »… — sous Linux (`/proc/<pid>/comm`) et macOS
+/// (`proc_name`).
 #[cfg(unix)]
 fn peer(stream: &tokio::net::UnixStream) -> Client {
     let pid = stream.peer_cred().ok().and_then(|c| c.pid()).and_then(|p| u32::try_from(p).ok());
     #[cfg(target_os = "linux")]
     let program = pid.and_then(|p| std::fs::read_to_string(format!("/proc/{p}/comm")).ok()).map(|s| s.trim().to_string());
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "macos")]
+    let program = pid.and_then(macos_program_name);
+    #[cfg(not(any(target_os = "linux", target_os = "macos")))]
     let program = None;
     Client { pid, program }
+}
+
+/// Le nom d'un processus sous macOS (`proc_name` de libproc, comme `ps -c`).
+#[cfg(target_os = "macos")]
+fn macos_program_name(pid: u32) -> Option<String> {
+    let mut buf = [0u8; 256];
+    // SAFETY: `buf` vit le temps de l'appel, et sa taille est celle passée ;
+    // `proc_name` y écrit au plus autant d'octets et rend leur nombre.
+    let n = unsafe { libc::proc_name(i32::try_from(pid).ok()?, buf.as_mut_ptr().cast(), buf.len() as u32) };
+    let n = usize::try_from(n).ok().filter(|n| *n > 0)?;
+    let name = String::from_utf8_lossy(&buf[..n.min(buf.len())]).trim_end_matches('\0').trim().to_string();
+    (!name.is_empty()).then_some(name)
 }
 
 #[cfg(windows)]
