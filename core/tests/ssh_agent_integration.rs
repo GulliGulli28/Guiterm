@@ -49,8 +49,11 @@ fn load(key: &ClientKey, id: &str, hosts: &[&str]) -> (AgentKey, PrivateKey) {
     (agent, private)
 }
 
+/// Sous `/tmp`, et court : une socket Unix tient en 104 octets sous macOS,
+/// dont le `temp_dir()` (`/var/folders/…/T/`) en prend déjà la moitié.
 fn socket_path() -> String {
-    std::env::temp_dir().join(format!("guiterm-agent-{}", uuid::Uuid::new_v4())).join("agent.sock").to_string_lossy().into_owned()
+    let id = uuid::Uuid::new_v4().simple().to_string();
+    format!("/tmp/guiterm-agent-{}/agent.sock", &id[..12])
 }
 
 async fn start(backend: Arc<TestBackend>) -> server::Running {
