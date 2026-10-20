@@ -14,7 +14,8 @@ This changelog starts 2026-07-21 — for earlier versions, see
 Un agent SSH adossé au trousseau, et GuiVault qui ne fait plus confiance à
 son serveur : paramètres de dérivation contrôlés, clés de vault
 authentifiées, retours en arrière détectés, manifeste de vault vérifié. Et
-un correctif pour les serveurs SSH durcis (`MaxSessions` bas).
+deux correctifs : les serveurs SSH durcis (`MaxSessions` bas), et
+l'extraction des archives `.zip`.
 
 ### Added
 
@@ -65,6 +66,13 @@ un correctif pour les serveurs SSH durcis (`MaxSessions` bas).
 
 ### Security
 
+- **Décompresser une archive `.zip` piégée pouvait écrire hors du dossier
+  choisi.** La bibliothèque `zip` recréait tels quels les liens symboliques
+  de l'archive, même pointant ailleurs sur le disque, et y appliquait les
+  permissions (bits SUID compris). Passée en version 9, qui les confine. Le
+  module de mise à jour n'embarque plus du tout l'ancienne version (il ne
+  s'en servait pas pour les installeurs que Guiterm publie). Au passage,
+  `rustls` et `quinn-proto` montent à leurs versions corrigées.
 - **GuiVault : paramètres de dérivation contrôlés avant la connexion.** Le
   serveur dicte les paramètres Argon2id au moment de la connexion ; un
   serveur compromis pouvait les abaisser pour rendre la clé envoyée assez

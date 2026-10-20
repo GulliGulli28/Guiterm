@@ -210,8 +210,8 @@
     "semantic_hash": ""
   },
   "core/src/pane_ops.rs": {
-    "mtime": 1787564160.54011,
-    "ast_hash": "fb0e9ac16bcdf3ae503918d7836f6ab7",
+    "mtime": 1792489257.893976,
+    "ast_hash": "829329146b2fa2e36b972532bab13cbf",
     "semantic_hash": ""
   },
   "core/src/pane_sync.rs": {
@@ -300,8 +300,8 @@
     "semantic_hash": ""
   },
   "core/src/ssh_pool.rs": {
-    "mtime": 1792485137.101529,
-    "ast_hash": "34aa34f05def249fad72ea594cea5671",
+    "mtime": 1792488139.1947043,
+    "ast_hash": "71f9c2a79cd4c841e3f6fba0e4b87ec8",
     "semantic_hash": ""
   },
   "core/src/ssm_tunnel.rs": {
@@ -380,8 +380,8 @@
     "semantic_hash": ""
   },
   "package.json": {
-    "mtime": 1790089881.445967,
-    "ast_hash": "df2929a02a87433d8aec258bfc8718da",
+    "mtime": 1792487484.8140905,
+    "ast_hash": "d63484962b8f5fc9c0682aad8c8c1328",
     "semantic_hash": ""
   },
   "postcss.config.js": {
@@ -1575,8 +1575,8 @@
     "semantic_hash": ""
   },
   "CHANGELOG.md": {
-    "mtime": 1790671089.1308413,
-    "ast_hash": "5b87d673a3166011d9a8445fc56dd1c2",
+    "mtime": 1792489244.8014247,
+    "ast_hash": "62ae30a37afa5f1f413f7a80fc3bf526",
     "semantic_hash": ""
   },
   "CLAUDE.md": {

@@ -47,7 +47,7 @@ tar = "0.4"
 flate2 = "1"
 # `deflate` only: the other compression methods (bzip2, zstd, lzma) each pull
 # their own C or Rust codec in for a format nothing here writes.
-zip = { version = "4", default-features = false, features = ["deflate"] }
+zip = { version = "9", default-features = false, features = ["deflate"] }
 # `pane_ops::disk_space` pour le panneau local : `statvfs` sous Unix,
 # `GetDiskFreeSpaceExW` sous Windows, derrière une seule fonction. La
 # bibliothèque standard n'expose rien pour l'espace libre, et les deux appels

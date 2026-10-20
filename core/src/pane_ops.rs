@@ -692,6 +692,8 @@ pub async fn extract(
 /// destination (`tar::Archive::unpack` ignore les entrées qui remontent,
 /// `zip::ZipArchive::extract` s'appuie sur `enclosed_name`) — ce qui compte,
 /// une archive pouvant venir de n'importe où et contenir `../../.ssh/authorized_keys`.
+/// Pour `zip`, ça ne vaut qu'à partir de la 9 : avant, un lien symbolique de
+/// l'archive gardait sa cible extérieure (RUSTSEC-2026-0368, test plus bas).
 fn local_extract(archive_path: &Path, dest: &Path, format: ArchiveFormat) -> anyhow::Result<()> {
     std::fs::create_dir_all(dest)?;
     let file = std::fs::File::open(archive_path)?;
@@ -1039,8 +1041,43 @@ mod tests {
 
         let file = std::fs::File::open(dir.path().join("tout.zip")).unwrap();
         let mut zip = zip::ZipArchive::new(file).unwrap();
-        let names: Vec<String> = (0..zip.len()).map(|i| zip.by_index(i).unwrap().name().to_string()).collect();
+        let names: Vec<String> = (0..zip.len()).map(|i| zip.by_index(i).unwrap().name().unwrap().to_string()).collect();
         assert!(names.iter().any(|n| n == "projet/a.txt"), "obtenu : {names:?}");
+    }
+
+    /// Une archive piégée : un lien `lien` → dossier extérieur, puis un fichier
+    /// `lien/piege.txt`. `zip` 4 créait le lien tel quel (RUSTSEC-2026-0368) :
+    /// son nom passait `enclosed_name`, sa cible n'était pas vérifiée.
+    #[cfg(unix)]
+    #[test]
+    fn extract_does_not_write_through_a_symlink() {
+        use std::io::Write;
+        let dir = tempfile::tempdir().unwrap();
+        let outside = dir.path().join("dehors");
+        std::fs::create_dir(&outside).unwrap();
+        let archive_path = dir.path().join("piege.zip");
+        {
+            let mut writer = zip::ZipWriter::new(std::fs::File::create(&archive_path).unwrap());
+            let options = zip::write::SimpleFileOptions::default();
+            writer.add_symlink("lien", outside.to_string_lossy(), options).unwrap();
+            writer.start_file("lien/piege.txt", options).unwrap();
+            writer.write_all(b"ssh-ed25519 AAAA attaquant").unwrap();
+            writer.finish().unwrap();
+        }
+
+        let dest = dir.path().join("extrait");
+        let _ = local_extract(&archive_path, &dest, ArchiveFormat::Zip);
+
+        assert!(!outside.join("piege.txt").exists(), "l'extraction a écrit hors de la destination");
+        // Le lien seul suffit : une extraction suivante dans le même dossier,
+        // ou l'utilisateur qui l'ouvre, écrirait dehors.
+        if let Ok(target) = std::fs::canonicalize(dest.join("lien")) {
+            assert!(
+                target.starts_with(std::fs::canonicalize(&dest).unwrap()),
+                "un lien de l'archive pointe hors de la destination : {}",
+                target.display()
+            );
+        }
     }
 }
 
@@ -1325,7 +1362,7 @@ mod shell_script_tests {
             assert!(ok, "stderr : {stderr}");
             let file = std::fs::File::open(&out).unwrap();
             let mut zip = zip::ZipArchive::new(file).unwrap();
-            let names: Vec<String> = (0..zip.len()).map(|i| zip.by_index(i).unwrap().name().to_string()).collect();
+            let names: Vec<String> = (0..zip.len()).map(|i| zip.by_index(i).unwrap().name().unwrap().to_string()).collect();
             assert!(names.iter().any(|n| n.ends_with("nginx.conf")), "obtenu : {names:?}");
         } else {
             assert!(!ok);

@@ -30,7 +30,12 @@ anyhow = "1"
 base64 = "0.22"
 portable-pty = "0.8"
 tauri-plugin-dialog = "2"
-tauri-plugin-updater = "2"
+# Sans la fonctionnalité `zip` (par défaut) : elle ne sert qu'aux paquets de
+# mise à jour `.zip` (Windows) et `.AppImage.tar.gz`, or `createUpdaterArtifacts`
+# publie des `.msi`/`.exe`/`.AppImage` bruts (macOS lit son `.tar.gz` sans
+# elle). Elle tirait `zip` 4, dont `extract` suit des liens symboliques hors
+# du dossier de destination (RUSTSEC-2026-0367/0368/0369, corrigés en 9 seulement).
+tauri-plugin-updater = { version = "2", default-features = false, features = ["rustls-tls"] }
 tauri-plugin-process = "2"
 tauri-plugin-clipboard-manager = "2"
 tauri-plugin-shell = "2"
