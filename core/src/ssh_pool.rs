@@ -61,11 +61,11 @@ struct Pooled {
 /// Claims a lease slot on `leases` if the connection has room, reporting
 /// whether it got one.
 ///
-/// `fetch_update` rather than load-then-store: two tasks reaching the same
+/// `try_update` rather than load-then-store: two tasks reaching the same
 /// connection concurrently must not both be handed the last free slot.
 fn try_claim_lease(leases: &AtomicUsize) -> bool {
     leases
-        .fetch_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
+        .try_update(Ordering::Relaxed, Ordering::Relaxed, |n| {
             (n < MAX_LEASES_PER_CONNECTION).then_some(n + 1)
         })
         .is_ok()
