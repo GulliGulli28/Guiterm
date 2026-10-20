@@ -2626,7 +2626,7 @@ dependencies = [
 
 [[package]]
 name = "guiterm"
-version = "4.1.0"
+version = "4.2.0"
 dependencies = [
  "anyhow",
  "async-trait",
@@ -7668,7 +7668,7 @@ dependencies = [
 
 [[package]]
 name = "termius-core"
-version = "4.1.0"
+version = "4.2.0"
 dependencies = [
  "anyhow",
  "argon2 0.5.3",

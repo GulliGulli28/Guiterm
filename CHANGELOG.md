@@ -9,6 +9,13 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+## [4.2.0] - 2026-10-20
+
+Un agent SSH adossé au trousseau, et GuiVault qui ne fait plus confiance à
+son serveur : paramètres de dérivation contrôlés, clés de vault
+authentifiées, retours en arrière détectés, manifeste de vault vérifié. Et
+un correctif pour les serveurs SSH durcis (`MaxSessions` bas).
+
 ### Added
 
 - **Agent SSH adossé au trousseau** (Paramètres › Agent SSH, éteint par
@@ -26,6 +33,16 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ### Fixed
 
+- **SSH : sur un serveur à `MaxSessions` bas, passer en root dans le
+  panneau de transfert finissait par bloquer tout l'hôte.** Le shell root
+  n'était jamais refermé côté serveur — ni en redescendant, ni à la
+  fermeture du panneau — et gardait sa place ; au deuxième passage, avec le
+  terminal et le SFTP ouverts, un serveur réglé à 3 sessions refusait, et
+  plus aucun onglet SSH ne s'ouvrait vers cet hôte (« Failed to open
+  channel »), parce que la connexion pleine continuait d'être partagée. Le
+  shell root est maintenant fermé, une connexion pleine n'est plus
+  redistribuée (les nouveaux onglets en ouvrent une autre), et si la limite
+  est atteinte malgré tout, le message le dit en nommant `MaxSessions`.
 - **GuiVault : une entité modifiée puis supprimée d'une synchro à l'autre
   revenait.** Sa propre écriture, relue à la synchro suivante, passait pour
   une nouveauté du serveur et annulait la suppression locale. Une version
