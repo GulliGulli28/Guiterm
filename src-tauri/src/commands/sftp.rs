@@ -82,14 +82,21 @@ pub async fn open_pane(
         }
         PaneSource::Remote { host_id } => {
             let workspace = state.workspace.lock_recover().clone();
-            let connection = ssh_pool::acquire(&workspace, host_id)
+            let mut connection = ssh_pool::acquire(&workspace, host_id)
                 .await
                 .map_err(|e| e.to_string())?;
-            let client = Arc::new(
-                SftpClient::open(&connection)
-                    .await
-                    .map_err(|e| e.to_string())?,
-            );
+            // Connexion mutualisée pleine (`MaxSessions` de l'hôte) : le pool
+            // l'a notée, la suivante est neuve — voir `ssh_pool`.
+            let client = match SftpClient::open(&connection).await {
+                Err(e) if termius_core::ssh::is_channel_refusal(&e) => {
+                    connection = ssh_pool::acquire(&workspace, host_id)
+                        .await
+                        .map_err(|e| e.to_string())?;
+                    SftpClient::open(&connection).await
+                }
+                other => other,
+            };
+            let client = Arc::new(client.map_err(|e| e.to_string())?);
             let cwd = client.home_dir().await.map_err(|e| e.to_string())?;
             let entries = client.list(&cwd).await.map_err(|e| e.to_string())?;
             // Les opérations récursives (taille, recherche, archivage) partent
@@ -237,6 +244,14 @@ pub async fn set_pane_elevated(
         },
     };
 
+    // Avant d'ouvrir le shell root, pas après : ce `exec` est un canal de plus
+    // sur la connexion, et le shell root en tient déjà un pour toute sa vie.
+    // Sur un hôte à `MaxSessions 3` (terminal + SFTP + shell root), le faire
+    // après demandait une quatrième place et l'élévation échouait.
+    let identity = termius_core::sudo_pane::probe_identity(plain_exec.as_ref())
+        .await
+        .map_err(|e| e.to_string())?;
+
     let opened = termius_core::sudo_session::SudoSession::open(&connection, password).await;
     let session = match opened {
         Ok(session) => Arc::new(session),
@@ -252,9 +267,6 @@ pub async fn set_pane_elevated(
             return Err(e.to_string());
         }
     };
-    let identity = termius_core::sudo_pane::probe_identity(plain_exec.as_ref())
-        .await
-        .map_err(|e| e.to_string())?;
     let elevated_client = Arc::new(termius_core::sudo_pane::SudoPaneClient::new(
         session.clone(),
         plain_client,

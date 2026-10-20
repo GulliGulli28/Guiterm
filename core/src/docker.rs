@@ -135,7 +135,7 @@ impl tower_service::Service<hyper::Uri> for DialStdioConnector {
     fn call(&mut self, _destination: hyper::Uri) -> Self::Future {
         let connection = Arc::clone(&self.connection);
         Box::pin(async move {
-            let channel = connection.target().channel_open_session().await?;
+            let channel = connection.open_session().await?;
             channel.exec(true, "docker system dial-stdio").await?;
             Ok(hyper_util::rt::TokioIo::new(DialStdioStream(channel.into_stream())))
         })

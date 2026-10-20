@@ -250,5 +250,17 @@
   "248": "[3.2.1] - 2026-08-27",
   "249": "[4.0.0] - 2026-09-18",
   "250": "[4.1.0] - 2026-09-22",
-  "251": ".totp_status"
+  "251": ".totp_status",
+  "252": "MemoryStorage",
+  "253": "MongoSession",
+  "254": "ShellSession",
+  "255": "check_drift",
+  "256": "run",
+  "257": "RedisSession",
+  "258": "GhostTextController",
+  "259": "observedFont.ts",
+  "260": "Self",
+  "261": ".put_item",
+  "262": "runObjectBusTargetsScenario",
+  "263": "runObjectBusSelectionScenario"
 }

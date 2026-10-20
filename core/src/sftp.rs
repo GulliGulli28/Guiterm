@@ -127,7 +127,7 @@ pub struct SftpClient {
 
 impl SftpClient {
     pub async fn open(connection: &Connection) -> anyhow::Result<Self> {
-        let channel = connection.target().channel_open_session().await?;
+        let channel = connection.open_session().await?;
         channel.request_subsystem(true, "sftp").await?;
         let session = SftpSession::new(channel.into_stream()).await?;
         Ok(Self { session })

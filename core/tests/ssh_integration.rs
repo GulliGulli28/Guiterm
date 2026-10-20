@@ -51,6 +51,43 @@ async fn run_command(
     String::from_utf8(output).unwrap()
 }
 
+/// Un serveur durci (`MaxSessions` bas) refuse un canal de plus alors que la
+/// connexion reste vivante. Le pool ne doit pas continuer à la distribuer :
+/// sinon chaque nouvel onglet vers l'hôte échouait instantanément tant qu'un
+/// onglet déjà ouvert la gardait en vie.
+#[tokio::test]
+async fn a_full_pooled_connection_is_not_handed_out_again() {
+    use termius_core::{sftp::SftpClient, ssh_pool};
+
+    let key = ClientKey::generate();
+    let sshd = TestSshd::start_with_max_sessions("pool-plein", &key.public, 1);
+    let host = test_host(&sshd, &key, "test-pool-plein");
+    let host_id = host.id;
+    let mut workspace = Workspace::default();
+    workspace.hosts.push(host);
+
+    let first = ssh_pool::acquire(&workspace, host_id).await.expect("premier bail");
+    let _terminal = ssh::open_shell(&first, 80, 24, false).await.expect("le terminal prend l'unique place");
+
+    let second = ssh_pool::acquire(&workspace, host_id).await.expect("deuxième bail");
+    assert!(
+        std::sync::Arc::ptr_eq(&first.connection(), &second.connection()),
+        "tant que le serveur n'a rien refusé, la connexion est partagée"
+    );
+    let refused = SftpClient::open(&second).await.err().expect("la connexion est pleine");
+    assert!(ssh::is_channel_refusal(&refused), "pas reconnu comme un refus de canal : {refused:#}");
+    assert!(refused.to_string().contains("MaxSessions"), "message : {refused}");
+
+    let third = ssh_pool::acquire(&workspace, host_id).await.expect("troisième bail");
+    assert!(
+        !std::sync::Arc::ptr_eq(&first.connection(), &third.connection()),
+        "une connexion pleine ne doit plus être distribuée"
+    );
+    SftpClient::open(&third).await.expect("la connexion neuve a de la place");
+    // Le terminal de la première connexion n'a rien perdu dans l'affaire.
+    assert!(first.is_alive());
+}
+
 #[tokio::test]
 async fn direct_connection_runs_a_command() {
     let key = ClientKey::generate();

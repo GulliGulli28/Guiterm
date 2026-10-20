@@ -27,6 +27,15 @@
 //! channels, which `MaxSessions` does *not* count, so the headroom absorbs
 //! that approximation.
 //!
+//! **When the estimate is wrong.** A lease is not a channel: a transfer pane
+//! holds one lease but an SFTP channel, short `exec` channels and, elevated,
+//! a root shell; and a hardened `sshd` may set `MaxSessions` to 2 or 3. The
+//! server's refusal is therefore the real signal:
+//! [`Connection::open_session`] flags the connection, and [`acquire`] stops
+//! handing it out. Callers that open their channel right after acquiring
+//! (a terminal, a transfer pane) retry once — the second [`acquire`] returns
+//! a fresh connection.
+//!
 //! **Lifetime.** The pool holds only [`Weak`] references. A connection stays
 //! alive exactly as long as at least one lease for it does, and closes when
 //! the last one drops — the same lifetime a directly-opened connection had
@@ -121,10 +130,16 @@ pub async fn acquire(workspace: &Workspace, host_id: HostId) -> anyhow::Result<S
     };
     let mut connections = slot.lock().await;
 
-    // Drop entries whose last lease has gone (the `Weak` no longer upgrades)
-    // and any connection the server or the network has since closed — reusing
-    // a dead one would fail on channel open instead of reconnecting.
-    connections.retain(|weak| weak.upgrade().is_some_and(|p| p.connection.is_alive()));
+    // Drop entries whose last lease has gone (the `Weak` no longer upgrades),
+    // any connection the server or the network has since closed — reusing a
+    // dead one would fail on channel open instead of reconnecting — and any
+    // the server has refused a session channel on (see `MAX_LEASES_PER_
+    // CONNECTION`: our lease count is only an estimate of the server's
+    // `MaxSessions`, the refusal is the server's own answer). Leases already
+    // on a dropped entry keep it alive and keep working.
+    connections.retain(|weak| {
+        weak.upgrade().is_some_and(|p| p.connection.is_alive() && !p.connection.is_saturated())
+    });
 
     for weak in connections.iter() {
         let Some(pooled) = weak.upgrade() else { continue };

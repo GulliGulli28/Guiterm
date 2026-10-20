@@ -223,7 +223,8 @@ async fn a_refused_password_is_reported_plainly() {
 #[tokio::test]
 async fn a_shell_that_never_answers_is_given_up_on() {
     let key = ClientKey::generate();
-    let sshd = TestSshd::start("sudo-muet", &key.public);
+    // Une seule place : le `cat` la prend, et seule sa fermeture la rend.
+    let sshd = TestSshd::start_with_max_sessions("sudo-muet", &key.public, 1);
     let host = test_host(&sshd, &key, "test-sudo-muet");
     let host_id = host.id;
     let mut workspace = Workspace::default();
@@ -241,4 +242,75 @@ async fn a_shell_that_never_answers_is_given_up_on() {
     .expect_err("un shell muet n'est pas un shell ouvert");
     assert!(error.to_string().contains("requiretty"), "message inattendu : {error}");
     assert!(started.elapsed().as_secs() >= 30, "abandonné trop tôt pour être le délai prévu");
+
+    // Abandonner ne suffit pas : le canal doit être refermé. Le lecteur était
+    // bloqué à attendre une sentinelle qui ne viendrait jamais, et avant d'être
+    // réveillé par la destruction de la session il y restait — `cat` vivant,
+    // la place occupée jusqu'à la fin de la connexion.
+    wait_for_a_free_session(&connection).await;
+}
+
+/// Attend qu'un canal de session s'ouvre de nouveau sur `connection`.
+///
+/// Une attente et pas une vérification immédiate : la fermeture part d'une
+/// tâche de fond, et `sshd` ne libère la place qu'à réception. Cinq secondes,
+/// c'est des centaines de fois l'aller-retour local — un canal jamais fermé,
+/// lui, ne la libère jamais.
+async fn wait_for_a_free_session(connection: &ssh::Connection) {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(5);
+    loop {
+        match ssh::run_command_capture(connection, "true").await {
+            Ok(_) => return,
+            Err(e) if std::time::Instant::now() < deadline => {
+                assert!(ssh::is_channel_refusal(&e), "échec inattendu : {e:#}");
+                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+            }
+            Err(e) => panic!("la place du shell élevé n'a jamais été rendue : {e:#}"),
+        }
+    }
+}
+
+/// Le cas rencontré sur un serveur réel réglé à `MaxSessions 3` : un terminal
+/// et un panneau de transfert ouverts, passer en root marche la première fois
+/// et plus jamais ensuite — chaque shell root abandonné gardait sa place.
+///
+/// Rejoue l'ordre exact de `commands::sftp::set_pane_elevated` : sonde
+/// `sudo -n`, identité, puis le shell root ; redescendre lâche la session.
+#[tokio::test]
+async fn going_root_again_and_again_fits_in_three_sessions() {
+    let key = ClientKey::generate();
+    let sshd = TestSshd::start_with_max_sessions("sudo-maxsessions", &key.public, 3);
+    let host = test_host(&sshd, &key, "test-sudo-maxsessions");
+    let host_id = host.id;
+    let mut workspace = Workspace::default();
+    workspace.hosts.push(host);
+
+    let connection = Arc::new(ssh::connect(&workspace, host_id).await.expect("connexion"));
+    // Place 1 : le terminal. Gardé en vie jusqu'à la fin du test.
+    let _terminal = ssh::open_shell(&connection, 80, 24, false).await.expect("terminal");
+    // Place 2 : le SFTP du panneau.
+    let plain: Arc<dyn RemoteFileClient> =
+        Arc::new(SftpClient::open(&connection).await.expect("session sftp"));
+    let plain_exec = SshShellExec::new(connection.clone());
+
+    for round in 1..=3 {
+        // La sonde `sudo -n -- true`, ici sans `sudo` : un `exec` bref.
+        ssh::run_command_capture(&connection, "true")
+            .await
+            .unwrap_or_else(|e| panic!("passage {round} : sonde refusée : {e:#}"));
+        let identity = probe_identity(&plain_exec)
+            .await
+            .unwrap_or_else(|e| panic!("passage {round} : identité refusée : {e:#}"));
+        // Place 3 : le shell root, pour toute la durée de l'élévation.
+        let session = Arc::new(
+            SudoSession::open_with_launcher(&connection, "sh", None)
+                .await
+                .unwrap_or_else(|e| panic!("passage {round} : shell élevé refusé : {e:#}")),
+        );
+        let elevated = SudoPaneClient::new(session, plain.clone(), identity);
+        elevated.list("/").await.expect("listing élevé");
+        // Redescendre.
+        drop(elevated);
+        wait_for_a_free_session(&connection).await;
+    }
 }

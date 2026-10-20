@@ -31,7 +31,15 @@ pub struct TestSshd {
 
 impl TestSshd {
     pub fn start(name: &str, client_pubkey_path: &Path) -> Self {
-        Self::start_inner(name, Some(client_pubkey_path), None)
+        Self::start_inner(name, Some(client_pubkey_path), None, "")
+    }
+
+    /// An `sshd` that lets one connection carry at most `max` session
+    /// channels — what a hardened server does, and what an `sshd` at the
+    /// default 10 never shows: past the limit it refuses the channel with
+    /// `ConnectFailed` while the connection stays up.
+    pub fn start_with_max_sessions(name: &str, client_pubkey_path: &Path, max: u32) -> Self {
+        Self::start_inner(name, Some(client_pubkey_path), None, &format!("MaxSessions {max}\n"))
     }
 
     /// An `sshd` that trusts a CA instead of listing keys, with an **empty**
@@ -43,10 +51,15 @@ impl TestSshd {
     /// certificate code deleted. This is the only configuration in which
     /// authenticating proves the certificate was used.
     pub fn start_trusting_ca(name: &str, ca_pubkey_path: &Path) -> Self {
-        Self::start_inner(name, None, Some(ca_pubkey_path))
+        Self::start_inner(name, None, Some(ca_pubkey_path), "")
     }
 
-    fn start_inner(name: &str, client_pubkey_path: Option<&Path>, ca_pubkey_path: Option<&Path>) -> Self {
+    fn start_inner(
+        name: &str,
+        client_pubkey_path: Option<&Path>,
+        ca_pubkey_path: Option<&Path>,
+        extra_config: &str,
+    ) -> Self {
         let dir =
             std::env::temp_dir().join(format!("guiterm-test-{name}-{}", uuid::Uuid::new_v4()));
         std::fs::create_dir_all(&dir).unwrap();
@@ -95,6 +108,7 @@ impl TestSshd {
             if let Some(ca) = &trusted_ca {
                 writeln!(config, "TrustedUserCAKeys {}", ca.display()).unwrap();
             }
+            config.write_all(extra_config.as_bytes()).unwrap();
 
             let mut child = Command::new("/usr/sbin/sshd")
                 .args(["-f"])

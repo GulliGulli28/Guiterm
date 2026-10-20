@@ -14,6 +14,7 @@ use russh::keys::ssh_key::{HashAlg, PublicKey};
 use russh::keys::{PrivateKeyWithHashAlg, decode_secret_key, load_secret_key};
 use russh::{Channel, ChannelMsg, Disconnect};
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::sync::mpsc;
@@ -153,6 +154,9 @@ pub struct Connection {
     /// process would be killed the moment the handshake returned, taking the
     /// connection with it.
     _proxy: Option<crate::proxy_command::ProxyProcess>,
+    /// Set the first time the server refuses a session channel — see
+    /// [`Connection::open_session`].
+    saturated: AtomicBool,
 }
 
 impl Connection {
@@ -177,6 +181,39 @@ impl Connection {
     /// the tunnel the later hops ride on with it.
     pub fn is_alive(&self) -> bool {
         self.chain.iter().all(|hop| !hop.is_closed())
+    }
+
+    /// Opens a session channel (shell, `exec`, SFTP) on the target host.
+    ///
+    /// **The one place session channels are opened**, because a refusal here
+    /// is information the pool needs. `sshd` caps the session channels one
+    /// connection may carry (`MaxSessions`, 10 by default but as low as 2 or 3
+    /// on hardened servers) and answers the next one with `ConnectFailed` —
+    /// while the connection itself stays perfectly alive. Without this flag
+    /// [`crate::ssh_pool`] would keep handing that full connection to every new
+    /// tab, which would then fail instantly, for as long as the tabs already on
+    /// it stayed open. `direct-tcpip` channels are deliberately not routed
+    /// through here: `MaxSessions` doesn't count them, and their
+    /// `ConnectFailed` means the forward target is unreachable, not that the
+    /// connection is full.
+    pub async fn open_session(&self) -> anyhow::Result<Channel<client::Msg>> {
+        match self.target().channel_open_session().await {
+            Ok(channel) => Ok(channel),
+            Err(e @ russh::Error::ChannelOpenFailure(_)) => {
+                self.saturated.store(true, Ordering::Relaxed);
+                Err(anyhow::Error::new(e).context(
+                    "le serveur refuse d'ouvrir un canal de plus sur cette connexion \
+                     (limite MaxSessions de sshd atteinte ?)",
+                ))
+            }
+            Err(e) => Err(e.into()),
+        }
+    }
+
+    /// Whether the server has refused a session channel on this connection.
+    /// The pool stops handing it out; leases already on it keep working.
+    pub fn is_saturated(&self) -> bool {
+        self.saturated.load(Ordering::Relaxed)
     }
 
     pub async fn disconnect(&mut self) {
@@ -612,6 +649,7 @@ async fn connect_chain(workspace: &Workspace, chain: Vec<&Host>) -> anyhow::Resu
         chain: hops,
         remote_forward_routes,
         _proxy: proxy,
+        saturated: AtomicBool::new(false),
     })
 }
 
@@ -666,7 +704,7 @@ pub async fn open_shell_with_command(
     agent_forward: bool,
     command: Option<&str>,
 ) -> anyhow::Result<ShellSession> {
-    let channel = connection.target().channel_open_session().await?;
+    let channel = connection.open_session().await?;
     if agent_forward {
         channel.agent_forward(false).await?;
     }
@@ -730,6 +768,14 @@ pub async fn open_shell_with_command(
     })
 }
 
+/// Whether `error` is the server refusing a session channel — the case where
+/// a fresh connection would succeed (see [`Connection::open_session`]).
+pub fn is_channel_refusal(error: &anyhow::Error) -> bool {
+    error
+        .chain()
+        .any(|cause| matches!(cause.downcast_ref::<russh::Error>(), Some(russh::Error::ChannelOpenFailure(_))))
+}
+
 /// Captured result of running a command to completion on a remote host.
 #[derive(Debug, Clone)]
 pub struct CommandOutput {
@@ -790,7 +836,7 @@ pub async fn run_command_streaming(
     command: &str,
     tx: Option<&mpsc::UnboundedSender<OutputChunk>>,
 ) -> anyhow::Result<CommandOutput> {
-    let mut channel = connection.target().channel_open_session().await?;
+    let mut channel = connection.open_session().await?;
     channel.exec(true, command).await?;
 
     let mut stdout: Vec<u8> = Vec::new();

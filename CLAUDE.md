@@ -832,6 +832,13 @@ dans la mémoire long-terme `infra-control-plane-pivot.md` et dans
   tomber en gardant seulement l'`Arc<Connection>`. Deux exceptions
   documentées : `docker::connect_for_host` (le modèle « un bail ≈ un canal »
   ne s'applique pas, voir son doc comment) et les tests d'intégration.
+  **Un canal de session s'ouvre par `Connection::open_session`, jamais par
+  `target().channel_open_session()`** : un refus du serveur (`MaxSessions`,
+  parfois 3 sur un serveur durci) y marque la connexion saturée, et le pool
+  cesse de la distribuer — sans ça chaque nouvel onglet vers l'hôte échouait
+  instantanément (bug du 2026-10-20). Et un canal qu'on abandonne se
+  **ferme** (`eof` + `close`) : laisser tomber un `russh::Channel` n'envoie
+  rien, le processus distant garde sa place jusqu'à la fin de la connexion.
 - **Auth keyboard-interactive (MFA/OTP)** — fait
   (`core/src/interactive_auth.rs`, `commands/interactive_auth.rs`,
   `SshAuthPromptModal.tsx`). Le serveur pose ses questions pendant la poignée

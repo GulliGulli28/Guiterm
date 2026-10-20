@@ -375,7 +375,7 @@ pub async fn connect_terminal(
     let agent_forward = host.map(|h| h.agent_forward).unwrap_or(false);
     let wants_persistence =
         host.map(|h| h.persistent_shell) == Some(PersistentShellMode::Tmux);
-    let connection = ssh_pool::acquire(&workspace, host_id).await.map_err(|e| e.to_string())?;
+    let mut connection = ssh_pool::acquire(&workspace, host_id).await.map_err(|e| e.to_string())?;
 
     // An invalid key is dropped rather than refused: it can only come from a
     // tampered-with or corrupted `localStorage`, and the sane outcome there is
@@ -387,11 +387,21 @@ pub async fn connect_terminal(
     // en lecture seule sur un shell qu'on vient de faire naître n'a aucun sens,
     // et `attach-session` échouerait de toute façon une seconde plus tard avec
     // un message de tmux que personne ne relie à ce qu'il a demandé.
-    let listing = if wants_persistence {
+    let mut listing = if wants_persistence {
         Some(persistent_shell::probe(&connection, requested.as_deref()).await)
     } else {
         None
     };
+    // The probe swallows its errors ("no tmux"), so a pooled connection the
+    // server refused the probe's channel on would silently cost the user their
+    // persistent session. Ask again on the fresh connection the pool now hands
+    // out (see `ssh_pool`).
+    if connection.is_saturated() {
+        connection = ssh_pool::acquire(&workspace, host_id).await.map_err(|e| e.to_string())?;
+        if wants_persistence {
+            listing = Some(persistent_shell::probe(&connection, requested.as_deref()).await);
+        }
+    }
     if read_only && listing != Some(persistent_shell::Probe::Running) {
         return Err("cette session n'est plus ouverte sur l'hôte — rien à observer".to_string());
     }
@@ -429,9 +439,16 @@ pub async fn connect_terminal(
         _ => (80, 24),
     };
 
-    let shell = ssh::open_shell_with_command(&connection, cols, rows, agent_forward, command.as_deref())
-        .await
-        .map_err(|e| e.to_string())?;
+    // Same retry for the shell itself: a full pooled connection (`MaxSessions`)
+    // is the one failure a fresh connection fixes.
+    let shell = match ssh::open_shell_with_command(&connection, cols, rows, agent_forward, command.as_deref()).await {
+        Err(e) if ssh::is_channel_refusal(&e) => {
+            connection = ssh_pool::acquire(&workspace, host_id).await.map_err(|e| e.to_string())?;
+            ssh::open_shell_with_command(&connection, cols, rows, agent_forward, command.as_deref()).await
+        }
+        other => other,
+    }
+    .map_err(|e| e.to_string())?;
 
     // Reattaching is the one case that must not replay the startup commands —
     // see `register_shell_session`.

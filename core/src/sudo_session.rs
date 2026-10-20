@@ -110,6 +110,11 @@ struct Request {
 /// sur disque, ni confié au trousseau, ni au coffre.
 pub struct SudoSession {
     requests: mpsc::Sender<Request>,
+    /// Jamais utilisé pour envoyer : sa destruction, avec la session, est le
+    /// signal qui fait fermer le canal au [`pump`] — même s'il est bloqué à
+    /// attendre une réponse qui ne viendra pas (un `sudo` qui n'a jamais
+    /// lancé son `sh`).
+    _shutdown: oneshot::Sender<()>,
     /// Sérialise les commandes : le cadrage par sentinelle suppose qu'une
     /// seule réponse est en vol à la fois. Deux copies simultanées dans le
     /// même panneau mélangeraient sinon leurs sorties.
@@ -155,20 +160,19 @@ impl SudoSession {
         password: Option<String>,
     ) -> anyhow::Result<Self> {
         let sentinel = format!("__GUITERM_SUDO_{}__", uuid::Uuid::new_v4().simple());
-        let channel = connection.target().channel_open_session().await?;
-        channel.exec(true, launcher).await?;
-
-        if let Some(secret) = &password {
-            let mut line = Zeroizing::new(secret.clone());
-            line.push('\n');
-            channel.data(line.as_bytes()).await?;
+        let channel = connection.open_session().await?;
+        if let Err(e) = start(&channel, launcher, password.as_deref()).await {
+            close(&channel).await;
+            return Err(e);
         }
 
         let (tx, rx) = mpsc::channel::<Request>(8);
-        tokio::spawn(pump(channel, rx, sentinel));
+        let (shutdown, shutdown_rx) = oneshot::channel();
+        tokio::spawn(pump(channel, rx, shutdown_rx, sentinel));
 
         let session = Self {
             requests: tx,
+            _shutdown: shutdown,
             lock: Mutex::new(()),
             password: password.map(Zeroizing::new),
         };
@@ -238,16 +242,57 @@ impl SudoSession {
     }
 }
 
-/// Écrit les commandes sur l'entrée du shell et découpe ses réponses.
+/// Lance `sudo` sur le canal et lui donne le mot de passe, s'il en faut un.
+async fn start(
+    channel: &russh::Channel<russh::client::Msg>,
+    launcher: &str,
+    password: Option<&str>,
+) -> anyhow::Result<()> {
+    channel.exec(true, launcher).await?;
+    if let Some(secret) = password {
+        let mut line = Zeroizing::new(secret.to_string());
+        line.push('\n');
+        channel.data(line.as_bytes()).await?;
+    }
+    Ok(())
+}
+
+/// Ferme le canal **pour de bon**.
+///
+/// Laisser simplement tomber un `russh::Channel` n'envoie rien au serveur : le
+/// `sudo sh` restait alors vivant jusqu'à la fin de la connexion, et occupait
+/// une des places de `MaxSessions`. Sur un serveur réglé à 3, le deuxième
+/// passage en root échouait donc avec `ConnectFailed` — et, la connexion étant
+/// mutualisée, chaque nouvel onglet SSH vers l'hôte aussi. EOF d'abord : c'est
+/// ce qui fait sortir `sh` proprement ; la fermeture libère la place.
+async fn close(channel: &russh::Channel<russh::client::Msg>) {
+    let _ = channel.eof().await;
+    let _ = channel.close().await;
+}
+
+/// Écrit les commandes sur l'entrée du shell et découpe ses réponses, jusqu'à
+/// ce que la session soit lâchée — alors il ferme le canal ([`close`]).
 ///
 /// Chaque commande part avec son entrée standard fermée (`< /dev/null`) : une
 /// commande qui lirait l'entrée avalerait les lignes suivantes — dont sa
 /// propre sentinelle, ce qui bloquerait le lecteur pour toujours.
-async fn pump(mut channel: russh::Channel<russh::client::Msg>, mut rx: mpsc::Receiver<Request>, sentinel: String) {
+async fn pump(
+    mut channel: russh::Channel<russh::client::Msg>,
+    mut rx: mpsc::Receiver<Request>,
+    mut shutdown: oneshot::Receiver<()>,
+    sentinel: String,
+) {
     let out_marker = format!("\n{sentinel}");
     let err_marker = format!("{sentinel}\n");
 
-    while let Some(request) = rx.recv().await {
+    'requests: loop {
+        let request = tokio::select! {
+            request = rx.recv() => match request {
+                Some(request) => request,
+                None => break,
+            },
+            _ = &mut shutdown => break,
+        };
         let script = format!(
             "{{ {} ; }} < /dev/null\n__guiterm_rc=$?\nprintf '\\n%s%d\\n' {} \"$__guiterm_rc\"\nprintf '%s\\n' {} >&2\n",
             request.command,
@@ -265,7 +310,15 @@ async fn pump(mut channel: russh::Channel<russh::client::Msg>, mut rx: mpsc::Rec
         let mut closed = false;
 
         while done.is_none() {
-            let Some(message) = channel.wait().await else {
+            // La session lâchée pendant l'attente — typiquement l'ouverture
+            // abandonnée au bout de `OPEN_TIMEOUT` : `sudo` attend encore
+            // quelque chose et ne répondra jamais. Sans cette branche, le
+            // lecteur restait ici, et le canal ouvert, pour toujours.
+            let message = tokio::select! {
+                message = channel.wait() => message,
+                _ = &mut shutdown => break 'requests,
+            };
+            let Some(message) = message else {
                 closed = true;
                 break;
             };
@@ -308,6 +361,7 @@ async fn pump(mut channel: russh::Channel<russh::client::Msg>, mut rx: mpsc::Rec
             break;
         }
     }
+    close(&channel).await;
 }
 
 /// Coupe la sortie standard sur la dernière sentinelle et lit le code de
