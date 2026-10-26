@@ -9,6 +9,14 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+### Fixed
+
+- **SSH, serveurs à `MaxSessions` bas** : ouvrir un canal (terminal, SFTP,
+  commande) juste après en avoir refermé un pouvait être refusé à tort
+  (« limite MaxSessions de sshd atteinte ? ») — `sshd` ne libère la place
+  qu'au tour suivant de sa boucle. L'ouverture est réessayée brièvement avant
+  de conclure que la connexion est pleine.
+
 ## [4.2.0] - 2026-10-20
 
 Un agent SSH adossé au trousseau, et GuiVault qui ne fait plus confiance à

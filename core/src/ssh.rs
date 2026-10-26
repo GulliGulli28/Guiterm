@@ -196,17 +196,33 @@ impl Connection {
     /// through here: `MaxSessions` doesn't count them, and their
     /// `ConnectFailed` means the forward target is unreachable, not that the
     /// connection is full.
+    ///
+    /// A refusal is retried a few times (300 ms in all) before the connection
+    /// is called full: `sshd` dispatches every packet it has buffered before
+    /// garbage-collecting its channels, and only that frees the slot of a
+    /// session whose channel was just closed (`serverloop.c`: dispatch, then
+    /// `channel_after_poll` → `session_close_by_channel`). Our `CLOSE` for the
+    /// previous channel and the `OPEN` for the next one can land in one read —
+    /// seen on the macOS runners — and that `OPEN` is refused although the
+    /// slot is free a loop turn later.
     pub async fn open_session(&self) -> anyhow::Result<Channel<client::Msg>> {
-        match self.target().channel_open_session().await {
-            Ok(channel) => Ok(channel),
-            Err(e @ russh::Error::ChannelOpenFailure(_)) => {
-                self.saturated.store(true, Ordering::Relaxed);
-                Err(anyhow::Error::new(e).context(
-                    "le serveur refuse d'ouvrir un canal de plus sur cette connexion \
-                     (limite MaxSessions de sshd atteinte ?)",
-                ))
+        let mut delay = Duration::from_millis(20);
+        loop {
+            match self.target().channel_open_session().await {
+                Ok(channel) => return Ok(channel),
+                Err(russh::Error::ChannelOpenFailure(_)) if delay <= Duration::from_millis(160) => {
+                    tokio::time::sleep(delay).await;
+                    delay *= 2;
+                }
+                Err(e @ russh::Error::ChannelOpenFailure(_)) => {
+                    self.saturated.store(true, Ordering::Relaxed);
+                    return Err(anyhow::Error::new(e).context(
+                        "le serveur refuse d'ouvrir un canal de plus sur cette connexion \
+                         (limite MaxSessions de sshd atteinte ?)",
+                    ));
+                }
+                Err(e) => return Err(e.into()),
             }
-            Err(e) => Err(e.into()),
         }
     }
 
