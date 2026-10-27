@@ -76,7 +76,7 @@ export function FactFilterFields({ filters, onChange: setFilters, onSelect }: Fa
         </label>
         <button
           onClick={onSelect}
-          className="w-full rounded bg-[var(--c-accent-dim)] px-2 py-1 text-[var(--c-accent-text)] hover:bg-[var(--c-accent)] hover:text-white"
+          className="w-full rounded bg-[var(--c-accent-dim)] px-2 py-1 text-[var(--c-accent-text)] hover:bg-[var(--c-accent)] hover:text-[var(--c-on-accent)]"
         >
           Sélectionner les hôtes correspondants
         </button>

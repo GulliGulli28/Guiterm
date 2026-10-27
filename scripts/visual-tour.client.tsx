@@ -136,6 +136,27 @@ const banner = [
 const callbacks = new Map<number, (x: unknown) => void>();
 let nextCallback = 1;
 
+// Les scènes isolées du tour (`visual-tour.mjs`, seconde phase) choisissent
+// leur point de départ par l'URL : un workspace vide et sans compte (premier
+// lancement), un coffre verrouillé, une connexion qui échoue.
+const params = new URLSearchParams(location.search);
+const startEmpty = params.has("empty");
+const startLocked = params.has("locked");
+const connectFails = params.has("connectFails");
+
+/** Qui écoute quel événement Tauri — pour que le tour puisse en émettre
+ * (`window.__emit`) : une demande de code MFA, une confirmation d'agent SSH,
+ * les résultats d'une opération de flotte. */
+const listeners = new Map<string, number[]>();
+function emit(event: string, payload: unknown) {
+  for (const id of listeners.get(event) ?? []) callbacks.get(id)?.({ event, id: 1, payload });
+}
+(window as unknown as { __emit: typeof emit }).__emit = emit;
+
+const emptyWorkspace: Workspace = {
+  groups: [], hosts: [], snippets: [], portForwards: [], keychain: [], customIcons: [], sqlConnections: [], runbooks: [], vaultBindings: {},
+};
+
 function feedChannel(channel: unknown, text: string) {
   const ch = channel as { onmessage: (buffer: ArrayBuffer) => void } | undefined;
   if (!ch) return;
@@ -143,9 +164,11 @@ function feedChannel(channel: unknown, text: string) {
   setTimeout(() => ch.onmessage(bytes.buffer as ArrayBuffer), 30);
 }
 
+const now = Date.now();
+
 const responses: Record<string, Invoke> = {
-  get_workspace: async () => workspace,
-  master_password_status: async () => ({ enabled: false, unlocked: false }),
+  get_workspace: async () => startEmpty ? emptyWorkspace : workspace,
+  master_password_status: async () => ({ enabled: startLocked, unlocked: false }),
   list_aws_session_alerts: async () => [],
   list_aws_sso_sessions: async () => [],
   list_aws_sso_status: async () => [{ name: "org", startUrl: "https://org.awsapps.com/start", region: "eu-west-1", state: { kind: "valid", expiresAt: null, secondsLeft: null } }],
@@ -159,7 +182,12 @@ const responses: Record<string, Invoke> = {
   ],
   list_local_shells: async () => [{ id: "bash", label: "bash" }, { id: "zsh", label: "zsh" }],
   running_forwards: async () => ["f-1"],
-  list_activity: async () => [],
+  list_activity: async () => [
+    { kind: "fleetRun", atMs: now - 1000 * 60 * 4, summary: "sudo apt-get update", target: "4 hôtes", hostIds: [], detail: "4 réussis", failed: false },
+    { kind: "command", atMs: now - 1000 * 60 * 22, summary: "sudo systemctl restart nginx", target: "web-01", hostIds: ["h-web-01"], detail: "", failed: false },
+    { kind: "recording", atMs: now - 1000 * 60 * 60 * 3, summary: "Enregistrement de session", target: "pg-primary", hostIds: ["h-db-01"], detail: "12 min", failed: false },
+    { kind: "fleetRun", atMs: now - 1000 * 60 * 60 * 26, summary: "df -h", target: "3 hôtes", hostIds: [], detail: "1 échec", failed: true },
+  ],
   get_local_history: async () => ["ls -la", "git status", "docker compose up -d"],
   get_ssh_history: async () => ["sudo systemctl status nginx", "df -h", "journalctl -u nginx -n 100"],
   get_sql_history: async () => [],
@@ -168,7 +196,10 @@ const responses: Record<string, Invoke> = {
   recording_session_ids: async () => [],
   // GuiVault : un compte connecté, un vault partagé avec deux membres, une
   // invitation en attente — de quoi voir chaque ligne du panneau.
-  guivault_status: async () => ({
+  guivault_status: async () => startEmpty ? ({
+    configured: false, unlocked: false, serverUrl: null, email: null, userId: null, fingerprint: null, deviceName: null,
+    autoSyncSecs: 300, persistUnlock: false, lastSyncAt: null, viewLocal: true, rollbacks: [], vaults: [], accounts: [],
+  }) : ({
     configured: true, unlocked: true, serverUrl: "https://vault.example.com", email: "alice@example.com",
     userId: "u-alice", fingerprint: "3f2a-91c0-77de-0b4e-aa12-5c6d-e8f9-1a2b", deviceName: "Guiterm sur poste-alice",
     autoSyncSecs: 300, persistUnlock: true, lastSyncAt: new Date().toISOString(), viewLocal: false,
@@ -276,6 +307,7 @@ const responses: Record<string, Invoke> = {
     { id: "d4e5f6", name: "worker", image: "exemple/worker:1.4.2", state: "running", status: "Up 3 days" },
   ],
   connect_terminal: async (_cmd, args) => {
+    if (connectFails) throw "Connexion refusée par 203.0.113.10:22 (le service SSH ne répond pas)";
     feedChannel(args?.channel, banner);
     return { sessionId: "sess-1", sessionKey: null, persistence: "off", readOnly: false, cols: 120, rows: 30 };
   },
@@ -308,6 +340,45 @@ const responses: Record<string, Invoke> = {
   list_sql_databases: async () => ["catalogue", "postgres"],
   list_sql_schemas: async () => ["public"],
   list_sql_tables: async () => [{ name: "produits", kind: "table" }, { name: "commandes", kind: "table" }, { name: "clients", kind: "table" }],
+  list_sql_columns: async () => [
+    { name: "id", dataType: "bigint", nullable: false },
+    { name: "nom", dataType: "text", nullable: false },
+    { name: "prix", dataType: "numeric(10,2)", nullable: false },
+    { name: "stock", dataType: "integer", nullable: true },
+  ],
+  run_sql_query: async () => ({
+    columns: ["id", "nom", "prix", "stock", "maj"],
+    rows: [
+      [1, "Clavier mécanique", 89.9, 42, "2026-10-21 14:02"],
+      [2, "Souris sans fil", 34.5, 120, "2026-10-20 09:41"],
+      [3, "Écran 27 pouces", 289, 7, "2026-10-19 17:12"],
+      [4, "Station d'accueil USB-C", 159, null, "2026-10-18 11:30"],
+    ],
+    truncated: false,
+  }),
+  open_redis_session: async () => ({ sessionId: "r-1", database: 0 }),
+  scan_redis_keys: async () => ({
+    cursor: 0,
+    keys: [
+      { key: "session:8f2a91c0", keyType: "hash", ttlSecs: 1740 },
+      { key: "rate:api:203.0.113.10", keyType: "string", ttlSecs: 42 },
+      { key: "queue:emails", keyType: "list", ttlSecs: null },
+    ],
+  }),
+  get_redis_value: async () => ({ keyType: "hash", ttlSecs: 1740, value: { kind: "hash", truncated: false, entries: [["user_id", "4812"], ["ip", "203.0.113.10"]] } }),
+  // Une opération de flotte rend ses résultats par événements, cible par
+  // cible : la deuxième échoue, pour voir les deux états.
+  run_fleet_command: async (_cmd, args) => {
+    const a = args as { runId: string; targets: unknown[] };
+    a.targets.forEach((target, i) => setTimeout(() => emit("fleet-run-outcome", {
+      runId: a.runId,
+      outcome: i === 1
+        ? { target, exitCode: 1, stdout: "", stderr: "df: /var: No such file or directory", durationMs: 812, error: null }
+        : { target, exitCode: 0, stdout: "Filesystem      Size  Used Avail Use%\n/dev/sda1        79G   48G   31G  61% /", stderr: "", durationMs: 420 + i * 90, error: null },
+    }), 60 + i * 40));
+    setTimeout(() => emit("fleet-run-done", { runId: a.runId }), 100 + a.targets.length * 40);
+    return null;
+  },
 };
 
 const internals = {
@@ -332,7 +403,11 @@ const internals = {
     // un identifiant.
     if (cmd.startsWith("plugin:")) {
       if (cmd.includes("is_maximized") || cmd.includes("is_fullscreen")) return false;
-      if (cmd.includes("|listen")) return nextCallback++;
+      if (cmd.includes("|listen")) {
+        const a = args as { event?: string; handler?: number } | undefined;
+        if (a?.event && typeof a.handler === "number") listeners.set(a.event, [...(listeners.get(a.event) ?? []), a.handler]);
+        return nextCallback++;
+      }
       if (cmd.includes("updater|check")) return null;
       return null;
     }

@@ -16,10 +16,48 @@ export interface AccentColorEntry {
    * n'a pas assez de contraste sur du blanc. */
   c300: string;
   dim: string;
+  /** Teintes propres à un mode, quand elles ne se déduisent pas des quatre
+   * ci-dessus. Seul l'indigo en a : c'est l'accent de la suite (le même que
+   * GuiVault), et en sombre il se remplit d'un indigo clair sur lequel le
+   * texte passe en sombre — un indigo 600 sous du texte blanc y était terne.
+   * Les nuances `c600`/`c500` restent celles de Tailwind : elles servent aussi
+   * de couleur de dossier (`GroupForm`), qu'il ne faut pas changer sous les
+   * pieds de l'utilisateur. */
+  dark?: AccentShade;
+  light?: AccentShade;
+}
+
+export interface AccentShade {
+  fill: string;
+  hover: string;
+  /** Le texte posé sur le remplissage (bouton primaire). */
+  on: string;
+  /** Le texte accentué posé sur une surface (lien, onglet actif). */
+  text: string;
+  dim: string;
+}
+
+/** Les cinq teintes réellement appliquées pour un accent dans un mode. */
+export function accentShade(entry: AccentColorEntry, mode: ColorMode): AccentShade {
+  const own = mode === "light" ? entry.light : entry.dark;
+  if (own) return own;
+  return {
+    fill: entry.c600,
+    hover: entry.c500,
+    on: "#ffffff",
+    // Le texte accentué doit contraster avec la surface : pastel sur sombre,
+    // plein sur clair.
+    text: mode === "light" ? entry.c600 : entry.c300,
+    dim: mode === "light" ? entry.dim.replace("0.18", "0.12") : entry.dim,
+  };
 }
 
 export const ACCENT_COLORS: Record<UiAccent, AccentColorEntry> = {
-  indigo:  { label: "Indigo",   c600: "#4f46e5", c500: "#6366f1", c300: "#a5b4fc", dim: "rgba(79,70,229,0.18)"  },
+  indigo:  {
+    label: "Indigo", c600: "#4f46e5", c500: "#6366f1", c300: "#a5b4fc", dim: "rgba(79,70,229,0.18)",
+    dark:  { fill: "#8b8cff", hover: "#a0a1ff", on: "#0b0c0e", text: "#b9baff", dim: "rgba(139,140,255,0.16)" },
+    light: { fill: "#5755d9", hover: "#4846c8", on: "#ffffff", text: "#4644c2", dim: "rgba(87,85,217,0.12)" },
+  },
   blue:    { label: "Bleu",     c600: "#2563eb", c500: "#3b82f6", c300: "#93c5fd", dim: "rgba(37,99,235,0.18)"  },
   violet:  { label: "Violet",   c600: "#7c3aed", c500: "#8b5cf6", c300: "#c4b5fd", dim: "rgba(124,58,237,0.18)" },
   emerald: { label: "Émeraude", c600: "#059669", c500: "#10b981", c300: "#6ee7b7", dim: "rgba(5,150,105,0.18)"  },
@@ -29,7 +67,7 @@ export const ACCENT_COLORS: Record<UiAccent, AccentColorEntry> = {
   cyan:    { label: "Cyan",     c600: "#0891b2", c500: "#06b6d4", c300: "#67e8f9", dim: "rgba(8,145,178,0.18)"  },
 };
 
-export type UiBg = "slate" | "gray" | "zinc" | "black" | "navy" | "aurora";
+export type UiBg = "graphite" | "slate" | "gray" | "zinc" | "black" | "navy" | "aurora";
 export type ColorMode = "dark" | "light";
 
 export interface BgShade {
@@ -54,6 +92,14 @@ export interface BgThemeEntry {
  * `bg2` est blanc — le panneau — et `bg` un gris à peine teinté pour la zone
  * de travail. */
 export const BG_THEMES: Record<UiBg, BgThemeEntry> = {
+  // Le fond de la refonte d'octobre 2026 (`docs/refonte-ui.md`), le même que
+  // GuiVault : un graphite presque neutre, à peine bleuté.
+  graphite: {
+    label: "Graphite",
+    lightLabel: "Craie",
+    dark:  { bg: "#0b0c0e", bg2: "#0e0f12", bg3: "#15161a", border: "#24262c" },
+    light: { bg: "#efefec", bg2: "#f9f9f8", bg3: "#ffffff", border: "#deded9" },
+  },
   slate: {
     label: "Ardoise",
     dark:  { bg: "#0a0e17", bg2: "#10151f", bg3: "#171d2a", border: "#232b3b" },
@@ -212,6 +258,9 @@ export interface AppPreferences {
   /** Police de l'interface (pas celle du terminal). Une valeur de
    * `UI_FONT_FAMILIES`. */
   uiFontFamily: string;
+  /** Révision du langage visuel que ces préférences ont déjà vue — voir
+   * `migratePreferences`. */
+  designRevision: number;
 }
 
 export const HOST_GROUP_SIZE_MIN = 11;
@@ -243,7 +292,11 @@ export function hostGroupMetrics(fontPx: number, iconPx: number): { font: string
   return { font: `${font}px`, icon: `${icon}px`, height: `${Math.round(Math.max(font * 2.2, icon + 10))}px` };
 }
 
+export const GEIST_UI_FONT = "\"Geist\", system-ui, sans-serif";
+export const GEIST_MONO_FONT = "\"Geist Mono\", ui-monospace, monospace";
+
 export const UI_FONT_FAMILIES: { value: string; label: string }[] = [
+  { value: GEIST_UI_FONT, label: "Geist" },
   { value: "system", label: "Système (Segoe UI sous Windows)" },
   { value: "\"Inter\", system-ui, sans-serif", label: "Inter" },
   { value: "\"Segoe UI Variable Text\", \"Segoe UI\", system-ui, sans-serif", label: "Segoe UI" },
@@ -282,19 +335,21 @@ export interface TerminalThemeEntry {
 }
 
 export const TERMINAL_THEMES: Record<string, TerminalThemeEntry> = {
+  // Le graphite de la refonte (`docs/refonte-ui.md`) : même fond que la zone
+  // principale, pour que le terminal ne se découpe pas en bloc noir.
   dark: {
-    label: "Sombre (par défaut)",
+    label: "Graphite (par défaut)",
     theme: {
-      background: "#0f0f12", foreground: "#e4e4e7", cursor: "#93c5fd",
-      selectionBackground: "#2a2a33",
-      black: "#18181b", brightBlack: "#52525b",
-      red: "#ef4444", brightRed: "#f87171",
-      green: "#22c55e", brightGreen: "#4ade80",
-      yellow: "#eab308", brightYellow: "#facc15",
-      blue: "#3b82f6", brightBlue: "#60a5fa",
-      magenta: "#a855f7", brightMagenta: "#c084fc",
-      cyan: "#06b6d4", brightCyan: "#22d3ee",
-      white: "#e2e8f0", brightWhite: "#f8fafc",
+      background: "#0b0c0e", foreground: "#d9dbe0", cursor: "#b9baff",
+      selectionBackground: "#2a2c3a",
+      black: "#1e2026", brightBlack: "#5f636c",
+      red: "#f2555a", brightRed: "#ff8a8f",
+      green: "#3dd68c", brightGreen: "#6be3a8",
+      yellow: "#f5a524", brightYellow: "#f5c66b",
+      blue: "#7fa8ff", brightBlue: "#a5c2ff",
+      magenta: "#c9a2ff", brightMagenta: "#e58af0",
+      cyan: "#5fd3e0", brightCyan: "#8be4ee",
+      white: "#c9cbd1", brightWhite: "#f4f4f6",
     },
   },
   dracula: {
@@ -450,6 +505,7 @@ export const TERMINAL_THEMES: Record<string, TerminalThemeEntry> = {
 };
 
 export const FONT_FAMILIES: { value: string; label: string }[] = [
+  { value: GEIST_MONO_FONT, label: "Geist Mono" },
   { value: "ui-monospace, SFMono-Regular, Menlo, monospace", label: "Monospace (système)" },
   { value: "Consolas, monospace", label: "Consolas" },
   { value: "\"JetBrains Mono\", monospace", label: "JetBrains Mono" },
@@ -462,13 +518,13 @@ export const FONT_FAMILIES: { value: string; label: string }[] = [
 
 export const DEFAULT_PREFERENCES: AppPreferences = {
   terminalThemeName: "dark",
-  terminalFontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+  terminalFontFamily: GEIST_MONO_FONT,
   terminalFontSize: 14,
   sftpFontSize: 13,
   sftpShowHidden: true,
   transferDiffView: "unified",
-  uiAccent: "blue",
-  uiBg: "zinc",
+  uiAccent: "indigo",
+  uiBg: "graphite",
   colorMode: "dark",
   notifyOnDisconnect: true,
   notifyOnTransferDone: true,
@@ -495,8 +551,36 @@ export const DEFAULT_PREFERENCES: AppPreferences = {
   hostRowIconSize: 24,
   sftpFontFamily: "inherit",
   uiAccentCustom: "#2563eb",
-  uiFontFamily: "system",
+  uiFontFamily: GEIST_UI_FONT,
+  designRevision: 2,
 };
+
+/** Les valeurs par défaut que la révision 2 du langage visuel (refonte
+ * d'octobre 2026) remplace. Une préférence encore égale à l'une d'elles n'a
+ * jamais été choisie : elle suit le nouveau défaut. Une préférence qui en
+ * diffère a été choisie, elle reste. */
+const REVISION_1_DEFAULTS = {
+  uiAccent: "blue",
+  uiBg: "zinc",
+  uiFontFamily: "system",
+  terminalFontFamily: "ui-monospace, SFMono-Regular, Menlo, monospace",
+} as const;
+
+/** Fait passer des préférences enregistrées au langage visuel courant.
+ *
+ * Nécessaire parce que les préférences vivent dans le `localStorage` de la
+ * webview : changer `DEFAULT_PREFERENCES` ne touche pas une installation déjà
+ * utilisée, qui a enregistré l'ancien défaut comme s'il avait été choisi (cf.
+ * `CLAUDE.md`). Ne tourne qu'une fois : `designRevision` est enregistré avec
+ * le reste, et un « bleu » choisi *après* la migration n'est plus remplacé. */
+export function migratePreferences(parsed: Record<string, unknown>): Record<string, unknown> {
+  if (typeof parsed.designRevision === "number" && parsed.designRevision >= 2) return parsed;
+  const next: Record<string, unknown> = { ...parsed, designRevision: 2 };
+  for (const [key, old] of Object.entries(REVISION_1_DEFAULTS)) {
+    if (next[key] === undefined || next[key] === old) next[key] = DEFAULT_PREFERENCES[key as keyof typeof REVISION_1_DEFAULTS];
+  }
+  return next;
+}
 
 const STORAGE_KEY = "gui-termius-prefs";
 
@@ -504,7 +588,9 @@ export function loadPreferences(): AppPreferences {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
     if (raw) {
-      const parsed = JSON.parse(raw);
+      // Typé comme `JSON.parse` (non vérifié) : la suite ne fait confiance à
+      // aucun champ sans le contrôler.
+      const parsed: ReturnType<typeof JSON.parse> = migratePreferences(JSON.parse(raw));
       return {
         ...DEFAULT_PREFERENCES,
         ...parsed,

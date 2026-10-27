@@ -851,6 +851,74 @@ const scenes = [
   }],
 ];
 
+/** Seconde phase : des scènes qui partent chacune d'une page neuve, parce que
+ * leur point de départ n'est pas celui de la session peuplée — un premier
+ * lancement, un coffre verrouillé, une connexion qui échoue — ou parce
+ * qu'elles déclenchent un événement (`window.__emit`, posé par
+ * `visual-tour.client.tsx`) qu'aucun clic ne produit sans backend. */
+const isolated = [
+  ["60-premier-lancement", "empty", async (page) => {
+    await page.waitForSelector("text=Aucun hôte", { timeout: 10_000 });
+  }],
+  ["61-coffre-verrouille", "locked", async (page) => {
+    await page.waitForSelector("text=Coffre verrouillé", { timeout: 10_000 });
+  }],
+  ["62-echec-connexion", "connectFails", async (page) => {
+    await page.locator("[data-host-row='web-01'] > button").first().click();
+    await page.waitForSelector("text=Réessayer", { timeout: 10_000 });
+  }],
+  ["63-double-authentification", "", async (page) => {
+    await page.evaluate(() => window.__emit("ssh-auth-prompt", {
+      id: "p-1", hostLabel: "bastion",
+      request: { name: "", instructions: "Authentification à deux facteurs requise.", prompts: [{ prompt: "Verification code: ", echo: true }] },
+    }));
+    await page.waitForSelector("text=Verification code", { timeout: 5_000 });
+  }],
+  ["64-confirmation-agent", "", async (page) => {
+    await page.evaluate(() => window.__emit("ssh-agent-confirm", {
+      id: "c-1",
+      request: { keyId: "k-1", keyName: "id_ed25519 (perso)", keyFingerprint: "SHA256:q4u3c0mZ6x0Yt2kT6Gx2Ue5n3w8xQ1vWb7rYbH9fN0s", purpose: { kind: "sshLogin", user: "git", hosts: [{ id: "h-web-01", label: "web-01" }], fingerprint: null }, client: { pid: 48211, program: "ssh" }, forwarded: false },
+    }));
+    await settle(page, 400);
+  }],
+  ["65-sql-resultats", "", async (page) => {
+    await clickNav(page, "Bases de données");
+    await page.locator("[data-sidebar-panel] button", { hasText: "Catalogue (prod)" }).first().click();
+    await page.waitForSelector("textarea", { timeout: 10_000 });
+    await page.locator("textarea").first().fill("SELECT id, nom, prix, stock, maj FROM produits ORDER BY maj DESC;");
+    await page.keyboard.press("Control+Enter");
+    await page.waitForSelector("text=Clavier mécanique", { timeout: 5_000 });
+  }],
+  ["66-redis", "", async (page) => {
+    await clickNav(page, "Bases de données");
+    await page.locator("[data-sidebar-panel] button", { hasText: "Cache sessions" }).first().click();
+    await page.getByText("session:8f2a91c0").first().click({ timeout: 10_000 });
+    await settle(page, 400);
+  }],
+  ["67-flotte-resultats", "", async (page) => {
+    await clickNav(page, "Opérations de flotte");
+    await page.getByRole("button", { name: /^Tout/ }).first().click();
+    await page.locator("textarea").first().fill("df -h /var");
+    await page.keyboard.press("Control+Enter");
+    await page.waitForSelector("text=1 échec", { timeout: 5_000 });
+  }],
+  ["68-activite", "", async (page) => {
+    await page.keyboard.press("Control+K");
+    await settle(page, 300);
+    await page.keyboard.type("Activit");
+    await settle(page, 300);
+    await page.keyboard.press("Enter");
+    await page.waitForSelector("text=sudo apt-get update", { timeout: 10_000 });
+  }],
+  ...["terminal", "sftp", "securite", "agent", "raccourcis", "notifications", "general"].map((key, i) => [
+    `69${String.fromCharCode(97 + i)}-parametres-${key}`, "", async (page) => {
+      await clickNav(page, "Paramètres");
+      await page.locator(`[data-settings-category='${key}']`).click();
+      await settle(page, 400);
+    },
+  ]),
+];
+
 try {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
   page.on("console", (msg) => { if (msg.type() === "error") errors.push(msg.text()); });
@@ -871,6 +939,25 @@ try {
       await page.screenshot({ path: path.join(outDir, `${name}${suffix}.png`) });
       console.log(`  ${name}${suffix}.png`);
     }
+  }
+  await page.close();
+
+  for (const [name, start, run] of isolated) {
+    if (only && !name.includes(only)) continue;
+    const fresh = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
+    fresh.on("pageerror", (err) => errors.push(`${name}: ${String(err)}`));
+    const query = [light ? "mode=light" : "", start].filter(Boolean).join("&");
+    await fresh.goto(`http://localhost:4331/scripts/visual-tour.html${query ? `?${query}` : ""}`);
+    await fresh.waitForSelector("nav button", { timeout: 15_000 });
+    await settle(fresh, 600);
+    try {
+      await run(fresh);
+    } catch (e) {
+      errors.push(`${name}: ${e.message.split("\n")[0]}`);
+    }
+    await fresh.screenshot({ path: path.join(outDir, `${name}${suffix}.png`) });
+    console.log(`  ${name}${suffix}.png`);
+    await fresh.close();
   }
 } finally {
   await browser.close();

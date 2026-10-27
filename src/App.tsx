@@ -11,7 +11,7 @@ import type { TerminalTabHandle } from "./components/TerminalTab";
 import { TitleBar } from "./components/TitleBar";
 import { TabLoadingFallback } from "./components/TabLoadingFallback";
 
-import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, accentFromHex, hostGroupMetrics, hostRowMetrics, loadPreferences, savePreferences, uiFontStack } from "./lib/preferences";
+import { type AppPreferences, type UiAccent, ACCENT_COLORS, BG_THEMES, accentFromHex, accentShade, GEIST_UI_FONT, hostGroupMetrics, hostRowMetrics, loadPreferences, savePreferences, uiFontStack } from "./lib/preferences";
 import { resolveVisiblePanel, type SidebarPanelKind } from "./lib/sidebarButtons";
 import { cdCommand } from "./lib/panePath";
 import { describeObject, parseEndpoint, type AppObject } from "./lib/appObject";
@@ -264,21 +264,20 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const choice = preferences.uiAccent ?? "blue";
+    const choice = preferences.uiAccent ?? "indigo";
     const colors = choice === "custom" ? accentFromHex(preferences.uiAccentCustom) : ACCENT_COLORS[choice];
     if (!colors) return;
-    const light = (preferences.colorMode ?? "dark") === "light";
+    const shade = accentShade(colors, preferences.colorMode ?? "dark");
     const root = document.documentElement;
-    root.style.setProperty("--c-accent", colors.c600);
-    root.style.setProperty("--c-accent-hover", colors.c500);
-    // Le texte accentué doit contraster avec la surface : pastel sur sombre,
-    // plein sur clair.
-    root.style.setProperty("--c-accent-text", light ? colors.c600 : colors.c300);
-    root.style.setProperty("--c-accent-dim", light ? colors.dim.replace("0.18", "0.12") : colors.dim);
+    root.style.setProperty("--c-accent", shade.fill);
+    root.style.setProperty("--c-accent-hover", shade.hover);
+    root.style.setProperty("--c-on-accent", shade.on);
+    root.style.setProperty("--c-accent-text", shade.text);
+    root.style.setProperty("--c-accent-dim", shade.dim);
   }, [preferences.uiAccent, preferences.uiAccentCustom, preferences.colorMode]);
 
   useEffect(() => {
-    const bg = BG_THEMES[preferences.uiBg ?? "zinc"];
+    const bg = BG_THEMES[preferences.uiBg ?? "graphite"];
     if (!bg) return;
     const mode = preferences.colorMode ?? "dark";
     const shade = bg[mode];
@@ -309,7 +308,7 @@ export default function App() {
   }, [preferences.hostRowSize, preferences.hostRowIconSize]);
 
   useEffect(() => {
-    document.documentElement.style.setProperty("--font-ui", uiFontStack(preferences.uiFontFamily ?? "system"));
+    document.documentElement.style.setProperty("--font-ui", uiFontStack(preferences.uiFontFamily ?? GEIST_UI_FONT));
   }, [preferences.uiFontFamily]);
 
   useEffect(() => {

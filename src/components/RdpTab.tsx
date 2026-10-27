@@ -354,7 +354,7 @@ export const RdpTab = forwardRef<TerminalTabHandle, RdpTabProps>(function RdpTab
           <div className="flex gap-2">
             <button
               onClick={() => setAttempt((n) => n + 1)}
-              className="rounded-md bg-[var(--c-accent)] px-3 py-1.5 text-xs font-medium text-white hover:bg-[var(--c-accent-hover)]"
+              className="rounded-md bg-[var(--c-accent)] px-3 py-1.5 text-xs font-medium text-[var(--c-on-accent)] hover:bg-[var(--c-accent-hover)]"
             >
               Reconnecter
             </button>

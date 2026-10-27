@@ -2413,7 +2413,7 @@ function ConflictModal({
           <button
             autoFocus
             onClick={() => onChoose("overwrite")}
-            className="rounded-md bg-[var(--c-accent)] px-3 py-1.5 text-xs text-white hover:bg-[var(--c-accent-hover)]"
+            className="rounded-md bg-[var(--c-accent)] px-3 py-1.5 text-xs text-[var(--c-on-accent)] hover:bg-[var(--c-accent-hover)]"
           >
             Remplacer
           </button>
@@ -2518,14 +2518,14 @@ export function ComparisonPanel({
             <button
               data-direction="right"
               onClick={() => setDirection("right")}
-              className={`rounded-md px-2 py-1 ${direction === "right" ? "bg-[var(--c-accent)] text-white" : "bg-[var(--c-bg3)] text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]"}`}
+              className={`rounded-md px-2 py-1 ${direction === "right" ? "bg-[var(--c-accent)] text-[var(--c-on-accent)]" : "bg-[var(--c-bg3)] text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]"}`}
             >
               Copier vers la droite →
             </button>
             <button
               data-direction="left"
               onClick={() => setDirection("left")}
-              className={`rounded-md px-2 py-1 ${direction === "left" ? "bg-[var(--c-accent)] text-white" : "bg-[var(--c-bg3)] text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]"}`}
+              className={`rounded-md px-2 py-1 ${direction === "left" ? "bg-[var(--c-accent)] text-[var(--c-on-accent)]" : "bg-[var(--c-bg3)] text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]"}`}
             >
               ← Copier vers la gauche
             </button>
@@ -2568,7 +2568,7 @@ export function ComparisonPanel({
                       // case au passage.
                       onClick={(e) => { e.preventDefault(); onDiff(difference.path); }}
                       title="Voir ce qui diffère dans le contenu"
-                      className="w-6 shrink-0 rounded text-center text-[var(--c-text-faint)] hover:bg-[var(--c-accent)] hover:text-white"
+                      className="w-6 shrink-0 rounded text-center text-[var(--c-text-faint)] hover:bg-[var(--c-accent)] hover:text-[var(--c-on-accent)]"
                     >
                       ⇄
                     </button>
@@ -2610,7 +2610,7 @@ export function ComparisonPanel({
               data-sync-run
               disabled={items.length === 0}
               onClick={() => onSync(direction, items)}
-              className="rounded-md bg-[var(--c-accent)] px-3 py-1 text-white hover:bg-[var(--c-accent-hover)] disabled:opacity-40 disabled:hover:bg-[var(--c-accent)]"
+              className="rounded-md bg-[var(--c-accent)] px-3 py-1 text-[var(--c-on-accent)] hover:bg-[var(--c-accent-hover)] disabled:opacity-40 disabled:hover:bg-[var(--c-accent)]"
             >
               {direction === "right" ? "Copier vers la droite →" : "← Copier vers la gauche"}
             </button>
@@ -2741,14 +2741,14 @@ export function FileDiffModal({
                 <button
                   data-diff-view="unified"
                   onClick={() => onViewChange("unified")}
-                  className={`rounded px-2 py-0.5 ${view === "unified" ? "bg-[var(--c-accent)] text-white" : "bg-[var(--c-bg3)] text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]"}`}
+                  className={`rounded px-2 py-0.5 ${view === "unified" ? "bg-[var(--c-accent)] text-[var(--c-on-accent)]" : "bg-[var(--c-bg3)] text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]"}`}
                 >
                   Unifié
                 </button>
                 <button
                   data-diff-view="split"
                   onClick={() => onViewChange("split")}
-                  className={`rounded px-2 py-0.5 ${view === "split" ? "bg-[var(--c-accent)] text-white" : "bg-[var(--c-bg3)] text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]"}`}
+                  className={`rounded px-2 py-0.5 ${view === "split" ? "bg-[var(--c-accent)] text-[var(--c-on-accent)]" : "bg-[var(--c-bg3)] text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)]"}`}
                 >
                   Côte à côte
                 </button>

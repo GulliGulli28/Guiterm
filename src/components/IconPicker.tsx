@@ -73,7 +73,7 @@ export function IconPicker({ value, customIcons, onSelect, onWorkspaceUpdate, on
   const filteredBuiltin = BUILTIN_ICONS.filter((i) => i.category === category);
 
   const btnClass = (active: boolean) =>
-    `rounded px-2 py-1 text-xs font-medium transition-colors ${active ? "bg-[var(--c-accent)] text-white" : "text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]"}`;
+    `rounded px-2 py-1 text-xs font-medium transition-colors ${active ? "bg-[var(--c-accent)] text-[var(--c-on-accent)]" : "text-[var(--c-text-secondary)] hover:bg-[var(--c-hover)] hover:text-[var(--c-text)]"}`;
 
   return (
     <div

@@ -63,7 +63,7 @@ export function AdaptiveComposer({ programText, onGenerated, onError }: Adaptive
       <button
         onClick={generate}
         disabled={generating || !intent.trim()}
-        className="shrink-0 rounded bg-[var(--c-accent-dim)] px-2.5 py-1 text-[11px] font-medium text-[var(--c-accent-text)] hover:bg-[var(--c-accent)] hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+        className="shrink-0 rounded bg-[var(--c-accent-dim)] px-2.5 py-1 text-[11px] font-medium text-[var(--c-accent-text)] hover:bg-[var(--c-accent)] hover:text-[var(--c-on-accent)] disabled:cursor-not-allowed disabled:opacity-40"
       >
         {generating ? "Génération…" : "Générer"}
       </button>

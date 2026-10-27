@@ -7,7 +7,7 @@ import { relaunch } from "@tauri-apps/plugin-process";
 import { api } from "../lib/api";
 import type { VaultStatus, Workspace } from "../lib/types";
 import type { AppPreferences } from "../lib/preferences";
-import { TERMINAL_THEMES, FONT_FAMILIES, UI_FONT_FAMILIES, ACCENT_COLORS, BG_THEMES, HOST_GROUP_SIZE_MIN, HOST_GROUP_SIZE_MAX, HOST_GROUP_ICON_MIN, HOST_GROUP_ICON_MAX, HOST_ROW_SIZE_MIN, HOST_ROW_SIZE_MAX, HOST_ROW_ICON_MIN, HOST_ROW_ICON_MAX, bgThemeLabel, hostGroupMetrics, hostRowMetrics, sftpFontStack, type UiAccent, type UiBg, type ColorMode } from "../lib/preferences";
+import { TERMINAL_THEMES, FONT_FAMILIES, UI_FONT_FAMILIES, GEIST_UI_FONT, ACCENT_COLORS, accentShade, BG_THEMES, HOST_GROUP_SIZE_MIN, HOST_GROUP_SIZE_MAX, HOST_GROUP_ICON_MIN, HOST_GROUP_ICON_MAX, HOST_ROW_SIZE_MIN, HOST_ROW_SIZE_MAX, HOST_ROW_ICON_MIN, HOST_ROW_ICON_MAX, bgThemeLabel, hostGroupMetrics, hostRowMetrics, sftpFontStack, type UiAccent, type UiBg, type ColorMode } from "../lib/preferences";
 import { EntityRow, EntityMono, EntityTags, GroupRow } from "./EntityRow";
 import { SHORTCUT_ACTIONS, comboConflicts, defaultShortcuts, comboFromEvent, shellBindingWarning, shortcutLabel } from "../lib/shortcuts";
 import { SIDEBAR_BUTTONS, ALWAYS_VISIBLE_SIDEBAR_BUTTONS, isSidebarButtonVisible } from "../lib/sidebarButtons";
@@ -300,7 +300,7 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
                   les fonds sombres éclaircis. */}
               <div className="flex flex-wrap gap-2">
                 {(Object.entries(BG_THEMES) as [UiBg, typeof BG_THEMES[UiBg]][]).map(([key, bg]) => {
-                  const active = (preferences.uiBg ?? "zinc") === key;
+                  const active = (preferences.uiBg ?? "graphite") === key;
                   const shade = bg[preferences.colorMode ?? "dark"];
                   return (
                     <button
@@ -329,7 +329,7 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
               <p className="eyebrow">Couleur d'accent</p>
               <div className="flex flex-wrap items-center gap-2">
                 {(Object.entries(ACCENT_COLORS) as [UiAccent, typeof ACCENT_COLORS[UiAccent]][]).map(([key, color]) => {
-                  const active = (preferences.uiAccent ?? "blue") === key;
+                  const active = (preferences.uiAccent ?? "indigo") === key;
                   return (
                     <button
                       key={key}
@@ -338,8 +338,8 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
                       aria-label={color.label}
                       aria-pressed={active}
                       onClick={() => onPreferencesChange({ ...preferences, uiAccent: key })}
-                      className={`flex h-7 w-7 items-center justify-center rounded-full text-white transition-transform hover:scale-110 ${active ? "ring-2 ring-[var(--c-text)] ring-offset-2 ring-offset-[var(--c-bg2)]" : ""}`}
-                      style={{ backgroundColor: color.c600 }}
+                      className={`flex h-7 w-7 items-center justify-center rounded-full transition-transform hover:scale-110 ${active ? "ring-2 ring-[var(--c-text)] ring-offset-2 ring-offset-[var(--c-bg2)]" : ""}`}
+                      style={{ backgroundColor: accentShade(color, preferences.colorMode ?? "dark").fill, color: accentShade(color, preferences.colorMode ?? "dark").on }}
                     >
                       {active && <IconCheck size={13} />}
                     </button>
@@ -365,7 +365,7 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
                 <span className="ml-1 flex items-center gap-2 text-[12px] text-[var(--c-text-secondary)]">
                   {preferences.uiAccent === "custom"
                     ? <><span>Personnalisée</span><span className="kbd">{preferences.uiAccentCustom.toUpperCase()}</span></>
-                    : ACCENT_COLORS[preferences.uiAccent ?? "blue"]?.label}
+                    : ACCENT_COLORS[preferences.uiAccent ?? "indigo"]?.label}
                 </span>
               </div>
             </section>
@@ -373,7 +373,7 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
             <section className="space-y-2">
               <p className="eyebrow">Police de l'interface</p>
               <select
-                value={preferences.uiFontFamily ?? "system"}
+                value={preferences.uiFontFamily ?? GEIST_UI_FONT}
                 onChange={(e) => onPreferencesChange({ ...preferences, uiFontFamily: e.target.value })}
                 className="input w-full max-w-xs"
               >

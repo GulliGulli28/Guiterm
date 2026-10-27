@@ -88,7 +88,7 @@ export function VaultSettings({ status, onChange, preferences, onPreferencesChan
               if (newPw !== confirmPw) { setNotice({ kind: "err", text: "Les mots de passe ne correspondent pas." }); return; }
               run(() => api.setMasterPassword(newPw), "Coffre activé — secrets migrés et chiffrés ✓").then(() => { setNewPw(""); setConfirmPw(""); });
             }}
-            className="w-full rounded-md bg-[var(--c-accent)] px-3 py-2 text-[13px] font-medium text-white hover:bg-[var(--c-accent-hover)] disabled:opacity-50"
+            className="w-full rounded-md bg-[var(--c-accent)] px-3 py-2 text-[13px] font-medium text-[var(--c-on-accent)] hover:bg-[var(--c-accent-hover)] disabled:opacity-50"
           >
             {busy ? "Activation…" : "Activer le coffre chiffré"}
           </button>
@@ -120,7 +120,7 @@ export function VaultSettings({ status, onChange, preferences, onPreferencesChan
           <button
             disabled={busy || !unlockPw}
             onClick={() => run(() => api.unlockVault(unlockPw), "Coffre déverrouillé ✓").then(() => setUnlockPw(""))}
-            className="w-full rounded-md bg-[var(--c-accent)] px-3 py-2 text-[13px] font-medium text-white hover:bg-[var(--c-accent-hover)] disabled:opacity-50"
+            className="w-full rounded-md bg-[var(--c-accent)] px-3 py-2 text-[13px] font-medium text-[var(--c-on-accent)] hover:bg-[var(--c-accent-hover)] disabled:opacity-50"
           >
             {busy ? "Déverrouillage…" : "Déverrouiller"}
           </button>
