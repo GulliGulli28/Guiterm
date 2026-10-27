@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { ProfileBar, type ProfileBarProps } from "./ProfileBar";
 import { IconMonitor } from "./ui-icons";
 
@@ -24,11 +25,15 @@ export function AccountMenu(props: ProfileBarProps) {
   const { status, syncing } = props;
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  /** Où poser le menu : à droite du rail, aligné sur le bas de l'avatar. */
+  const [anchor, setAnchor] = useState<{ left: number; bottom: number } | null>(null);
 
   useEffect(() => {
     if (!open) return;
     const onDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (!ref.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
       if (e.key === "Escape") setOpen(false);
@@ -56,7 +61,14 @@ export function AccountMenu(props: ProfileBarProps) {
     <div ref={ref} className="relative">
       <button
         type="button"
-        onClick={() => setOpen((o) => !o)}
+        onClick={(e) => {
+          // À droite du rail entier, pas de l'avatar : sinon le menu couvre
+          // les libellés « GuiVault » et « Réglages » juste au-dessus.
+          const rect = e.currentTarget.getBoundingClientRect();
+          const rail = e.currentTarget.closest("nav")?.getBoundingClientRect() ?? rect;
+          setAnchor({ left: rail.right + 6, bottom: window.innerHeight - rect.bottom });
+          setOpen((o) => !o);
+        }}
         aria-label={`Compte et profil affiché : ${state}`}
         title={state}
         aria-expanded={open}
@@ -75,8 +87,10 @@ export function AccountMenu(props: ProfileBarProps) {
           />
         )}
       </button>
-      {open && (
-        <div className="popover absolute bottom-0 left-full z-30 ml-2 w-80 overflow-hidden">
+      {/* Dans un portail, en position fixe : le rail défile (overflow), et
+          un menu posé dedans était coupé et passait sous le panneau. */}
+      {open && anchor && createPortal(
+        <div ref={menuRef} className="popover fixed z-50 w-80 overflow-hidden" style={{ left: anchor.left, bottom: anchor.bottom }}>
           <div className="px-3 pb-2 pt-3">
             <p className="truncate text-[13px] font-semibold text-[var(--c-text)]">{email ?? "Cet appareil"}</p>
             {status.serverUrl && <p className="truncate font-mono text-[11.5px] text-[var(--c-text-muted)]">{status.serverUrl.replace(/^https?:\/\//, "")}</p>}
@@ -92,7 +106,8 @@ export function AccountMenu(props: ProfileBarProps) {
               props.onOpenGuiVault();
             }}
           />
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );

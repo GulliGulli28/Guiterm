@@ -159,7 +159,22 @@ entre dans le rail sans numéro `Alt+n`, car ce n'est pas un panneau.
 - **Vérifier sous WebView2** : glisser la fenêtre par la barre de titre,
   double-clic pour agrandir, onglets nombreux dans une fenêtre étroite.
 
-### Tranche 2 — Hôtes
+### Tranche 2 — Hôtes — **livrée le 2026-10-27**
+
+Écarts avec le plan :
+- Un clic simple connecte toujours. Le double-clic n'a pas été retenu, car
+  il aurait ralenti l'action la plus fréquente de l'app.
+- Pas d'« Ouvrir à côté » : l'ouverture en split passe toujours par la
+  barre de session.
+- La palette groupe Hôtes / Actions / Panneaux, sans groupe Snippets : les
+  snippets passent par `Ctrl+Shift+R`, qui a sa propre liste.
+- Les tags et l'OS d'un hôte sont passés dans l'infobulle de la ligne,
+  qui affiche maintenant `utilisateur@adresse`.
+- Le menu du compte (tranche 1) est rendu dans un portail, à droite du
+  rail : il passait sous le panneau. La scène `41` du tour vérifie qu'aucun
+  point du menu n'est recouvert.
+
+Le contenu prévu :
 
 - **Frontend.**
   - `EntityRow.tsx`, `HostsPanel.tsx` : lignes sur 2 lignes, actions au survol,

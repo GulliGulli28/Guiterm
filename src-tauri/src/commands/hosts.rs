@@ -438,6 +438,54 @@ pub fn delete_host(state: State<'_, AppState>, host_id: HostId) -> Result<Worksp
     Ok(workspace.clone())
 }
 
+/// Copie un hôte (voir `Workspace::duplicate_host`) **avec ses secrets** :
+/// mot de passe ou passphrase, et variables d'environnement secrètes. Ils
+/// vivent dans le coffre sous l'id de l'hôte, d'où cette commande — le
+/// formulaire ne relit pas une variable secrète, il ne pourrait pas la
+/// recopier. Rend le workspace ; la copie est l'hôte qui suit l'original.
+#[tauri::command]
+pub fn duplicate_host(state: State<'_, AppState>, host_id: HostId, keep_vault: bool) -> Result<Workspace, String> {
+    let mut workspace = state.workspace.lock_recover();
+    let copy_id = workspace
+        .duplicate_host(host_id, keep_vault)
+        .ok_or_else(|| "Cet hôte n'existe plus.".to_string())?;
+    let secret_env: Vec<String> = workspace
+        .host(host_id)
+        .map(|host| host.env_vars.iter().filter(|v| v.secret).map(|v| v.key.clone()).collect())
+        .unwrap_or_default();
+    // Un secret qu'on ne peut pas recopier (coffre verrouillé) annule la
+    // copie plutôt que de la laisser sans mot de passe : elle échouerait à la
+    // première connexion sans rien qui dise pourquoi.
+    let copied = copy_host_secrets(host_id, copy_id, &secret_env);
+    if let Err(e) = copied {
+        workspace.hosts.retain(|h| h.id != copy_id);
+        workspace.vault_bindings.remove(&copy_id);
+        let _ = vault::delete(copy_id, SecretKind::Password);
+        let _ = vault::delete(copy_id, SecretKind::KeyPassphrase);
+        for name in &secret_env {
+            let _ = vault::delete_env_var(copy_id, name);
+        }
+        return Err(format!("La copie n'a pas pu reprendre les secrets de l'hôte. {e}"));
+    }
+    persist(&workspace)?;
+    Ok(workspace.clone())
+}
+
+/// Recopie les secrets du coffre d'un hôte sous l'id d'un autre.
+fn copy_host_secrets(from: HostId, to: HostId, secret_env: &[String]) -> Result<(), String> {
+    for kind in [SecretKind::Password, SecretKind::KeyPassphrase] {
+        if let Some(secret) = vault::load(from, kind).map_err(|e| format!("{} : {e}", secret_label(kind)))? {
+            vault::store(to, kind, &secret).map_err(|e| format!("{} : {e}", secret_label(kind)))?;
+        }
+    }
+    for name in secret_env {
+        if let Some(value) = vault::load_env_var(from, name).map_err(|e| format!("La variable {name} : {e}"))? {
+            vault::store_env_var(to, name, &value).map_err(|e| format!("La variable {name} : {e}"))?;
+        }
+    }
+    Ok(())
+}
+
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct SaveGroupInput {

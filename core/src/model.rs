@@ -1199,6 +1199,44 @@ impl Workspace {
         self.sql_connections.iter().find(|c| c.id == id)
     }
 
+    /// Copie un hôte, juste après l'original, sous un nouvel id et un nom
+    /// libre (« web-01 (copie) », puis « (copie 2) »…). Rend l'id de la copie.
+    ///
+    /// Les **secrets** ne sont pas copiés ici — ils vivent dans le coffre,
+    /// indexés par l'id de l'hôte ; c'est `commands::hosts::duplicate_host`
+    /// qui les recopie sous le nouvel id. L'état relevé (`last_facts`) ne
+    /// suit pas : il décrit la machine de l'original, et la copie est le plus
+    /// souvent faite pour en viser une autre.
+    ///
+    /// `keep_vault` : la copie reste dans le vault partagé de l'original.
+    /// Faux quand ce vault n'est qu'en lecture — une copie qu'on ne pourrait
+    /// pas y écrire disparaîtrait à la synchro suivante ; elle va alors dans
+    /// le vault personnel.
+    pub fn duplicate_host(&mut self, id: HostId, keep_vault: bool) -> Option<HostId> {
+        let index = self.hosts.iter().position(|h| h.id == id)?;
+        let original = &self.hosts[index];
+        let mut copy = original.clone();
+        copy.id = Uuid::new_v4();
+        copy.last_facts = None;
+        copy.last_facts_at_ms = None;
+        let base = format!("{} (copie)", original.label);
+        let taken = |label: &str| self.hosts.iter().any(|h| h.label == label);
+        copy.label = if !taken(&base) {
+            base
+        } else {
+            (2..)
+                .map(|n| format!("{} (copie {n})", original.label))
+                .find(|label| !taken(label))
+                .expect("une suite infinie finit par trouver un nom libre")
+        };
+        let copy_id = copy.id;
+        if keep_vault && let Some(vault) = self.vault_bindings.get(&id).copied() {
+            self.vault_bindings.insert(copy_id, vault);
+        }
+        self.hosts.insert(index + 1, copy);
+        Some(copy_id)
+    }
+
     /// Resolves the bastion chain for a host: bastions first (in order), target last.
     pub fn jump_chain(&self, id: HostId) -> anyhow::Result<Vec<&Host>> {
         let target = self
@@ -1366,6 +1404,46 @@ mod auth_method_json {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn a_duplicated_host_lands_right_after_the_original_under_a_free_name() {
+        let mut workspace = Workspace::default();
+        let mut web = Host::new("web-01", "10.0.0.1", "deploy");
+        web.tags = vec!["nginx".into()];
+        web.last_facts = Some(HostFacts::default());
+        let web_id = web.id;
+        workspace.hosts.push(web);
+        workspace.hosts.push(Host::new("db-01", "10.0.0.2", "postgres"));
+
+        let first = workspace.duplicate_host(web_id, true).expect("l'hôte existe");
+        let second = workspace.duplicate_host(web_id, true).expect("l'hôte existe");
+
+        let labels: Vec<&str> = workspace.hosts.iter().map(|h| h.label.as_str()).collect();
+        assert_eq!(labels, ["web-01", "web-01 (copie 2)", "web-01 (copie)", "db-01"]);
+        let copy = workspace.host(first).unwrap();
+        assert_ne!(copy.id, web_id);
+        assert_eq!(copy.address, "10.0.0.1");
+        assert_eq!(copy.tags, ["nginx"]);
+        assert!(copy.last_facts.is_none(), "l'état relevé décrit l'original, pas la copie");
+        assert!(workspace.host(second).is_some());
+    }
+
+    #[test]
+    fn a_duplicated_host_keeps_its_vault_only_when_asked() {
+        let mut workspace = Workspace::default();
+        let web = Host::new("web-01", "10.0.0.1", "deploy");
+        let web_id = web.id;
+        workspace.hosts.push(web);
+        let vault: VaultId = Uuid::new_v4();
+        workspace.vault_bindings.insert(web_id, vault);
+
+        let kept = workspace.duplicate_host(web_id, true).unwrap();
+        let personal = workspace.duplicate_host(web_id, false).unwrap();
+
+        assert_eq!(workspace.vault_bindings.get(&kept), Some(&vault));
+        assert_eq!(workspace.vault_bindings.get(&personal), None);
+        assert_eq!(workspace.duplicate_host(Uuid::new_v4(), true), None);
+    }
 
     /// The safety check `delete_private_key` never had: a key in use has to be
     /// nameable before it is removed, or the hosts that authenticate with it

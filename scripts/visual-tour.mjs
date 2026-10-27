@@ -93,6 +93,13 @@ const scenes = [
     await page.locator("[data-host-row='pg-primary']").hover();
     await page.locator("[data-host-row='pg-primary'] button[title='Options']").click();
     await settle(page, 300);
+    // Le menu d'un hôte SSH ouvre (terminal, fichiers) avant de gérer, et
+    // porte la copie et la suppression — qui n'existaient que dans le
+    // formulaire, ou pas du tout.
+    const items = await page.evaluate(() => Array.from(document.querySelectorAll("[role='menu'] .menu-item"), (b) => b.textContent?.trim() ?? ""));
+    const expected = ["Ouvrir un terminal", "Ouvrir les fichiers", "Modifier", "Dupliquer", "Copier la commande ssh", "Supprimer…"];
+    const missing = expected.filter((label) => !items.includes(label));
+    if (missing.length || items[0] !== "Ouvrir un terminal") throw new Error(`menu d'hôte : manque ${JSON.stringify(missing)} — ${JSON.stringify(items)}`);
   }],
   // Le formulaire d'un hôte à mot de passe montre la valeur enregistrée
   // derrière l'œil : sans ça, un champ vide ne dit pas si un mot de passe est
@@ -461,10 +468,21 @@ const scenes = [
       state: document.querySelector("[data-profile-state]")?.textContent ?? "",
     }));
     if (bar.value !== "account" || !/Synchronisé/.test(bar.state)) throw new Error(`menu du compte : ${JSON.stringify(bar)}`);
-    await page.keyboard.press("Escape");
-    await settle(page, 200);
+    // Le menu déborde sur le panneau : il doit passer devant, pas dessous.
+    const covered = await page.evaluate(() => {
+      const menu = document.querySelector("[data-profile-bar]")?.closest(".popover");
+      if (!menu) return "menu introuvable";
+      const r = menu.getBoundingClientRect();
+      const rail = document.querySelector("aside nav")?.getBoundingClientRect();
+      if (rail && r.left < rail.right) return [`déborde sur le rail (${Math.round(r.left)} < ${Math.round(rail.right)})`];
+      const points = [[r.left + 8, r.top + 8], [r.right - 8, r.top + 8], [r.left + r.width / 2, r.bottom - 8]];
+      return points.filter(([x, y]) => !menu.contains(document.elementFromPoint(x, y))).map((p) => p.map(Math.round).join(","));
+    });
+    if (covered.length) throw new Error(`menu du compte recouvert en ${JSON.stringify(covered)}`);
   }],
   ["42-bases-vaults", async (page) => {
+    await page.keyboard.press("Escape");
+    await settle(page, 200);
     await clickNav(page, "Bases de données");
     await settle(page, 300);
     const sections = await page.evaluate(() => Array.from(document.querySelectorAll('[data-sidebar-panel="database"] [data-vault-section]')).map((e) => e.getAttribute("data-vault-section")));
@@ -931,7 +949,9 @@ try {
   page.on("pageerror", (err) => errors.push(String(err)));
 
   await page.goto(`http://localhost:4331/scripts/visual-tour.html${light ? "?mode=light" : ""}`);
-  await page.waitForSelector("text=web-01", { timeout: 15_000 });
+  // Long : au premier lancement après une mise à jour des dépendances, Vite
+  // les ré-optimise avant de servir la page.
+  await page.waitForSelector("text=web-01", { timeout: 60_000 });
   await settle(page, 500);
   await mkdir(outDir, { recursive: true });
 

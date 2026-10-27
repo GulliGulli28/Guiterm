@@ -346,7 +346,7 @@ input[type="checkbox"]:disabled {
     box-shadow: var(--shadow-lg);
   }
   .menu-item {
-    @apply flex w-full items-center gap-2 px-2.5 py-1.5 text-left text-[12.5px] text-[var(--c-text-secondary)] transition-colors;
+    @apply flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-[12.5px] text-[var(--c-text-secondary)] transition-colors;
   }
   .menu-item:hover,
   .menu-item[data-active="true"] {

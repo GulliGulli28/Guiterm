@@ -114,6 +114,7 @@ fn main() {
             commands::hosts::list_key_usage,
             commands::hosts::bulk_edit_hosts,
             commands::hosts::delete_host,
+            commands::hosts::duplicate_host,
             commands::hosts::save_group,
             commands::hosts::delete_group,
             commands::hosts::add_snippet,

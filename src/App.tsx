@@ -708,19 +708,29 @@ export default function App() {
     // cherchable : la palette est le seul endroit où choisir un hôte reste
     // une liste, faute d'arborescence — sans ça, deux machines homonymes
     // rangées dans deux dossiers différents y sont indiscernables.
-    ...workspace.hosts.map((h) => ({
-      id: `host.connect.${h.id}`,
-      label: `Se connecter — ${[...groupPath(workspace.groups, h.groupId), h.label].join(" › ")}`,
-      hint: h.tags.length > 0 ? h.tags.join(" · ") : "Hôte",
-      keywords: [...h.tags, h.address, h.username].join(" "),
-      run: () => openTab("terminal", h),
-    })),
+    // Affiché nom d'abord, `user@adresse · dossier` dessous : en tête, le
+    // chemin tronquait le nom, seule chose qui distingue web-01 de web-02.
+    ...workspace.hosts.map((h) => {
+      const path = groupPath(workspace.groups, h.groupId).join(" › ");
+      const target = `${h.username ? `${h.username}@` : ""}${h.address}`;
+      return {
+        id: `host.connect.${h.id}`,
+        label: `Se connecter — ${[...groupPath(workspace.groups, h.groupId), h.label].join(" › ")}`,
+        group: "Hôtes" as const,
+        title: h.label,
+        detail: [target, path].filter(Boolean).join(" · "),
+        hint: h.tags.length > 0 ? h.tags.slice(0, 2).join(" · ") : undefined,
+        keywords: [...h.tags, h.address, h.username].join(" "),
+        run: () => openTab("terminal", h),
+      };
+    }),
     // Chaque panneau de la barre, par son nom : c'est ce qui rend les
     // douzièmes atteignables au clavier quand les dix positions d'Alt+chiffre
     // sont prises, et ce qui évite d'avoir à retenir une position.
     ...visibleSidebarButtons.map((b, i) => ({
       id: `sidebar.open.${b.id}`,
       label: `Panneau — ${b.label}`,
+      group: "Panneaux" as const,
       hint: (preferences.keyboardShortcuts[`sidebar.panel${i + 1}`] || undefined)?.replace("Shift", "Maj"),
       keywords: b.hint ?? "",
       run: () => openSidebarPanel(b.id),

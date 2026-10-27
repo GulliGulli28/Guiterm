@@ -71,6 +71,10 @@ export const api = {
   getHostSecrets: (hostId: HostId) => invoke<HostSecrets>("get_host_secrets", { hostId }),
 
   deleteHost: (hostId: HostId) => invoke<Workspace>("delete_host", { hostId }),
+  /** Copie un hôte avec ses secrets (coffre compris), juste après lui.
+   * `keepVault` faux quand son vault n'est qu'en lecture : la copie va alors
+   * dans le vault personnel. */
+  duplicateHost: (hostId: HostId, keepVault: boolean) => invoke<Workspace>("duplicate_host", { hostId, keepVault }),
   testProxyCommand: (command: string, address: string, port: number, username: string) =>
     invoke<ProxyProbe>("test_proxy_command", { command, address, port, username }),
 

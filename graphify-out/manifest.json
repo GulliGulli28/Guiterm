@@ -195,8 +195,8 @@
     "semantic_hash": ""
   },
   "core/src/model.rs": {
-    "mtime": 1789464725.552431,
-    "ast_hash": "66e95f42a9d6cf8b7f800c4935a95ff3",
+    "mtime": 1793116670.761171,
+    "ast_hash": "5f8313a8c798dcd92a4fde21ba1b8705",
     "semantic_hash": ""
   },
   "core/src/mongo_client.rs": {
@@ -580,8 +580,8 @@
     "semantic_hash": ""
   },
   "src-tauri/src/commands/hosts.rs": {
-    "mtime": 1789979363.101764,
-    "ast_hash": "a05216837db317bff406a9382c5b380e",
+    "mtime": 1793116439.4347646,
+    "ast_hash": "3a03e4c7e1e9b37bd963011b9e5925c5",
     "semantic_hash": ""
   },
   "src-tauri/src/commands/interactive_auth.rs": {
@@ -675,8 +675,8 @@
     "semantic_hash": ""
   },
   "src-tauri/src/main.rs": {
-    "mtime": 1790582946.8582783,
-    "ast_hash": "fc5683aa46bae98f2c31a943bc0b8478",
+    "mtime": 1793116430.4046876,
+    "ast_hash": "f05246974e1d17ee4ba7f8b9b87cf4e5",
     "semantic_hash": ""
   },
   "src-tauri/src/state.rs": {
@@ -690,8 +690,8 @@
     "semantic_hash": ""
   },
   "src/App.tsx": {
-    "mtime": 1793111128.8613582,
-    "ast_hash": "3bf49de51aea61be5a7f45df6be93742",
+    "mtime": 1793125383.5280304,
+    "ast_hash": "b736388b5d3495267332e5806f8f62bd",
     "semantic_hash": ""
   },
   "src/components/ActivityTab.tsx": {
@@ -765,8 +765,8 @@
     "semantic_hash": ""
   },
   "src/components/CommandPalette.tsx": {
-    "mtime": 1790088629.4270499,
-    "ast_hash": "ddcdfb0a02251e6414c0fb0692f0fed9",
+    "mtime": 1793125554.2367687,
+    "ast_hash": "5529cce2058940f91a70c13f7ccd0111",
     "semantic_hash": ""
   },
   "src/components/ConfirmDialog.tsx": {
@@ -820,8 +820,8 @@
     "semantic_hash": ""
   },
   "src/components/HostsPanel.tsx": {
-    "mtime": 1790070657.1737058,
-    "ast_hash": "9e6a9220183143a2e1e8a5d245e7548b",
+    "mtime": 1793116854.4626858,
+    "ast_hash": "f5bd206b4b7c22c1bd61084c4de5a1b6",
     "semantic_hash": ""
   },
   "src/components/IconPicker.tsx": {
@@ -1105,8 +1105,8 @@
     "semantic_hash": ""
   },
   "src/lib/api.ts": {
-    "mtime": 1790583046.3198779,
-    "ast_hash": "c413cbd3e172ce3968e41527fad96a6b",
+    "mtime": 1793116430.406504,
+    "ast_hash": "2ca89ceaa055e5d984a239ddc99286a9",
     "semantic_hash": ""
   },
   "src/lib/awsIdentities.test.ts": {
@@ -2145,8 +2145,8 @@
     "semantic_hash": ""
   },
   "scripts/visual-tour.mjs": {
-    "mtime": 1793112148.5519156,
-    "ast_hash": "c9c6491b60046e6b3b1fccb4af27595f",
+    "mtime": 1793127351.4033442,
+    "ast_hash": "c9d20d84827c26ca6fbdb0e37ff76c9d",
     "semantic_hash": ""
   },
   "src-tauri/src/commands/guivault.rs": {
@@ -2410,8 +2410,8 @@
     "semantic_hash": ""
   },
   "src/components/AccountMenu.tsx": {
-    "mtime": 1793110578.0079017,
-    "ast_hash": "51b47c57462aba6503557a1631137dae",
+    "mtime": 1793127343.6081583,
+    "ast_hash": "1a55ee73e7c1df3130125a66a7b450c3",
     "semantic_hash": ""
   },
   "src/components/SessionBar.tsx": {
@@ -2425,8 +2425,8 @@
     "semantic_hash": ""
   },
   "docs/refonte-ui.md": {
-    "mtime": 1793115189.317587,
-    "ast_hash": "cedf604cc64708dd0187794858ae5605",
+    "mtime": 1793128198.8259892,
+    "ast_hash": "2c58121213546d9a502182de7a5847ea",
     "semantic_hash": ""
   }
 }

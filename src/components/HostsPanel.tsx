@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { focusFirstMenuItem, handleMenuKey } from "../lib/menuKeyboard";
 import { open, save } from "@tauri-apps/plugin-dialog";
+import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { api } from "../lib/api";
 import type { Group, GroupId, GuiVaultFollower, Host, HostId, SqlConnection, VaultId, VaultPlace, Workspace } from "../lib/types";
 import { sectionRoleLabel, splitTreeByVault, type VaultSection } from "../lib/vaultSections";
@@ -14,7 +15,8 @@ import { usePolledHostStat } from "../hooks/usePolledHostStat";
 import { useContainerPicker } from "../hooks/useContainerPicker";
 import { useHostTreeMemory } from "../hooks/useHostTreeMemory";
 import { BulkEditPanel } from "./BulkEditPanel";
-import { EntityRow, EntityMono, EntityTags, GroupRow } from "./EntityRow";
+import { EntityRow, EntityMono, GroupRow } from "./EntityRow";
+import { ConfirmDialog } from "./ConfirmDialog";
 import { PersistentSessionsModal } from "./PersistentSessionsModal";
 import { TransferConfirmDialog } from "./TransferConfirmDialog";
 import {
@@ -22,6 +24,7 @@ import {
   IconFolder, IconChevronDown,
   IconDotsVertical, IconEdit,
   IconUpload, IconDownload, IconTransfer, IconTunnels, IconTerminal, IconChecklist, IconVault,
+  IconCopy, IconTrash, IconMonitor,
 } from "./ui-icons";
 
 interface HostsPanelProps {
@@ -199,6 +202,8 @@ export function HostsPanel({
   const [exportPendingHost, setExportPendingHost] = useState<Host | null>(null);
   /** L'hôte dont on regarde les sessions persistantes, s'il y en a un. */
   const [sessionsHost, setSessionsHost] = useState<Host | null>(null);
+  /** L'hôte dont la suppression attend confirmation. */
+  const [pendingDelete, setPendingDelete] = useState<Host | null>(null);
   const { openDockerPicker, openK8sPicker, pickerModal } = useContainerPicker(onConnectDocker, onConnectK8s);
 
   const hostStatus = usePolledHostStat(
@@ -324,6 +329,37 @@ export function HostsPanel({
     } catch (e) { onError?.(String(e)); }
   };
 
+  /** La section (vault) qui porte cet hôte, quand un compte est affiché. */
+  const sectionOf = (host: Host) => sections?.find((sec) => sec.id === (workspace.vaultBindings?.[host.id] ?? null));
+  const inReadOnlyVault = (host: Host) => sectionOf(host)?.role === "reader";
+
+  /** La commande `ssh` équivalente, bastions compris — à coller dans un autre
+   * terminal ou une doc. */
+  const sshCommandFor = (host: Host): string => {
+    const endpoint = (h: Host) => `${h.username ? `${h.username}@` : ""}${h.address}`;
+    const jumps = host.jumpVia
+      .map((id) => workspace.hosts.find((h) => h.id === id))
+      .filter((h): h is Host => !!h)
+      .map((h) => `${endpoint(h)}${h.port !== 22 ? `:${h.port}` : ""}`);
+    return ["ssh", host.port !== 22 ? `-p ${host.port}` : null, jumps.length ? `-J ${jumps.join(",")}` : null, endpoint(host)].filter(Boolean).join(" ");
+  };
+  const copySshCommand = (host: Host) => {
+    const command = sshCommandFor(host);
+    writeText(command).then(() => onNotify?.(`Commande copiée : ${command}`)).catch((e) => onError?.(String(e)));
+  };
+  // La copie reste dans le vault de l'original, sauf s'il n'est qu'en
+  // lecture : elle y disparaîtrait à la synchro suivante.
+  const duplicateHost = (host: Host) => {
+    api.duplicateHost(host.id, !inReadOnlyVault(host))
+      .then((ws) => { onWorkspaceUpdate?.(ws); onNotify?.(`« ${host.label} » dupliqué.`); })
+      .catch((e) => onError?.(String(e)));
+  };
+  const deleteHost = (host: Host) => {
+    api.deleteHost(host.id)
+      .then((ws) => { onWorkspaceUpdate?.(ws); onNotify?.(`« ${host.label} » supprimé.`); })
+      .catch((e) => onError?.(String(e)));
+  };
+
   // ── Host row ─────────────────────────────────────────────────────────────
   // Une ligne de 40 px : libellé et mémoire d'un côté, adresse en mono et
   // tags de l'autre. Une carte par hôte montrait six machines par écran ; une
@@ -342,10 +378,13 @@ export function HostsPanel({
     const runningCount = kind === "dockerExec" ? containerCounts[host.id] : kind === "k8sExec" ? podCounts[host.id] : undefined;
     const online = hostStatus[host.id];
     const facts = kind === "ssh" ? host.lastFacts : null;
+    // Le système et les tags quittent la ligne pour l'infobulle : une ligne
+    // de deux étages se parcourt du regard, et les tags restent cherchables.
     const tooltip = [
       kind === "ssh" ? `Connecter — ${subtitle}` : kind === "rdp" ? `Aperçu intégré — ${subtitle}` : `${kindLabel} — ${subtitle}`,
       facts?.osName || facts?.osId,
       facts?.memUsedPct != null ? `RAM ${Math.round(facts.memUsedPct)} %` : null,
+      host.tags.length ? `Tags : ${host.tags.join(", ")}` : null,
       host.lastFactsAtMs != null ? `état ${formatRelativeTime(host.lastFactsAtMs)}` : null,
     ].filter(Boolean).join("\n");
     return (
@@ -380,19 +419,29 @@ export function HostsPanel({
         title_={tooltip}
         badges={runningCount != null && <span className="tag tag-accent">{runningCount} actif{runningCount === 1 ? "" : "s"}</span>}
         meta={facts?.memUsedPct != null && (
-          <span className="font-mono text-[10.5px] font-medium tabular-nums" style={{ color: ramColor(facts.memUsedPct) }}>
-            {Math.round(facts.memUsedPct)}%
+          <span className="flex items-center gap-1.5" title={`RAM ${Math.round(facts.memUsedPct)} %`}>
+            <span className="h-[5px] w-8 overflow-hidden rounded-full bg-[var(--c-border)]">
+              <span className="block h-full rounded-full" style={{ width: `${Math.min(100, facts.memUsedPct)}%`, background: ramColor(facts.memUsedPct) }} />
+            </span>
+            <span className="font-mono text-[11px] tabular-nums text-[var(--c-text-muted)]">{Math.round(facts.memUsedPct)}%</span>
           </span>
         )}
-        secondary={
-          <>
-            <EntityMono>{subtitle}</EntityMono>
-            {(facts?.osName || facts?.osId) && <span className="text-[var(--c-text-faint)]">{facts.osName || facts.osId}</span>}
-            <EntityTags tags={host.tags} />
-          </>
-        }
+        secondary={<EntityMono>{subtitle}</EntityMono>}
         onClick={() => (selecting ? toggleSelected(host.id) : handleConnect(host))}
         actions={
+          <>
+          {/* Le clic sur la ligne connecte ; au survol, l'autre geste
+              courant — les fichiers — sans passer par le menu. */}
+          {kind === "ssh" && !selecting && (
+            <button
+              onClick={(e) => { e.stopPropagation(); onOpenTransfer(host); }}
+              className="btn btn-ghost btn-sm btn-icon"
+              title="Ouvrir les fichiers"
+              aria-label={`Ouvrir les fichiers de ${host.label}`}
+            >
+              <IconTransfer size={13} />
+            </button>
+          )}
           <button
             onClick={(e) => {
               e.stopPropagation();
@@ -407,6 +456,7 @@ export function HostsPanel({
           >
             <IconDotsVertical size={14} />
           </button>
+          </>
         }
       />
     );
@@ -426,29 +476,69 @@ export function HostsPanel({
       <>
         <div className="fixed inset-0 z-30" onMouseDown={close} />
         <div
-          className="popover fixed z-40 max-h-[calc(100vh-16px)] w-60 overflow-y-auto py-1"
+          className="popover fixed z-40 max-h-[calc(100vh-16px)] w-64 overflow-y-auto p-1"
           style={menuAnchor}
           role="menu"
           ref={focusFirstMenuItem}
           onKeyDown={(e) => handleMenuKey(e, close)}
         >
-          <button onClick={() => { onEditHost(host); close(); }} className="menu-item"><IconEdit size={13} /> Modifier</button>
+          {/* Rangé par intention : ouvrir, gérer, partager, puis ce qui
+              détruit. Le menu commençait par « Modifier », sans « Se
+              connecter » ni moyen de supprimer hors du formulaire. */}
+          <div className="px-2.5 pb-2 pt-1.5">
+            <p className="truncate text-[12.5px] font-semibold text-[var(--c-text)]">{host.label}</p>
+            <p className="truncate font-mono text-[11px] text-[var(--c-text-muted)]">{kind === "ssh" ? sshCommandFor(host).replace(/^ssh /, "") : host.address}</p>
+          </div>
+          <div className="menu-sep" />
           {kind === "ssh" && (
-            <button
-              onClick={() => { onSearchFiles(host); close(); }}
-              title="Chercher un fichier par son nom ou par son contenu ; un résultat s'ouvre directement dans ton éditeur"
-              className="menu-item"
-            >
-              <IconSearch size={13} /> Rechercher des fichiers
-            </button>
+            <>
+              <button onClick={() => { handleConnect(host); close(); }} className="menu-item" role="menuitem"><IconTerminal size={13} /> Ouvrir un terminal</button>
+              <button onClick={() => { onOpenTransfer(host); close(); }} className="menu-item" role="menuitem"><IconTransfer size={13} /> Ouvrir les fichiers</button>
+            </>
+          )}
+          {kind === "dockerExec" && (
+            <button onClick={() => { handleConnect(host); close(); }} className="menu-item" role="menuitem"><IconTerminal size={13} /> Choisir un conteneur…</button>
+          )}
+          {kind === "k8sExec" && (
+            <button onClick={() => { handleConnect(host); close(); }} className="menu-item" role="menuitem"><IconTerminal size={13} /> Choisir un pod…</button>
+          )}
+          {kind === "rdp" && (
+            <>
+              <button onClick={() => { handleConnect(host); close(); }} className="menu-item" role="menuitem"><IconMonitor size={13} /> Ouvrir le bureau à distance</button>
+              <button
+                onClick={() => { onOpenTransfer(host); close(); }}
+                title="Le bureau à distance avec un panneau de fichiers à gauche : glisser un fichier dessus l'envoie dans la session"
+                className="menu-item"
+                role="menuitem"
+              >
+                <IconTransfer size={13} /> Transférer des fichiers
+              </button>
+            </>
+          )}
+          <div className="menu-sep" />
+          <button onClick={() => { onEditHost(host); close(); }} className="menu-item" role="menuitem"><IconEdit size={13} /> Modifier</button>
+          <button onClick={() => { duplicateHost(host); close(); }} className="menu-item" role="menuitem" data-host-action="duplicate"><IconCopy size={13} /> Dupliquer</button>
+          {kind === "ssh" && (
+            <button onClick={() => { copySshCommand(host); close(); }} className="menu-item" role="menuitem"><IconKeyboard size={13} /> Copier la commande ssh</button>
           )}
           {kind === "ssh" && (
             <button
               onClick={() => { onProbeReachability(host); close(); }}
-              title="Est-ce que cet hôte atteint telle adresse, sur tel port ? Distingue un refus (le port est fermé) d'un silence (pare-feu ou route manquante)"
+              title="Cet hôte atteint-il telle adresse, sur tel port ? Distingue un refus (port fermé) d'un silence (pare-feu, route)"
               className="menu-item"
+              role="menuitem"
             >
-              <IconTunnels size={13} /> Joignabilité
+              <IconTunnels size={13} /> Tester la joignabilité
+            </button>
+          )}
+          {kind === "ssh" && (
+            <button
+              onClick={() => { onSearchFiles(host); close(); }}
+              title="Chercher un fichier par son nom ou par son contenu ; un résultat s'ouvre dans votre éditeur"
+              className="menu-item"
+              role="menuitem"
+            >
+              <IconSearch size={13} /> Rechercher des fichiers
             </button>
           )}
           {kind === "ssh" && (
@@ -460,20 +550,12 @@ export function HostsPanel({
               onClick={() => { setSessionsHost(host); close(); }}
               title="Ce qui tourne encore sur cet hôte dans une session persistante — le reprendre, ou le terminer"
               className="menu-item"
+              role="menuitem"
             >
               <IconTerminal size={13} /> Sessions persistantes
             </button>
           )}
-          {kind === "rdp" && (
-            <button
-              onClick={() => { onOpenTransfer(host); close(); }}
-              title="Ouvre l'aperçu intégré avec un panneau de fichiers à gauche — glisser un fichier/dossier dessus l'envoie et le colle automatiquement dans la session distante"
-              className="menu-item"
-            >
-              <IconTransfer size={13} /> Transférer des fichiers
-            </button>
-          )}
-          <button onClick={() => { handleExportHost(host); close(); }} className="menu-item"><IconUpload size={13} /> Exporter…</button>
+          <button onClick={() => { handleExportHost(host); close(); }} className="menu-item" role="menuitem"><IconUpload size={13} /> Exporter…</button>
           {sections && (() => {
             // Déplacer vers un autre vault du compte, sans passer par le
             // panneau GuiVault — le geste le plus fréquent. Pas depuis un
@@ -529,6 +611,21 @@ export function HostsPanel({
                   <span className="truncate">{forward.bindAddress}:{forward.bindPort} → {forward.destAddress}:{forward.destPort}</span>
                 </p>
               ))}
+            </>
+          )}
+          {/* Pas depuis un vault en lecture : la synchro suivante ramènerait
+              l'hôte. */}
+          {!inReadOnlyVault(host) && (
+            <>
+              <div className="menu-sep" />
+              <button
+                onClick={() => { setPendingDelete(host); close(); }}
+                className="menu-item text-[var(--c-danger)] hover:text-[var(--c-danger)]"
+                role="menuitem"
+                data-host-action="delete"
+              >
+                <IconTrash size={13} /> Supprimer…
+              </button>
             </>
           )}
         </div>
@@ -765,6 +862,17 @@ export function HostsPanel({
             )}
           </div>
         </>
+      )}
+
+      {pendingDelete && (
+        <ConfirmDialog
+          title={`Supprimer « ${pendingDelete.label} » ?`}
+          message={`L'hôte, son mot de passe et ses variables secrètes sont retirés de Guiterm. Les tunnels et les bases qui passent par lui ne pourront plus se connecter.`}
+          confirmLabel="Supprimer"
+          danger
+          onConfirm={() => { const h = pendingDelete; setPendingDelete(null); deleteHost(h); }}
+          onCancel={() => setPendingDelete(null)}
+        />
       )}
 
       {sessionsHost && (
