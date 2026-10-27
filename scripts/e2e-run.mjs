@@ -1256,8 +1256,8 @@ async function runTabShortcutScenario(browser) {
 }
 
 /**
- * La navigation au clavier entre zones, à travers la vraie webview : Alt+3
- * (depuis xterm) ouvre le troisième panneau visible et lui donne le focus,
+ * La navigation au clavier entre zones, à travers la vraie webview : Alt+2
+ * (depuis xterm) ouvre le deuxième panneau visible et lui donne le focus,
  * F6 fait le tour, Ctrl+Maj+Espace revient dans xterm, Ctrl+, ouvre et
  * referme les paramètres. Le tour visuel vérifie le détail (curseur, Entrée,
  * menus) dans Chromium ; ici, ce qui ne se voit que dans la webview : que
@@ -1269,13 +1269,13 @@ async function runKeyboardZonesScenario(browser) {
   const inTerminal = () => browser.execute(() => document.activeElement?.closest(".xterm") !== null);
 
   await focusVisibleTerminal(browser);
-  await browser.keys(["Alt", "3"]);
+  await browser.keys(["Alt", "2"]);
   await browser.waitUntil(async () => (await browser.execute(() => document.querySelector("[data-sidebar-panel]")?.getAttribute("data-sidebar-panel"))) === "sftp" && (await zone()) === "sidebar-panel", {
     timeout: 5_000,
-    timeoutMsg: "Alt+3 depuis xterm n a pas ouvert et focalisé le panneau SFTP",
+    timeoutMsg: "Alt+2 depuis xterm n a pas ouvert et focalisé le panneau SFTP",
   });
-  await browser.keys(["Alt", "3"]);
-  await browser.waitUntil(inTerminal, { timeout: 5_000, timeoutMsg: "le second Alt+3 n a pas rendu le focus au terminal" });
+  await browser.keys(["Alt", "2"]);
+  await browser.waitUntil(inTerminal, { timeout: 5_000, timeoutMsg: "le second Alt+2 n a pas rendu le focus au terminal" });
 
   await browser.keys("F6");
   await browser.waitUntil(async () => (await zone()) === "sidebar-nav", { timeout: 5_000, timeoutMsg: "F6 depuis xterm n a pas mené à la bande de boutons" });
@@ -1292,10 +1292,10 @@ async function runKeyboardZonesScenario(browser) {
     timeout: 5_000,
     timeoutMsg: "le second Ctrl+, n a pas refermé les paramètres ni rendu le terminal",
   });
-  await browser.keys(["Alt", "2"]);
-  await browser.waitUntil(async () => (await browser.execute(() => document.querySelector("[data-sidebar-panel]")?.getAttribute("data-sidebar-panel"))) === "hosts", { timeout: 5_000, timeoutMsg: "Alt+2 n a pas ramené le panneau Hôtes" });
+  await browser.keys(["Alt", "1"]);
+  await browser.waitUntil(async () => (await browser.execute(() => document.querySelector("[data-sidebar-panel]")?.getAttribute("data-sidebar-panel"))) === "hosts", { timeout: 5_000, timeoutMsg: "Alt+1 n a pas ramené le panneau Hôtes" });
   await focusVisibleTerminal(browser);
-  console.log("Zones au clavier : OK (Alt+3 aller-retour, F6, Ctrl+Maj+Espace, Ctrl+, aller-retour — tout traverse xterm).");
+  console.log("Zones au clavier : OK (Alt+2 aller-retour, F6, Ctrl+Maj+Espace, Ctrl+, aller-retour — tout traverse xterm).");
 }
 
 /**

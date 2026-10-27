@@ -8,6 +8,9 @@ interface NotificationBellProps {
   onDismiss: (id: string) => void;
   onClearAll: () => void;
   onMarkAllRead: () => void;
+  /** Le bord auquel le menu s'aligne : `right` quand la cloche est au bout
+   * droit de la barre, sans quoi le menu sortirait de la fenêtre. */
+  align?: "left" | "right";
 }
 
 const KIND_DOT: Record<AppNotification["kind"], string> = {
@@ -16,7 +19,7 @@ const KIND_DOT: Record<AppNotification["kind"], string> = {
   error: "bg-[var(--c-danger)]",
 };
 
-export function NotificationBell({ notifications, onDismiss, onClearAll, onMarkAllRead }: NotificationBellProps) {
+export function NotificationBell({ notifications, onDismiss, onClearAll, onMarkAllRead, align = "left" }: NotificationBellProps) {
   const [open, setOpen] = useState(false);
   const unreadCount = notifications.filter((n) => !n.read).length;
 
@@ -25,6 +28,7 @@ export function NotificationBell({ notifications, onDismiss, onClearAll, onMarkA
       <button
         onClick={() => { setOpen((v) => !v); if (!open) onMarkAllRead(); }}
         title="Notifications"
+        aria-label="Notifications"
         className={`btn btn-ghost btn-sm btn-icon relative text-[var(--c-text-muted)] ${open ? "bg-[var(--c-hover)] text-[var(--c-text)]" : ""}`}
       >
         <IconBell size={14} />
@@ -37,7 +41,7 @@ export function NotificationBell({ notifications, onDismiss, onClearAll, onMarkA
       {open && (
         <>
           <div className="fixed inset-0 z-10" onClick={() => setOpen(false)} />
-          <div className="popover absolute left-0 top-full z-20 mt-1 w-80 overflow-hidden">
+          <div className={`popover absolute top-full z-20 mt-1 w-80 overflow-hidden ${align === "right" ? "right-0" : "left-0"}`}>
             <div className="flex items-center justify-between border-b border-[var(--c-border)] px-3 py-2">
               <span className="eyebrow">Notifications</span>
               {notifications.length > 0 && (

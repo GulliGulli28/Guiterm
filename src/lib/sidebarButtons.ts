@@ -25,31 +25,41 @@ export type SidebarPanelKind =
  */
 export type SidebarButtonId = Exclude<SidebarPanelKind, "settings">;
 
+/** Les trois groupes du rail, de haut en bas : ce qu'on parcourt pour se
+ * connecter, les outils qui travaillent sur plusieurs machines, puis le
+ * compte (posé en bas, avec les réglages). */
+export type SidebarGroup = "connexions" | "outils" | "compte";
+
 export interface SidebarButtonDef {
   id: SidebarButtonId;
-  /** Libellé court — celui de l'infobulle, et celui coché dans les réglages :
-   * la liste doit se lire contre la barre qu'on a sous les yeux. */
+  /** Libellé complet — celui de l'infobulle, et celui coché dans les
+   * réglages : la liste doit se lire contre la barre qu'on a sous les yeux. */
   label: string;
+  /** Le mot sous l'icône, dans le rail : 72 px de large, donc un seul mot. */
+  short: string;
+  group: SidebarGroup;
   /** Complément d'infobulle, pour les boutons dont le libellé seul ne dit pas
    * ce qu'ils ouvrent. */
   hint?: string;
 }
 
-/** Ordre d'affichage dans la barre — et dans la liste des réglages, pour la
- * même raison. */
+/** Ordre d'affichage dans le rail — et dans la liste des réglages, pour la
+ * même raison. C'est aussi l'ordre des raccourcis `Alt+1…0`, qui comptent
+ * les boutons visibles : Hôtes est le premier parce que c'est par lui qu'on
+ * entre (refonte d'octobre 2026, `docs/refonte-ui.md`). */
 export const SIDEBAR_BUTTONS: readonly SidebarButtonDef[] = [
-  { id: "knownHosts", label: "Known Hosts" },
-  { id: "hosts",      label: "Hôtes" },
-  { id: "sftp",       label: "SFTP" },
-  { id: "snippets",   label: "Snippets" },
-  { id: "tunnels",    label: "Tunnels" },
-  { id: "database",   label: "Bases de données" },
-  { id: "keychain",   label: "Clés" },
-  { id: "aws",        label: "Identités AWS" },
-  { id: "fleet",      label: "Opérations de flotte", hint: "exécuter une commande sur plusieurs hôtes à la fois" },
-  { id: "runbook",    label: "Runbooks", hint: "des procédures ordonnées, étape par étape, sur les mêmes cibles" },
-  { id: "netdiag",    label: "Diagnostic réseau", hint: "ping, traceroute, DNS, TCP, HTTP depuis ou vers vos hôtes" },
-  { id: "guivault",   label: "GuiVault", hint: "synchronisation chiffrée et vaults partagés avec votre équipe" },
+  { id: "hosts",      label: "Hôtes", short: "Hôtes", group: "connexions" },
+  { id: "sftp",       label: "SFTP", short: "Fichiers", group: "connexions", hint: "transférer des fichiers entre cette machine et vos hôtes" },
+  { id: "snippets",   label: "Snippets", short: "Snippets", group: "connexions" },
+  { id: "database",   label: "Bases de données", short: "Bases", group: "connexions" },
+  { id: "tunnels",    label: "Tunnels", short: "Tunnels", group: "connexions" },
+  { id: "keychain",   label: "Clés", short: "Clés", group: "connexions" },
+  { id: "knownHosts", label: "Known Hosts", short: "Empreintes", group: "connexions", hint: "empreintes des hôtes déjà vus" },
+  { id: "aws",        label: "Identités AWS", short: "Cloud", group: "connexions" },
+  { id: "fleet",      label: "Opérations de flotte", short: "Flotte", group: "outils", hint: "exécuter une commande sur plusieurs hôtes à la fois" },
+  { id: "runbook",    label: "Runbooks", short: "Runbooks", group: "outils", hint: "des procédures ordonnées, étape par étape, sur les mêmes cibles" },
+  { id: "netdiag",    label: "Diagnostic réseau", short: "Réseau", group: "outils", hint: "ping, traceroute, DNS, TCP, HTTP depuis ou vers vos hôtes" },
+  { id: "guivault",   label: "GuiVault", short: "GuiVault", group: "compte", hint: "synchronisation chiffrée et vaults partagés avec votre équipe" },
 ];
 
 /** `hosts` est le point d'entrée : sans lui, plus rien ne permet d'ouvrir une

@@ -68,10 +68,12 @@ rapides : terminal, fichiers, menu.
 - Une erreur dit ce qui s'est passé, puis ce qu'on peut faire, avec le bouton
   qui le fait. Le message brut reste visible en mono.
 
-**Ce qui ne change pas.** Raccourcis, `Alt+n` des panneaux, arborescence par
-vault, palette, `data-sidebar-button` / `data-sidebar-panel` /
-`data-focus-zone` (l'E2E et la navigation clavier s'y accrochent). La refonte
-réorganise ; elle ne retire aucune fonction.
+**Ce qui ne change pas.** Raccourcis, arborescence par vault, palette,
+`data-sidebar-button` / `data-sidebar-panel` / `data-focus-zone` (l'E2E et la
+navigation clavier s'y accrochent). La refonte réorganise ; elle ne retire
+aucune fonction. Une exception assumée : `Alt+1…0` comptent les boutons
+visibles du rail, et Known Hosts n'est plus en tête. Depuis la tranche 1,
+`Alt+1` ouvre Hôtes, `Alt+2` Fichiers, et `Alt+0` toujours Runbooks.
 
 ## À corriger quelle que soit la refonte
 
@@ -101,7 +103,7 @@ Chaque tranche se livre seule : visible, vérifiée (`npm run verify`, tour
 visuel sombre **et** clair, E2E, binaire Windows lancé), puis commitée. Le
 CHANGELOG s'écrit après le test manuel de chaque tranche.
 
-### Tranche 0 — Fondations visuelles (aucun changement de structure)
+### Tranche 0 — Fondations visuelles (aucun changement de structure) — **livrée le 2026-10-27**
 
 - **Jetons.** Réécrire les valeurs de `:root` et `:root[data-mode="light"]`
   dans `src/index.css` vers la palette retenue, **sans renommer les variables
@@ -128,7 +130,11 @@ CHANGELOG s'écrit après le test manuel de chaque tranche.
 - **Garde-fou.** `accessibility.test.ts` et `focusIndication.test.ts` doivent
   rester verts. Contrôler à l'œil les contrastes du thème clair.
 
-### Tranche 1 — Coquille
+### Tranche 1 — Coquille — **livrée le 2026-10-27**
+
+Écarts avec le plan : la barre d'état en bas du terminal (latence, taille)
+est remise à plus tard, faute de mesure de latence côté Rust. Activité
+entre dans le rail sans numéro `Alt+n`, car ce n'est pas un panneau.
 
 - **Frontend.**
   - `TitleBar.tsx` + `TabBar.tsx` : onglets dans la barre de titre, zones

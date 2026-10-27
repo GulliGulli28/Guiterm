@@ -127,6 +127,8 @@ export const RdpTab = forwardRef<TerminalTabHandle, RdpTabProps>(function RdpTab
       // No font to resize either: the remote desktop decides its own
       // resolution, and the canvas is scaled to fit whatever it sends.
       zoom: () => {},
+      // Ni de texte où chercher.
+      openSearch: () => {},
       dispose: () => {
         const id = sessionIdRef.current;
         if (id) api.closeRdpView(id).catch(() => {});

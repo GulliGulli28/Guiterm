@@ -198,6 +198,30 @@ input[type="checkbox"]:disabled {
   padding-right: 4px;
 }
 
+/* La barre de session (`SessionBar`) se règle sur **sa** largeur, pas sur
+   celle de la fenêtre : un panneau ouvert à droite (GuiVault, formulaire)
+   rétrécit la zone du terminal sans que la fenêtre change. Les libellés
+   des boutons partent d'abord, puis le chemin (vault, dossiers), puis
+   `user@adresse` — le nom de l'hôte reste toujours. */
+.session-bar {
+  container-type: inline-size;
+}
+@container (max-width: 860px) {
+  .session-bar .bar-label {
+    display: none;
+  }
+}
+@container (max-width: 640px) {
+  .session-bar .crumb-path {
+    display: none;
+  }
+}
+@container (max-width: 480px) {
+  .session-bar .crumb-target {
+    display: none;
+  }
+}
+
 /* ── Primitives ────────────────────────────────────────────────────────────
  *
  * Dans `@layer components` pour qu'une utilitaire Tailwind posée à côté

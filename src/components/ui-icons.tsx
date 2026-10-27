@@ -335,6 +335,17 @@ export function IconBell({ size = 16, className }: P) {
   );
 }
 
+/** L'activité : un tracé de pouls, ce qui s'est passé au fil du temps.
+ * Remplace la cloche sur l'onglet Activité — la cloche est aux
+ * notifications. */
+export function IconActivity({ size = 16, className }: P) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>
+      <path d="M1.5 8h2.75L6 3l3 10 1.75-5h3.75" stroke="currentColor" strokeWidth="1.25" strokeLinecap="round" strokeLinejoin="round" />
+    </svg>
+  );
+}
+
 export function IconBroadcast({ size = 16, className }: P) {
   return (
     <svg width={size} height={size} viewBox="0 0 16 16" fill="none" className={className}>

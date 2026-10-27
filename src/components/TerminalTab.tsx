@@ -49,6 +49,9 @@ export interface TerminalTabHandle {
    * the session is open (or after it closed), which is also the answer to
    * "can this tab be recorded right now". */
   getRecordingTarget: () => { sessionId: string; cols: number; rows: number } | null;
+  /** Ouvre la barre de recherche du terminal — ce que fait `Ctrl+F` dedans,
+   * pour la barre de session qui, elle, est au-dessus. */
+  openSearch: () => void;
   /** Changes this terminal's own font size, leaving every other terminal and
    * the configured default alone. Normally driven by Ctrl+±/Ctrl+0 inside the
    * terminal itself; exposed so the command palette can reach the active tab
@@ -255,6 +258,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
         return id && term ? { sessionId: id, cols: term.cols, rows: term.rows } : null;
       },
       zoom: (action) => applyZoomRef.current(action),
+      openSearch: () => setSearchOpen(true),
       dispose: () => {
         const id = sessionIdRef.current;
         if (id) api.closeTerminal(id).catch(() => {});

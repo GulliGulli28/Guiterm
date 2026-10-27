@@ -1,37 +1,32 @@
 import { useEffect, useRef, useState } from "react";
 import type { TabMeta } from "../lib/types";
-import { IconTerminal, IconTransfer, IconMonitor, IconSplit, IconClose, IconBroadcast, IconDatabase, IconFullscreen, IconFullscreenExit, IconNetDiag, IconBell, IconPin, IconEye, IconVault } from "./ui-icons";
+import { IconTerminal, IconTransfer, IconMonitor, IconClose, IconBroadcast, IconDatabase, IconNetDiag, IconActivity, IconPin, IconEye, IconRunbook } from "./ui-icons";
 
 interface TabBarProps {
   tabs: TabMeta[];
   activeTabId: string | null;
-  splitOpen: boolean;
-  broadcastActive: boolean;
-  /** Le panneau « Coller depuis GuiVault » est ouvert à droite du terminal. */
-  vaultBrowserActive: boolean;
-  fullscreen: boolean;
   onSelect: (id: string) => void;
   onClose: (id: string) => void;
-  onToggleSplit: () => void;
-  onToggleBroadcast: () => void;
-  onToggleVaultBrowser: () => void;
-  onToggleFullscreen: () => void;
   onReorder: (tabs: TabMeta[]) => void;
   /** Resolves a tab to its host group's tag color (hex), if any. */
   tabColor?: (tab: TabMeta) => string | undefined;
+  /** La bande vit dans la barre de titre : sa partie vide déplace la
+   * fenêtre — sauf en plein écran (voir `TitleBar`). */
+  dragRegion?: boolean;
 }
 
 function TabIcon({ kind }: { kind: TabMeta["kind"] }) {
-  if (kind === "terminal") return <IconTerminal size={13} />;
+  if (kind === "terminal" || kind === "local-terminal") return <IconTerminal size={13} />;
   if (kind === "transfer") return <IconTransfer size={13} />;
   if (kind === "fleet") return <IconBroadcast size={13} />;
   if (kind === "sql") return <IconDatabase size={13} />;
   if (kind === "netdiag") return <IconNetDiag size={13} />;
-  if (kind === "activity") return <IconBell size={13} />;
+  if (kind === "activity") return <IconActivity size={13} />;
+  if (kind === "runbook") return <IconRunbook size={13} />;
   return <IconMonitor size={13} />;
 }
 
-export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, vaultBrowserActive, fullscreen, onSelect, onClose, onToggleSplit, onToggleBroadcast, onToggleVaultBrowser, onToggleFullscreen, onReorder, tabColor }: TabBarProps) {
+export function TabBar({ tabs, activeTabId, onSelect, onClose, onReorder, tabColor, dragRegion }: TabBarProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   const dragState = useRef<{ draggedId: string; moved: boolean; startX: number } | null>(null);
   const [draggedId, setDraggedId] = useState<string | null>(null);
@@ -71,15 +66,13 @@ export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, vaultBro
   }, [tabs, onReorder]);
 
   return (
-    <div className="flex h-9 shrink-0 items-stretch gap-1 border-b border-[var(--c-border)] bg-[var(--c-bg)] pr-1.5">
-      {/* The network diagnostics button briefly lived here. It moved to the
-          sidebar's nav strip, next to fleet operations: that strip is where
-          people look for "what can this app do", and here it went unnoticed. */}
+    <div className="flex h-full min-w-0 flex-initial items-stretch">
       {/* Les onglets se partagent la largeur comme dans un navigateur : ils
           rétrécissent (jusqu'à 6 rem, le libellé tronqué) avant de déborder,
           et s'ils débordent quand même, la molette fait défiler sans qu'une
-          barre à flèches vienne s'incruster dans le bandeau. */}
-      <div ref={containerRef} className="scrollbar-none flex min-w-0 flex-1 items-stretch overflow-x-auto">
+          barre à flèches vienne s'incruster dans le bandeau. La place libre
+          après le dernier onglet déplace la fenêtre. */}
+      <div ref={containerRef} data-tauri-drag-region={dragRegion} className="scrollbar-none flex min-w-0 flex-1 items-stretch overflow-x-auto">
         {tabs.map((tab) => {
           const isActive = tab.id === activeTabId;
           const color = tabColor?.(tab);
@@ -109,7 +102,7 @@ export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, vaultBro
               // Un onglet actif se pose sur la surface du contenu (même fond,
               // bordures latérales, pas de trait en dessous) : il en fait
               // partie. Les autres restent dans la barre, en retrait.
-              className={`group/tab relative -mb-px flex min-w-[6rem] max-w-[16rem] shrink cursor-pointer select-none items-center gap-1.5 border-r border-[var(--c-border)] px-3 text-[12.5px] transition-colors first:border-l ${
+              className={`group/tab relative -mb-px flex min-w-[6rem] max-w-[14rem] shrink cursor-pointer select-none items-center gap-2 border-r border-[var(--c-border)] pl-3 pr-2 text-[12.5px] transition-colors ${
                 isActive
                   ? "bg-[var(--c-bg2)] text-[var(--c-text)] after:absolute after:inset-x-0 after:top-0 after:h-0.5 after:bg-[var(--c-accent)]"
                   : tab.status === "placeholder"
@@ -134,7 +127,7 @@ export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, vaultBro
               <span className={`min-w-0 flex-1 truncate ${tab.status === "placeholder" ? "italic" : ""}`}>{tab.label}</span>
               <button
                 onClick={(e) => { e.stopPropagation(); onClose(tab.id); }}
-                className={`-mr-1 flex h-4 w-4 shrink-0 items-center justify-center rounded-sm transition-opacity hover:bg-[var(--c-active)] ${
+                className={`flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-[5px] transition-opacity hover:bg-[var(--c-active)] ${
                   isActive ? "opacity-60 hover:opacity-100" : "opacity-0 group-hover/tab:opacity-60 hover:!opacity-100"
                 }`}
                 aria-label="Fermer l'onglet"
@@ -144,49 +137,6 @@ export function TabBar({ tabs, activeTabId, splitOpen, broadcastActive, vaultBro
             </div>
           );
         })}
-      </div>
-      <div className="flex items-center gap-0.5 pl-1.5">
-      {/* À côté de la diffusion : les deux agissent sur le terminal qu'on
-          regarde — l'une y envoie une commande, l'autre un secret. */}
-      <button
-        onClick={onToggleVaultBrowser}
-        title={vaultBrowserActive ? "Fermer le panneau GuiVault (Ctrl+Maj+G)" : "Coller depuis GuiVault — parcourir les vaults (Ctrl+Maj+G)"}
-        aria-label="Coller depuis GuiVault"
-        aria-pressed={vaultBrowserActive}
-        data-vault-browser-toggle=""
-        className={`btn btn-sm btn-icon ${vaultBrowserActive ? "btn-toggled" : "btn-ghost text-[var(--c-text-muted)]"}`}
-      >
-        <IconVault size={15} />
-      </button>
-      <button
-        onClick={onToggleBroadcast}
-        title={broadcastActive ? "Quitter la diffusion" : "Diffuser une commande à tous les terminaux ouverts"}
-        className={`btn btn-sm btn-icon ${
-          broadcastActive
-            ? "bg-[color-mix(in_srgb,var(--c-warn)_18%,transparent)] text-[var(--c-warn)]"
-            : "btn-ghost text-[var(--c-text-muted)]"
-        }`}
-      >
-        <IconBroadcast size={15} />
-      </button>
-      <button
-        onClick={onToggleSplit}
-        title={splitOpen ? "Quitter le mode split" : "Mode split — deux terminaux côte à côte"}
-        className={`btn btn-sm btn-icon ${splitOpen ? "btn-toggled" : "btn-ghost text-[var(--c-text-muted)]"}`}
-      >
-        <IconSplit size={15} />
-      </button>
-      {/* Here rather than among the window controls: in fullscreen the title
-          bar is hidden, so this row is the only chrome left on screen — and
-          the way back out has to stay visible. */}
-      <button
-        onClick={onToggleFullscreen}
-        title={fullscreen ? "Quitter le plein écran (F11)" : "Plein écran (F11)"}
-        aria-label={fullscreen ? "Quitter le plein écran" : "Plein écran"}
-        className={`btn btn-sm btn-icon ${fullscreen ? "btn-toggled" : "btn-ghost text-[var(--c-text-muted)]"}`}
-      >
-        {fullscreen ? <IconFullscreenExit size={15} /> : <IconFullscreen size={15} />}
-      </button>
       </div>
     </div>
   );

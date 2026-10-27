@@ -92,6 +92,7 @@ export const LocalTerminalTab = forwardRef<TerminalTabHandle, LocalTerminalTabPr
         return id && term ? { sessionId: id, cols: term.cols, rows: term.rows } : null;
       },
       zoom: (action) => applyZoomRef.current(action),
+      openSearch: () => setSearchOpen(true),
       dispose: () => {
         const id = sessionIdRef.current;
         if (id) api.closeLocalTerminal(id).catch(() => {});

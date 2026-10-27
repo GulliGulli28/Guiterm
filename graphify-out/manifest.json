@@ -285,8 +285,8 @@
     "semantic_hash": ""
   },
   "core/src/ssh.rs": {
-    "mtime": 1792484935.599487,
-    "ast_hash": "c6b420a696a201c3cf545f850fd8b5df",
+    "mtime": 1793024683.4734738,
+    "ast_hash": "3fde745c362a1b7d13f6398f2e14afd1",
     "semantic_hash": ""
   },
   "core/src/ssh_cert.rs": {
@@ -380,8 +380,8 @@
     "semantic_hash": ""
   },
   "package.json": {
-    "mtime": 1792487484.8140905,
-    "ast_hash": "d63484962b8f5fc9c0682aad8c8c1328",
+    "mtime": 1793110090.9675689,
+    "ast_hash": "8119b85c2e3a81c2ec811e2fab366e47",
     "semantic_hash": ""
   },
   "postcss.config.js": {
@@ -425,8 +425,8 @@
     "semantic_hash": ""
   },
   "scripts/e2e-run.mjs": {
-    "mtime": 1790584234.4665413,
-    "ast_hash": "2a48941c4fb93d543accf8510b0d83a4",
+    "mtime": 1793110913.3694677,
+    "ast_hash": "3cc5dacdcd5ce30a3b82a3946b9ce6c5",
     "semantic_hash": ""
   },
   "scripts/install-macos.sh": {
@@ -690,8 +690,8 @@
     "semantic_hash": ""
   },
   "src/App.tsx": {
-    "mtime": 1790583074.8576522,
-    "ast_hash": "0c074b055a8ebe1c7d3537f546446ee9",
+    "mtime": 1793111128.8613582,
+    "ast_hash": "3bf49de51aea61be5a7f45df6be93742",
     "semantic_hash": ""
   },
   "src/components/ActivityTab.tsx": {
@@ -700,8 +700,8 @@
     "semantic_hash": ""
   },
   "src/components/AdaptiveComposer.tsx": {
-    "mtime": 1789379710.847227,
-    "ast_hash": "53933b8c4732d1edb97c0c1b56acaada",
+    "mtime": 1793110287.4015098,
+    "ast_hash": "55d512182254f404cca9f821b4c988f4",
     "semantic_hash": ""
   },
   "src/components/AdaptiveEngineSettings.tsx": {
@@ -825,8 +825,8 @@
     "semantic_hash": ""
   },
   "src/components/IconPicker.tsx": {
-    "mtime": 1789380289.7573664,
-    "ast_hash": "563b0fe9e25f6830b0b8dcdd414e0474",
+    "mtime": 1793110287.3918803,
+    "ast_hash": "ce31d4cabf4ad98e2618841d05284573",
     "semantic_hash": ""
   },
   "src/components/KeychainPanel.tsx": {
@@ -840,8 +840,8 @@
     "semantic_hash": ""
   },
   "src/components/LocalTerminalTab.tsx": {
-    "mtime": 1790072038.0570176,
-    "ast_hash": "a0785818e65c9ba6d4e796ff7a52b841",
+    "mtime": 1793111082.3922126,
+    "ast_hash": "eacafd79ecc50569d9bc701914ca11d6",
     "semantic_hash": ""
   },
   "src/components/MongoTab.tsx": {
@@ -855,8 +855,8 @@
     "semantic_hash": ""
   },
   "src/components/NotificationBell.tsx": {
-    "mtime": 1789379774.374449,
-    "ast_hash": "021956843a46faa06a4aa1c382c748b2",
+    "mtime": 1793111069.621746,
+    "ast_hash": "5796ecb76640ee8ba383fb89764881f2",
     "semantic_hash": ""
   },
   "src/components/QuickEditModal.tsx": {
@@ -865,8 +865,8 @@
     "semantic_hash": ""
   },
   "src/components/RdpTab.tsx": {
-    "mtime": 1790070788.8192532,
-    "ast_hash": "f825e65250233df5049196538ba6a43e",
+    "mtime": 1793111082.3924127,
+    "ast_hash": "4279314bf35dbb28d22a7733b1ea21eb",
     "semantic_hash": ""
   },
   "src/components/RedisTab.tsx": {
@@ -895,8 +895,8 @@
     "semantic_hash": ""
   },
   "src/components/SettingsPanel.tsx": {
-    "mtime": 1790583074.8740814,
-    "ast_hash": "d7a97b06ee569f73aa6fff314030eda4",
+    "mtime": 1793110227.018268,
+    "ast_hash": "898699c7ee13d59f61aa1195e7c9fb6a",
     "semantic_hash": ""
   },
   "src/components/SftpPanel.tsx": {
@@ -905,8 +905,8 @@
     "semantic_hash": ""
   },
   "src/components/Sidebar.tsx": {
-    "mtime": 1790088442.5726924,
-    "ast_hash": "f1c7e4b51fb6e36d1de719a1cae78fe4",
+    "mtime": 1793111525.9758775,
+    "ast_hash": "8940d9e910a89ace8d14d5e1a335927d",
     "semantic_hash": ""
   },
   "src/components/SnippetPicker.tsx": {
@@ -965,8 +965,8 @@
     "semantic_hash": ""
   },
   "src/components/TabBar.tsx": {
-    "mtime": 1790066246.8151875,
-    "ast_hash": "7f06ae0545822f9bfe7202f88099626d",
+    "mtime": 1793112148.5648067,
+    "ast_hash": "0e045f5768c6149a7400f32a1ad40938",
     "semantic_hash": ""
   },
   "src/components/TabLoadingFallback.tsx": {
@@ -985,8 +985,8 @@
     "semantic_hash": ""
   },
   "src/components/TerminalTab.tsx": {
-    "mtime": 1790071796.3178403,
-    "ast_hash": "c68ea5262c5626b62b978ff02237cc47",
+    "mtime": 1793111082.3919613,
+    "ast_hash": "da38ac3c8bd903538f7fc956c1344678",
     "semantic_hash": ""
   },
   "src/components/TerminalTargetPicker.tsx": {
@@ -1000,13 +1000,13 @@
     "semantic_hash": ""
   },
   "src/components/TitleBar.tsx": {
-    "mtime": 1789379222.060287,
-    "ast_hash": "c6a7e85ec1de79f3a6716cd584616375",
+    "mtime": 1793111311.7729843,
+    "ast_hash": "b7cfc0e7c2de6943c5bc91dcdaa51c14",
     "semantic_hash": ""
   },
   "src/components/TransferTab.tsx": {
-    "mtime": 1789400585.3958883,
-    "ast_hash": "9de97060d3ddfdada86c60ba4ce21296",
+    "mtime": 1793110287.3938115,
+    "ast_hash": "88c906743dea692fde8fc4c6f43e3a19",
     "semantic_hash": ""
   },
   "src/components/TunnelsPanel.tsx": {
@@ -1015,8 +1015,8 @@
     "semantic_hash": ""
   },
   "src/components/VaultSettings.tsx": {
-    "mtime": 1789380308.639488,
-    "ast_hash": "f8426532e7dbad497b0f4b105da48e53",
+    "mtime": 1793110287.39749,
+    "ast_hash": "de396bb1852033a88f66326323717897",
     "semantic_hash": ""
   },
   "src/components/VaultUnlockModal.tsx": {
@@ -1030,8 +1030,8 @@
     "semantic_hash": ""
   },
   "src/components/ui-icons.tsx": {
-    "mtime": 1790066246.8151875,
-    "ast_hash": "3943aa505c2a55a093b1143ebb1c5070",
+    "mtime": 1793110949.401265,
+    "ast_hash": "2e0600fd750b821927b0401a06e99fac",
     "semantic_hash": ""
   },
   "src/hooks/useAwsAccountNames.ts": {
@@ -1310,8 +1310,8 @@
     "semantic_hash": ""
   },
   "src/lib/preferences.ts": {
-    "mtime": 1789401430.71055,
-    "ast_hash": "21910621c9cb55813e6838ca4f0a7d38",
+    "mtime": 1793110330.7535033,
+    "ast_hash": "cd9f86742ecd1419d291b17d0482400d",
     "semantic_hash": ""
   },
   "src/lib/rdpCursor.test.ts": {
@@ -1365,8 +1365,8 @@
     "semantic_hash": ""
   },
   "src/lib/sidebarButtons.ts": {
-    "mtime": 1789464725.5564313,
-    "ast_hash": "72e6b17d801fb60f458fab4d63c2394a",
+    "mtime": 1793110935.8049653,
+    "ast_hash": "e48ef58b26cc2eee24b9527203a15a74",
     "semantic_hash": ""
   },
   "src/lib/snippets.ts": {
@@ -1420,8 +1420,8 @@
     "semantic_hash": ""
   },
   "src/main.tsx": {
-    "mtime": 1789398701.7558186,
-    "ast_hash": "7eb876c79cbf9b03ce1321507b70bc60",
+    "mtime": 1793110248.295916,
+    "ast_hash": "46f7f32fe789a25a208dbdada513c124",
     "semantic_hash": ""
   },
   "src/modules/activity.tsx": {
@@ -1575,13 +1575,13 @@
     "semantic_hash": ""
   },
   "CHANGELOG.md": {
-    "mtime": 1792489244.8014247,
-    "ast_hash": "62ae30a37afa5f1f413f7a80fc3bf526",
+    "mtime": 1793024827.9866545,
+    "ast_hash": "c4ff51ec44b9ffdedb162e8a1f34575b",
     "semantic_hash": ""
   },
   "CLAUDE.md": {
-    "mtime": 1792486581.2802572,
-    "ast_hash": "ec4aacd2adf972ebe432b949c0774133",
+    "mtime": 1793111404.7049124,
+    "ast_hash": "fbc883c536e1e9746e45b789e31565ba",
     "semantic_hash": ""
   },
   "CONTRIBUTING.md": {
@@ -1610,8 +1610,8 @@
     "semantic_hash": ""
   },
   "docs/backlog.md": {
-    "mtime": 1789024207.3225508,
-    "ast_hash": "592b726da8218a4b642bbae5a828774e",
+    "mtime": 1793109498.3871424,
+    "ast_hash": "88f277298b3888146bcf1cdf9f1832f5",
     "semantic_hash": ""
   },
   "docs/blog/rdp-sidecar-architecture.md": {
@@ -2020,8 +2020,8 @@
     "semantic_hash": ""
   },
   "src/components/FactFilterFields.tsx": {
-    "mtime": 1787852747.4848905,
-    "ast_hash": "13cf0978aec3018b723e84c9c364ecd4",
+    "mtime": 1793110287.395696,
+    "ast_hash": "2984c624727b1f0a4a354acd9657c6f6",
     "semantic_hash": ""
   },
   "src/hooks/useFactSelection.ts": {
@@ -2140,13 +2140,13 @@
     "semantic_hash": ""
   },
   "scripts/visual-tour.client.tsx": {
-    "mtime": 1790670764.8079937,
-    "ast_hash": "dfc6f9e403a1490870524d4cf74a5140",
+    "mtime": 1793110363.9001813,
+    "ast_hash": "a5454bf4ae90916e01c58b0995877f74",
     "semantic_hash": ""
   },
   "scripts/visual-tour.mjs": {
-    "mtime": 1790233428.5670278,
-    "ast_hash": "5e248c53c538c1333ae6e34e520106f0",
+    "mtime": 1793112148.5519156,
+    "ast_hash": "c9c6491b60046e6b3b1fccb4af27595f",
     "semantic_hash": ""
   },
   "src-tauri/src/commands/guivault.rs": {
@@ -2407,6 +2407,26 @@
   "core/src/guivault/manifest.rs": {
     "mtime": 1790670404.0941432,
     "ast_hash": "5d1b1c484734a4e4d0643734acf3f0bf",
+    "semantic_hash": ""
+  },
+  "src/components/AccountMenu.tsx": {
+    "mtime": 1793110578.0079017,
+    "ast_hash": "51b47c57462aba6503557a1631137dae",
+    "semantic_hash": ""
+  },
+  "src/components/SessionBar.tsx": {
+    "mtime": 1793112148.5765178,
+    "ast_hash": "4a3ca9f6ad74cf611e5f09f1b9414aad",
+    "semantic_hash": ""
+  },
+  "src/lib/preferences.test.ts": {
+    "mtime": 1793110300.965713,
+    "ast_hash": "be758e1908972931c5a075de12011e55",
+    "semantic_hash": ""
+  },
+  "docs/refonte-ui.md": {
+    "mtime": 1793115189.317587,
+    "ast_hash": "cedf604cc64708dd0187794858ae5605",
     "semantic_hash": ""
   }
 }

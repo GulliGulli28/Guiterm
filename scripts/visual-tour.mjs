@@ -452,13 +452,17 @@ const scenes = [
     await settle(page, 300);
     const sections = await page.evaluate(() => Array.from(document.querySelectorAll('[data-sidebar-panel="keychain"] [data-vault-section]')).map((e) => e.getAttribute("data-vault-section")));
     if (!sections.includes("Lecture seule — prod bancaire")) throw new Error(`dossiers de vault (clés) : ${JSON.stringify(sections)}`);
-    // La barre de profil est globale : présente ici comme sur Hôtes, et elle
-    // dit l'état du compte.
+    // Le profil affiché est global : il vit dans le menu du compte, en bas
+    // du rail, et il dit l'état du compte.
+    await page.locator("[data-account-menu]").click();
+    await settle(page, 200);
     const bar = await page.evaluate(() => ({
       value: document.querySelector('[data-profile-bar] select')?.value,
       state: document.querySelector("[data-profile-state]")?.textContent ?? "",
     }));
-    if (bar.value !== "account" || !/Synchronisé/.test(bar.state)) throw new Error(`barre de profil : ${JSON.stringify(bar)}`);
+    if (bar.value !== "account" || !/Synchronisé/.test(bar.state)) throw new Error(`menu du compte : ${JSON.stringify(bar)}`);
+    await page.keyboard.press("Escape");
+    await settle(page, 200);
   }],
   ["42-bases-vaults", async (page) => {
     await clickNav(page, "Bases de données");
@@ -621,7 +625,7 @@ const scenes = [
   ["45-clavier-panneaux", async (page) => {
     await page.keyboard.press("Escape");
     await settle(page, 200);
-    await page.keyboard.press("Alt+3");
+    await page.keyboard.press("Alt+2");
     await settle(page, 400);
     const sftp = await page.evaluate(() => ({
       panel: document.querySelector("[data-sidebar-panel]")?.getAttribute("data-sidebar-panel"),
@@ -629,13 +633,13 @@ const scenes = [
       cursor: !!document.querySelector("[data-focus-zone='sidebar-panel'] [data-nav-cursor]"),
       title: document.querySelector("[data-sidebar-button='sftp']")?.getAttribute("title"),
     }));
-    if (sftp.panel !== "sftp" || sftp.focus !== "sidebar-panel" || !sftp.cursor) throw new Error(`Alt+3 : ${JSON.stringify(sftp)}`);
-    if (!/Alt\+3/.test(sftp.title ?? "")) throw new Error(`l'infobulle ne dit pas le raccourci : ${sftp.title}`);
-    await page.keyboard.press("Alt+3");
+    if (sftp.panel !== "sftp" || sftp.focus !== "sidebar-panel" || !sftp.cursor) throw new Error(`Alt+2 : ${JSON.stringify(sftp)}`);
+    if (!/Alt\+2/.test(sftp.title ?? "")) throw new Error(`l'infobulle ne dit pas le raccourci : ${sftp.title}`);
+    await page.keyboard.press("Alt+2");
     await settle(page, 200);
     const back = await page.evaluate(() => document.activeElement?.closest(".xterm") !== null);
-    if (!back) throw new Error("le second Alt+3 n'a pas rendu le focus au terminal");
-    await page.keyboard.press("Alt+2");
+    if (!back) throw new Error("le second Alt+2 n'a pas rendu le focus au terminal");
+    await page.keyboard.press("Alt+1");
     await settle(page, 400);
   }],
   // Dans le panneau Hôtes : ↑/↓ parcourent dossiers et hôtes, → déplie, ←
@@ -700,7 +704,7 @@ const scenes = [
   // Maj+F10 ouvre le menu « … » de l'hôte sous le curseur, ↓ y circule,
   // Échap le ferme.
   ["46b-clavier-menu-hote", async (page) => {
-    await page.keyboard.press("Alt+2");
+    await page.keyboard.press("Alt+1");
     await settle(page, 300);
     await page.keyboard.press("End");
     await settle(page, 100);
@@ -760,8 +764,8 @@ const scenes = [
     // Dans la bande : ↓ puis Entrée ouvre un autre panneau.
     await page.keyboard.press("Shift+F6");
     await settle(page, 100);
+    // Le troisième bouton du rail : Hôtes, Fichiers, Snippets.
     await page.keyboard.press("Home");
-    await page.keyboard.press("ArrowDown");
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("ArrowDown");
     await page.keyboard.press("Enter");
@@ -777,7 +781,7 @@ const scenes = [
     await settle(page, 400);
     const closed = await page.evaluate(() => ({ panel: document.querySelector("[data-sidebar-panel]")?.getAttribute("data-sidebar-panel"), inTerm: document.activeElement?.closest(".xterm") !== null }));
     if (closed.panel !== "snippets" || !closed.inTerm) throw new Error(`second Ctrl+, : ${JSON.stringify(closed)}`);
-    await page.keyboard.press("Alt+2");
+    await page.keyboard.press("Alt+1");
     await settle(page, 300);
   }],
   // Tous les panneaux sont atteignables : Alt+0 ouvre le dixième, Alt+Page
@@ -828,7 +832,9 @@ const scenes = [
       panel: document.querySelector("[data-sidebar-panel]")?.getAttribute("data-sidebar-panel"),
       zone: document.activeElement?.getAttribute("data-focus-zone"),
     }));
-    if (afterEnter.panel !== "knownHosts" || afterEnter.zone !== "sidebar-panel") throw new Error(`Entrée dans la bande : ${JSON.stringify(afterEnter)}`);
+    // Entrée sur le bouton du panneau déjà ouvert (Hôtes, le premier) y va —
+    // au clavier, il ne replie rien.
+    if (afterEnter.panel !== "hosts" || afterEnter.zone !== "sidebar-panel") throw new Error(`Entrée dans la bande : ${JSON.stringify(afterEnter)}`);
     // Les paramètres : le focus arrive dedans, ↓ et Entrée changent de
     // catégorie, et le titre de droite suit.
     await page.keyboard.press("Control+,");
@@ -846,7 +852,7 @@ const scenes = [
     if (heading !== label) throw new Error(`le contenu ne suit pas la catégorie : « ${heading} » pour « ${label} »`);
     await page.keyboard.press("Control+,");
     await settle(page, 400);
-    await page.keyboard.press("Alt+2");
+    await page.keyboard.press("Alt+1");
     await settle(page, 300);
   }],
 ];
@@ -947,10 +953,10 @@ try {
     const fresh = await browser.newPage({ viewport: { width: 1440, height: 900 }, deviceScaleFactor: 1 });
     fresh.on("pageerror", (err) => errors.push(`${name}: ${String(err)}`));
     const query = [light ? "mode=light" : "", start].filter(Boolean).join("&");
-    await fresh.goto(`http://localhost:4331/scripts/visual-tour.html${query ? `?${query}` : ""}`);
-    await fresh.waitForSelector("nav button", { timeout: 15_000 });
-    await settle(fresh, 600);
     try {
+      await fresh.goto(`http://localhost:4331/scripts/visual-tour.html${query ? `?${query}` : ""}`);
+      await fresh.waitForSelector("nav button", { timeout: 30_000 });
+      await settle(fresh, 600);
       await run(fresh);
     } catch (e) {
       errors.push(`${name}: ${e.message.split("\n")[0]}`);

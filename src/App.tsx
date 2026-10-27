@@ -5,7 +5,7 @@ import type { AwsSsoSession, GroupId, GuiVaultBrowseEntry, GuiVaultStatus, Host,
 import { isHostBoundTab } from "./lib/types";
 import { Sidebar } from "./components/Sidebar";
 import { HostForm } from "./components/HostForm";
-import { TabBar } from "./components/TabBar";
+import { SessionBar, isTerminalLikeTab } from "./components/SessionBar";
 import { BroadcastBar } from "./components/BroadcastBar";
 import type { TerminalTabHandle } from "./components/TerminalTab";
 import { TitleBar } from "./components/TitleBar";
@@ -130,29 +130,6 @@ export default function App() {
   const awsAlerts = useAwsSessionAlerts(awsIdentitiesEpoch);
   const terminalRefs = useRef<Map<string, TerminalTabHandle>>(new Map());
   const { fullscreen, toggleFullscreen } = useFullscreen(reportError);
-  // In fullscreen the title bar is hidden — this is it being brought back by
-  // pushing the pointer against the top edge of the screen.
-  //
-  // Driven by pointer position rather than an invisible hover strip on top of
-  // the tab bar: such a strip would also swallow clicks landing in its few
-  // pixels, and the tab bar is exactly what sits there in fullscreen. The two
-  // thresholds are deliberately different — the bar appears only at the very
-  // edge (which the OS makes easy to hit, the cursor stops there) but doesn't
-  // vanish again the moment the pointer moves down onto the bar it just
-  // revealed. No listener at all outside fullscreen.
-  const [titleBarPeek, setTitleBarPeek] = useState(false);
-  useEffect(() => {
-    if (!fullscreen) {
-      setTitleBarPeek(false);
-      return;
-    }
-    const onMove = (e: MouseEvent) => {
-      if (e.clientY <= 2) setTitleBarPeek(true);
-      else if (e.clientY > 40) setTitleBarPeek(false);
-    };
-    window.addEventListener("mousemove", onMove);
-    return () => window.removeEventListener("mousemove", onMove);
-  }, [fullscreen]);
 
   // ── Keyboard-interactive authentication (MFA/OTP) ────────────────────────
   // A queue, not a single value: a fleet run or a batch of restored tabs can
@@ -248,7 +225,8 @@ export default function App() {
   const splitContainerRef = useRef<HTMLDivElement>(null);
 
   const sidebar = useResizablePane({
-    initial: 340, min: 260, max: 640, axis: "horizontal", mode: "px", onDragChange: setSidebarDragging,
+    // Le panneau seul : le rail (72 px) est à côté, il ne se redimensionne pas.
+    initial: 296, min: 240, max: 600, axis: "horizontal", mode: "px", onDragChange: setSidebarDragging,
   });
   const rightPanel = useResizablePane({
     initial: 420, min: 280, max: 700, axis: "horizontal", mode: "px", invert: true, onDragChange: setRightDragging,
@@ -835,25 +813,28 @@ export default function App() {
     />
   ) : null;
 
-  const titleBar = (
+  // La barre du haut porte aussi les onglets. Une fonction plutôt qu'un
+  // élément : l'écran de chargement la rend avant que `tabColor` (qui lit le
+  // workspace) n'existe. En plein écran elle reste à l'écran, sans boutons de
+  // fenêtre — c'est là que sont les onglets.
+  const renderTitleBar = (colorOf?: (tab: TabMeta) => string | undefined) => (
     <TitleBar
-      sidebarVisible={sidebarVisible}
-      onToggleSidebar={() => setSidebarVisible((v) => !v)}
+      tabs={tabs}
+      activeTabId={activeTabId}
+      onSelectTab={setActiveTabId}
+      onCloseTab={requestCloseTab}
+      onReorderTabs={setTabs}
+      tabColor={colorOf}
+      onNewTab={() => openLocalTerminal()}
+      onOpenPalette={() => setPaletteOpen(true)}
+      paletteCombo={preferences.keyboardShortcuts["palette.open"]}
       fullscreen={fullscreen}
+      onToggleFullscreen={toggleFullscreen}
       notifications={notifications}
       onDismissNotification={dismissNotification}
       onClearAllNotifications={clearAllNotifications}
       onMarkAllNotificationsRead={markAllNotificationsRead}
     />
-  );
-
-  // Fullscreen gives the whole screen to the terminal, so the app's own title
-  // bar goes away with the OS decorations. It stays reachable rather than
-  // being gone until someone remembers F11 (see `titleBarPeek` above), and it
-  // comes back *overlaid* on the content so nothing reflows — a peek must not
-  // resize every terminal twice.
-  const titleBarArea = !fullscreen ? titleBar : (
-    titleBarPeek && <div className="fixed inset-x-0 top-0 z-50 shadow-xl">{titleBar}</div>
   );
 
   const vaultUnlockModal = unlockModalOpen && vaultStatus?.enabled ? (
@@ -870,7 +851,7 @@ export default function App() {
       <div className="flex h-screen w-screen flex-col overflow-hidden bg-[var(--c-bg)] text-[var(--c-text)]">
         {vaultUnlockModal}
         {authPromptModal}
-        {titleBarArea}
+        {renderTitleBar()}
         <div className="flex flex-1 items-center justify-center text-[var(--c-text-secondary)]">Chargement…</div>
       </div>
     );
@@ -1160,7 +1141,7 @@ export default function App() {
           onCancel={() => setPendingCloseTabId(null)}
         />
       )}
-      {titleBarArea}
+      {renderTitleBar(tabColor)}
 
       {status && (
         <div className="flex shrink-0 items-center justify-between gap-3 border-b border-[color-mix(in_srgb,var(--c-warn)_35%,transparent)] bg-[color-mix(in_srgb,var(--c-warn)_12%,var(--c-bg2))] px-3 py-1.5 text-[12.5px] text-[var(--c-text)]">
@@ -1174,25 +1155,6 @@ export default function App() {
         </div>
       )}
 
-      {/* Full-width tab bar — spans above sidebar + content, immune to sidebar resizing */}
-      {tabs.length > 0 && (
-        <TabBar
-          tabs={tabs}
-          activeTabId={activeTabId}
-          splitOpen={splitOpen}
-          broadcastActive={broadcastMode}
-          vaultBrowserActive={vaultBrowserOpen}
-          fullscreen={fullscreen}
-          onSelect={setActiveTabId}
-          onClose={requestCloseTab}
-          onToggleSplit={toggleSplit}
-          onToggleBroadcast={toggleBroadcastMode}
-          onToggleVaultBrowser={() => setVaultBrowserOpen((v) => !v)}
-          onToggleFullscreen={toggleFullscreen}
-          onReorder={setTabs}
-          tabColor={tabColor}
-        />
-      )}
 
       {broadcastMode && (
         <BroadcastBar
@@ -1207,25 +1169,25 @@ export default function App() {
       )}
 
       <div className="flex min-h-0 flex-1 overflow-hidden">
-        {/* Sidebar */}
-        <div
-          // Les paramètres ont besoin de place (deux colonnes, des échantillons
-          // de thème) : le panneau s'élargit à leur ouverture et revient à la
-          // largeur choisie ensuite.
-          style={{ width: sidebarVisible ? (sidebarPanel === "settings" ? Math.max(sidebar.value, 600) : sidebar.value) : 0 }}
-          className={`flex shrink-0 overflow-hidden ${isDragging ? "" : "transition-[width] duration-200 ease-in-out"}`}
-        >
-          <Sidebar
-            // Résolu au rendu plutôt que dans un effet : masquer le panneau
-            // ouvert le fait retomber sur « Hôtes » tout de suite, et un
-            // réglage posé dans une session précédente ne peut pas laisser un
-            // panneau sans bouton au rechargement.
-            panel={resolveVisiblePanel(sidebarPanel, preferences.hiddenSidebarButtons)}
-            onPanelChange={setSidebarPanel}
-            ctx={moduleContext}
-            actions={sidebarActions}
-          />
-        </div>
+        {/* Le rail, toujours là, et le panneau, qui se replie. */}
+        <Sidebar
+          // Résolu au rendu plutôt que dans un effet : masquer le panneau
+          // ouvert le fait retomber sur « Hôtes » tout de suite, et un
+          // réglage posé dans une session précédente ne peut pas laisser un
+          // panneau sans bouton au rechargement.
+          panel={resolveVisiblePanel(sidebarPanel, preferences.hiddenSidebarButtons)}
+          onPanelChange={setSidebarPanel}
+          panelVisible={sidebarVisible}
+          onPanelVisibleChange={setSidebarVisible}
+          // Les paramètres ont besoin de place (deux colonnes, des
+          // échantillons de thème) : le panneau s'élargit à leur ouverture et
+          // revient à la largeur choisie ensuite.
+          panelWidth={sidebarPanel === "settings" ? Math.max(sidebar.value, 600) : sidebar.value}
+          resizing={isDragging}
+          onOpenActivity={() => openActivity()}
+          ctx={moduleContext}
+          actions={sidebarActions}
+        />
 
         {/* Sidebar resize handle */}
         {sidebarVisible && (
@@ -1239,6 +1201,32 @@ export default function App() {
 
         {/* Main content */}
         <main data-focus-zone="main" tabIndex={-1} className="flex min-w-0 flex-1 flex-col overflow-hidden bg-[var(--c-bg2)] outline-none">
+          {/* Au-dessus d'un terminal : où l'on est, et ce qu'on peut y faire.
+              Les autres onglets (transfert, base, flotte…) ont leur propre
+              barre d'outils. */}
+          {isTerminalLikeTab(activeTab) && (
+            <SessionBar
+              tab={activeTab}
+              workspace={workspace}
+              vaults={accountVaults}
+              splitOpen={splitOpen}
+              broadcastActive={broadcastMode}
+              vaultBrowserActive={vaultBrowserOpen}
+              recording={activeTabRecording()}
+              onOpenFiles={(() => {
+                if (activeTab.kind !== "terminal") return undefined;
+                const host = workspace.hosts.find((h) => h.id === activeTab.hostId);
+                return host ? () => openTab("transfer", host, activeTab.dockerContainerId, activeTab.k8sPodName, activeTab.k8sContainerName) : undefined;
+              })()}
+              onOpenSnippets={() => setSnippetPickerOpen(true)}
+              onToggleSplit={toggleSplit}
+              onToggleBroadcast={toggleBroadcastMode}
+              onToggleVaultBrowser={() => setVaultBrowserOpen((v) => !v)}
+              onSearch={() => terminalRefs.current.get(activeTab.id)?.openSearch()}
+              onExportScrollback={() => { void exportActiveScrollback(); }}
+              onToggleRecording={() => { if (activeTabRecording()) stopActiveRecording(); else void startActiveRecording(); }}
+            />
+          )}
           {tabs.length === 0 ? (
             <div className="flex flex-1 select-none flex-col items-center justify-center gap-5">
               <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-[var(--c-border)] bg-[var(--c-bg2)] text-[var(--c-text-muted)]">

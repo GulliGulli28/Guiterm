@@ -382,8 +382,9 @@ celui qui est en mémoire — un `state.workspace` nu pointerait sur le local
 en vue locale (bug du 2026-09-17), et c'est la seule raison pour laquelle
 rien d'autre ne touche au compte.
 
-UI (2026-09-17) : **la barre de profil** (`ProfileBar`, en tête de la barre
-latérale, sur tous les panneaux) dit quel workspace est affiché et l'état
+UI (2026-09-17) : **la barre de profil** (`ProfileBar` — depuis la refonte
+d'octobre 2026, dans le menu de l'avatar en bas du rail, `AccountMenu`,
+dont la pastille résume l'état) dit quel workspace est affiché et l'état
 du compte (synchro en cours via l'événement `guivault-sync-started`,
 dernière synchro, profil local, verrouillé) ; une synchro qui reçoit le dit
 par vault (`Report.pulled_by_vault`). Compte affiché ⇒ **chaque vault est
