@@ -785,6 +785,10 @@ elle existe probablement déjà.**
 État des chantiers majeurs (roadmap complète et historique des décisions
 dans la mémoire long-terme `infra-control-plane-pivot.md` et dans
 `docs/dev-history.md`) :
+- **Refonte de l'interface** — maquettes validées le 2026-10-27, en cours
+  d'implémentation par tranches : décisions, constats à corriger et plan dans
+  `docs/refonte-ui.md`. Tant qu'elle n'est pas finie, un écran retouché suit
+  les maquettes du canevas « Guiterm — Refonte UI », pas l'ancien style.
 - **Coffre chiffré** (mot de passe maître) — fait.
 - **Tunnel SOCKS dynamique (`-D`)** — fait (`core/src/port_forward.rs`).
 - **Génération + déploiement de clés SSH** — fait (`core/src/keygen.rs`,

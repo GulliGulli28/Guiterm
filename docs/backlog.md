@@ -37,6 +37,13 @@ CHANGELOG.
   « aucun », l'item n'est pas fini. Et le garde-fou ajouté doit être cassé une
   fois pour vérifier qu'il échoue vraiment.
 
+## À faire — Refonte de l'interface (dix tranches, maquettes validées le 2026-10-27)
+
+Le plan détaillé, les décisions de design et les constats d'audit à corriger
+vivent dans `docs/refonte-ui.md`. Les maquettes sont dans le canevas « Guiterm —
+Refonte UI ». Ordre : fondations visuelles, coquille, hôtes, accueil et import,
+formulaire d'hôte, pages pleine largeur, outils, données, dialogues, finitions.
+
 ## Livré — Bus d'objets (trois tranches, 2026-09-08 → 2026-09-10)
 
 Choisi le 2026-09-08 après une revue « qu'est-ce qui ferait évoluer l'app »
