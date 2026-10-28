@@ -1575,8 +1575,8 @@
     "semantic_hash": ""
   },
   "CLAUDE.md": {
-    "mtime": 1793111404.7049124,
-    "ast_hash": "fbc883c536e1e9746e45b789e31565ba",
+    "mtime": 1793196142.9671853,
+    "ast_hash": "eb0c80855fb16f1ff7961a7631addbc6",
     "semantic_hash": ""
   },
   "CONTRIBUTING.md": {
@@ -1620,8 +1620,8 @@
     "semantic_hash": ""
   },
   "docs/dev-history.md": {
-    "mtime": 1790671103.8363624,
-    "ast_hash": "905c5c8fee7e03ad512e4f56e6300957",
+    "mtime": 1793196142.9105105,
+    "ast_hash": "c4ba01ce1a08a26d7a46ca491c37e4ed",
     "semantic_hash": ""
   },
   "index.html": {
@@ -2420,8 +2420,8 @@
     "semantic_hash": ""
   },
   "docs/refonte-ui.md": {
-    "mtime": 1793184294.975614,
-    "ast_hash": "fb77e8d7d8be03f6372dd8a16ce4fa1f",
+    "mtime": 1793196074.9985032,
+    "ast_hash": "bea546e20692dd81a55b8ac2f60f7eb1",
     "semantic_hash": ""
   },
   "src/components/FileImportSource.tsx": {

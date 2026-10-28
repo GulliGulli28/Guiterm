@@ -612,6 +612,19 @@ limité (pas de curseur rendu, molette approximative), voir
   `npm run check:hosts` vérifie le rendu réel (indentation, pastilles,
   recherche par tag) dans un vrai navigateur.
 
+- **Importer des hôtes = une seule fenêtre, `ImportHostsDialog`.** Une
+  nouvelle source s'ajoute à `ImportSource` (`lib/importSources.ts` ; les
+  dispatches de la fenêtre se ferment sur `assertNever`) et rend son corps
+  dans `ImportSourceFrame` — jamais sa propre modale. Les compteurs locaux à
+  l'appareil (récents, `lib/snippetUsage.ts`) vivent en `localStorage` et ne
+  se synchronisent pas : c'est un usage, pas une donnée.
+
+- **Une boîte ouverte par-dessus une modale doit prendre le focus.**
+  `useModalSurface` laisse Échap et Tab à la boîte qui contient la cible de
+  la touche ; un panneau sans le hook (`AwsSsoSetupPanel`,
+  `AzureSignInPanel`) qui ne focalise rien à l'ouverture laisse la cible
+  dans la modale du dessous, qui se ferme alors sur Échap.
+
 - **Drag-and-drop natif vs Tauri.** Sur Windows, le drag-and-drop OS-level de
   Tauri (nécessaire pour déposer des fichiers depuis l'Explorateur, cf.
   `dragDropEnabled` / `onDragDropEvent`) désactive le drag-and-drop HTML5 natif
@@ -768,6 +781,11 @@ limité (pas de curseur rendu, molette approximative), voir
   périmé fait échouer le scénario plein écran à chaque run suivant, jusqu'à
   effacer ce fichier.
 
+- **Un `cargo build` Windows coupé par un délai continue de tourner** côté
+  Windows et garde le verrou du dossier de build : le suivant attend
+  (« Blocking waiting for file lock »). Le build release complet peut
+  dépasser 20 minutes — le lancer en arrière-plan avec un journal.
+
 - **Un process `rdp-sidecar.exe`/`guiterm.exe` resté ouvert après un test
   précédent verrouille le binaire que le build suivant essaie d'écrire.**
   Symptôme trompeur : `cargo build` compile sans erreur, mais la copie
@@ -787,9 +805,12 @@ elle existe probablement déjà.**
 dans la mémoire long-terme `infra-control-plane-pivot.md` et dans
 `docs/dev-history.md`) :
 - **Refonte de l'interface** — maquettes validées le 2026-10-27, en cours
-  d'implémentation par tranches : décisions, constats à corriger et plan dans
-  `docs/refonte-ui.md`. Tant qu'elle n'est pas finie, un écran retouché suit
-  les maquettes du canevas « Guiterm — Refonte UI », pas l'ancien style.
+  d'implémentation par tranches (0 à 3 livrées le 2026-10-28) : décisions,
+  constats à corriger et plan dans `docs/refonte-ui.md`. Tant qu'elle n'est
+  pas finie, un écran retouché suit les maquettes du canevas « Guiterm —
+  Refonte UI », pas l'ancien style. Ce que les maquettes montrent et que
+  l'app ne fait pas encore est inventorié dans la section « Écarts avec la
+  maquette » du même fichier : c'est la réserve de fonctionnalités à piocher.
 - **Coffre chiffré** (mot de passe maître) — fait.
 - **Tunnel SOCKS dynamique (`-D`)** — fait (`core/src/port_forward.rs`).
 - **Génération + déploiement de clés SSH** — fait (`core/src/keygen.rs`,

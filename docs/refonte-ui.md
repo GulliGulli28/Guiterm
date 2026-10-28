@@ -375,6 +375,91 @@ Le plan d'origine :
 - CHANGELOG de la refonte, écrit après le test manuel Windows.
 - Mise à jour de `CLAUDE.md`, section « langage visuel ».
 
+## Écarts avec la maquette — pistes pour la suite
+
+Ce que les maquettes des écrans **déjà livrés** (tranches 0 à 3) montrent et
+que l'app ne fait pas encore. Inventaire fait le 2026-10-28 en relisant les
+planches du canevas (`Accueil`, `Import`, `Terminal`, `MenuHote`, `Palette`,
+`PremierLancement`) contre le code. Les tranches 4 à 9 ne sont pas encore
+comparées : leurs écarts s'ajouteront ici à leur livraison.
+
+C'est une réserve de fonctionnalités, pas une liste de dettes. Chaque ligne
+dit ce que montre la maquette, ce qui existe aujourd'hui, et ce qu'il faudrait
+pour combler l'écart. Comme le reste de ce fichier, **revérifier dans le code
+avant de démarrer** : une ligne a pu être comblée en passant.
+
+Taille : **S** = frontend seul, une demi-journée ; **M** = un composant de
+plus ou une commande Rust simple ; **L** = une commande réseau, un nouvel état
+partagé, ou une décision de design à prendre d'abord.
+
+### À traiter en premier
+
+| Écart | Aujourd'hui | Ce qu'il faudrait | Taille |
+|---|---|---|---|
+| **L'import de `~/.ssh/config` perd les bastions et les clés.** L'accueil promet « vos alias, utilisateurs, ports et bastions, tels quels », et la colonne « Passe par » de l'import affiche le `ProxyJump`. | `import_ssh_config_hosts` (`commands/known_hosts.rs`) ne reprend que l'adresse, l'utilisateur, le port et `ProxyCommand`. `ProxyJump` et `IdentityFile` sont lus par `core::ssh_config` puis ignorés : l'hôte importé tente une connexion directe. | Résoudre `ProxyJump` vers un hôte existant ou importé dans le même lot (par alias), et le poser en `jump_via`. Reprendre `IdentityFile` en clé privée par chemin. Test dans `core` sur un `config` écrit à la main, avec un bastion importé dans le même lot. | M |
+
+### Coquille et terminal (tranche 1)
+
+| Écart | Aujourd'hui | Ce qu'il faudrait | Taille |
+|---|---|---|---|
+| **Barre d'état du terminal** : méthode d'authentification (« Clé ed25519 via l'agent »), OS, latence, taille de la grille, encodage, aide des suggestions. | Absente. Remise à plus tard à la tranche 1, faute de mesure de latence. | En deux temps. Frontend seul : taille (xterm), OS (faits déjà collectés), encodage, aide des suggestions. Backend : la méthode qui a réussi est connue de `ssh::authenticate` et peut remonter dans `TerminalOpened` ; la latence demande un aller-retour mesuré sur la connexion (keepalive). | S puis M |
+| **État dans la barre de session** (« actif », reconnexion). Le plan disait : fil d'Ariane, état, actions. | Fil d'Ariane et actions seulement. | Une pastille et un mot, lus de l'état que `TerminalTab` connaît déjà (connecté, reconnexion, coupé). | S |
+| **Onglets parlants** : pastille d'état par onglet, puce `tmux`, icône de diffusion active. | Icône du genre d'onglet et couleur de l'hôte ; persistant et observation dans l'infobulle seulement. | Rendre ces trois états dans `TabBar`, à partir de `TabMeta` (`sessionKey`, statut) et de l'état de diffusion d'`App`. | S |
+| **Pastille sur GuiVault dans le rail** quand un vault est revenu en arrière (rouge sur la maquette). | Seul Cloud porte une pastille (session SSO qui expire). | La même pastille sur GuiVault, depuis `guivaultStatus.rollbacks`. | S |
+| **En-tête de volet en écran divisé** (« web-01 · actif », volet actif encadré d'accent). | Pas d'en-tête nommant chaque volet. | Une ligne de 28 px par volet dans la vue divisée. | S |
+
+### Hôtes (tranche 2)
+
+| Écart | Aujourd'hui | Ce qu'il faudrait | Taille |
+|---|---|---|---|
+| **En-tête du panneau** : bouton icône « Importer des hôtes », bouton « Nouveau » direct, sélection multiple, et `/` pour filtrer. | Un bouton « Ajouter… » qui ouvre un menu. La sélection multiple existe, à côté. | Réorganiser l'en-tête de `HostsPanel` ; brancher `/` sur la recherche du panneau (à ajouter dans `lib/shortcuts.ts`, en vérifiant `shellBindingWarning` : `/` ne doit pas partir d'un terminal). | S |
+| **Raccourcis du menu d'hôte**, affichés et actifs : Entrée (terminal), Ctrl+Entrée (fichiers), F2 (modifier), Ctrl+D (dupliquer), Suppr. | Le menu existe sans raccourcis. | Les gérer sur la ligne qui a le focus (`useRowNavigation`), et les afficher en `.kbd` dans le menu. | M |
+| **En-tête du menu** avec la jauge RAM de l'hôte. | Nom et commande ssh. | Reprendre la jauge de la ligne. | S |
+| **« Sessions tmux · 1 détachée »** : le nombre de sessions dans l'entrée de menu. | L'entrée ouvre le gestionnaire, sans compte. | Compter les clés retenues par les récents (`lib/recents.ts`) pour cet hôte. Le vrai nombre demanderait le réseau. | S |
+| **« Ouvrir à côté de *onglet actif* »** depuis le menu d'hôte. | Écarté à la tranche 2 : la division passe par la barre de session. | À rouvrir si l'usage le demande : ouvrir l'hôte dans le volet droit de l'onglet actif. | M |
+| **« Déplacer vers › Cet appareil seulement »** : sortir un hôte de GuiVault. | « Déplacer vers » ne liste que les vaults du compte. | Ajouter la destination `local` : `transfer::Place::Local` existe déjà dans `guivault_transfer_entities`. | S |
+
+### Palette (tranche 2)
+
+| Écart | Aujourd'hui | Ce qu'il faudrait | Taille |
+|---|---|---|---|
+| **Groupe Snippets**, avec « dans *onglet actif* ». | Pas de groupe Snippets : ils passent par `Ctrl+Shift+R`. | Ajouter le groupe, trié par `lib/snippetUsage.ts` (le classement existe depuis la 3c). Les variables passent par `SnippetPicker` (`initialSnippet`). | S |
+| **Correspondance surlignée** (`<mark>`). | Non surlignée. | Découper le libellé autour de la correspondance. | S |
+| **« Ouvert »** sur un hôte déjà en onglet ; Entrée va à l'onglet au lieu d'en ouvrir un second. | Entrée ouvre un nouvel onglet. | Les cibles ouvertes sont déjà calculées pour l'accueil (`openTargets` dans `App`). | S |
+| **Actions secondaires au clavier** : Ctrl+Entrée (fichiers), Tab (plus d'actions), `>` (commandes seules), filtre de portée « Tout ». | Entrée seulement. | Un second niveau d'actions par résultat dans `CommandPalette`, et un mode « commandes ». | M |
+| **Action composée** : « Ouvrir web-01 et web-02 côte à côte, en diffusion ». | Il faut ouvrir, diviser puis diffuser à la main. | Une action de palette proposée quand la recherche désigne deux hôtes, qui enchaîne les trois. | M |
+
+### Accueil (tranche 3)
+
+| Écart | Aujourd'hui | Ce qu'il faudrait | Taille |
+|---|---|---|---|
+| **Raccourci par snippet** (« Ctrl ⇧ 1 », « Ctrl ⇧ 2 »). | Les snippets n'ont pas de raccourci ; la ligne montre la commande. | Un raccourci assignable par snippet. Le garder **local au poste** (préférences) plutôt que dans le `Snippet` synchronisé : deux postes n'ont pas les mêmes mains. Vérifier les collisions avec `shellBindingWarning`. | M |
+| **Tunnels avec interrupteur** dans « En cours », y compris un tunnel arrêté. | La section « Tunnels actifs » n'affiche que ceux qui tournent, sans action. | Lister aussi les tunnels arrêtés récemment utilisés, avec un `switch` qui démarre ou arrête (commandes existantes du panneau Tunnels). | S |
+| **Transferts en cours** dans « En cours » : fichier, pourcentage, débit, temps restant. | Les transferts ne sont visibles que dans leur onglet. | Un état global des transferts : `TransferProgressEvent` existe, mais n'est écouté que par `TransferTab`. | M |
+| **Ce qui tourne dans une session à reprendre** (« `htop` en cours ») et l'heure réelle du détachement. | « Détachée · il y a 2 h », d'après la dernière connexion retenue. | Une commande qui interroge tmux sur l'hôte (`#{pane_current_command}`, `#{session_activity}`), à la demande, puisque c'est un aller sur le réseau. | M |
+| **Sessions découvertes sur l'hôte**, même ouvertes depuis un autre poste. | L'accueil ne propose que les sessions dont ce poste a retenu la clé. | Interroger les hôtes à sessions persistantes au chargement de l'accueil : borné, en parallèle, sans bloquer l'affichage. Décider d'abord si l'accueil a le droit d'ouvrir des connexions de lui-même. | L |
+
+### Import (tranche 3c)
+
+| Écart | Aujourd'hui | Ce qu'il faudrait | Taille |
+|---|---|---|---|
+| **Choix du vault à l'import** (« Ranger dans *Personnel* ▾ »). | Les hôtes importés arrivent dans le workspace affiché ; on les range ensuite avec « Déplacer vers ». | Un `VaultField` dans le pied de la fenêtre, puis `guivault_transfer_entities` sur les ids créés (les commandes d'import rendent le workspace : comparer les ids avant et après). | M |
+| **« Nouveau dossier « ssh config » »** créé à la volée. | On choisit un dossier existant. | Une entrée « Nouveau dossier… » dans `GroupTreePicker`, qui crée le groupe avant l'import. Utile aussi au formulaire d'hôte. | S |
+| **Un pied de fenêtre commun** (« Ranger dans » + bouton Importer) pour toutes les sources. | Chaque source a le sien ; AWS range par tag, Azure et GCP ont « Groupe de destination » dans leurs identifiants. | Remonter la destination dans `ImportHostsDialog` et la passer aux sources. Garder dans chaque source ce qui lui est propre (identifiants du lot, dossier depuis un tag AWS). | M |
+
+### Écarts assumés, à ne pas rattraper
+
+Des choix faits en connaissance de cause. Ils sont listés ici pour qu'une
+relecture de la maquette ne les reprenne pas comme des oublis :
+
+- **Un clic simple connecte** (la maquette du plan disait double-clic) : c'est
+  l'action la plus fréquente de l'app (tranche 2).
+- **L'accueil n'est pas un onglet** : un `kind` de plus dans tous les
+  dispatches, pour un écran sans état à garder (tranche 3).
+- **Les tags et l'OS d'un hôte sont dans l'infobulle**, pas sur la ligne : la
+  ligne reste à deux lignes (tranche 2).
+- **Activité n'a pas de numéro `Alt+n`** : ce n'est pas un panneau (tranche 1).
+
 ## Hors périmètre, dit d'avance
 
 - **Déverrouillage Windows Hello.** Montré sur la maquette du coffre

@@ -2734,3 +2734,92 @@ serveur : un élément « retenu » y est joué en le retirant de l'état
 reconstitué de l'appareil, ce qui est exactement ce que verrait la
 vérification. Le conflit, lui, est réel : une écriture faite avec un
 manifeste en retard (un autre appareil a écrit depuis) doit être reprise.
+
+## Refonte UI, tranche 3 : accueil, import unifié, snippets fréquents (2026-10-28)
+
+Le plan, les écarts avec la maquette et les garde-fous de chaque tranche
+vivent dans `docs/refonte-ui.md`. Ici, ce qui a été appris en route et qu'on
+ne voit pas en lisant le code.
+
+### Une fenêtre d'import, des sources qui gardent leur composant
+
+`ImportHostsDialog` porte le titre, la fermeture et la colonne des sources ;
+chaque source (`SshConfigImportSource`, `AwsImportPanel`, `GcpImportPanel`,
+`AzureImportPanel`, `AnsibleImportPanel`, `FileImportSource`) rend son corps
+dans `ImportSourceFrame`. On a gardé un composant par source pour la raison
+déjà donnée en tête de `CloudImportBits.tsx` : un panneau généralisé aurait
+déplacé les divergences dans une liste de props. Les deux dispatches de la
+fenêtre (`status`, `body`) se ferment sur `assertNever` : une source ajoutée
+à `ImportSource` sans rendu est une erreur `tsc`.
+
+La colonne de gauche sonde `gcloud` et `az` à l'ouverture, en parallèle. La
+source sélectionnée refait sa propre liste ensuite : deux appels à la même
+CLI quand on choisit GCP, accepté pour ne pas coupler la fenêtre aux états
+internes de chaque source.
+
+Les sources se démontent quand on en change (une liste d'instances AWS est
+perdue en passant sur Azure puis en revenant). Les garder montées et masquées
+aurait conservé l'état, mais aussi les `data-import-body` cachés que l'E2E et
+le tour cherchent : choix fait pour la simplicité, à revoir si l'usage
+montre qu'on fait des allers-retours.
+
+### Un aperçu de fichier côté Rust, pas côté webview
+
+« Importer un hôte (fichier) » importait sans rien montrer. La source
+« Fichier » lit d'abord le fichier par `inspect_import_file`
+(`core::export::preview`) : le genre se décide sur la clé de premier niveau
+(`workspace` ou `host`) **avant** la désérialisation complète. Sinon un
+export d'hôte mal formé se faisait refuser avec l'erreur de l'autre format,
+qui ne lui parlait de rien. « Existant » veut dire « même id » : c'est la
+règle de `merge_workspace`, donc l'aperçu dit exactement ce que la fusion
+remplacera.
+
+Le scénario E2E ne peut pas piloter le sélecteur de fichier natif : il écrit
+un export du workspace courant par `export_workspace` dans le dossier des
+journaux, l'inspecte, puis le vide par `export_text`. L'assertion utile : un
+export du workspace courant doit lister tous ses hôtes comme **existants** —
+un aperçu qui les dirait « nouveaux » promettrait des doublons.
+
+### `useModalSurface` et les boîtes empilées
+
+Le panneau SSO AWS (rendu par `App`) et la connexion Azure (rendue dans la
+source Azure) s'ouvrent **par-dessus** la fenêtre d'import, qui piège le
+focus. Deux bugs en découlaient : Échap dans le panneau du dessus fermait la
+fenêtre du dessous, et Tab ramenait le focus dans celle-ci, derrière le
+panneau qu'on remplissait. Correctif en deux parties :
+
+- `useModalSurface` ignore une touche dont la cible est dans une autre boîte
+  (`closest('[role="dialog"], .modal')` différent de la sienne) ;
+- les deux panneaux prennent le focus à l'ouverture (`tabIndex={-1}` et
+  `focus()` sur la boîte) : sans focus chez eux, la cible de la touche reste
+  dans la fenêtre du dessous, et la règle ci-dessus ne voit rien.
+
+Le hook focalise aussi sa boîte à l'ouverture quand le focus est resté
+dehors (sur le bouton qui l'a ouverte), sauf s'il est déjà dans une autre
+boîte : l'effet se rejoue à chaque nouvelle identité de `onClose`, et sans
+cette exception il reprenait le focus au panneau SSO à chaque rendu d'`App`.
+Vérifié en E2E : Échap dans la connexion Azure laisse la fenêtre d'import
+ouverte.
+
+### Snippets fréquents : compter sans synchroniser
+
+`lib/snippetUsage.ts` suit le modèle des récents : `localStorage`, jamais
+synchronisé. Un compteur dans le `Snippet` aurait fait un conflit GuiVault à
+chaque exécution, et deux postes n'ont pas les mêmes habitudes. Le score est
+une fréquence amortie (chaque usage ajoute 1, le score perd la moitié en
+14 jours) : un compteur brut gardait en tête le snippet d'un chantier fini.
+
+On compte à l'appel, pas à la réussite : `runSnippet` ne rend rien, et le
+seul échec possible (aucun terminal ouvert) est déjà signalé. Le nettoyage
+des snippets supprimés ne s'applique pas à un workspace qui n'a **aucun**
+snippet : une synchro qui arrive avant le chargement aurait sinon effacé
+tous les compteurs.
+
+### Piège de build Windows rencontré
+
+Un `cargo build --release` lancé par `powershell.exe` depuis WSL et coupé par
+le délai de l'outil **continue de tourner côté Windows** et garde le verrou du
+dossier de build. Le build suivant affiche alors « Blocking waiting for file
+lock on build directory » et semble figé. Le build release complet a pris
+24 minutes ce jour-là : le lancer en arrière-plan, avec un journal, plutôt
+qu'en avant-plan avec un délai.
