@@ -285,6 +285,7 @@ async function runScenarios(browser) {
   await runHostPasswordScenario(browser);
   await runSessionManagerScenario(browser);
   await runResumeOnLaunchScenario(browser);
+  await runHomeScenario(browser);
   await runSshAgentScenario(browser);
 
   await mkdir(outDir, { recursive: true });
@@ -4850,6 +4851,58 @@ async function runPersistentSessionScenario(browser) {
  * inconnue ni un argument mal nommé — c'est ce dernier point qui ferait passer
  * une commande jamais enregistrée pour une simple panne réseau.
  */
+/** L'accueil (tranche 3 de la refonte) : le logo l'ouvre, la page se rend
+ * avec les données réelles, et l'import de `~/.ssh/config` répond — une liste,
+ * vide ou non, selon la machine, jamais une erreur. La fenêtre d'import se
+ * rend dans la vraie webview, puis se referme sans rien écrire. */
+async function runHomeScenario(browser) {
+  await browser.execute(() => document.querySelector("[data-home-button]")?.click());
+  await browser.waitUntil(async () => await browser.execute(() => !!document.querySelector("[data-home-page]")),
+    { timeout: 5_000, timeoutMsg: "le logo n a pas ouvert l accueil" });
+  const variant = await browser.execute(() => document.querySelector("[data-home-page]")?.getAttribute("data-home-page"));
+
+  const preview = await browser.execute(async () => {
+    try {
+      const hosts = await window.__TAURI_INTERNALS__.invoke("preview_ssh_config_import", { path: null });
+      return { ok: Array.isArray(hosts), count: Array.isArray(hosts) ? hosts.length : -1 };
+    } catch (e) {
+      return { ok: false, error: String(e) };
+    }
+  });
+  if (!preview.ok) throw new Error(`preview_ssh_config_import : ${JSON.stringify(preview)}`);
+
+  // La fenêtre d'import : depuis l'accueil au premier lancement, depuis le
+  // panneau Known Hosts sinon (l'accueil d'un profil peuplé n'a pas de
+  // bouton d'import — ce sera la fenêtre unifiée de la tranche 3c).
+  if (variant === "first-launch") {
+    await browser.execute(() => document.querySelector("[data-welcome-choice='ssh-config'] button")?.click());
+  } else {
+    await browser.execute(() => {
+      const btn = Array.from(document.querySelectorAll("aside nav button"))
+        .find((b) => b.getAttribute("data-sidebar-button") === "knownHosts");
+      if (btn instanceof HTMLElement) btn.click();
+    });
+    await browser.waitUntil(async () => await browser.execute(() =>
+      Array.from(document.querySelectorAll("button")).some((b) => b.textContent?.includes("Importer ~/.ssh/config"))
+    ), { timeout: 5_000, timeoutMsg: "le panneau Known Hosts n offre pas l import" });
+    await browser.execute(() => Array.from(document.querySelectorAll("button"))
+      .find((b) => b.textContent?.includes("Importer ~/.ssh/config"))?.click());
+  }
+  await browser.waitUntil(async () => await browser.execute(() => {
+    const dialog = document.querySelector("[data-ssh-config-import]");
+    return !!dialog && !/Lecture du fichier/.test(dialog.textContent ?? "");
+  }), { timeout: 10_000, timeoutMsg: "la fenêtre d import de ~/.ssh/config ne s est pas chargée" });
+  await browser.execute(() => Array.from(document.querySelectorAll("[data-ssh-config-import] button"))
+    .find((b) => b.textContent?.trim() === "Annuler")?.click());
+  await browser.waitUntil(async () => await browser.execute(() => !document.querySelector("[data-ssh-config-import]")),
+    { timeout: 5_000, timeoutMsg: "la fenêtre d import ne s est pas refermée" });
+
+  // Quitter l'accueil pour les scénarios suivants : choisir un onglet le
+  // referme (sans onglet, il reste l'écran par défaut, comme avant).
+  await browser.execute(() => document.querySelector("[data-tab-id]")?.click());
+  console.log(`Accueil : OK (ouvert par le logo, variante « ${variant} », ~/.ssh/config lu : ${preview.count} hôte(s), fenêtre d'import ouverte puis refermée).`);
+}
+
 async function runSessionManagerScenario(browser) {
   const LABEL = `e2e-sessions-${Date.now()}`;
 

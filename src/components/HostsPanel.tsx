@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { focusFirstMenuItem, handleMenuKey } from "../lib/menuKeyboard";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
+import { parseSSHInput, quickSshCommand } from "../lib/quickConnect";
 import { api } from "../lib/api";
 import type { Group, GroupId, GuiVaultFollower, Host, HostId, SqlConnection, VaultId, VaultPlace, Workspace } from "../lib/types";
 import { sectionRoleLabel, splitTreeByVault, type VaultSection } from "../lib/vaultSections";
@@ -69,15 +70,6 @@ interface HostsPanelProps {
   onError?: (msg: string) => void;
   /** Success feedback — a bulk edit that says nothing looks like it failed. */
   onNotify?: (msg: string) => void;
-}
-
-function parseSSHInput(raw: string): { username: string; address: string; port: number } | null {
-  const str = raw.trim().replace(/^ssh\s+/, "");
-  const m = str.match(/^([^@\s]+)@([^:\s]+)(?::(\d+))?$/);
-  if (!m) return null;
-  const port = m[3] ? parseInt(m[3], 10) : 22;
-  if (!port || port < 1 || port > 65535) return null;
-  return { username: m[1], address: m[2], port };
 }
 
 function LocalTerminalButton({ onOpen }: { onOpen: (shell?: string) => void }) {
@@ -248,9 +240,7 @@ export function HostsPanel({
 
   const handleQuickConnect = () => {
     if (!quickSSH) return;
-    const { username, address, port } = quickSSH;
-    const cmd = port === 22 ? `ssh ${username}@${address}` : `ssh -p ${port} ${username}@${address}`;
-    onQuickSSH(cmd);
+    onQuickSSH(quickSshCommand(quickSSH));
     setSearch("");
   };
 

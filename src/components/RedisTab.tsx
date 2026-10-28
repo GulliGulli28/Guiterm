@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useConnectedSignal } from "../hooks/useConnectedSignal";
 import { api } from "../lib/api";
 import { ConnectionFailed } from "./ConnectionFailed";
 import type { RedisKeyDetail, RedisKeyEntry, RedisReply, RedisValue, SqlConnection } from "../lib/types";
@@ -8,6 +9,8 @@ import { IconPlay, IconRefresh, IconSearch } from "./ui-icons";
 interface RedisTabProps {
   connection: SqlConnection;
   onError: (message: string) => void;
+  /** La connexion vient d'aboutir (récents de l'accueil). */
+  onConnected?: () => void;
 }
 
 /** `120` → `"2m"`, `90000` → `"1j"` — compact enough for a badge next to a
@@ -36,8 +39,9 @@ interface ConsoleEntry { command: string; reply?: RedisReply; error?: string }
  * list is a flat, paginated, searchable `SCAN` — deliberately not a
  * colon-namespaced virtual folder tree, which would need to see far more of
  * a potentially huge keyspace just to group anything. */
-export function RedisTab({ connection, onError }: RedisTabProps) {
+export function RedisTab({ connection, onError, onConnected }: RedisTabProps) {
   const [status, setStatus] = useState<"connecting" | "connected" | "failed">("connecting");
+  useConnectedSignal(status === "connected", onConnected);
   // Incrémenté par « Réessayer » (`ConnectionFailed`) : seule dépendance de
   // l'effet de connexion en dehors de la connexion elle-même, donc
   // l'incrémenter rejoue tout le cycle, fermeture de la session précédente

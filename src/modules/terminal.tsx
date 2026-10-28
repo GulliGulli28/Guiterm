@@ -59,6 +59,10 @@ export const terminalModule = defineModule({
           sessionKey={tab.sessionKey}
           readOnly={tab.readOnly}
           onSessionKey={(key) => ctx.rememberSessionKey(tab.id, key)}
+          onConnected={(sessionKey) => ctx.noteRecent({
+            kind: "terminal", hostId: host.id,
+            dockerContainerId: tab.dockerContainerId, k8sPodName: tab.k8sPodName, k8sContainerName: tab.k8sContainerName,
+          }, sessionKey)}
           ref={(handle) => ctx.registerTerminalHandle(tab.id, handle)}
         />
       );

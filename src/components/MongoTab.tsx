@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useConnectedSignal } from "../hooks/useConnectedSignal";
 import { api } from "../lib/api";
 import { ConnectionFailed } from "./ConnectionFailed";
 import type { CollectionInfo, MongoQueryResult, SqlConnection } from "../lib/types";
@@ -8,6 +9,8 @@ import { IconChevronDown, IconChevronRight, IconDatabase, IconPlay, IconRefresh,
 interface MongoTabProps {
   connection: SqlConnection;
   onError: (message: string) => void;
+  /** La connexion vient d'aboutir (récents de l'accueil). */
+  onConnected?: () => void;
 }
 
 type ActiveSubTab = "data" | "query";
@@ -47,8 +50,9 @@ interface Selection {
  * only where JSON genuinely can't represent the BSON type), the same
  * representation `mongosh` and Compass show, so they are rendered as-is
  * rather than reinterpreted here. */
-export function MongoTab({ connection, onError }: MongoTabProps) {
+export function MongoTab({ connection, onError, onConnected }: MongoTabProps) {
   const [status, setStatus] = useState<"connecting" | "connected" | "failed">("connecting");
+  useConnectedSignal(status === "connected", onConnected);
   // Incrémenté par « Réessayer » (`ConnectionFailed`) : seule dépendance de
   // l'effet de connexion en dehors de la connexion elle-même, donc
   // l'incrémenter rejoue tout le cycle, fermeture de la session précédente

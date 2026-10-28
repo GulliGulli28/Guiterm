@@ -1,21 +1,21 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
-import type { KnownHostEntry, SshConfigHost, Workspace } from "../lib/types";
+import type { Host, KnownHostEntry, Workspace } from "../lib/types";
 import { IconTrash, IconDownload, IconShield } from "./ui-icons";
 import { EntityRow, EntityMono } from "./EntityRow";
+import { SshConfigImportDialog } from "./SshConfigImportDialog";
 
 interface KnownHostsPanelProps {
+  /** Pour que l'import reconnaisse les hôtes déjà enregistrés. */
+  hosts: Host[];
   onWorkspaceUpdate: (ws: Workspace) => void;
   onError: (msg: string) => void;
 }
 
-export function KnownHostsPanel({ onWorkspaceUpdate, onError }: KnownHostsPanelProps) {
+export function KnownHostsPanel({ hosts, onWorkspaceUpdate, onError }: KnownHostsPanelProps) {
   const [entries, setEntries] = useState<KnownHostEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [showImport, setShowImport] = useState(false);
-  const [configHosts, setConfigHosts] = useState<SshConfigHost[] | null>(null);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
-  const [importing, setImporting] = useState(false);
 
   const refresh = () => {
     setLoading(true);
@@ -28,46 +28,7 @@ export function KnownHostsPanel({ onWorkspaceUpdate, onError }: KnownHostsPanelP
     api.revokeKnownHost(identity).then(refresh).catch((e) => onError(String(e)));
   };
 
-  const openImport = () => {
-    setShowImport(true);
-    if (configHosts === null) {
-      api.previewSshConfigImport(null)
-        .then((hosts) => { setConfigHosts(hosts); setSelected(new Set(hosts.map((h) => h.alias))); })
-        .catch((e) => { onError(String(e)); setConfigHosts([]); });
-    }
-  };
-
-  const toggleSelected = (alias: string) => {
-    setSelected((prev) => {
-      const next = new Set(prev);
-      if (next.has(alias)) next.delete(alias);
-      else next.add(alias);
-      return next;
-    });
-  };
-
-  const runImport = () => {
-    if (!configHosts) return;
-    const selections = configHosts
-      .filter((h) => selected.has(h.alias))
-      .map((h) => ({
-        alias: h.alias,
-        hostname: h.hostname ?? h.alias,
-        user: h.user ?? "",
-        port: h.port ?? 22,
-        groupId: null,
-        // Without this an SSM/IAP-only entry would import as a plain direct
-        // connection and simply time out — the config file already knew how
-        // to reach it.
-        proxyCommand: h.proxyCommand,
-      }));
-    if (selections.length === 0) { setShowImport(false); return; }
-    setImporting(true);
-    api.importSshConfigHosts(selections)
-      .then((ws) => { onWorkspaceUpdate(ws); setShowImport(false); setConfigHosts(null); })
-      .catch((e) => onError(String(e)))
-      .finally(() => setImporting(false));
-  };
+  const openImport = () => setShowImport(true);
 
   return (
     <div className="flex h-full min-w-0 flex-col">
@@ -108,46 +69,7 @@ export function KnownHostsPanel({ onWorkspaceUpdate, onError }: KnownHostsPanelP
       </div>
 
       {showImport && (
-        <>
-          <div className="fixed inset-0 z-30 bg-black/50" onClick={() => setShowImport(false)} />
-          <div className="modal fixed left-1/2 top-1/2 z-40 w-[420px] max-w-[90vw] -translate-x-1/2 -translate-y-1/2 overflow-hidden">
-            <div className="border-b border-[var(--c-border)] px-4 py-3">
-              <p className="text-[14px] font-semibold text-[var(--c-text)]">Importer depuis ~/.ssh/config</p>
-              <p className="help-text mt-0.5">Seuls l'alias, l'adresse, l'utilisateur et le port sont importés.</p>
-            </div>
-            <div className="sidebar-scroll max-h-72 overflow-y-auto p-2">
-              {configHosts === null && <p className="px-2 py-6 text-center text-[13px] text-[var(--c-text-muted)]">Lecture du fichier…</p>}
-              {configHosts?.length === 0 && <p className="px-2 py-6 text-center text-[13px] text-[var(--c-text-muted)]">Aucun hôte trouvé dans ~/.ssh/config</p>}
-              {configHosts?.map((h) => (
-                <label key={h.alias} className="flex items-center gap-2 rounded-md px-2 py-1.5 hover:bg-[var(--c-hover)]">
-                  <input
-                    type="checkbox"
-                    checked={selected.has(h.alias)}
-                    onChange={() => toggleSelected(h.alias)}
-                    className="h-3.5 w-3.5 shrink-0"
-                  />
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-[13px] text-[var(--c-text)]">{h.alias}</p>
-                    <p className="truncate font-mono text-[11px] text-[var(--c-text-muted)]">
-                      {h.user ?? "?"}@{h.hostname ?? h.alias}{h.port ? `:${h.port}` : ""}
-                    </p>
-                    {h.proxyCommand && (
-                      <p className="truncate font-mono text-[10px] text-[var(--c-text-faint)]" title={h.proxyCommand}>
-                        via {h.proxyCommand}
-                      </p>
-                    )}
-                  </div>
-                </label>
-              ))}
-            </div>
-            <div className="flex justify-end gap-1.5 border-t border-[var(--c-border)] px-4 py-3">
-              <button onClick={() => setShowImport(false)} className="btn btn-ghost">Annuler</button>
-              <button onClick={runImport} disabled={importing || !configHosts || selected.size === 0} className="btn btn-primary">
-                Importer {selected.size > 0 ? `(${selected.size})` : ""}
-              </button>
-            </div>
-          </div>
-        </>
+        <SshConfigImportDialog hosts={hosts} onWorkspaceUpdate={onWorkspaceUpdate} onError={onError} onClose={() => setShowImport(false)} />
       )}
     </div>
   );

@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { TerminalTabHandle } from "../components/TerminalTab";
 import type { NotificationKind } from "../lib/notifications";
 import type { AppPreferences } from "../lib/preferences";
+import type { RecentTarget } from "../lib/recents";
 import type {
   AwsSessionAlert, AwsSsoSession, Group, GroupId, Host, HostId, KeyAlgorithm, KeyId,
   PaneSource, PortForwardId, PortForwardKind, RunbookId, SnippetId, SqlConnection, TabMeta, TransferPanes, VaultStatus, Workspace,
@@ -88,6 +89,9 @@ export interface AppContext {
    * qui est persisté, donc c'est lui qui doit porter ce que le composant
    * apprend en vivant. */
   rememberPanes: (tabId: string, panes: TransferPanes) => void;
+  /** Une connexion vient d'aboutir : elle passe en tête des récents de
+   * l'accueil, avec sa session tmux quand elle en a une. */
+  noteRecent: (target: RecentTarget, sessionKey: string | null) => void;
   /** Amène la barre latérale sur ce panneau. Deux modules en ont besoin — la
    * flotte et le diagnostic réseau, dont le choix des cibles vit dans la barre
    * pendant que leur onglet compose et exécute : leur récapitulatif de

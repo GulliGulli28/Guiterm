@@ -58,6 +58,9 @@ import { useTabs } from "./hooks/useTabs";
 import { useBroadcast, SPLIT_PANE_ID } from "./hooks/useBroadcast";
 import { useFullscreen } from "./hooks/useFullscreen";
 import { useAwsSessionAlerts } from "./hooks/useAwsSessionAlerts";
+import { forgetSession, loadRecents, pruneRecents, recordRecent, saveRecents, type RecentEntry, type RecentTarget } from "./lib/recents";
+import { HomePage } from "./components/HomePage";
+import { SshConfigImportDialog } from "./components/SshConfigImportDialog";
 import type { ZoomAction } from "./lib/terminalZoom";
 
 export default function App() {
@@ -128,6 +131,23 @@ export default function App() {
   // Watched here rather than in the identities panel: a session dying is worth
   // knowing about while looking at a terminal, and that panel is lazy-loaded.
   const awsAlerts = useAwsSessionAlerts(awsIdentitiesEpoch);
+  // Les récents de l'accueil : locaux à l'appareil, voir `lib/recents.ts`.
+  const [recents, setRecents] = useState<RecentEntry[]>(loadRecents);
+  const updateRecents = useCallback((change: (list: RecentEntry[]) => RecentEntry[]) => {
+    setRecents((prev) => {
+      const next = change(prev);
+      saveRecents(next);
+      return next;
+    });
+  }, []);
+  const noteRecent = useCallback((target: RecentTarget, sessionKey: string | null) => {
+    updateRecents((list) => recordRecent(list, { ...target, at: Date.now(), ...(sessionKey ? { sessionKey } : {}) }));
+  }, [updateRecents]);
+  // L'accueil : affiché d'office sans onglet, et rouvert par le logo par-dessus
+  // les onglets, qui restent montés dessous (un terminal ne se reconnecte pas
+  // pour un aller-retour sur l'accueil).
+  const [homeOpen, setHomeOpen] = useState(false);
+  const [sshConfigImportOpen, setSshConfigImportOpen] = useState(false);
   const terminalRefs = useRef<Map<string, TerminalTabHandle>>(new Map());
   const { fullscreen, toggleFullscreen } = useFullscreen(reportError);
 
@@ -827,11 +847,91 @@ export default function App() {
   // élément : l'écran de chargement la rend avant que `tabColor` (qui lit le
   // workspace) n'existe. En plein écran elle reste à l'écran, sans boutons de
   // fenêtre — c'est là que sont les onglets.
+  // ── Accueil ──────────────────────────────────────────────────────────────
+  // Ouvrir un onglet (ou en changer) quitte l'accueil.
+  useEffect(() => { setHomeOpen(false); }, [activeTabId]);
+  // Un hôte ou une connexion supprimés quittent aussi les récents.
+  useEffect(() => {
+    if (!workspace) return;
+    const hostIds = new Set(workspace.hosts.map((h) => h.id));
+    const connectionIds = new Set(workspace.sqlConnections.map((c) => c.id));
+    updateRecents((list) => {
+      const kept = pruneRecents(list, hostIds, connectionIds);
+      return kept.length === list.length ? list : kept;
+    });
+  }, [workspace, updateRecents]);
+
+  const renderHomePage = () => {
+    if (!workspace) return null;
+    const openTargets: RecentTarget[] = [];
+    const openSessionKeys = new Set<string>();
+    for (const t of tabs) {
+      if (t.kind === "terminal") {
+        openTargets.push({ kind: "terminal", hostId: t.hostId, dockerContainerId: t.dockerContainerId, k8sPodName: t.k8sPodName, k8sContainerName: t.k8sContainerName });
+        if (t.sessionKey) openSessionKeys.add(t.sessionKey);
+      } else if (t.kind === "rdp-view") openTargets.push({ kind: "rdp", hostId: t.hostId });
+      else if (t.kind === "sql") openTargets.push({ kind: "database", connectionId: t.sqlConnectionId });
+    }
+    const leave = (run: () => void) => { setHomeOpen(false); run(); };
+    const openHost = (host: Host) => {
+      switch (host.kind ?? "ssh") {
+        case "ssh": leave(() => openTab("terminal", host)); return;
+        case "rdp": leave(() => tabOpeners.connectRdpView(host)); return;
+        // Un conteneur ou un pod se choisit dans la liste de l'hôte : c'est
+        // là que vit le sélecteur.
+        default: leave(() => showTargetsPanel("hosts"));
+      }
+    };
+    const openRecent = (entry: RecentEntry) => {
+      if (entry.kind === "database") {
+        const conn = workspace.sqlConnections.find((c) => c.id === entry.connectionId);
+        if (conn) leave(() => openSql(conn));
+        return;
+      }
+      const host = workspace.hosts.find((h) => h.id === entry.hostId);
+      if (!host) return;
+      if (entry.kind === "rdp") { leave(() => tabOpeners.connectRdpView(host)); return; }
+      // Une session retenue et pas encore à l'écran : la reprendre plutôt que
+      // d'en ouvrir une nouvelle à côté.
+      if (entry.sessionKey && !openSessionKeys.has(entry.sessionKey)) {
+        leave(() => openPersistentSession(host, entry.sessionKey!));
+        return;
+      }
+      leave(() => openTab("terminal", host, entry.dockerContainerId, entry.k8sPodName, entry.k8sContainerName));
+    };
+    return (
+      <HomePage
+        workspace={workspace}
+        recents={recents}
+        openTargets={openTargets}
+        openSessionKeys={openSessionKeys}
+        openTabCount={tabs.length}
+        guivaultStatus={guivaultStatus}
+        awsAlerts={awsAlerts}
+        paletteCombo={preferences.keyboardShortcuts["palette.open"]}
+        onOpenRecent={openRecent}
+        onResumeSession={openRecent}
+        onForgetSession={(key) => updateRecents((list) => forgetSession(list, key))}
+        onOpenHost={openHost}
+        onQuickSSH={(cmd) => leave(() => openLocalTerminal(cmd))}
+        onNewHost={() => sidebarActions.newHost()}
+        onImportSshConfig={() => setSshConfigImportOpen(true)}
+        onImportFrom={(source) => (source === "ansible" ? setAnsibleImportOpen(true) : setCloudImport(source))}
+        onOpenGuiVault={(vaultId) => leave(() => sidebarActions.openVault(vaultId))}
+        onOpenAwsIdentities={() => leave(() => showTargetsPanel("aws"))}
+        onShowTunnels={() => leave(() => showTargetsPanel("tunnels"))}
+        onLocalTerminal={() => leave(() => openLocalTerminal())}
+      />
+    );
+  };
+
   const renderTitleBar = (colorOf?: (tab: TabMeta) => string | undefined) => (
     <TitleBar
       tabs={tabs}
       activeTabId={activeTabId}
-      onSelectTab={setActiveTabId}
+      onSelectTab={(id) => { setHomeOpen(false); setActiveTabId(id); }}
+      onHome={() => setHomeOpen(true)}
+      homeActive={homeOpen || tabs.length === 0}
       onCloseTab={requestCloseTab}
       onReorderTabs={setTabs}
       tabColor={colorOf}
@@ -894,7 +994,8 @@ export default function App() {
     connect: (host) => openTab("terminal", host),
     connectDocker: (host, containerId) => openTab("terminal", host, containerId),
     connectK8s: (host, podName, containerName) => openTab("terminal", host, undefined, podName, containerName),
-    connectRdpView: (host) => openTab("rdp-view", host),
+    // L'aperçu RDP ne signale pas sa connexion : il compte dès l'ouverture.
+    connectRdpView: (host) => { noteRecent({ kind: "rdp", hostId: host.id }, null); openTab("rdp-view", host); },
     openTransfer: (host, dockerContainerId, k8sPodName, k8sContainerName) =>
       openTab("transfer", host, dockerContainerId, k8sPodName, k8sContainerName),
     openLocalTerminal: (shell) => openLocalTerminal(undefined, shell),
@@ -921,6 +1022,7 @@ export default function App() {
     },
     rememberSessionKey,
     rememberPanes,
+    noteRecent,
     // La barre est aussi visible : la ramener sans l'ouvrir laisserait le
     // récapitulatif de cibles cliquer dans le vide quand elle est repliée.
     showSidebarPanel: showTargetsPanel,
@@ -1106,6 +1208,14 @@ export default function App() {
           onError={reportError}
         />
       )}
+      {sshConfigImportOpen && (
+        <SshConfigImportDialog
+          hosts={workspace.hosts}
+          onWorkspaceUpdate={refreshWorkspace}
+          onError={reportError}
+          onClose={() => setSshConfigImportOpen(false)}
+        />
+      )}
       {ansibleImportOpen && (
         <AnsibleImportPanel
           workspace={workspace}
@@ -1214,7 +1324,7 @@ export default function App() {
           {/* Au-dessus d'un terminal : où l'on est, et ce qu'on peut y faire.
               Les autres onglets (transfert, base, flotte…) ont leur propre
               barre d'outils. */}
-          {isTerminalLikeTab(activeTab) && (
+          {!homeOpen && isTerminalLikeTab(activeTab) && (
             <SessionBar
               tab={activeTab}
               workspace={workspace}
@@ -1238,22 +1348,9 @@ export default function App() {
             />
           )}
           {tabs.length === 0 ? (
-            <div className="flex flex-1 select-none flex-col items-center justify-center gap-5">
-              <div className="flex h-11 w-11 items-center justify-center rounded-lg border border-[var(--c-border)] bg-[var(--c-bg2)] text-[var(--c-text-muted)]">
-                <IconTerminal size={20} />
-              </div>
-              <div className="text-center">
-                <p className="text-[13px] font-medium text-[var(--c-text-secondary)]">Aucun onglet ouvert</p>
-                <p className="mt-1 text-[12px] text-[var(--c-text-muted)]">Choisissez un hôte à gauche, ou ouvrez un terminal local.</p>
-              </div>
-              <div className="flex flex-wrap items-center justify-center gap-x-4 gap-y-1.5 text-[11.5px] text-[var(--c-text-muted)]">
-                <span className="flex items-center gap-1.5"><span className="kbd">Ctrl</span><span className="kbd">K</span> palette de commandes</span>
-                <span className="flex items-center gap-1.5"><span className="kbd">Ctrl</span><span className="kbd">T</span> terminal local</span>
-                <span className="flex items-center gap-1.5"><span className="kbd">Ctrl</span><span className="kbd">B</span> barre latérale</span>
-              </div>
-            </div>
-          ) : (
-            <div ref={splitContainerRef} className="flex min-h-0 flex-1">
+            <div className="relative flex-1">{renderHomePage()}</div>          ) : (
+            <div ref={splitContainerRef} className="relative flex min-h-0 flex-1">
+              {homeOpen && renderHomePage()}
               {/* Primary pane */}
               <div
                 className="relative min-w-0"

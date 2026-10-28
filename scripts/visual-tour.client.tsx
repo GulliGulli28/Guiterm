@@ -182,6 +182,12 @@ const responses: Record<string, Invoke> = {
   ],
   list_local_shells: async () => [{ id: "bash", label: "bash" }, { id: "zsh", label: "zsh" }],
   running_forwards: async () => ["f-1"],
+  preview_ssh_config_import: async () => [
+    { alias: "gitlab", hostname: "gitlab.interne.fr", user: "git", port: null, proxyCommand: null },
+    { alias: "monitoring", hostname: "10.0.6.5", user: "ops", port: null, proxyCommand: null },
+    { alias: "nas", hostname: "192.168.1.10", user: "admin", port: 2222, proxyCommand: null },
+    { alias: "web-01", hostname: "203.0.113.10", user: "deploy", port: 22, proxyCommand: null },
+  ],
   list_activity: async () => [
     { kind: "fleetRun", atMs: now - 1000 * 60 * 4, summary: "sudo apt-get update", target: "4 hôtes", hostIds: [], detail: "4 réussis", failed: false },
     { kind: "command", atMs: now - 1000 * 60 * 22, summary: "sudo systemctl restart nginx", target: "web-01", hostIds: ["h-web-01"], detail: "", failed: false },
@@ -433,5 +439,19 @@ if (!new URLSearchParams(location.search).has("keep")) localStorage.clear();
 // préférences — même clé que `lib/preferences.ts`.
 const mode = new URLSearchParams(location.search).get("mode");
 if (mode === "light") localStorage.setItem("gui-termius-prefs", JSON.stringify({ colorMode: "light" }));
+// Les récents de l'accueil (`lib/recents.ts`) : sans eux, la page s'ouvrirait
+// vide dans chaque tour. Une session tmux détachée y figure, pour la section
+// « Sessions à reprendre ».
+if (!new URLSearchParams(location.search).has("keep") && !startEmpty) {
+  const ago = (min: number) => now - min * 60_000;
+  localStorage.setItem("gui-termius-recents", JSON.stringify([
+    { kind: "terminal", hostId: "h-web-01", at: ago(12) },
+    { kind: "database", connectionId: "sql-1", at: ago(45) },
+    { kind: "terminal", hostId: "h-docker", at: ago(130), sessionKey: "guiterm-demo-docker" },
+    { kind: "terminal", hostId: "h-db-01", at: ago(60 * 20) },
+    { kind: "rdp", hostId: "h-win", at: ago(60 * 24 * 3) },
+    { kind: "terminal", hostId: "h-bastion", at: ago(60 * 24 * 5) },
+  ]));
+}
 
 await import("../src/main");

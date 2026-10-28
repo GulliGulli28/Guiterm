@@ -196,6 +196,33 @@ Le contenu prévu :
 
 ### Tranche 3 — Accueil, premier lancement, import unifié
 
+**3a et 3b livrées le 2026-10-28** : accueil et premier lancement. L'import
+unifié (3c) reste à faire. Ce qui a été fait, et les écarts avec le plan :
+- `HomePage.tsx` n'est pas un onglet. Il s'affiche sans onglet ouvert, et le
+  logo de la barre de titre (`data-home-button`) le rouvre par-dessus les
+  onglets, qui restent montés. Choisir un onglet le referme. Un onglet
+  « Accueil » aurait demandé un `kind` de plus dans tous les dispatches,
+  pour un écran qui n'a pas d'état à garder.
+- Récents : `lib/recents.ts`, en `localStorage`
+  (`gui-termius-recents`). Ils sont alimentés à la réussite d'une connexion
+  (`onConnected` de `TerminalTab`, `useConnectedSignal` des trois onglets
+  de base). Seul l'aperçu RDP compte dès l'ouverture : il ne signale pas sa
+  connexion.
+- « Sessions à reprendre » : aucune commande ne liste les sessions tmux de
+  tous les hôtes sans passer par le réseau. Les récents retiennent donc la
+  clé de session de chaque connexion persistante, et l'accueil propose
+  celles qu'aucun onglet n'affiche. « Masquer » oublie la clé, sans tuer
+  la session.
+- « Snippets fréquents » de la maquette : retirés, car rien ne compte
+  l'usage des snippets.
+- La fenêtre d'import `~/.ssh/config` sort de `KnownHostsPanel`
+  (`SshConfigImportDialog`). Elle reconnaît les hôtes déjà présents et ne
+  les recoche pas. La 3c en fera la fenêtre unifiée.
+- Garde-fous : scènes `01`, `02b`, `09b`, `60`, `60b` du tour, avec
+  assertions ; scénario E2E `runHomeScenario` ; `recents.test.ts`.
+
+Le plan d'origine :
+
 - **Frontend.**
   - Nouveau `HomePage.tsx` (l'onglet Accueil remplace « Aucun onglet ouvert ») :
     connexion rapide, récents, sessions tmux détachées, tunnels actifs, alertes

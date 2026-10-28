@@ -519,6 +519,12 @@ canvas:focus-visible {
   outline: none;
 }
 
+/* La connexion rapide de l'accueil montre son focus sur son cadre
+ * (`focus-within`) : un second liseré sur le champ lui-même ferait double. */
+[data-quick-connect] input:focus-visible {
+  outline: none;
+}
+
 /* Mouvement : réduit à rien pour qui l'a demandé au système. */
 @media (prefers-reduced-motion: reduce) {
   *,

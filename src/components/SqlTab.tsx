@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useConnectedSignal } from "../hooks/useConnectedSignal";
 import { api } from "../lib/api";
 import { ConnectionFailed } from "./ConnectionFailed";
 import { sqlEngineLabel, type ColumnInfo, type CommandEntry, type QueryResult, type SqlConnection, type TableInfo, type Workspace } from "../lib/types";
@@ -15,6 +16,8 @@ interface SqlTabProps {
    * dump. */
   workspace: Workspace;
   onError: (message: string) => void;
+  /** La connexion vient d'aboutir (récents de l'accueil). */
+  onConnected?: () => void;
 }
 
 /** Matches a query that can change what the schema tree / cached table data
@@ -87,8 +90,9 @@ type Selected = { kind: "schema"; schema: string } | { kind: "table"; schema: st
  * clicking around the tree only changes what "Structure"/"Data" show, it
  * never resets the query text/results, so switching back and forth to check
  * a table's columns/rows while iterating on a query doesn't lose anything. */
-export function SqlTab({ connection, workspace, onError }: SqlTabProps) {
+export function SqlTab({ connection, workspace, onError, onConnected }: SqlTabProps) {
   const [status, setStatus] = useState<Status>("connecting");
+  useConnectedSignal(status === "connected", onConnected);
   // Incrémenté par « Réessayer » (`ConnectionFailed`) : seule dépendance de
   // l'effet de connexion en dehors de la connexion elle-même, donc
   // l'incrémenter rejoue tout le cycle, fermeture de la session précédente

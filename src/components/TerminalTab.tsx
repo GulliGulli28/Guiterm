@@ -132,9 +132,13 @@ interface TerminalTabProps {
    * ça, la session survivrait côté serveur sans que rien ici sache la
    * retrouver, ce qui est exactement le contraire du but. */
   onSessionKey?: (key: string) => void;
+  /** La connexion vient d'aboutir — c'est ce qui alimente les récents de
+   * l'accueil. Porte la clé de session tmux quand il y en a une (jamais en
+   * observation : ce n'est pas notre session à reprendre). */
+  onConnected?: (sessionKey: string | null) => void;
 }
 
-export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(function TerminalTab({ host, isActive, preferences, onDisconnect, onDetach, onInputData, onLongCommand, initialCommand, dockerContainerId, k8sPodName, k8sContainerName, sessionKey, readOnly, onSessionKey }, ref) {
+export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(function TerminalTab({ host, isActive, preferences, onDisconnect, onDetach, onInputData, onLongCommand, initialCommand, dockerContainerId, k8sPodName, k8sContainerName, sessionKey, readOnly, onSessionKey, onConnected }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const termRef = useRef<Terminal | null>(null);
   const fitRef = useRef<FitAddon | null>(null);
@@ -167,6 +171,8 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
   useEffect(() => { onDetachRef.current = onDetach; }, [onDetach]);
   const onSessionKeyRef = useRef(onSessionKey);
   useEffect(() => { onSessionKeyRef.current = onSessionKey; }, [onSessionKey]);
+  const onConnectedRef = useRef(onConnected);
+  useEffect(() => { onConnectedRef.current = onConnected; }, [onConnected]);
   // La clé vit dans une ref, pas dans les dépendances de l'effet : elle est
   // *semée* par la prop et *réécrite* par la première connexion, et la
   // reconnexion automatique doit reprendre celle-là — pas relancer l'effet, ce
@@ -474,6 +480,7 @@ export const TerminalTab = forwardRef<TerminalTabHandle, TerminalTabProps>(funct
         sessionIdRef.current = id;
         setStatus("open");
         reconnectAttempt = 0;
+        onConnectedRef.current?.(readOnly ? null : opened.sessionKey);
 
         unlistenClosed = await onTerminalClosed((eventId) => {
           if (eventId !== id) return;

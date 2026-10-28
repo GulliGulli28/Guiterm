@@ -18,6 +18,9 @@ interface TitleBarProps {
   tabColor?: (tab: TabMeta) => string | undefined;
   /** Le « + » au bout des onglets : un terminal local, comme `Ctrl+T`. */
   onNewTab: () => void;
+  /** Ouvre l'accueil ; `homeActive` dit qu'il est à l'écran. */
+  onHome: () => void;
+  homeActive: boolean;
   onOpenPalette: () => void;
   /** Le libellé de la combinaison de la palette, tel que réglé. */
   paletteCombo?: string;
@@ -46,6 +49,8 @@ export function TitleBar({
   onReorderTabs,
   tabColor,
   onNewTab,
+  onHome,
+  homeActive,
   onOpenPalette,
   paletteCombo,
   fullscreen,
@@ -79,7 +84,18 @@ export function TitleBar({
   return (
     <div data-tauri-drag-region={dragRegion} className="flex h-10 shrink-0 select-none items-stretch border-b border-[var(--c-border)] bg-[var(--c-bg)]">
       <div data-tauri-drag-region={dragRegion} className="flex w-[72px] shrink-0 items-center justify-center border-r border-[var(--c-border)]">
-        <img src={appIconUrl} alt="Guiterm" width={20} height={20} className="pointer-events-none" />
+        {/* Le logo ramène à l'accueil, par-dessus les onglets ouverts. */}
+        <button
+          type="button"
+          onClick={onHome}
+          aria-label="Accueil"
+          title="Accueil"
+          aria-pressed={homeActive}
+          data-home-button=""
+          className={`flex h-8 w-8 items-center justify-center rounded-lg transition-colors ${homeActive ? "bg-[var(--c-hover)]" : "hover:bg-[var(--c-hover)]"}`}
+        >
+          <img src={appIconUrl} alt="" width={20} height={20} className="pointer-events-none" />
+        </button>
       </div>
 
       <TabBar

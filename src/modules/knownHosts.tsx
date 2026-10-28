@@ -9,6 +9,6 @@ export const knownHostsModule = defineModule({
   commandDomains: ["known_hosts"],
   panel: {
     kind: "knownHosts",
-    render: (ctx) => <KnownHostsPanel onWorkspaceUpdate={ctx.refreshWorkspace} onError={ctx.reportError} />,
+    render: (ctx) => <KnownHostsPanel hosts={ctx.workspace.hosts} onWorkspaceUpdate={ctx.refreshWorkspace} onError={ctx.reportError} />,
   },
 });

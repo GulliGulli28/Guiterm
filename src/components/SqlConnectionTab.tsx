@@ -28,20 +28,22 @@ export function SqlConnectionTab({
   connection,
   workspace,
   onError,
+  onConnected,
 }: {
   connection: SqlConnection;
   workspace: Workspace;
   onError: (message: string) => void;
+  onConnected?: () => void;
 }) {
   switch (connection.engine) {
     case "mysql":
     case "postgres":
     case "sqlite":
-      return <SqlTabLazy connection={connection} workspace={workspace} onError={onError} />;
+      return <SqlTabLazy connection={connection} workspace={workspace} onError={onError} onConnected={onConnected} />;
     case "redis":
-      return <RedisTabLazy connection={connection} onError={onError} />;
+      return <RedisTabLazy connection={connection} onError={onError} onConnected={onConnected} />;
     case "mongodb":
-      return <MongoTabLazy connection={connection} onError={onError} />;
+      return <MongoTabLazy connection={connection} onError={onError} onConnected={onConnected} />;
     default:
       return assertNever(connection, "moteur de connexion base de données");
   }

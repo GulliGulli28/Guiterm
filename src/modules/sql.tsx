@@ -20,7 +20,14 @@ export const sqlModule = defineModule({
       // ouvert — même cas que l'hôte disparu des onglets liés à un hôte.
       const connection = ctx.workspace.sqlConnections.find((c) => c.id === tab.sqlConnectionId);
       if (!connection) return null;
-      return <SqlConnectionTab connection={connection} workspace={ctx.workspace} onError={ctx.reportError} />;
+      return (
+        <SqlConnectionTab
+          connection={connection}
+          workspace={ctx.workspace}
+          onError={ctx.reportError}
+          onConnected={() => ctx.noteRecent({ kind: "database", connectionId: connection.id }, null)}
+        />
+      );
     },
   },
   // Le premier module à porter les deux : l'onglet de requêtes et le panneau

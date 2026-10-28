@@ -39,13 +39,38 @@ const clickNav = async (page, title) => {
 
 /** Chaque scène : un nom de fichier, et ce qu'il faut faire pour y arriver. */
 const scenes = [
-  ["01-accueil", async () => {}],
+  // L'accueil remplace l'écran vide : récents (semés par le client du tour),
+  // session tmux à reprendre, tunnel actif.
+  ["01-accueil", async (page) => {
+    await page.waitForSelector("[data-home-page='home'] [data-home-recents]", { timeout: 10_000 });
+    const home = await page.evaluate(() => ({
+      recents: document.querySelectorAll("[data-home-recents] > button").length,
+      sessions: document.querySelector("[data-home-sessions]")?.textContent ?? "",
+      tunnels: document.querySelector("[data-home-tunnels]")?.textContent ?? "",
+    }));
+    if (home.recents < 5) throw new Error(`récents de l'accueil : ${home.recents}`);
+    if (!/docker-host/.test(home.sessions) || !/Reprendre/.test(home.sessions)) throw new Error(`sessions à reprendre : ${home.sessions}`);
+    if (!/5432/.test(home.tunnels)) throw new Error(`tunnels actifs : ${home.tunnels}`);
+  }],
   ["02-terminal", async (page) => {
     await page.getByText("web-01", { exact: true }).first().click();
     await page.waitForSelector(".xterm-screen", { timeout: 10_000 });
     await settle(page, 600);
   }],
+  // Le logo rouvre l'accueil par-dessus l'onglet ouvert, qui y est marqué
+  // « Ouvert ».
+  ["02b-accueil-par-le-logo", async (page) => {
+    await page.locator("[data-home-button]").click();
+    await page.waitForSelector("[data-home-page='home']", { timeout: 5_000 });
+    const openRow = await page.evaluate(() => Array.from(document.querySelectorAll("[data-home-recents] > button"))
+      .find((b) => b.textContent?.includes("web-01"))?.textContent ?? "");
+    if (!/Ouvert/.test(openRow)) throw new Error(`web-01 devrait être marqué ouvert : ${openRow}`);
+    if (await page.locator(".session-bar").count()) throw new Error("la barre de session reste visible sur l'accueil");
+  }],
   ["03-nouvel-hote", async (page) => {
+    // Quitter l'accueil : choisir un onglet le referme.
+    await page.locator("[data-tab-id]").first().click();
+    await page.waitForSelector("[data-home-page]", { state: "detached", timeout: 5_000 });
     await page.getByRole("button", { name: /Ajouter/ }).first().click();
     await settle(page);
     await page.getByRole("button", { name: /Nouvel hôte/ }).first().click();
@@ -73,6 +98,21 @@ const scenes = [
   ["07-cles", async (page) => { await clickNav(page, "Clés"); }],
   ["08-bases", async (page) => { await clickNav(page, "Bases de données"); }],
   ["09-known-hosts", async (page) => { await clickNav(page, "Known Hosts"); }],
+  // L'import de ~/.ssh/config reconnaît ce qui est déjà là et ne le recoche pas.
+  ["09b-import-ssh-config", async (page) => {
+    await page.getByRole("button", { name: /Importer ~\/\.ssh\/config/ }).click();
+    await page.waitForSelector("[data-ssh-config-import] input[type=checkbox]", { timeout: 5_000 });
+    const rows = await page.evaluate(() => Array.from(document.querySelectorAll("[data-ssh-config-import] label")).map((l) => ({
+      text: l.textContent ?? "", checked: l.querySelector("input")?.checked ?? false,
+    })));
+    const web = rows.find((r) => r.text.startsWith("web-01"));
+    if (rows.length !== 4 || !web || web.checked || !/Déjà présent/.test(web.text)) throw new Error(`import ~/.ssh/config : ${JSON.stringify(rows)}`);
+    if (rows.filter((r) => r.checked).length !== 3) throw new Error(`les nouveaux hôtes devraient être cochés : ${JSON.stringify(rows)}`);
+  }],
+  ["09c-apres-import", async (page) => {
+    await page.locator("[data-ssh-config-import]").getByRole("button", { name: "Annuler" }).click();
+    await page.waitForSelector("[data-ssh-config-import]", { state: "detached", timeout: 5_000 });
+  }],
   ["10-flotte", async (page) => { await clickNav(page, "Opérations de flotte"); await settle(page, 500); }],
   ["11-runbooks", async (page) => { await clickNav(page, "Runbooks"); }],
   ["12-diagnostic", async (page) => { await clickNav(page, "Diagnostic réseau"); await settle(page, 500); }],
@@ -882,7 +922,17 @@ const scenes = [
  * `visual-tour.client.tsx`) qu'aucun clic ne produit sans backend. */
 const isolated = [
   ["60-premier-lancement", "empty", async (page) => {
-    await page.waitForSelector("text=Aucun hôte", { timeout: 10_000 });
+    await page.waitForSelector("[data-home-page='first-launch']", { timeout: 10_000 });
+    await page.waitForSelector("[data-welcome-choice='ssh-config'] >> text=4 hôtes trouvés", { timeout: 5_000 });
+    const choices = await page.evaluate(() => Array.from(document.querySelectorAll("[data-welcome-choice]")).map((e) => e.getAttribute("data-welcome-choice")));
+    if (choices.join() !== "ssh-config,new-host,guivault") throw new Error(`premier lancement : ${JSON.stringify(choices)}`);
+  }],
+  ["60b-premier-lancement-import", "empty", async (page) => {
+    await page.waitForSelector("[data-welcome-choice='ssh-config'] >> text=4 hôtes trouvés", { timeout: 10_000 });
+    await page.locator("[data-welcome-choice='ssh-config'] button").click();
+    await page.waitForSelector("[data-ssh-config-import] input:checked", { timeout: 5_000 });
+    const checked = await page.locator("[data-ssh-config-import] input:checked").count();
+    if (checked !== 4) throw new Error(`tout devrait être coché sur un workspace vide : ${checked}`);
   }],
   ["61-coffre-verrouille", "locked", async (page) => {
     await page.waitForSelector("text=Coffre verrouillé", { timeout: 10_000 });

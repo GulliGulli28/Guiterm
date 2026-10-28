@@ -80,6 +80,9 @@ describe("sémantique des fenêtres modales", () => {
     // La confirmation d'une signature demandée à l'agent SSH.
     "components/SshAgentConfirmModal.tsx",
     "components/SshAuthPromptModal.tsx",
+    // L'import de ~/.ssh/config, sorti du panneau Known Hosts pour être
+    // ouvert aussi depuis l'accueil.
+    "components/SshConfigImportDialog.tsx",
     // « Ces entités suivront » — la confirmation d'un transfert de vault.
     "components/TransferConfirmDialog.tsx",
     // Pas un fichier « Modal » : l'onglet de transfert porte la boîte qui
@@ -121,7 +124,6 @@ describe("sémantique des fenêtres modales", () => {
     "components/CloudProviderPicker.tsx",
     "components/FleetTab.tsx",
     "components/HostsPanel.tsx",
-    "components/KnownHostsPanel.tsx",
     "components/RemoteSavePathPicker.tsx",
     "components/RemoteSearchPanel.tsx",
     "components/SnippetPicker.tsx",
