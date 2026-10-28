@@ -1,7 +1,7 @@
 import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { RdpPointerUpdate } from "./rdpCursor";
-import type { SshAgentConfirm, SshAgentStatus } from "./types";
+import type { ExportPreview, SshAgentConfirm, SshAgentStatus } from "./types";
 import type { GuiVaultAuditEntry, GuiVaultAwsApplied, GuiVaultAwsSaved, GuiVaultBrowseEntry, GuiVaultBrowseValue, GuiVaultEntity, GuiVaultInvitation, GuiVaultLoginStep, GuiVaultTotpCode, GuiVaultTotpSetup, GuiVaultMember, GuiVaultReport, GuiVaultSession, GuiVaultStatus, GuiVaultTransferPlan, GuiVaultUserLookup, GuiVaultVault, VaultId, VaultPlace, VaultRole } from "./types";
 import type { ActivityEvent, ActivityFilter, CommandEntry, AuthMethod, BulkEdit, DiagTool, NetdiagOutcome, AwsCallerIdentity, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSessionAlert, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, AwsSsoSessionStatus, CloudInstance, CloudScope, CloudSelection, ArchiveFormat, CollectionInfo, ConflictPolicy, CopyConflict, ColumnInfo, CollectFactsResult, ComposeResult, DbTunnel, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FileDiff, FleetOutcome, FleetRun, FleetTarget, GroupId, HostDrift, HostId, HostKind, HostSecrets, ImportSelection, Inventory, InventoryDiff, InventorySelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneComparison, PaneDiskSpace, PaneFindOutcome, PaneListed, PaneOpened, PaneSource, PersistentShellMode, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, ReachabilityOutcome, RedisKeyDetail, RemoteSearchMode, RemoteSearchOutcome, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, RollbackPlan, Runbook, RunbookApprovalRequest, RunbookId, RunbookRun, RunbookRunStatus, ScanPage, SessionListing, SessionOptions, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SkippedTarget, SshAuthPrompt, SshConfigHost, SsmProbe, SyncItem, TableInfo, TerminalOpened, TransferProgressEvent, VaultStatus, Workspace } from "./types";
 
@@ -290,6 +290,9 @@ export const api = {
   exportHost: (hostId: HostId, path: string, includeKeyMaterial: boolean) => invoke<void>("export_host", { hostId, path, includeKeyMaterial }),
   /** See `importWorkspace`'s `keepAutomation` doc — same reasoning, single-host import. */
   importHostFromFile: (path: string, keepAutomation: boolean) => invoke<Workspace>("import_host_from_file", { path, keepAutomation }),
+  /** Lit un fichier d'export sans rien importer : genre (configuration ou
+   * hôte seul), hôtes listés avec ceux qui remplaceraient un hôte existant. */
+  inspectImportFile: (path: string) => invoke<ExportPreview>("inspect_import_file", { path }),
   exportText: (path: string, content: string) => invoke<void>("export_text", { path, content }),
   /** Absolute path of the app's diagnostic log directory — shown in
    * Paramètres so a user reporting a problem can retrieve the logs. */

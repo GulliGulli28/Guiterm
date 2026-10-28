@@ -14,6 +14,9 @@ interface SnippetPickerProps {
    * caller that knows how to translate it should act on it. Optional and
    * additive: existing callers that only need `onRun` are unaffected. */
   onSnippetResolved?: (snippet: Snippet, resolvedText: string) => void;
+  /** Ouvert pour ce snippet (depuis l'accueil) : directement sur le
+   * formulaire de ses variables, sans passer par la liste. */
+  initialSnippet?: Snippet;
   onClose: () => void;
 }
 
@@ -26,10 +29,11 @@ function splitNameAndArgs(query: string): { namePart: string; args: string[] } {
   return { namePart: trimmed.slice(0, spaceIdx), args: trimmed.slice(spaceIdx + 1).trim().split(/\s+/).filter(Boolean) };
 }
 
-export function SnippetPicker({ snippets, onRun, onSnippetResolved, onClose }: SnippetPickerProps) {
+export function SnippetPicker({ snippets, onRun, onSnippetResolved, initialSnippet, onClose }: SnippetPickerProps) {
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
-  const [pending, setPending] = useState<{ snippet: Snippet; values: Record<string, string> } | null>(null);
+  const [pending, setPending] = useState<{ snippet: Snippet; values: Record<string, string> } | null>(() =>
+    initialSnippet ? { snippet: initialSnippet, values: Object.fromEntries(extractVariables(initialSnippet.command).map((v) => [v, ""])) } : null);
   const inputRef = useRef<HTMLInputElement>(null);
   const itemRefs = useRef<(HTMLButtonElement | null)[]>([]);
 

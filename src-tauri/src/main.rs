@@ -310,6 +310,7 @@ fn main() {
             commands::export::import_workspace,
             commands::export::export_host,
             commands::export::import_host_from_file,
+            commands::export::inspect_import_file,
             commands::export::export_text,
             commands::export::diagnostics_directory,
 

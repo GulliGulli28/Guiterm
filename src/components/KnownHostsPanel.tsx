@@ -1,21 +1,18 @@
 import { useEffect, useState } from "react";
 import { api } from "../lib/api";
-import type { Host, KnownHostEntry, Workspace } from "../lib/types";
+import type { KnownHostEntry } from "../lib/types";
 import { IconTrash, IconDownload, IconShield } from "./ui-icons";
 import { EntityRow, EntityMono } from "./EntityRow";
-import { SshConfigImportDialog } from "./SshConfigImportDialog";
 
 interface KnownHostsPanelProps {
-  /** Pour que l'import reconnaisse les hôtes déjà enregistrés. */
-  hosts: Host[];
-  onWorkspaceUpdate: (ws: Workspace) => void;
+  /** Ouvre la fenêtre « Importer des hôtes » sur `~/.ssh/config`. */
+  onImportSshConfig: () => void;
   onError: (msg: string) => void;
 }
 
-export function KnownHostsPanel({ hosts, onWorkspaceUpdate, onError }: KnownHostsPanelProps) {
+export function KnownHostsPanel({ onImportSshConfig, onError }: KnownHostsPanelProps) {
   const [entries, setEntries] = useState<KnownHostEntry[]>([]);
   const [loading, setLoading] = useState(true);
-  const [showImport, setShowImport] = useState(false);
 
   const refresh = () => {
     setLoading(true);
@@ -28,13 +25,11 @@ export function KnownHostsPanel({ hosts, onWorkspaceUpdate, onError }: KnownHost
     api.revokeKnownHost(identity).then(refresh).catch((e) => onError(String(e)));
   };
 
-  const openImport = () => setShowImport(true);
-
   return (
     <div className="flex h-full min-w-0 flex-col">
       <div className="flex shrink-0 items-center justify-between gap-2">
         <p className="eyebrow pl-1">Clés d'hôtes de confiance</p>
-        <button onClick={openImport} className="btn btn-secondary btn-sm text-[var(--c-text-secondary)]">
+        <button onClick={onImportSshConfig} className="btn btn-secondary btn-sm text-[var(--c-text-secondary)]">
           <IconDownload size={12} /> Importer ~/.ssh/config
         </button>
       </div>
@@ -67,10 +62,6 @@ export function KnownHostsPanel({ hosts, onWorkspaceUpdate, onError }: KnownHost
           />
         ))}
       </div>
-
-      {showImport && (
-        <SshConfigImportDialog hosts={hosts} onWorkspaceUpdate={onWorkspaceUpdate} onError={onError} onClose={() => setShowImport(false)} />
-      )}
     </div>
   );
 }

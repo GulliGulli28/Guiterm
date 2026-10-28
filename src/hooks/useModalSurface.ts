@@ -45,11 +45,22 @@ export function useModalSurface<T extends HTMLElement = HTMLDivElement>({ onClos
   useEffect(() => {
     openerRef.current = document.activeElement;
     const root = ref.current;
-    // Rien de focalisable ? On focalise la boîte elle-même, sinon Tab repart
-    // dans la page derrière dès la première frappe.
-    if (root && focusables().length === 0) root.focus();
+    // Le focus est resté sur le bouton qui a ouvert la boîte (rien dedans ne
+    // l'a pris) : on focalise la boîte elle-même. Sinon Tab repart dans la
+    // page derrière dès la première frappe, et Échap partirait vers une autre
+    // boîte ouverte en dessous (voir `onKeyDown`).
+    // L'effet se rejoue quand `onClose` change d'identité : une boîte posée
+    // par-dessus qui a pris le focus ne doit pas se le faire reprendre.
+    const active = document.activeElement;
+    if (root && !root.contains(active) && !active?.closest('[role="dialog"], .modal')) root.focus();
 
     const onKeyDown = (e: KeyboardEvent) => {
+      // Une autre boîte posée par-dessus (le panneau SSO ouvert depuis
+      // l'import AWS, la connexion Azure) a le focus : Échap et Tab sont à
+      // elle. Sans ça, Échap fermait la fenêtre du dessous et Tab ramenait le
+      // focus dedans, derrière le panneau qu'on remplissait.
+      const holder = e.target instanceof Element ? e.target.closest('[role="dialog"], .modal') : null;
+      if (holder && holder !== ref.current) return;
       if (e.key === "Escape" && onClose) {
         e.preventDefault();
         onClose();

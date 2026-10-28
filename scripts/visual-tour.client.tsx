@@ -176,6 +176,24 @@ const responses: Record<string, Invoke> = {
   guivault_aws_save_session: async (_cmd, args) => ({ id: "b-aws-org", vaultId: "v-perso", vaultName: "Personnel", name: `AWS — ${(args as { name?: string })?.name ?? ""}`, profiles: 2, updated: false }),
   guivault_aws_apply: async () => ({ ssoSession: "equipe", profiles: ["equipe-prod", "equipe-dev"], credentials: false }),
   list_aws_profiles: async () => [],
+  // La colonne des sources de « Importer des hôtes » : gcloud connecté, az
+  // absent — les deux états que la maquette montre.
+  list_gcp_projects: async () => [
+    { id: "infra-prod", name: "infra-prod", isDefault: true },
+    { id: "labo", name: "labo", isDefault: false },
+  ],
+  list_azure_subscriptions: async () => {
+    throw { reason: { kind: "cliMissing", program: "az", installHint: "Installez Azure CLI puis relancez Guiterm." }, message: "La CLI `az` est introuvable." };
+  },
+  inspect_import_file: async () => ({
+    kind: "workspace",
+    hosts: [
+      { id: "h-web-01", label: "web-01", address: "203.0.113.10", username: "deploy", port: 22, existing: true },
+      { id: "h-new-1", label: "staging-01", address: "10.0.8.11", username: "deploy", port: 22, existing: false },
+      { id: "h-new-2", label: "ci-runner", address: "10.0.8.40", username: "gitlab-runner", port: 2222, existing: false },
+    ],
+    groups: 2, snippets: 3, keys: 1, portForwards: 0, hasAutomation: true,
+  }),
   list_known_hosts: async () => [
     { identity: "203.0.113.10:22", label: "web-01", publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGx0d2Vic2VydmVyMDF0ZXN0a2V5" },
     { identity: "10.0.4.20:22", label: "pg-primary", publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHBnLXByaW1hcnl0ZXN0a2V5MDE" },
@@ -415,6 +433,9 @@ const internals = {
         return nextCallback++;
       }
       if (cmd.includes("updater|check")) return null;
+      // Le sélecteur de fichier natif : un chemin choisi d'office, pour la
+      // source « Fichier d'export » de l'import.
+      if (cmd.includes("dialog|open")) return "/home/alice/guiterm-config.json";
       return null;
     }
     if (cmd.startsWith("list_") || cmd.startsWith("get_") || cmd.startsWith("scan_")) return [];
@@ -452,6 +473,13 @@ if (!new URLSearchParams(location.search).has("keep") && !startEmpty) {
     { kind: "rdp", hostId: "h-win", at: ago(60 * 24 * 3) },
     { kind: "terminal", hostId: "h-bastion", at: ago(60 * 24 * 5) },
   ]));
+  // Les « Snippets fréquents » (`lib/snippetUsage.ts`) : trois snippets déjà
+  // lancés, le quatrième jamais — il ne doit pas apparaître.
+  localStorage.setItem("gui-termius-snippet-usage", JSON.stringify({
+    "s-1": { score: 9, count: 9, at: ago(30) },
+    "s-4": { score: 4, count: 4, at: ago(60 * 24) },
+    "s-3": { score: 2, count: 2, at: ago(60 * 24 * 2) },
+  }));
 }
 
 await import("../src/main");

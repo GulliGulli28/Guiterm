@@ -2,6 +2,7 @@ import type { ReactNode } from "react";
 import type { TerminalTabHandle } from "../components/TerminalTab";
 import type { NotificationKind } from "../lib/notifications";
 import type { AppPreferences } from "../lib/preferences";
+import type { ImportSource } from "../lib/importSources";
 import type { RecentTarget } from "../lib/recents";
 import type {
   AwsSessionAlert, AwsSsoSession, Group, GroupId, Host, HostId, KeyAlgorithm, KeyId,
@@ -212,8 +213,8 @@ export interface SidebarActions extends TabOpeners {
   editGroup: (group: Group) => void;
   newSqlConnection: () => void;
   editSqlConnection: (conn: SqlConnection) => void;
-  importCloud: () => void;
-  importAnsible: () => void;
+  /** Ouvre « Importer des hôtes », sur `~/.ssh/config` par défaut. */
+  importHosts: (source?: ImportSource) => void;
   importAwsDatabases: () => void;
   configureSso: () => void;
   reconnectSso: (session: AwsSsoSession) => void;
@@ -224,6 +225,8 @@ export interface SidebarActions extends TabOpeners {
   updateSnippet: (id: SnippetId, name: string, command: string) => void;
   deleteSnippet: (id: SnippetId) => void;
   runSnippet: (command: string, targetTabIds?: string[]) => void;
+  /** Compte une exécution de ce snippet, pour l'accueil (`lib/snippetUsage.ts`). */
+  noteSnippetUse: (id: SnippetId) => void;
   runAdaptiveSnippet: (programText: string, targetTabIds?: string[]) => void;
   saveAdaptiveSnippet: (id: SnippetId | null, name: string, command: string) => void;
   /** Crée une procédure vide et ouvre son onglet — un runbook se remplit dans

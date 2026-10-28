@@ -4,7 +4,7 @@ import { api } from "../lib/api";
 import type { AuthMethod, AwsInstance, AwsProfile, AwsSsoSession, GroupId, KeyId, Workspace } from "../lib/types";
 import { filterAwsInstances, groupProfilesBySession, profileLabel } from "../lib/awsInstances";
 import { useAwsAccountNames } from "../hooks/useAwsAccountNames";
-import { IconClose } from "./ui-icons";
+import { ImportSourceFrame } from "./ImportSourceFrame";
 import { RegionSelect } from "./RegionSelect";
 
 interface AwsImportPanelProps {
@@ -223,23 +223,10 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError,
   })();
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6" onClick={onClose}>
-      <div
-        className="flex max-h-full w-[min(48rem,100%)] flex-col overflow-hidden modal"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex shrink-0 items-center justify-between border-b border-[var(--c-border)] px-4 py-2.5">
-          <div>
-            <p className="text-[13px] font-semibold text-[var(--c-text)]">Importer des instances EC2</p>
-            <p className="text-[11.5px] text-[var(--c-text-muted)]">
-              Via ta CLI `aws` déjà connectée — aucun identifiant AWS n'est demandé ni conservé par Guiterm.
-            </p>
-          </div>
-          <button onClick={onClose} aria-label="Fermer" className="btn btn-ghost btn-sm btn-icon">
-            <IconClose size={13} />
-          </button>
-        </div>
-
+    <ImportSourceFrame
+      source="aws"
+      intro="Instances EC2, via votre CLI aws déjà connectée : aucun identifiant AWS n'est demandé ni conservé par Guiterm."
+    >
         <div className="shrink-0 border-b border-[var(--c-border)] px-4 py-2.5">
           <div className="flex items-end gap-2">
             <label className="block flex-1 space-y-1">
@@ -326,7 +313,7 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError,
         <div className="sidebar-scroll min-h-0 flex-1 overflow-y-auto p-2">
           {instances === null && !failure && (
             <p className="px-2 py-8 text-center text-[12.5px] text-[var(--c-text-muted)]">
-              Choisis un profil et une région, puis liste les instances.
+              Choisissez un profil et une région, puis listez les instances.
             </p>
           )}
           {instances?.length === 0 && (
@@ -366,7 +353,7 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError,
               </div>
               {imported.has(instance.instanceId) && (
                 <span
-                  title="Déjà dans tes hôtes — l'import rafraîchira ses tags et sa commande proxy au lieu d'en créer un second"
+                  title="Déjà dans vos hôtes : l'import rafraîchira ses tags et sa commande proxy au lieu d'en créer un second"
                   className="tag"
                 >
                   déjà importée
@@ -460,7 +447,7 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError,
           <button
             onClick={runImport}
             disabled={importing || selected.size === 0}
-            title={toUpdate > 0 ? "Les machines déjà importées voient leurs tags et leur commande proxy rafraîchis ; leur nom, leur login et leurs identifiants restent tels que tu les as réglés" : undefined}
+            title={toUpdate > 0 ? "Les machines déjà importées voient leurs tags et leur commande proxy rafraîchis ; leur nom, leur login et leurs identifiants restent tels que vous les avez réglés" : undefined}
             className="btn btn-primary disabled:opacity-50"
           >
             {/* The count that matters is the split: "importer (12)" on a list
@@ -470,7 +457,6 @@ export function AwsImportPanel({ workspace, onWorkspaceUpdate, onClose, onError,
             {toUpdate > 0 ? ` · ${toUpdate} à jour` : ""}
           </button>
         </div>
-      </div>
-    </div>
+    </ImportSourceFrame>
   );
 }

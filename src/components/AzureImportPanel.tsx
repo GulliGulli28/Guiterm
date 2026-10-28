@@ -8,7 +8,6 @@ import {
   CloudFailureNotice,
   CloudFilterBar,
   CloudImportFooter,
-  CloudImportModal,
   CloudInstanceList,
   CloudScopeBar,
   emptyBatchAuth,
@@ -17,6 +16,7 @@ import {
   useCloudSelection,
   type BatchAuth,
 } from "./CloudImportBits";
+import { ImportSourceFrame } from "./ImportSourceFrame";
 
 interface AzureImportPanelProps {
   workspace: Workspace;
@@ -137,15 +137,14 @@ export function AzureImportPanel({ workspace, onWorkspaceUpdate, onClose, onErro
   };
 
   return (
-    <CloudImportModal
-      title="Importer depuis Azure"
+    <ImportSourceFrame
+      source="azure"
       intro={
         <>
           Via votre CLI <span className="font-mono">az</span> déjà connectée — aucun identifiant
           Azure n'est demandé ni conservé. Les étiquettes deviennent des tags.
         </>
       }
-      onClose={onClose}
       overlayExtra={
         signInOpen && (
           <AzureSignInPanel
@@ -240,6 +239,6 @@ export function AzureImportPanel({ workspace, onWorkspaceUpdate, onClose, onErro
           />
         </>
       )}
-    </CloudImportModal>
+    </ImportSourceFrame>
   );
 }

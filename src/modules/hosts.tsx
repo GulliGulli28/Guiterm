@@ -28,8 +28,7 @@ export const hostsModule = defineModule({
         onNewHost={a.newHost}
         onEditHost={a.editHost}
         onNewGroup={a.newGroup}
-        onImportCloud={a.importCloud}
-        onImportAnsible={a.importAnsible}
+        onImportHosts={() => a.importHosts()}
         onNewHostInGroup={a.newHostInGroup}
         onNewHostInVault={a.newHostInVault}
         onOpenVault={a.openVault}

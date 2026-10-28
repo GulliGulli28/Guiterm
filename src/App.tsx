@@ -1,7 +1,7 @@
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { check as checkForUpdate } from "@tauri-apps/plugin-updater";
 import { api, onSshAgentConfirm, onSshAuthPrompt } from "./lib/api";
-import type { AwsSsoSession, GroupId, GuiVaultBrowseEntry, GuiVaultStatus, Host, HostId, PaneSource, SqlConnection, SshAgentConfirm, SshAuthPrompt, TabMeta, VaultId, VaultStatus, Workspace } from "./lib/types";
+import type { AwsSsoSession, GroupId, GuiVaultBrowseEntry, GuiVaultStatus, Host, HostId, Snippet, SnippetId, PaneSource, SqlConnection, SshAgentConfirm, SshAuthPrompt, TabMeta, VaultId, VaultStatus, Workspace } from "./lib/types";
 import { isHostBoundTab } from "./lib/types";
 import { Sidebar } from "./components/Sidebar";
 import { HostForm } from "./components/HostForm";
@@ -22,11 +22,8 @@ import type { AppContext, SidebarActions, TabOpeners } from "./modules/types";
 // annulerait à lui seul le gain des deux modules ci-dessus — et il n'est rendu
 // que si l'utilisateur ouvre le panneau scindé.
 const SplitPane = lazy(() => import("./components/SplitPane").then((m) => ({ default: m.SplitPane })));
-import { AwsImportPanel } from "./components/AwsImportPanel";
-import { AnsibleImportPanel } from "./components/AnsibleImportPanel";
-import { AzureImportPanel } from "./components/AzureImportPanel";
-import { GcpImportPanel } from "./components/GcpImportPanel";
-import { CloudProviderPicker, type CloudProvider } from "./components/CloudProviderPicker";
+import { ImportHostsDialog } from "./components/ImportHostsDialog";
+import type { ImportSource } from "./lib/importSources";
 
 import { RemoteSearchPanel } from "./components/RemoteSearchPanel";
 import { AwsDatabaseImportPanel } from "./components/AwsDatabaseImportPanel";
@@ -59,8 +56,9 @@ import { useBroadcast, SPLIT_PANE_ID } from "./hooks/useBroadcast";
 import { useFullscreen } from "./hooks/useFullscreen";
 import { useAwsSessionAlerts } from "./hooks/useAwsSessionAlerts";
 import { forgetSession, loadRecents, pruneRecents, recordRecent, saveRecents, type RecentEntry, type RecentTarget } from "./lib/recents";
+import { frequentSnippets, loadSnippetUsage, pruneSnippetUsage, recordSnippetUse, saveSnippetUsage, type SnippetUsage } from "./lib/snippetUsage";
+import { extractVariables } from "./lib/snippets";
 import { HomePage } from "./components/HomePage";
-import { SshConfigImportDialog } from "./components/SshConfigImportDialog";
 import type { ZoomAction } from "./lib/terminalZoom";
 
 export default function App() {
@@ -106,11 +104,11 @@ export default function App() {
     | null
   >(null);
   const [snippetPickerOpen, setSnippetPickerOpen] = useState(false);
-  /** Which cloud import is on screen. `"picker"` is the provider choice that
-   * the single "Importer depuis le cloud" menu entry opens; the others are the
-   * providers' own panels, which stay separate components. */
-  const [cloudImport, setCloudImport] = useState<"picker" | CloudProvider | null>(null);
-  const [ansibleImportOpen, setAnsibleImportOpen] = useState(false);
+  /** Le snippet lancé depuis l'accueil dont il faut remplir les variables :
+   * le sélecteur s'ouvre alors directement sur elles. */
+  const [snippetPickerFor, setSnippetPickerFor] = useState<Snippet | null>(null);
+  /** La fenêtre « Importer des hôtes », ouverte sur cette source. */
+  const [importDialog, setImportDialog] = useState<ImportSource | null>(null);
   /** Host whose filesystem is being searched. */
   const [searchHost, setSearchHost] = useState<Host | null>(null);
   const [awsDbImportOpen, setAwsDbImportOpen] = useState(false);
@@ -140,6 +138,16 @@ export default function App() {
       return next;
     });
   }, []);
+  // Les « Snippets fréquents » de l'accueil : locaux eux aussi, voir
+  // `lib/snippetUsage.ts`.
+  const [snippetUsage, setSnippetUsage] = useState<SnippetUsage>(loadSnippetUsage);
+  const noteSnippetUse = useCallback((id: SnippetId) => {
+    setSnippetUsage((prev) => {
+      const next = recordSnippetUse(prev, id, Date.now());
+      saveSnippetUsage(next);
+      return next;
+    });
+  }, []);
   const noteRecent = useCallback((target: RecentTarget, sessionKey: string | null) => {
     updateRecents((list) => recordRecent(list, { ...target, at: Date.now(), ...(sessionKey ? { sessionKey } : {}) }));
   }, [updateRecents]);
@@ -147,7 +155,6 @@ export default function App() {
   // les onglets, qui restent montés dessous (un terminal ne se reconnecte pas
   // pour un aller-retour sur l'accueil).
   const [homeOpen, setHomeOpen] = useState(false);
-  const [sshConfigImportOpen, setSshConfigImportOpen] = useState(false);
   const terminalRefs = useRef<Map<string, TerminalTabHandle>>(new Map());
   const { fullscreen, toggleFullscreen } = useFullscreen(reportError);
 
@@ -859,6 +866,15 @@ export default function App() {
       const kept = pruneRecents(list, hostIds, connectionIds);
       return kept.length === list.length ? list : kept;
     });
+    // Une synchro peut arriver avant que les snippets soient chargés : un
+    // workspace sans aucun snippet n'efface pas les compteurs.
+    if (workspace.snippets.length === 0) return;
+    const snippetIds = new Set(workspace.snippets.map((sn) => sn.id));
+    setSnippetUsage((prev) => {
+      const kept = pruneSnippetUsage(prev, snippetIds);
+      if (kept !== prev) saveSnippetUsage(kept);
+      return kept;
+    });
   }, [workspace, updateRecents]);
 
   const renderHomePage = () => {
@@ -915,8 +931,18 @@ export default function App() {
         onOpenHost={openHost}
         onQuickSSH={(cmd) => leave(() => openLocalTerminal(cmd))}
         onNewHost={() => sidebarActions.newHost()}
-        onImportSshConfig={() => setSshConfigImportOpen(true)}
-        onImportFrom={(source) => (source === "ansible" ? setAnsibleImportOpen(true) : setCloudImport(source))}
+        onImport={setImportDialog}
+        frequentSnippets={frequentSnippets(snippetUsage, workspace.snippets, Date.now(), 5)}
+        snippetTarget={isTerminalLikeTab(activeTab) ? activeTab.label : null}
+        onRunSnippet={(snippet) => leave(() => {
+          // Des variables à remplir : le sélecteur s'ouvre directement dessus,
+          // et c'est lui qui comptera l'exécution.
+          if (extractVariables(snippet.command).length > 0) { setSnippetPickerFor(snippet); setSnippetPickerOpen(true); return; }
+          noteSnippetUse(snippet.id);
+          if (snippet.adaptive) runAdaptiveSnippet(snippet.command);
+          else runSnippet(snippet.command);
+        })}
+        onShowSnippets={() => leave(() => showTargetsPanel("snippets"))}
         onOpenGuiVault={(vaultId) => leave(() => sidebarActions.openVault(vaultId))}
         onOpenAwsIdentities={() => leave(() => showTargetsPanel("aws"))}
         onShowTunnels={() => leave(() => showTargetsPanel("tunnels"))}
@@ -1059,8 +1085,7 @@ export default function App() {
     editGroup: (group) => { setEditingGroup({ id: group.id, name: group.name, parentId: group.parentId ?? null, icon: group.icon ?? null, color: group.color ?? null, vaultId: workspace?.vaultBindings?.[group.id] ?? null }); setEditingHost(null); setEditingSqlConnection(null); },
     newSqlConnection: () => { setEditingSqlConnection("new"); setEditingHost(null); setEditingGroup(null); },
     editSqlConnection: (conn) => { setEditingSqlConnection(conn); setEditingHost(null); setEditingGroup(null); },
-    importCloud: () => setCloudImport("picker"),
-    importAnsible: () => setAnsibleImportOpen(true),
+    importHosts: (source) => setImportDialog(source ?? "sshConfig"),
     importAwsDatabases: () => setAwsDbImportOpen(true),
     configureSso: () => setAwsSsoOpen({ mode: "new" }),
     reconnectSso: (session) => setAwsSsoOpen({ mode: "reconnect", session }),
@@ -1071,6 +1096,7 @@ export default function App() {
     deleteSnippet: (id) => api.deleteSnippet(id).then(refreshWorkspace).catch((e) => reportError(String(e))),
     runSnippet,
     runAdaptiveSnippet,
+    noteSnippetUse,
     saveAdaptiveSnippet: (id, name, command) =>
       api.saveAdaptiveSnippet(id, name, command).then(refreshWorkspace).catch((e) => reportError(String(e))),
     addForward: (input) => api.addForward(input).then(refreshWorkspace).catch((e) => reportError(String(e))),
@@ -1178,50 +1204,16 @@ export default function App() {
           onError={reportError}
         />
       )}
-      {cloudImport === "picker" && (
-        <CloudProviderPicker onPick={setCloudImport} onClose={() => setCloudImport(null)} />
-      )}
-      {cloudImport === "aws" && (
-        <AwsImportPanel
+      {importDialog && (
+        <ImportHostsDialog
           workspace={workspace}
+          initialSource={importDialog}
+          awsProfilesEpoch={awsProfilesEpoch}
           onWorkspaceUpdate={refreshWorkspace}
-          onClose={() => setCloudImport(null)}
           onError={reportError}
+          onClose={() => setImportDialog(null)}
           onConfigureSso={() => setAwsSsoOpen({ mode: "new" })}
           onReconnectSso={(session) => setAwsSsoOpen({ mode: "reconnect", session })}
-          key={`aws-import-${awsProfilesEpoch}`}
-        />
-      )}
-      {cloudImport === "azure" && (
-        <AzureImportPanel
-          workspace={workspace}
-          onWorkspaceUpdate={refreshWorkspace}
-          onClose={() => setCloudImport(null)}
-          onError={reportError}
-        />
-      )}
-      {cloudImport === "gcp" && (
-        <GcpImportPanel
-          workspace={workspace}
-          onWorkspaceUpdate={refreshWorkspace}
-          onClose={() => setCloudImport(null)}
-          onError={reportError}
-        />
-      )}
-      {sshConfigImportOpen && (
-        <SshConfigImportDialog
-          hosts={workspace.hosts}
-          onWorkspaceUpdate={refreshWorkspace}
-          onError={reportError}
-          onClose={() => setSshConfigImportOpen(false)}
-        />
-      )}
-      {ansibleImportOpen && (
-        <AnsibleImportPanel
-          workspace={workspace}
-          onWorkspaceUpdate={refreshWorkspace}
-          onClose={() => setAnsibleImportOpen(false)}
-          onError={reportError}
         />
       )}
       {awsSsoOpen && (
@@ -1246,9 +1238,13 @@ export default function App() {
       {snippetPickerOpen && workspace && (
         <SnippetPicker
           snippets={workspace.snippets}
+          initialSnippet={snippetPickerFor ?? undefined}
           onRun={(command) => runSnippet(command)}
-          onSnippetResolved={(snippet, resolvedText) => { if (snippet.adaptive) runAdaptiveSnippet(resolvedText); }}
-          onClose={() => setSnippetPickerOpen(false)}
+          onSnippetResolved={(snippet, resolvedText) => {
+            noteSnippetUse(snippet.id);
+            if (snippet.adaptive) runAdaptiveSnippet(resolvedText);
+          }}
+          onClose={() => { setSnippetPickerOpen(false); setSnippetPickerFor(null); }}
         />
       )}
       {pendingCloseTabId && (

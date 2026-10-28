@@ -51,6 +51,15 @@ const scenes = [
     if (home.recents < 5) throw new Error(`récents de l'accueil : ${home.recents}`);
     if (!/docker-host/.test(home.sessions) || !/Reprendre/.test(home.sessions)) throw new Error(`sessions à reprendre : ${home.sessions}`);
     if (!/5432/.test(home.tunnels)) throw new Error(`tunnels actifs : ${home.tunnels}`);
+    // Snippets fréquents : les plus lancés d'abord, jamais un snippet qui n'a
+    // pas servi ; sans terminal ouvert, rien à lancer.
+    const snippets = await page.evaluate(() => Array.from(document.querySelectorAll("[data-home-snippets] > button"), (b) => ({
+      text: b.textContent ?? "", disabled: b.disabled,
+    })));
+    if (snippets.length !== 3 || !snippets[0].text.startsWith("Espace disque") || snippets.some((r) => /Journal nginx/.test(r.text))) {
+      throw new Error(`snippets fréquents : ${JSON.stringify(snippets)}`);
+    }
+    if (!snippets.every((r) => r.disabled)) throw new Error("sans terminal, un snippet de l'accueil ne doit pas être lançable");
   }],
   ["02-terminal", async (page) => {
     await page.getByText("web-01", { exact: true }).first().click();
@@ -66,6 +75,18 @@ const scenes = [
       .find((b) => b.textContent?.includes("web-01"))?.textContent ?? "");
     if (!/Ouvert/.test(openRow)) throw new Error(`web-01 devrait être marqué ouvert : ${openRow}`);
     if (await page.locator(".session-bar").count()) throw new Error("la barre de session reste visible sur l'accueil");
+  }],
+  // Un snippet fréquent se lance dans le terminal resté dessous : l'accueil se
+  // referme, et l'exécution est comptée.
+  ["02c-snippet-depuis-accueil", async (page) => {
+    const row = page.locator("[data-home-snippets] > button", { hasText: "Espace disque" });
+    if (await row.isDisabled()) throw new Error("avec un terminal ouvert, le snippet doit être lançable");
+    await row.click();
+    await page.waitForSelector("[data-home-page]", { state: "detached", timeout: 5_000 });
+    const count = await page.evaluate(() => JSON.parse(localStorage.getItem("gui-termius-snippet-usage") ?? "{}")["s-1"]?.count);
+    if (count !== 10) throw new Error(`l'exécution depuis l'accueil n'est pas comptée : ${count}`);
+    await page.locator("[data-home-button]").click();
+    await page.waitForSelector("[data-home-page='home']", { timeout: 5_000 });
   }],
   ["03-nouvel-hote", async (page) => {
     // Quitter l'accueil : choisir un onglet le referme.
@@ -98,20 +119,30 @@ const scenes = [
   ["07-cles", async (page) => { await clickNav(page, "Clés"); }],
   ["08-bases", async (page) => { await clickNav(page, "Bases de données"); }],
   ["09-known-hosts", async (page) => { await clickNav(page, "Known Hosts"); }],
-  // L'import de ~/.ssh/config reconnaît ce qui est déjà là et ne le recoche pas.
+  // L'import de ~/.ssh/config reconnaît ce qui est déjà là et ne le recoche
+  // pas. Il s'ouvre dans la fenêtre « Importer des hôtes », dont la colonne de
+  // gauche dit d'avance où en est chaque source.
   ["09b-import-ssh-config", async (page) => {
     await page.getByRole("button", { name: /Importer ~\/\.ssh\/config/ }).click();
-    await page.waitForSelector("[data-ssh-config-import] input[type=checkbox]", { timeout: 5_000 });
-    const rows = await page.evaluate(() => Array.from(document.querySelectorAll("[data-ssh-config-import] label")).map((l) => ({
-      text: l.textContent ?? "", checked: l.querySelector("input")?.checked ?? false,
+    await page.waitForSelector("[data-import-hosts] [data-import-source='sshConfig'][aria-checked='true']", { timeout: 5_000 });
+    await page.waitForSelector("[data-ssh-config-import] tr[data-alias]", { timeout: 5_000 });
+    const rows = await page.evaluate(() => Array.from(document.querySelectorAll("[data-ssh-config-import] tr[data-alias]")).map((tr) => ({
+      alias: tr.getAttribute("data-alias"), text: tr.textContent ?? "", checked: tr.querySelector("input")?.checked ?? false,
     })));
-    const web = rows.find((r) => r.text.startsWith("web-01"));
+    const web = rows.find((r) => r.alias === "web-01");
     if (rows.length !== 4 || !web || web.checked || !/Déjà présent/.test(web.text)) throw new Error(`import ~/.ssh/config : ${JSON.stringify(rows)}`);
     if (rows.filter((r) => r.checked).length !== 3) throw new Error(`les nouveaux hôtes devraient être cochés : ${JSON.stringify(rows)}`);
+    await page.waitForFunction(() => !document.querySelector("[data-import-source='gcp'] [data-import-status]")?.textContent?.startsWith("Recherche"), null, { timeout: 5_000 });
+    const statuses = await page.evaluate(() => Object.fromEntries(Array.from(document.querySelectorAll("[data-import-source]"), (b) => [
+      b.getAttribute("data-import-source"), b.querySelector("[data-import-status]")?.textContent ?? "",
+    ])));
+    if (statuses.sshConfig !== "3 hôtes à importer" || statuses.gcp !== "gcloud connecté · 2 projets" || statuses.azure !== "CLI az introuvable") {
+      throw new Error(`lignes d'état des sources : ${JSON.stringify(statuses)}`);
+    }
   }],
   ["09c-apres-import", async (page) => {
-    await page.locator("[data-ssh-config-import]").getByRole("button", { name: "Annuler" }).click();
-    await page.waitForSelector("[data-ssh-config-import]", { state: "detached", timeout: 5_000 });
+    await page.locator("[data-import-hosts] button[aria-label='Fermer']").click();
+    await page.waitForSelector("[data-import-hosts]", { state: "detached", timeout: 5_000 });
   }],
   ["10-flotte", async (page) => { await clickNav(page, "Opérations de flotte"); await settle(page, 500); }],
   ["11-runbooks", async (page) => { await clickNav(page, "Runbooks"); }],
@@ -166,12 +197,32 @@ const scenes = [
     await page.getByRole("button", { name: /^Ajouter/ }).first().click();
     await settle(page, 300);
   }],
+  // Une seule entrée d'import dans le menu « Ajouter… », qui ouvre la même
+  // fenêtre que l'accueil et Known Hosts.
   ["18-import-cloud", async (page) => {
-    await page.getByRole("button", { name: /Importer depuis le cloud/ }).first().click();
-    await settle(page, 500);
+    await page.getByRole("button", { name: "Importer des hôtes…" }).click();
+    await page.locator("[data-import-source='gcp']").click();
+    await page.waitForSelector("[data-import-body='gcp']", { timeout: 5_000 });
+    await settle(page, 400);
+  }],
+  // Un fichier d'export se lit avant d'être importé : ses hôtes, ceux qui
+  // remplaceraient un hôte existant, et la question des commandes de
+  // démarrage.
+  ["18b-import-fichier", async (page) => {
+    await page.locator("[data-import-source='file']").click();
+    await page.getByRole("button", { name: /Choisir un fichier/ }).click();
+    await page.waitForSelector("[data-file-import-preview='workspace'] tbody tr", { timeout: 5_000 });
+    const preview = await page.evaluate(() => ({
+      rows: document.querySelectorAll("[data-file-import-preview] tbody tr").length,
+      text: document.querySelector("[data-import-body='file']")?.textContent ?? "",
+    }));
+    if (preview.rows !== 3 || !/Remplacera/.test(preview.text) || !/Garder les commandes de démarrage/.test(preview.text) || !/Fusionner/.test(preview.text)) {
+      throw new Error(`aperçu du fichier d'export : ${JSON.stringify(preview)}`);
+    }
   }],
   ["19-nouvelle-base", async (page) => {
-    await page.getByRole("button", { name: /Fermer/ }).first().click().catch(() => page.keyboard.press("Escape"));
+    await page.locator("[data-import-hosts] button[aria-label='Fermer']").click();
+    await page.waitForSelector("[data-import-hosts]", { state: "detached", timeout: 5_000 });
     await settle(page, 300);
     await clickNav(page, "Bases de données");
     await page.getByRole("button", { name: /Nouvelle connexion/ }).first().click();
@@ -930,8 +981,8 @@ const isolated = [
   ["60b-premier-lancement-import", "empty", async (page) => {
     await page.waitForSelector("[data-welcome-choice='ssh-config'] >> text=4 hôtes trouvés", { timeout: 10_000 });
     await page.locator("[data-welcome-choice='ssh-config'] button").click();
-    await page.waitForSelector("[data-ssh-config-import] input:checked", { timeout: 5_000 });
-    const checked = await page.locator("[data-ssh-config-import] input:checked").count();
+    await page.waitForSelector("[data-ssh-config-import] tbody input:checked", { timeout: 5_000 });
+    const checked = await page.locator("[data-ssh-config-import] tbody input:checked").count();
     if (checked !== 4) throw new Error(`tout devrait être coché sur un workspace vide : ${checked}`);
   }],
   ["61-coffre-verrouille", "locked", async (page) => {

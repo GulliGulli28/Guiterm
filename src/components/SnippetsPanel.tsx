@@ -30,6 +30,9 @@ interface SnippetsPanelProps {
    * May contain `{{variables}}`, filled in the same way as classic snippets
    * before use. */
   onSaveAdaptiveSnippet: (id: SnippetId | null, name: string, command: string) => void;
+  /** Un snippet vient d'être lancé : c'est ce qui alimente les « Snippets
+   * fréquents » de l'accueil (`lib/snippetUsage.ts`). */
+  onSnippetUsed?: (id: SnippetId) => void;
   openTerminals: { id: string; label: string }[];
   /** Une génération qui échoue (pas de clé API, modèle injoignable) doit se
    * dire ici, pas dans la console. */
@@ -196,6 +199,7 @@ function SnippetCard({
   onError,
   onRun,
   onRunAdaptive,
+  onUsed,
   onUpdate,
   onUpdateAdaptive,
   onDelete,
@@ -205,6 +209,7 @@ function SnippetCard({
   onError: (message: string) => void;
   onRun: (command: string, targetTabIds?: string[]) => void;
   onRunAdaptive: (programText: string, targetTabIds?: string[]) => void;
+  onUsed: () => void;
   onUpdate: (name: string, command: string) => void;
   onUpdateAdaptive: (name: string, command: string) => void;
   onDelete: () => void;
@@ -216,7 +221,10 @@ function SnippetCard({
   const isScript = snippet.command.includes("\n");
   const variables = extractVariables(snippet.command);
   const targetIds = Array.from(targets);
-  const run = snippet.adaptive ? onRunAdaptive : onRun;
+  const run = (command: string, targets: string[]) => {
+    (snippet.adaptive ? onRunAdaptive : onRun)(command, targets);
+    onUsed();
+  };
 
   const handleRunClick = () => {
     if (variables.length === 0) { run(snippet.command, targetIds); return; }
@@ -338,7 +346,7 @@ function SnippetCard({
   );
 }
 
-export function SnippetsPanel({ workspace, vaultSections, onAddSnippet, onUpdateSnippet, onDeleteSnippet, onRunSnippet, onRunAdaptiveSnippet, onSaveAdaptiveSnippet, openTerminals, onError, onWorkspaceUpdate, onNotify }: SnippetsPanelProps) {
+export function SnippetsPanel({ workspace, vaultSections, onAddSnippet, onUpdateSnippet, onDeleteSnippet, onRunSnippet, onRunAdaptiveSnippet, onSaveAdaptiveSnippet, onSnippetUsed, openTerminals, onError, onWorkspaceUpdate, onNotify }: SnippetsPanelProps) {
   const [showForm, setShowForm] = useState(false);
 
   return (
@@ -371,6 +379,7 @@ export function SnippetsPanel({ workspace, vaultSections, onAddSnippet, onUpdate
             onError={onError}
             onRun={onRunSnippet}
             onRunAdaptive={onRunAdaptiveSnippet}
+            onUsed={() => onSnippetUsed?.(snippet.id)}
             onUpdate={(name, command) => onUpdateSnippet(snippet.id, name, command)}
             onUpdateAdaptive={(name, command) => onSaveAdaptiveSnippet(snippet.id, name, command)}
             onDelete={() => onDeleteSnippet(snippet.id)}

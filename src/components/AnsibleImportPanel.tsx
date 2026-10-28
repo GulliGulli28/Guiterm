@@ -2,7 +2,8 @@ import { useMemo, useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
 import { api } from "../lib/api";
 import type { AuthMethod, GroupId, Inventory, InventoryHost, KeyId, Workspace } from "../lib/types";
-import { IconClose, IconFolder } from "./ui-icons";
+import { IconFolder } from "./ui-icons";
+import { ImportSourceFrame } from "./ImportSourceFrame";
 import { GroupTreePicker } from "./GroupTreePicker";
 
 interface AnsibleImportPanelProps {
@@ -138,23 +139,10 @@ export function AnsibleImportPanel({ workspace, onWorkspaceUpdate, onClose, onEr
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6" onClick={onClose}>
-      <div
-        className="flex max-h-full w-[min(48rem,100%)] flex-col overflow-hidden modal"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex shrink-0 items-center justify-between border-b border-[var(--c-border)] px-4 py-2.5">
-          <div>
-            <p className="text-[13px] font-semibold text-[var(--c-text)]">Importer un inventaire Ansible</p>
-            <p className="text-[11.5px] text-[var(--c-text-muted)]">
-              Un fichier, aucune API. Les groupes deviennent des tags, donc <span className="font-mono">target tag: …</span> les cible aussitôt.
-            </p>
-          </div>
-          <button onClick={onClose} aria-label="Fermer" className="btn btn-ghost btn-sm btn-icon">
-            <IconClose size={13} />
-          </button>
-        </div>
-
+    <ImportSourceFrame
+      source="ansible"
+      intro={<>Un fichier, aucune API. Les groupes deviennent des tags, donc <span className="font-mono">target tag: …</span> les cible aussitôt.</>}
+    >
         <div className="shrink-0 border-b border-[var(--c-border)] px-4 py-2.5">
           <label className="block space-y-1">
             <span className="field-label">Fichier d'inventaire</span>
@@ -315,8 +303,7 @@ export function AnsibleImportPanel({ workspace, onWorkspaceUpdate, onClose, onEr
             </div>
           </>
         )}
-      </div>
-    </div>
+    </ImportSourceFrame>
   );
 }
 

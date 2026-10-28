@@ -37,6 +37,11 @@ function profileName(roleName: string, accountId: string): string {
  * procedure *is* that one login command.
  */
 export function AwsSsoSetupPanel({ onClose, onProfilesCreated, initialSession, startAt = "form" }: AwsSsoSetupPanelProps) {
+  // Le focus entre dans le panneau à l'ouverture : il s'ouvre par-dessus la
+  // fenêtre d'import, dont Échap et Tab ne doivent pas lui prendre le clavier
+  // (`useModalSurface` laisse la main à la boîte qui a le focus).
+  const boxRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { boxRef.current?.focus(); }, []);
   const [name, setName] = useState(initialSession?.name ?? "");
   const [startUrl, setStartUrl] = useState(initialSession?.startUrl ?? "");
   const [region, setRegion] = useState(initialSession?.region ?? "eu-west-3");
@@ -132,6 +137,8 @@ export function AwsSsoSetupPanel({ onClose, onProfilesCreated, initialSession, s
     // database panel while working from the hosts panel, purely by JSX order.
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-6" onClick={onClose}>
       <div
+        ref={boxRef}
+        tabIndex={-1}
         className="flex max-h-full w-[min(44rem,100%)] flex-col overflow-hidden modal"
         onClick={(e) => e.stopPropagation()}
       >

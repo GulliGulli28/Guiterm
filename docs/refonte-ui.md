@@ -196,8 +196,8 @@ Le contenu prévu :
 
 ### Tranche 3 — Accueil, premier lancement, import unifié
 
-**3a et 3b livrées le 2026-10-28** : accueil et premier lancement. L'import
-unifié (3c) reste à faire. Ce qui a été fait, et les écarts avec le plan :
+**Livrée le 2026-10-28** (3a/3b : accueil et premier lancement ; 3c : import
+unifié et snippets fréquents). Ce qui a été fait, et les écarts avec le plan :
 - `HomePage.tsx` n'est pas un onglet. Il s'affiche sans onglet ouvert, et le
   logo de la barre de titre (`data-home-button`) le rouvre par-dessus les
   onglets, qui restent montés. Choisir un onglet le referme. Un onglet
@@ -213,13 +213,42 @@ unifié (3c) reste à faire. Ce qui a été fait, et les écarts avec le plan :
   clé de session de chaque connexion persistante, et l'accueil propose
   celles qu'aucun onglet n'affiche. « Masquer » oublie la clé, sans tuer
   la session.
-- « Snippets fréquents » de la maquette : retirés, car rien ne compte
-  l'usage des snippets.
-- La fenêtre d'import `~/.ssh/config` sort de `KnownHostsPanel`
-  (`SshConfigImportDialog`). Elle reconnaît les hôtes déjà présents et ne
-  les recoche pas. La 3c en fera la fenêtre unifiée.
-- Garde-fous : scènes `01`, `02b`, `09b`, `60`, `60b` du tour, avec
-  assertions ; scénario E2E `runHomeScenario` ; `recents.test.ts`.
+- « Snippets fréquents » (3c) : `lib/snippetUsage.ts`, en `localStorage`
+  (`gui-termius-snippet-usage`), local comme les récents. Chaque exécution
+  compte (panneau Snippets, `Ctrl+Shift+R`, accueil) ; le classement est une
+  fréquence amortie (demi-vie de 14 jours), pas un compteur brut. Un clic
+  lance le snippet dans le terminal resté sous l'accueil ; ses variables
+  passent par le sélecteur, ouvert directement dessus. Sans terminal, la
+  ligne est inactive. Écart : pas de raccourci clavier par snippet comme sur
+  la maquette (« Ctrl ⇧ 1 ») — les snippets n'en ont pas ; la ligne montre la
+  commande à la place.
+- **Import unifié (3c)** : `ImportHostsDialog` (`lib/importSources.ts`), six
+  sources — `~/.ssh/config`, AWS, Google Cloud, Azure, inventaire Ansible,
+  fichier d'export Guiterm. La colonne de gauche dit où en est chaque source
+  avant qu'on la choisisse (hôtes à importer, `gcloud` connecté, `az`
+  introuvable…). Les panneaux de chaque source perdent leur modale et
+  passent dans `ImportSourceFrame` ; `CloudProviderPicker` disparaît. Une
+  seule entrée « Importer des hôtes… » dans le menu « Ajouter… » ; l'accueil
+  et Known Hosts ouvrent la même fenêtre sur la bonne source.
+- La source `~/.ssh/config` devient un tableau (alias, adresse, utilisateur,
+  « passe par », état), avec un filtre et « Ranger dans » (dossier).
+  Écart : pas de choix du vault à l'import, ni de « nouveau dossier »
+  créé à la volée — on range dans un dossier existant, puis « Déplacer
+  vers ».
+- La source « Fichier » montre un **aperçu** avant d'importer : nouvelle
+  commande `inspect_import_file` (`core::export::preview`), qui reconnaît
+  un export de configuration ou d'hôte seul, liste ses hôtes et marque ceux
+  qui remplaceraient un hôte existant. « Importer un hôte (fichier) »
+  importait auparavant sans rien montrer.
+- `useModalSurface` laisse Échap et Tab à une boîte posée par-dessus qui a le
+  focus (panneau SSO, connexion Azure, ouverts depuis l'import) : Échap y
+  fermait la fenêtre du dessous.
+- Garde-fous : scènes `01`, `02b`, `02c`, `09b`, `18`, `18b`, `60`, `60b` du
+  tour, avec assertions ; scénarios E2E `runHomeScenario`,
+  `runImportFileScenario`, et les scénarios d'import AWS, Ansible, Azure/GCP
+  repassés par la fenêtre unifiée ; `recents.test.ts`,
+  `snippetUsage.test.ts`, `importSources.test.ts`, tests de
+  `core::export::preview`.
 
 Le plan d'origine :
 

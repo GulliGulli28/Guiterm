@@ -1030,6 +1030,18 @@ export interface SshConfigHost {
   proxyCommand: string | null;
 }
 
+/** `core::export::ExportPreview` : ce qu'un fichier d'export contient, lu
+ * avant d'importer. */
+export interface ExportPreview {
+  kind: "workspace" | "host";
+  hosts: { id: HostId; label: string; address: string; username: string; port: number; existing: boolean }[];
+  groups: number;
+  snippets: number;
+  keys: number;
+  portForwards: number;
+  hasAutomation: boolean;
+}
+
 export interface ImportSelection {
   alias: string;
   hostname: string;

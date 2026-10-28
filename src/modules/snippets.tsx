@@ -21,6 +21,7 @@ export const snippetsModule = defineModule({
         onRunSnippet={a.runSnippet}
         onRunAdaptiveSnippet={a.runAdaptiveSnippet}
         onSaveAdaptiveSnippet={a.saveAdaptiveSnippet}
+        onSnippetUsed={a.noteSnippetUse}
         openTerminals={a.openTerminals}
         onError={ctx.reportError}
       />

@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { focusFirstMenuItem, handleMenuKey } from "../lib/menuKeyboard";
-import { open, save } from "@tauri-apps/plugin-dialog";
+import { save } from "@tauri-apps/plugin-dialog";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
 import { parseSSHInput, quickSshCommand } from "../lib/quickConnect";
 import { api } from "../lib/api";
@@ -55,8 +55,8 @@ interface HostsPanelProps {
   onNewGroup: () => void;
   /** Opens the provider picker — AWS, Azure or GCP — rather than one menu
    * entry per provider, which pushed "Nouvel hôte" down a six-item list. */
-  onImportCloud: () => void;
-  onImportAnsible: () => void;
+  /** Ouvre la fenêtre « Importer des hôtes ». */
+  onImportHosts: () => void;
   onNewHostInGroup: (groupId: GroupId) => void;
   /** Depuis l'en-tête d'un vault : le formulaire s'ouvre dans ce vault. */
   onNewHostInVault?: (vaultId: VaultId | null) => void;
@@ -125,7 +125,7 @@ function LocalTerminalButton({ onOpen }: { onOpen: (shell?: string) => void }) {
 export function HostsPanel({
   workspace, activeHostId, onConnect, onConnectDocker, onConnectK8s, onConnectRdpView, onOpenTransfer, onConnectSql,
   onProbeReachability, onSearchFiles, onResumeSession, onOpenLocalTerminal,
-  onNewHost, onEditHost, onNewGroup, onImportCloud, onImportAnsible, onNewHostInGroup, onNewGroupUnder,
+  onNewHost, onEditHost, onNewGroup, onImportHosts, onNewHostInGroup, onNewGroupUnder,
   onEditGroup, onQuickSSH, onWorkspaceUpdate, onError, onNotify, vaultSections: sections, onNewHostInVault, onOpenVault,
 }: HostsPanelProps) {
   const [search, setSearch] = useState("");
@@ -303,20 +303,6 @@ export function HostsPanel({
     } else {
       doExportHost(host, false);
     }
-  };
-
-  const handleImportHost = async () => {
-    try {
-      const path = await open({ title: "Importer un hôte", multiple: false, filters: fileFilters });
-      if (path && typeof path === "string") {
-        // Quick single-host import has no confirmation step to attach a
-        // toggle to (unlike SettingsPanel's full import flow) — always
-        // strip startup automation from the untrusted file, the safe
-        // default. See api.importHostFromFile's doc comment.
-        const ws = await api.importHostFromFile(path, false);
-        onWorkspaceUpdate?.(ws);
-      }
-    } catch (e) { onError?.(String(e)); }
   };
 
   /** La section (vault) qui porte cet hôte, quand un compte est affiché. */
@@ -684,9 +670,7 @@ export function HostsPanel({
                 <button onClick={() => { onNewHost(); setShowAddMenu(false); }} className={addMenuItem}><IconHosts size={14} /> Nouvel hôte</button>
                 <button onClick={() => { onNewGroup(); setShowAddMenu(false); }} className={addMenuItem}><IconFolder size={14} /> Nouveau dossier</button>
                 <div className="menu-sep" />
-                <button onClick={() => { handleImportHost(); setShowAddMenu(false); }} className={addMenuItem}><IconDownload size={14} /> Importer un hôte (fichier)</button>
-                <button onClick={() => { onImportCloud(); setShowAddMenu(false); }} className={addMenuItem}><IconDownload size={14} /> Importer depuis le cloud</button>
-                <button onClick={() => { onImportAnsible(); setShowAddMenu(false); }} className={addMenuItem}><IconDownload size={14} /> Importer un inventaire Ansible</button>
+                <button onClick={() => { onImportHosts(); setShowAddMenu(false); }} className={addMenuItem}><IconDownload size={14} /> Importer des hôtes…</button>
               </div>
             </>
           )}

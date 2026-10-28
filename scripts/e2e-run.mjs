@@ -258,6 +258,7 @@ async function runScenarios(browser) {
   await runBulkEditScenario(browser);
   await runTabShortcutScenario(browser);
   await runCloudImportScenario(browser);
+  await runImportFileScenario(browser);
   await runSshTerminalTabScenario(browser);
   await runSqlTabScenario(browser);
   await runHostAttachmentsScenario(browser);
@@ -692,24 +693,48 @@ async function clickButtonByText(browser, text) {
   if (!found) throw new Error(`bouton « ${text} » introuvable`);
 }
 
-/** Opens the cloud provider picker from the Hosts sidebar and picks one.
+/** Ouvre « Importer des hôtes » depuis le menu « Ajouter… » du panneau Hôtes,
+ * puis choisit une source.
  *
- * Selects on `data-provider` rather than on text: each entry's label is a
- * name, a CLI hint and a sentence, so there is no exact string to match. */
-async function pickCloudProvider(browser, provider) {
-  await clickButtonByText(browser, "Ajouter…");
-  await clickButtonByText(browser, "Importer depuis le cloud");
-  await browser.waitUntil(async () => await browser.execute(() =>
-    document.querySelectorAll("button[data-provider]").length === 3
-  ), { timeout: 5_000, timeoutMsg: "le sélecteur cloud n a pas proposé les trois fournisseurs" });
-
-  const picked = await browser.execute((id) => {
-    const entry = document.querySelector(`button[data-provider="${id}"]`);
-    if (!(entry instanceof HTMLElement)) return false;
-    entry.click();
+ * Sélectionne sur `data-import-source` plutôt que sur le texte : chaque entrée
+ * porte un nom et une ligne d'état qui dépend de la machine (« gcloud
+ * connecté », « CLI az introuvable »). Vérifie au passage que les six sources
+ * sont proposées : une source perdue est une source que plus personne
+ * n'atteint, et rien d'autre dans la suite ne le remarquerait. */
+async function openImportSource(browser, source) {
+  await browser.execute(() => {
+    const tab = Array.from(document.querySelectorAll("aside nav button"))
+      .find((b) => b.getAttribute("data-sidebar-button") === "hosts");
+    if (tab instanceof HTMLElement) tab.click();
+  });
+  const opened = await browser.execute(() => {
+    const add = Array.from(document.querySelectorAll("button"))
+      .find((b) => (b.textContent || "").trim().startsWith("Ajouter"));
+    if (!(add instanceof HTMLElement)) return false;
+    add.click();
     return true;
-  }, provider);
-  if (!picked) throw new Error(`fournisseur « ${provider} » introuvable dans le sélecteur cloud`);
+  });
+  if (!opened) throw new Error("bouton « Ajouter… » introuvable dans le panneau Hôtes");
+  await clickButtonByText(browser, "Importer des hôtes…");
+  await browser.waitUntil(async () => await browser.execute(() =>
+    document.querySelectorAll("[data-import-hosts] [data-import-source]").length === 6
+  ), { timeout: 5_000, timeoutMsg: "la fenêtre d import n a pas proposé les six sources" });
+
+  await browser.execute((id) => document.querySelector(`[data-import-source="${id}"]`)?.click(), source);
+  await browser.waitUntil(async () => await browser.execute((id) =>
+    !!document.querySelector(`[data-import-hosts] [data-import-body="${id}"]`), source,
+  ), { timeout: 5_000, timeoutMsg: `la source « ${source} » ne s est pas affichée` });
+}
+
+/** Le texte de la source affichée dans la fenêtre d'import. */
+function importBodyText(browser, source) {
+  return browser.execute((id) => document.querySelector(`[data-import-body="${id}"]`)?.textContent ?? "", source);
+}
+
+async function closeImportDialog(browser) {
+  await browser.execute(() => document.querySelector('[data-import-hosts] button[aria-label="Fermer"]')?.click());
+  await browser.waitUntil(async () => await browser.execute(() => !document.querySelector("[data-import-hosts]")),
+    { timeout: 5_000, timeoutMsg: "la fenêtre d import ne s est pas refermée" });
 }
 
 /** Same, for buttons whose label is only part of their text (an entry made of
@@ -838,21 +863,11 @@ async function runProxyTestButtonScenario(browser) {
  * Nothing is imported, so the real workspace is untouched.
  */
 async function runAwsImportPanelScenario(browser) {
-  // Since Azure and GCP joined, the menu holds one cloud entry and the
-  // provider is chosen a step later — the databases sidebar still has its own
-  // direct "Importer depuis AWS", which is a different panel.
-  await pickCloudProvider(browser, "aws");
-
-  const panelText = () => browser.execute(() => {
-    const heading = Array.from(document.querySelectorAll("p"))
-      .find((el) => el.textContent?.trim() === "Importer des instances EC2");
-    return heading?.closest("div.flex.max-h-full")?.textContent ?? "";
-  });
-
-  await browser.waitUntil(async () => (await panelText()).length > 0, {
-    timeout: 5_000,
-    timeoutMsg: "le panneau d import AWS ne s est pas ouvert — entrée de menu inerte",
-  });
+  // Depuis la tranche 3c de la refonte, AWS est une source de « Importer des
+  // hôtes » ; le panneau Bases garde son propre « Importer depuis AWS », qui
+  // est un autre panneau.
+  await openImportSource(browser, "aws");
+  const panelText = () => importBodyText(browser, "aws");
 
   await clickButtonByText(browser, "Lister les instances");
   await browser.waitUntil(async () => {
@@ -867,7 +882,7 @@ async function runAwsImportPanelScenario(browser) {
   });
 
   await runAwsSsoPanelScenario(browser);
-  await closeDialogTitled(browser, "Importer des instances EC2");
+  await closeImportDialog(browser);
   console.log("Import AWS : OK (panneau atteignable depuis le menu, appel backend effectif).");
 }
 
@@ -1014,38 +1029,14 @@ async function runRemoteSearchScenario(browser) {
  * an empty inventory that would look like a file with no hosts in it.
  */
 async function runAnsibleImportScenario(browser) {
-  await browser.execute(() => {
-    const tab = Array.from(document.querySelectorAll("button"))
-      .find((b) => b.getAttribute("data-sidebar-button") === "hosts");
-    if (tab instanceof HTMLElement) tab.click();
-  });
-  // Matched on a prefix, not on equality: the label carries a trailing
-  // ellipsis ("Ajouter…"), and an exact match silently found nothing — the
-  // scenario then "passed" while proving none of what it exists to prove.
-  // A missing entry point is the failure this whole scenario is about, so it
-  // throws rather than degrading to a backend-only check.
-  const openedMenu = await browser.execute(() => {
-    const add = Array.from(document.querySelectorAll("button"))
-      .find((b) => (b.textContent || "").trim().startsWith("Ajouter"));
-    if (!(add instanceof HTMLElement)) return false;
-    add.click();
-    return true;
-  });
-  if (!openedMenu) throw new Error("bouton « Ajouter… » introuvable dans le panneau Hôtes");
-
-  const clicked = await browser.execute(() => {
-    const entry = Array.from(document.querySelectorAll("button"))
-      .find((b) => b.textContent?.trim() === "Importer un inventaire Ansible");
-    if (!(entry instanceof HTMLElement)) return false;
-    entry.click();
-    return true;
-  });
-  if (!clicked) throw new Error("entrée « Importer un inventaire Ansible » absente du menu Ajouter");
-
-  await browser.waitUntil(async () => await browser.execute(() =>
-    Array.from(document.querySelectorAll("p")).some((el) => el.textContent?.trim() === "Importer un inventaire Ansible")
-  ), { timeout: 5_000, timeoutMsg: "le panneau d import d inventaire ne s est pas ouvert" });
-  await closeDialogTitled(browser, "Importer un inventaire Ansible");
+  // Une entrée absente est exactement la panne que ce scénario existe pour
+  // attraper : `openImportSource` lève plutôt que de se rabattre sur la
+  // seule vérification du backend.
+  await openImportSource(browser, "ansible");
+  if (!/Fichier d'inventaire/.test(await importBodyText(browser, "ansible"))) {
+    throw new Error("la source Ansible ne propose pas de choisir un inventaire");
+  }
+  await closeImportDialog(browser);
 
   const missing = await browser.execute(async () => {
     try {
@@ -1305,7 +1296,7 @@ async function runKeyboardZonesScenario(browser) {
  * This is the scenario that answers "can the user actually get there" — the
  * question that `cargo check`, clippy and `tsc` all answered yes to while the
  * MongoDB tab was unreachable. It walks the real path: Hôtes → Ajouter… →
- * Importer depuis le cloud → the provider picker → each provider's own panel.
+ * Importer des hôtes… → each provider's source in that window.
  *
  * The backend half asserts something subtler than "it worked". Neither CLI can
  * be expected to be installed *and* signed in on a test machine — under WSL
@@ -1323,14 +1314,8 @@ async function runCloudImportScenario(browser) {
     if (tab instanceof HTMLElement) tab.click();
   });
 
-  for (const [provider, title] of [["azure", "Importer depuis Azure"], ["gcp", "Importer depuis GCP"]]) {
-    // `pickCloudProvider` also asserts all three providers are offered — a
-    // picker that silently lost one is a provider nobody can reach any more,
-    // and nothing else in the suite would notice.
-    await pickCloudProvider(browser, provider);
-    await browser.waitUntil(async () => await browser.execute((t) =>
-      Array.from(document.querySelectorAll("p")).some((el) => el.textContent?.trim() === t), title,
-    ), { timeout: 5_000, timeoutMsg: `le panneau « ${title} » ne s est pas ouvert` });
+  for (const provider of ["azure", "gcp"]) {
+    await openImportSource(browser, provider);
 
     // The sign-in panel is the whole answer to "an expired session is a dead
     // end": if this entry point disappears, the only remedy left is a message
@@ -1341,13 +1326,26 @@ async function runCloudImportScenario(browser) {
       await browser.waitUntil(async () => await browser.execute(() =>
         Array.from(document.querySelectorAll("p")).some((el) => el.textContent?.trim() === "Se connecter à Azure")
       ), { timeout: 5_000, timeoutMsg: "le panneau de connexion Azure ne s est pas ouvert" });
+      // Échap appartient au panneau du dessus, qui a le focus : la fenêtre
+      // d'import, dessous, doit rester ouverte (`useModalSurface`).
+      await browser.keys(["Escape"]);
+      const stillOpen = await browser.execute(() => !!document.querySelector("[data-import-hosts]"));
+      if (!stillOpen) throw new Error("Échap dans le panneau Azure a fermé la fenêtre d import du dessous");
       // Not clicking "Se connecter": that would spawn a real `az login` and
       // block on a browser nobody is going to complete.
       await closeDialogTitled(browser, "Se connecter à Azure");
       console.log("Import cloud : panneau de connexion Azure atteignable.");
     }
 
-    await closeDialogTitled(browser, title);
+    // La ligne d'état de la source a fini de sonder la CLI : elle dit
+    // « connecté », « introuvable », « connexion requise »… jamais
+    // « Recherche » une fois la réponse arrivée.
+    await browser.waitUntil(async () => await browser.execute((id) => {
+      const status = document.querySelector(`[data-import-source="${id}"] [data-import-status]`)?.textContent ?? "";
+      return status.length > 0 && !status.startsWith("Recherche");
+    }, provider), { timeout: 60_000, timeoutMsg: `la ligne d état de ${provider} n a jamais reçu de réponse` });
+
+    await closeImportDialog(browser);
   }
 
   const KINDS = ["cliMissing", "notLoggedIn", "refused", "unreadable"];
@@ -1377,7 +1375,59 @@ async function runCloudImportScenario(browser) {
     }
     console.log(`Import cloud : ${command} a échoué proprement (${kind}), commande bien enregistrée.`);
   }
-  console.log("Import cloud : OK (sélecteur, panneaux Azure et GCP atteignables, commandes typées).");
+  console.log("Import cloud : OK (fenêtre d import, sources Azure et GCP atteignables, commandes typées).");
+}
+
+/**
+ * La source « Fichier d'export » de « Importer des hôtes » est atteignable, et
+ * son aperçu lit un vrai fichier.
+ *
+ * Le sélecteur de fichier natif ne se pilote pas en WebDriver : le fichier est
+ * donc écrit par `export_workspace` (sans clé privée) dans le dossier des
+ * journaux, puis lu par `inspect_import_file`, la commande qu'appelle la
+ * source. Rien n'est importé. L'aperçu d'un export du workspace courant doit
+ * en lister exactement les hôtes, tous marqués comme existants — un aperçu qui
+ * les dirait « nouveaux » promettrait des doublons à la fusion.
+ *
+ * Le fichier est vidé à la fin : un export, même sans clé, n'a rien à faire
+ * dans le dossier des journaux.
+ */
+async function runImportFileScenario(browser) {
+  await openImportSource(browser, "file");
+  if (!/Choisir un fichier/.test(await importBodyText(browser, "file"))) {
+    throw new Error("la source Fichier ne propose pas de choisir un fichier");
+  }
+  await closeImportDialog(browser);
+
+  const result = await browser.execute(async () => {
+    const invoke = window.__TAURI_INTERNALS__.invoke;
+    const dir = await invoke("diagnostics_directory");
+    const path = `${dir}/e2e-import-preview.json`;
+    try {
+      await invoke("export_workspace", { path, includeKeyMaterial: false });
+      const preview = await invoke("inspect_import_file", { path });
+      const workspace = await invoke("get_workspace");
+      let refused = null;
+      try { await invoke("inspect_import_file", { path: `${dir}/absent-${Date.now()}.json` }); } catch (e) { refused = String(e); }
+      return { preview, hosts: workspace.hosts.length, refused };
+    } catch (e) {
+      return { error: String(e) };
+    } finally {
+      await invoke("export_text", { path, content: "" }).catch(() => {});
+    }
+  });
+  if (result.error) throw new Error(`aperçu d un fichier d export : ${result.error}`);
+  const { preview, hosts, refused } = result;
+  if (preview.kind !== "workspace" || preview.hosts.length !== hosts) {
+    throw new Error(`l aperçu doit lister les ${hosts} hôte(s) du workspace exporté : ${JSON.stringify(preview).slice(0, 300)}`);
+  }
+  if (preview.hosts.some((h) => !h.existing)) {
+    throw new Error("un hôte du workspace courant est annoncé « nouveau » dans l aperçu de son propre export");
+  }
+  if (!refused || !/Lecture de/.test(refused)) {
+    throw new Error(`un fichier absent doit être refusé en le nommant, reçu : ${refused}`);
+  }
+  console.log(`Import fichier : OK (source atteignable, aperçu de ${hosts} hôte(s), fichier absent refusé).`);
 }
 
 /**
@@ -4872,8 +4922,8 @@ async function runHomeScenario(browser) {
   if (!preview.ok) throw new Error(`preview_ssh_config_import : ${JSON.stringify(preview)}`);
 
   // La fenêtre d'import : depuis l'accueil au premier lancement, depuis le
-  // panneau Known Hosts sinon (l'accueil d'un profil peuplé n'a pas de
-  // bouton d'import — ce sera la fenêtre unifiée de la tranche 3c).
+  // panneau Known Hosts sinon — les deux ouvrent « Importer des hôtes » sur
+  // `~/.ssh/config`.
   if (variant === "first-launch") {
     await browser.execute(() => document.querySelector("[data-welcome-choice='ssh-config'] button")?.click());
   } else {
@@ -4889,13 +4939,10 @@ async function runHomeScenario(browser) {
       .find((b) => b.textContent?.includes("Importer ~/.ssh/config"))?.click());
   }
   await browser.waitUntil(async () => await browser.execute(() => {
-    const dialog = document.querySelector("[data-ssh-config-import]");
-    return !!dialog && !/Lecture du fichier/.test(dialog.textContent ?? "");
-  }), { timeout: 10_000, timeoutMsg: "la fenêtre d import de ~/.ssh/config ne s est pas chargée" });
-  await browser.execute(() => Array.from(document.querySelectorAll("[data-ssh-config-import] button"))
-    .find((b) => b.textContent?.trim() === "Annuler")?.click());
-  await browser.waitUntil(async () => await browser.execute(() => !document.querySelector("[data-ssh-config-import]")),
-    { timeout: 5_000, timeoutMsg: "la fenêtre d import ne s est pas refermée" });
+    const source = document.querySelector("[data-import-source='sshConfig'][aria-checked='true'] [data-import-status]");
+    return !!source && source.textContent !== "Lecture…";
+  }), { timeout: 10_000, timeoutMsg: "la fenêtre d import ne s est pas ouverte sur ~/.ssh/config, ou ne l a pas lu" });
+  await closeImportDialog(browser);
 
   // Quitter l'accueil pour les scénarios suivants : choisir un onglet le
   // referme (sans onglet, il reste l'écran par défaut, comme avant).

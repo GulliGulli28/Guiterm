@@ -30,6 +30,11 @@ type Stage = "form" | "signingIn" | "done";
  * browser opens, so hiding them until the end would hide the useful part.
  */
 export function AzureSignInPanel({ onClose, onSignedIn, initialTenant }: AzureSignInPanelProps) {
+  // Le focus entre dans le panneau à l'ouverture : il s'ouvre par-dessus la
+  // fenêtre d'import, dont Échap et Tab ne doivent pas lui prendre le clavier
+  // (`useModalSurface` laisse la main à la boîte qui a le focus).
+  const boxRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { boxRef.current?.focus(); }, []);
   const [tenant, setTenant] = useState(initialTenant ?? "");
   const [deviceCode, setDeviceCode] = useState(false);
   const [signOutFirst, setSignOutFirst] = useState(false);
@@ -76,6 +81,8 @@ export function AzureSignInPanel({ onClose, onSignedIn, initialTenant }: AzureSi
       onClick={(e) => { e.stopPropagation(); onClose(); }}
     >
       <div
+        ref={boxRef}
+        tabIndex={-1}
         className="flex max-h-full w-[min(38rem,100%)] flex-col overflow-hidden modal"
         onClick={(e) => e.stopPropagation()}
       >

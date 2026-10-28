@@ -80,9 +80,10 @@ describe("sémantique des fenêtres modales", () => {
     // La confirmation d'une signature demandée à l'agent SSH.
     "components/SshAgentConfirmModal.tsx",
     "components/SshAuthPromptModal.tsx",
-    // L'import de ~/.ssh/config, sorti du panneau Known Hosts pour être
-    // ouvert aussi depuis l'accueil.
-    "components/SshConfigImportDialog.tsx",
+    // « Importer des hôtes » : ~/.ssh/config, cloud, Ansible, fichier, dans
+    // une seule fenêtre ouverte depuis l'accueil, le panneau Hôtes et Known
+    // Hosts.
+    "components/ImportHostsDialog.tsx",
     // « Ces entités suivront » — la confirmation d'un transfert de vault.
     "components/TransferConfirmDialog.tsx",
     // Pas un fichier « Modal » : l'onglet de transfert porte la boîte qui
@@ -114,14 +115,10 @@ describe("sémantique des fenêtres modales", () => {
   // la même erreur en silence, le reste est nommé ici, et une **nouvelle**
   // surface ne peut plus passer inaperçue.
   const OVERLAYS_WITHOUT_TRAP = [
-    "components/AnsibleImportPanel.tsx",
     "components/AwsDatabaseImportPanel.tsx",
-    "components/AwsImportPanel.tsx",
     "components/AwsSsoSetupPanel.tsx",
     "components/AzureSignInPanel.tsx",
     "components/BulkEditPanel.tsx",
-    "components/CloudImportBits.tsx",
-    "components/CloudProviderPicker.tsx",
     "components/FleetTab.tsx",
     "components/HostsPanel.tsx",
     "components/RemoteSavePathPicker.tsx",

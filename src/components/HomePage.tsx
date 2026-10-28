@@ -2,18 +2,16 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { api } from "../lib/api";
 import { describeAlert } from "../lib/awsIdentities";
 import { formatRelativeTime } from "../lib/format";
+import type { ImportSource } from "../lib/importSources";
 import { parseSSHInput, quickSshCommand } from "../lib/quickConnect";
 import { sameTarget, type RecentEntry, type RecentTarget } from "../lib/recents";
-import { sqlConnectionViaHostId, type AwsSessionAlert, type GuiVaultStatus, type Host, type PortForward, type PortForwardId, type SqlConnection, type VaultId, type Workspace } from "../lib/types";
+import type { SnippetUse } from "../lib/snippetUsage";
+import { sqlConnectionViaHostId, type AwsSessionAlert, type GuiVaultStatus, type Host, type PortForward, type PortForwardId, type Snippet, type SqlConnection, type VaultId, type Workspace } from "../lib/types";
 import { hasIcon, HostIcon } from "./icons";
 import {
   IconCloud, IconDatabase, IconDocker, IconDownload, IconKubernetes, IconMonitor, IconPin, IconPlus, IconSearch,
-  IconTerminal, IconTunnels, IconVault, IconWarning,
+  IconPlay, IconSnippets, IconTerminal, IconTunnels, IconVault, IconWarning,
 } from "./ui-icons";
-
-/** Les sources d'import autres que `~/.ssh/config`, proposées au premier
- * lancement. */
-export type HomeImportSource = "aws" | "azure" | "gcp" | "ansible";
 
 export interface HomePageProps {
   workspace: Workspace;
@@ -32,8 +30,15 @@ export interface HomePageProps {
   onOpenHost: (host: Host) => void;
   onQuickSSH: (command: string) => void;
   onNewHost: () => void;
-  onImportSshConfig: () => void;
-  onImportFrom: (source: HomeImportSource) => void;
+  /** Ouvre « Importer des hôtes » sur cette source. */
+  onImport: (source: ImportSource) => void;
+  /** Les snippets les plus lancés ces derniers temps (`lib/snippetUsage.ts`). */
+  frequentSnippets: { snippet: Snippet; use: SnippetUse }[];
+  /** Le terminal où un snippet de l'accueil s'exécuterait : l'onglet actif,
+   * resté dessous. `null` sans terminal. */
+  snippetTarget: string | null;
+  onRunSnippet: (snippet: Snippet) => void;
+  onShowSnippets: () => void;
   onOpenGuiVault: (vaultId: VaultId | null) => void;
   onOpenAwsIdentities: () => void;
   onShowTunnels: () => void;
@@ -339,9 +344,45 @@ function Overview(props: HomePageProps) {
               </div>
             )}
           </Section>
+
+          {props.frequentSnippets.length > 0 && <FrequentSnippets {...props} />}
         </div>
       </div>
     </>
+  );
+}
+
+/** Les snippets qu'on lance le plus, à relancer d'un clic dans le terminal
+ * resté sous l'accueil. Sans terminal ouvert, la ligne dit où ça irait
+ * plutôt que d'échouer au clic. */
+function FrequentSnippets({ frequentSnippets, snippetTarget, onRunSnippet, onShowSnippets }: HomePageProps) {
+  return (
+    <Section
+      title="Snippets fréquents"
+      action={<button type="button" onClick={onShowSnippets} className="btn btn-ghost btn-sm text-[var(--c-text-muted)]">Tous</button>}
+    >
+      <div className="card flex flex-col p-1" data-home-snippets="">
+        {frequentSnippets.map(({ snippet, use }) => (
+          <button
+            key={snippet.id}
+            type="button"
+            disabled={!snippetTarget}
+            onClick={() => onRunSnippet(snippet)}
+            title={snippetTarget ? `Exécuter dans « ${snippetTarget} » · lancé ${use.count} fois` : "Ouvrez un terminal pour lancer un snippet"}
+            className="list-row group flex items-center gap-3 rounded-md px-3 py-2 text-left disabled:cursor-default"
+          >
+            <span className="text-[var(--c-text-muted)]"><IconSnippets size={13} /></span>
+            <span className="min-w-0 flex-1">
+              <span className="block truncate text-[13px] font-medium text-[var(--c-text)]">{snippet.name}</span>
+              <span className="block truncate font-mono text-[11.5px] text-[var(--c-text-muted)]">{snippet.command.split("\n")[0]}</span>
+            </span>
+            {snippet.adaptive && <span className="chip chip-accent">Adaptatif</span>}
+            {snippetTarget && <span className="text-[var(--c-text-faint)] opacity-0 group-hover:opacity-100"><IconPlay size={11} /></span>}
+          </button>
+        ))}
+      </div>
+      {!snippetTarget && <p className="px-1 text-[11.5px] text-[var(--c-text-faint)]">Ouvrez un terminal pour les lancer d'ici.</p>}
+    </Section>
   );
 }
 
@@ -363,7 +404,7 @@ function Welcome(props: HomePageProps) {
       badge: found === null ? undefined : found === 0 ? "Aucun hôte trouvé" : `${found} hôte${found > 1 ? "s" : ""} trouvé${found > 1 ? "s" : ""}`,
       action: "Prévisualiser",
       primary: (found ?? 0) > 0,
-      run: props.onImportSshConfig,
+      run: () => props.onImport("sshConfig"),
     },
     {
       key: "new-host",
@@ -409,8 +450,8 @@ function Welcome(props: HomePageProps) {
 
       <div className="flex flex-wrap items-center justify-center gap-2">
         <span className="text-[12px] text-[var(--c-text-muted)]">Importer aussi depuis</span>
-        {([["aws", "AWS"], ["azure", "Azure"], ["gcp", "Google Cloud"], ["ansible", "Inventaire Ansible"]] as const).map(([source, label]) => (
-          <button key={source} type="button" onClick={() => props.onImportFrom(source)} className="chip">{label}</button>
+        {([["aws", "AWS"], ["azure", "Azure"], ["gcp", "Google Cloud"], ["ansible", "Inventaire Ansible"], ["file", "Un fichier d'export"]] as const).map(([source, label]) => (
+          <button key={source} type="button" data-import-chip={source} onClick={() => props.onImport(source)} className="chip">{label}</button>
         ))}
       </div>
 

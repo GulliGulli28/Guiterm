@@ -7,7 +7,6 @@ import {
   CloudFailureNotice,
   CloudFilterBar,
   CloudImportFooter,
-  CloudImportModal,
   CloudInstanceList,
   CloudScopeBar,
   emptyBatchAuth,
@@ -16,6 +15,7 @@ import {
   useCloudSelection,
   type BatchAuth,
 } from "./CloudImportBits";
+import { ImportSourceFrame } from "./ImportSourceFrame";
 
 interface GcpImportPanelProps {
   workspace: Workspace;
@@ -119,15 +119,14 @@ export function GcpImportPanel({ workspace, onWorkspaceUpdate, onClose, onError 
   };
 
   return (
-    <CloudImportModal
-      title="Importer depuis GCP"
+    <ImportSourceFrame
+      source="gcp"
       intro={
         <>
           Via votre CLI <span className="font-mono">gcloud</span> déjà connectée — aucun
           identifiant Google n'est demandé ni conservé. Étiquettes et tags réseau deviennent des tags.
         </>
       }
-      onClose={onClose}
     >
       {failure && <CloudFailureNotice failure={failure} />}
 
@@ -183,6 +182,6 @@ export function GcpImportPanel({ workspace, onWorkspaceUpdate, onClose, onError 
           />
         </>
       )}
-    </CloudImportModal>
+    </ImportSourceFrame>
   );
 }

@@ -2,7 +2,6 @@ import { useMemo, type ReactNode } from "react";
 import type { AuthMethod, CloudInstance, CloudScope, GroupId, InventoryDiff, KeyId, Workspace } from "../lib/types";
 import type { DescribedFailure } from "../lib/cloudFailure";
 import { GroupTreePicker } from "./GroupTreePicker";
-import { IconClose } from "./ui-icons";
 
 /**
  * The pieces Azure and GCP import panels share.
@@ -15,7 +14,7 @@ import { IconClose } from "./ui-icons";
  * which is the same set of SSH decisions no matter where the machine lives.
  *
  * That principle held for the *logic* but not for the markup: the two panels
- * had drifted into ~180 lines of identical JSX each (modal chrome, scope bar,
+ * had drifted into ~180 lines of identical JSX each (scope bar,
  * filter bar, list, footer) — 70% of the two files was the same shell with
  * different wording. Those are the atoms below. Still atoms, deliberately:
  * composing five small pieces keeps each provider's panel readable top to
@@ -303,50 +302,6 @@ export function CloudBatchCredentials({
         />
       </label>
     </>
-  );
-}
-
-/** The modal a cloud import lives in: backdrop, card, title, close.
- *
- * `overlayExtra` renders *beside* the card but still inside the backdrop —
- * where Azure's sign-in panel sits. It keeps its own `fixed` positioning, so
- * this is about staying in the same place in the tree, not about layout. */
-export function CloudImportModal({
-  title,
-  intro,
-  onClose,
-  overlayExtra,
-  children,
-}: {
-  title: string;
-  intro: ReactNode;
-  onClose: () => void;
-  overlayExtra?: ReactNode;
-  children: ReactNode;
-}) {
-  return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-6" onClick={onClose}>
-      <div
-        className="flex max-h-full w-[min(52rem,100%)] flex-col overflow-hidden modal"
-        onClick={(e) => e.stopPropagation()}
-      >
-        <div className="flex shrink-0 items-center justify-between border-b border-[var(--c-border)] px-4 py-2.5">
-          <div>
-            <p className="text-[13px] font-semibold text-[var(--c-text)]">{title}</p>
-            <p className="text-[11.5px] text-[var(--c-text-muted)]">{intro}</p>
-          </div>
-          <button
-            onClick={onClose}
-            aria-label="Fermer"
-            className="btn btn-ghost btn-sm btn-icon"
-          >
-            <IconClose size={13} />
-          </button>
-        </div>
-        {children}
-      </div>
-      {overlayExtra}
-    </div>
   );
 }
 

@@ -130,6 +130,16 @@ pub fn import_host_from_file(
     Ok(workspace.clone())
 }
 
+/// Lit un fichier d'export sans rien importer : ce qu'il contient, et quels
+/// hôtes remplaceraient un hôte déjà là. C'est l'aperçu de la fenêtre
+/// d'import, avant « Fusionner » ou « Importer l'hôte ».
+#[tauri::command]
+pub fn inspect_import_file(state: State<'_, AppState>, path: String) -> Result<ex::ExportPreview, String> {
+    let json = std::fs::read_to_string(&path).map_err(|e| format!("Lecture de {path} impossible : {e}"))?;
+    let workspace = state.workspace.lock_recover();
+    ex::preview(&json, &workspace)
+}
+
 /// Absolute path of the directory the app writes its diagnostic log to (see
 /// `termius_core::logging`). Surfaced in the settings UI so a user reporting a
 /// problem can find the logs without being told to hunt through `%APPDATA%` —

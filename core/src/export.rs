@@ -168,3 +168,140 @@ pub fn import_host(workspace: &mut Workspace, export: HostExport) {
         workspace.hosts.push(export.host);
     }
 }
+
+// ─── Aperçu avant import ────────────────────────────────────────────────────
+
+/// Ce qu'un fichier d'export contient : la configuration entière, ou un hôte
+/// seul. Les deux s'importent par deux commandes différentes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ExportFileKind {
+    Workspace,
+    Host,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PreviewHost {
+    pub id: HostId,
+    pub label: String,
+    pub address: String,
+    pub username: String,
+    pub port: u16,
+    /// Un hôte de même id existe déjà : la fusion le remplacera.
+    pub existing: bool,
+}
+
+/// Ce que la fenêtre d'import montre avant qu'on confirme.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportPreview {
+    pub kind: ExportFileKind,
+    pub hosts: Vec<PreviewHost>,
+    pub groups: usize,
+    pub snippets: usize,
+    pub keys: usize,
+    pub port_forwards: usize,
+    /// Au moins un hôte porte des snippets ou des variables de démarrage. Ils
+    /// sont retirés à l'import sauf demande contraire : c'est ce qui décide si
+    /// la fenêtre pose la question.
+    pub has_automation: bool,
+}
+
+/// Lit un fichier d'export sans rien écrire, pour l'aperçu.
+///
+/// Le genre se décide sur la clé de premier niveau (`workspace` ou `host`)
+/// avant la désérialisation complète : sans ça, un fichier d'hôte mal formé
+/// se serait fait refuser avec l'erreur de l'autre format, qui ne lui parle
+/// de rien.
+pub fn preview(json: &str, current: &Workspace) -> Result<ExportPreview, String> {
+    let value: serde_json::Value =
+        serde_json::from_str(json).map_err(|e| format!("Ce fichier n'est pas du JSON lisible : {e}"))?;
+    let existing = |id: &HostId| current.hosts.iter().any(|h| &h.id == id);
+    let describe = |h: &Host| PreviewHost {
+        id: h.id,
+        label: h.label.clone(),
+        address: h.address.clone(),
+        username: h.username.clone(),
+        port: h.port,
+        existing: existing(&h.id),
+    };
+    let automated = |h: &Host| !h.startup_snippets.is_empty() || !h.env_vars.is_empty();
+
+    if value.get("workspace").is_some() {
+        let file: WorkspaceExport =
+            serde_json::from_value(value).map_err(|e| format!("Export de configuration illisible : {e}"))?;
+        let w = &file.workspace;
+        return Ok(ExportPreview {
+            kind: ExportFileKind::Workspace,
+            hosts: w.hosts.iter().map(describe).collect(),
+            groups: w.groups.len(),
+            snippets: w.snippets.len(),
+            keys: w.keychain.len(),
+            port_forwards: w.port_forwards.len(),
+            has_automation: w.hosts.iter().any(automated),
+        });
+    }
+    if value.get("host").is_some() {
+        let file: HostExport =
+            serde_json::from_value(value).map_err(|e| format!("Export d'hôte illisible : {e}"))?;
+        return Ok(ExportPreview {
+            kind: ExportFileKind::Host,
+            hosts: vec![describe(&file.host)],
+            groups: file.groups.len(),
+            snippets: file.snippets.len(),
+            keys: usize::from(file.keychain_key.is_some()),
+            port_forwards: 0,
+            has_automation: automated(&file.host),
+        });
+    }
+    Err("Ce fichier n'est pas un export Guiterm : ni configuration, ni hôte.".to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{EnvVar, Host};
+
+    fn workspace_with(hosts: Vec<Host>) -> Workspace {
+        Workspace { hosts, ..Workspace::default() }
+    }
+
+    #[test]
+    fn a_workspace_export_lists_its_hosts_and_marks_the_known_ones() {
+        let known = Host::new("web-01", "10.0.0.1", "deploy");
+        let fresh = Host::new("db-01", "10.0.0.2", "postgres");
+        let exported = workspace_with(vec![known.clone(), fresh.clone()]);
+        let json = serde_json::to_string(&make_workspace_export(&exported, false)).unwrap();
+
+        let preview = preview(&json, &workspace_with(vec![known.clone()])).unwrap();
+        assert_eq!(preview.kind, ExportFileKind::Workspace);
+        assert_eq!(preview.hosts.len(), 2);
+        assert!(preview.hosts.iter().find(|h| h.id == known.id).unwrap().existing);
+        assert!(!preview.hosts.iter().find(|h| h.id == fresh.id).unwrap().existing);
+        assert!(!preview.has_automation);
+    }
+
+    #[test]
+    fn a_host_export_is_recognised_as_such() {
+        let mut host = Host::new("bastion", "bastion.exemple.fr", "jump");
+        host.env_vars.push(EnvVar { key: "LANG".into(), value: "fr_FR.UTF-8".into(), ..EnvVar::default() });
+        let source = workspace_with(vec![host.clone()]);
+        let json = serde_json::to_string(&make_host_export(&source, host.id, false).unwrap()).unwrap();
+
+        let preview = preview(&json, &Workspace::default()).unwrap();
+        assert_eq!(preview.kind, ExportFileKind::Host);
+        assert_eq!(preview.hosts.len(), 1);
+        assert_eq!(preview.hosts[0].label, "bastion");
+        assert!(!preview.hosts[0].existing);
+        assert!(preview.has_automation, "les variables de démarrage doivent être signalées");
+    }
+
+    #[test]
+    fn anything_else_is_refused_with_a_message_that_says_why() {
+        let err = preview(r#"{"exportVersion":1,"runbook":{}}"#, &Workspace::default()).unwrap_err();
+        assert!(err.contains("pas un export Guiterm"), "{err}");
+        let err = preview("pas du json", &Workspace::default()).unwrap_err();
+        assert!(err.contains("JSON"), "{err}");
+    }
+}
