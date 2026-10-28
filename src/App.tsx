@@ -1059,10 +1059,10 @@ export default function App() {
     objectActions: (obj) => actionsForObject(obj, moduleContext, tabOpeners),
   };
 
-  // Un formulaire ouvert prend la colonne ; le panneau GuiVault revient
-  // quand il se ferme.
-  const showEditForm = !!(editingHost || editingGroup || editingSqlConnection);
-  const showRightPanel = showEditForm || vaultBrowserOpen;
+  // Les formulaires s'ouvrent en tiroir par-dessus la zone principale
+  // (`FormDrawer`) : la colonne de droite ne porte plus que le navigateur
+  // GuiVault.
+  const showRightPanel = vaultBrowserOpen;
   const activeTab = tabs.find((t) => t.id === activeTabId);
   const activeHostId = activeTab && isHostBoundTab(activeTab) ? activeTab.hostId : null;
 
@@ -1284,7 +1284,9 @@ export default function App() {
         />
       )}
 
-      <div className="flex min-h-0 flex-1 overflow-hidden">
+      {/* `relative` : le tiroir des formulaires et son voile s'y posent,
+          sous la barre de titre et ses onglets. */}
+      <div className="relative flex min-h-0 flex-1 overflow-hidden">
         {/* Le rail, toujours là, et le panneau, qui se replie. */}
         <Sidebar
           // Résolu au rendu plutôt que dans un effet : masquer le panneau
@@ -1430,13 +1432,13 @@ export default function App() {
           </div>
         )}
 
-        {/* Right edit panel */}
+        {/* Colonne de droite : le navigateur GuiVault. */}
         <div
           data-focus-zone="right"
           style={{ width: showRightPanel ? rightPanel.value : 0 }}
           className={`flex shrink-0 flex-col overflow-hidden bg-[var(--c-bg2)] ${isDragging ? "" : "transition-[width] duration-200 ease-in-out"}`}
         >
-          {vaultBrowserOpen && !showEditForm && (
+          {vaultBrowserOpen && (
             <VaultBrowserPanel
               status={guivaultStatus}
               targetLabel={pasteTargetLabel}
@@ -1447,84 +1449,85 @@ export default function App() {
               onClose={() => { setVaultBrowserOpen(false); focusTerminal(); }}
             />
           )}
-          {/* `key` : passer d'un hôte à l'autre sans fermer le panneau
-              remonte le formulaire, sinon React garde l'état du précédent
-              (ses champs, et depuis peu son mot de passe) et l'enregistre
-              sous l'id du nouveau. */}
-          {editingHost && (
-            <HostForm
-              key={editingHost === "new" ? `new:${newHostDefaultGroupId ?? ""}:${newHostDefaultVaultId ?? ""}` : editingHost.id}
-              workspace={workspace}
-              host={editingHost === "new" ? null : editingHost}
-              defaultGroupId={editingHost === "new" ? newHostDefaultGroupId : null}
-              onCancel={() => setEditingHost(null)}
-              vaults={accountVaults}
-              vaultId={editingHost === "new"
-                // Un hôte créé dans un dossier partagé rejoint ce vault : un
-                // hôte personnel dans un dossier partagé serait invisible aux
-                // autres membres.
-                ? (newHostDefaultVaultId !== undefined ? newHostDefaultVaultId : (newHostDefaultGroupId ? workspace.vaultBindings?.[newHostDefaultGroupId] ?? null : null))
-                : (workspace.vaultBindings?.[editingHost.id] ?? null)}
-              onSave={(input) => {
-                const before = new Set(workspace.hosts.map((h) => h.id));
-                api.saveHost(input)
-                  .then((ws) => applyVaultChoice(ws, input.id ?? ws.hosts.find((h) => !before.has(h.id))?.id ?? null, input.vaultId))
-                  .then((ws) => { refreshWorkspace(ws); setEditingHost(null); })
-                  .catch((e) => reportError(String(e)));
-              }}
-              onDeleteHost={editingHost !== "new" ? (id) => {
-                api.deleteHost(id)
-                  .then((ws) => { refreshWorkspace(ws); setEditingHost(null); })
-                  .catch((e) => reportError(String(e)));
-              } : undefined}
-              onWorkspaceUpdate={refreshWorkspace}
-            />
-          )}
-          {editingGroup && (
-            <GroupForm
-              key={editingGroup.id ?? `new:${editingGroup.parentId ?? ""}`}
-              workspace={workspace}
-              group={editingGroup}
-              vaults={accountVaults}
-              onCancel={() => setEditingGroup(null)}
-              onSave={(input) => {
-                const before = new Set(workspace.groups.map((g) => g.id));
-                api.saveGroup(input)
-                  .then((ws) => applyVaultChoice(ws, input.id ?? ws.groups.find((g) => !before.has(g.id))?.id ?? null, input.vaultId))
-                  .then((ws) => { refreshWorkspace(ws); setEditingGroup(null); })
-                  .catch((e) => reportError(String(e)));
-              }}
-              onDeleteGroup={editingGroup.id ? (id) => {
-                api.deleteGroup(id)
-                  .then((ws) => { refreshWorkspace(ws); setEditingGroup(null); })
-                  .catch((e) => reportError(String(e)));
-              } : undefined}
-              onWorkspaceUpdate={refreshWorkspace}
-            />
-          )}
-          {editingSqlConnection && (
-            <SqlConnectionForm
-              key={editingSqlConnection === "new" ? "new" : editingSqlConnection.id}
-              workspace={workspace}
-              connection={editingSqlConnection === "new" ? null : editingSqlConnection}
-              vaults={accountVaults}
-              vaultId={editingSqlConnection === "new" ? null : (workspace.vaultBindings?.[editingSqlConnection.id] ?? null)}
-              onCancel={() => setEditingSqlConnection(null)}
-              onSave={(input, chosenVault) => {
-                const before = new Set(workspace.sqlConnections.map((c) => c.id));
-                api.saveSqlConnection(input)
-                  .then((ws) => applyVaultChoice(ws, input.id ?? ws.sqlConnections.find((c) => !before.has(c.id))?.id ?? null, chosenVault))
-                  .then((ws) => { refreshWorkspace(ws); setEditingSqlConnection(null); })
-                  .catch((e) => reportError(String(e)));
-              }}
-              onDeleteConnection={editingSqlConnection !== "new" ? (id) => {
-                api.deleteSqlConnection(id)
-                  .then((ws) => { refreshWorkspace(ws); setEditingSqlConnection(null); })
-                  .catch((e) => reportError(String(e)));
-              } : undefined}
-            />
-          )}
         </div>
+
+        {/* `key` : passer d'un hôte à l'autre sans fermer le panneau
+            remonte le formulaire, sinon React garde l'état du précédent
+            (ses champs, et depuis peu son mot de passe) et l'enregistre
+            sous l'id du nouveau. */}
+        {editingHost && (
+          <HostForm
+            key={editingHost === "new" ? `new:${newHostDefaultGroupId ?? ""}:${newHostDefaultVaultId ?? ""}` : editingHost.id}
+            workspace={workspace}
+            host={editingHost === "new" ? null : editingHost}
+            defaultGroupId={editingHost === "new" ? newHostDefaultGroupId : null}
+            onCancel={() => setEditingHost(null)}
+            vaults={accountVaults}
+            vaultId={editingHost === "new"
+              // Un hôte créé dans un dossier partagé rejoint ce vault : un
+              // hôte personnel dans un dossier partagé serait invisible aux
+              // autres membres.
+              ? (newHostDefaultVaultId !== undefined ? newHostDefaultVaultId : (newHostDefaultGroupId ? workspace.vaultBindings?.[newHostDefaultGroupId] ?? null : null))
+              : (workspace.vaultBindings?.[editingHost.id] ?? null)}
+            onSave={(input) => {
+              const before = new Set(workspace.hosts.map((h) => h.id));
+              api.saveHost(input)
+                .then((ws) => applyVaultChoice(ws, input.id ?? ws.hosts.find((h) => !before.has(h.id))?.id ?? null, input.vaultId))
+                .then((ws) => { refreshWorkspace(ws); setEditingHost(null); })
+                .catch((e) => reportError(String(e)));
+            }}
+            onDeleteHost={editingHost !== "new" ? (id) => {
+              api.deleteHost(id)
+                .then((ws) => { refreshWorkspace(ws); setEditingHost(null); })
+                .catch((e) => reportError(String(e)));
+            } : undefined}
+            onWorkspaceUpdate={refreshWorkspace}
+          />
+        )}
+        {editingGroup && (
+          <GroupForm
+            key={editingGroup.id ?? `new:${editingGroup.parentId ?? ""}`}
+            workspace={workspace}
+            group={editingGroup}
+            vaults={accountVaults}
+            onCancel={() => setEditingGroup(null)}
+            onSave={(input) => {
+              const before = new Set(workspace.groups.map((g) => g.id));
+              api.saveGroup(input)
+                .then((ws) => applyVaultChoice(ws, input.id ?? ws.groups.find((g) => !before.has(g.id))?.id ?? null, input.vaultId))
+                .then((ws) => { refreshWorkspace(ws); setEditingGroup(null); })
+                .catch((e) => reportError(String(e)));
+            }}
+            onDeleteGroup={editingGroup.id ? (id) => {
+              api.deleteGroup(id)
+                .then((ws) => { refreshWorkspace(ws); setEditingGroup(null); })
+                .catch((e) => reportError(String(e)));
+            } : undefined}
+            onWorkspaceUpdate={refreshWorkspace}
+          />
+        )}
+        {editingSqlConnection && (
+          <SqlConnectionForm
+            key={editingSqlConnection === "new" ? "new" : editingSqlConnection.id}
+            workspace={workspace}
+            connection={editingSqlConnection === "new" ? null : editingSqlConnection}
+            vaults={accountVaults}
+            vaultId={editingSqlConnection === "new" ? null : (workspace.vaultBindings?.[editingSqlConnection.id] ?? null)}
+            onCancel={() => setEditingSqlConnection(null)}
+            onSave={(input, chosenVault) => {
+              const before = new Set(workspace.sqlConnections.map((c) => c.id));
+              api.saveSqlConnection(input)
+                .then((ws) => applyVaultChoice(ws, input.id ?? ws.sqlConnections.find((c) => !before.has(c.id))?.id ?? null, chosenVault))
+                .then((ws) => { refreshWorkspace(ws); setEditingSqlConnection(null); })
+                .catch((e) => reportError(String(e)));
+            }}
+            onDeleteConnection={editingSqlConnection !== "new" ? (id) => {
+              api.deleteSqlConnection(id)
+                .then((ws) => { refreshWorkspace(ws); setEditingSqlConnection(null); })
+                .catch((e) => reportError(String(e)));
+            } : undefined}
+          />
+        )}
       </div>
     </div>
   );

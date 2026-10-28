@@ -51,6 +51,50 @@ pub struct SaveHostInput {
     pub persistent_shell: PersistentShellMode,
 }
 
+/// Ce que le formulaire décrit, posé sur `host` — les champs qu'il ne montre
+/// pas (faits collectés, réglages venus d'ailleurs) restent ceux de l'hôte.
+fn apply_input(host: &mut Host, input: SaveHostInput) {
+    host.label = input.label;
+    host.kind = input.kind;
+    host.address = input.address;
+    host.port = input.port;
+    host.username = input.username;
+    host.auth = input.auth;
+    host.docker_via_host_id = input.docker_via_host_id;
+    host.jump_via = input.jump_via;
+    host.proxy_command = input.proxy_command;
+    host.group_id = input.group_id;
+    host.tags = input.tags;
+    host.startup_snippets = input.startup_snippets;
+    host.env_vars = input.env_vars;
+    host.icon = input.icon;
+    host.keepalive_interval_secs = input.keepalive_interval_secs;
+    host.agent_forward = input.agent_forward;
+    host.persistent_shell = input.persistent_shell;
+}
+
+/// « Tester la connexion » du formulaire : l'hôte tel qu'il est saisi, même
+/// pas encore enregistré, avec le secret tapé. Rien n'est écrit — ni le
+/// workspace, ni le coffre, ni `known_hosts.json` (voir
+/// [`termius_core::ssh::test_connection`]).
+#[tauri::command]
+pub async fn test_host_connection(
+    state: State<'_, AppState>,
+    input: SaveHostInput,
+) -> Result<termius_core::ssh::ConnectionTest, String> {
+    if input.kind != HostKind::Ssh {
+        return Err("Le test de connexion ne concerne que les hôtes SSH.".to_string());
+    }
+    let workspace = state.workspace.lock_recover().clone();
+    let typed = input.secret.clone();
+    let mut host = input
+        .id
+        .and_then(|id| workspace.host(id).cloned())
+        .unwrap_or_else(|| Host::new(String::new(), String::new(), String::new()));
+    apply_input(&mut host, input);
+    Ok(termius_core::ssh::test_connection(&workspace, host, typed.as_deref()).await)
+}
+
 fn persist(workspace: &Workspace) -> Result<(), String> {
     store::save(workspace).map_err(|e| e.to_string())
 }
@@ -74,45 +118,18 @@ pub fn save_host(state: State<'_, AppState>, input: SaveHostInput) -> Result<Wor
         })
         .unwrap_or_default();
 
+    let secret = input.secret.clone();
+    let auth = input.auth.clone();
     let host_id = match input.id {
         Some(id) => {
             if let Some(host) = workspace.hosts.iter_mut().find(|h| h.id == id) {
-                host.label = input.label;
-                host.kind = input.kind;
-                host.address = input.address;
-                host.port = input.port;
-                host.username = input.username;
-                host.auth = input.auth.clone();
-                host.docker_via_host_id = input.docker_via_host_id;
-                host.jump_via = input.jump_via;
-                host.proxy_command = input.proxy_command.clone();
-                host.group_id = input.group_id;
-                host.tags = input.tags;
-                host.startup_snippets = input.startup_snippets;
-                host.env_vars = input.env_vars;
-                host.icon = input.icon.clone();
-                host.keepalive_interval_secs = input.keepalive_interval_secs;
-                host.agent_forward = input.agent_forward;
-                host.persistent_shell = input.persistent_shell;
+                apply_input(host, input);
             }
             id
         }
         None => {
-            let mut host = Host::new(input.label, input.address, input.username);
-            host.kind = input.kind;
-            host.port = input.port;
-            host.auth = input.auth.clone();
-            host.docker_via_host_id = input.docker_via_host_id;
-            host.jump_via = input.jump_via;
-            host.proxy_command = input.proxy_command.clone();
-            host.group_id = input.group_id;
-            host.tags = input.tags;
-            host.startup_snippets = input.startup_snippets;
-            host.env_vars = input.env_vars;
-            host.icon = input.icon.clone();
-            host.keepalive_interval_secs = input.keepalive_interval_secs;
-            host.agent_forward = input.agent_forward;
-            host.persistent_shell = input.persistent_shell;
+            let mut host = Host::new(String::new(), String::new(), String::new());
+            apply_input(&mut host, input);
             let id = host.id;
             workspace.hosts.push(host);
             id
@@ -146,7 +163,7 @@ pub fn save_host(state: State<'_, AppState>, input: SaveHostInput) -> Result<Wor
     // Clean up whichever per-host secret slot no longer applies to the (possibly
     // just-changed) auth method, so e.g. switching Password -> Agent doesn't leave
     // a stale password behind in the OS keychain indefinitely.
-    match &input.auth {
+    match &auth {
         // Keyboard-interactive keeps its password slot for the same reason
         // `Password` does: it's offered automatically for the first hidden
         // prompt, so the user only types the second factor (see
@@ -166,10 +183,10 @@ pub fn save_host(state: State<'_, AppState>, input: SaveHostInput) -> Result<Wor
         }
     }
 
-    if let Some(secret) = input.secret {
+    if let Some(secret) = secret {
         // Only the slot the auth method uses; keychain keys carry their own
         // passphrase under their key id, so a host referencing one has none.
-        let slot = match &input.auth {
+        let slot = match &auth {
             AuthMethod::Password | AuthMethod::KeyboardInteractive => Some(SecretKind::Password),
             AuthMethod::PrivateKey { key_id: None, .. } => Some(SecretKind::KeyPassphrase),
             AuthMethod::PrivateKey { key_id: Some(_), .. } | AuthMethod::Agent => None,

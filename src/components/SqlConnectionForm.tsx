@@ -1,11 +1,15 @@
 import { useState } from "react";
 import { open } from "@tauri-apps/plugin-dialog";
-import type { DbTunnel, GuiVaultVault, HostId, SqlConnection, SqlConnectionId, SqlEngine, SqlEngineConfig, VaultId, Workspace } from "../lib/types";
-import { DIRECT_TUNNEL, sqlConnectionTunnel } from "../lib/types";
-import { IconTrash } from "./ui-icons";
+import type { DbTunnel, GroupId, GuiVaultVault, HostId, SqlConnection, SqlConnectionId, SqlEngine, SqlEngineConfig, VaultId, Workspace } from "../lib/types";
+import { DIRECT_TUNNEL, sqlConnectionTunnel, sqlEngineLabel } from "../lib/types";
+import { IconDatabase, IconFolder, IconKeychain, IconTunnels } from "./ui-icons";
 import { DbTunnelPicker, type ProbeTarget } from "./DbTunnelPicker";
 import { RemoteFilePicker } from "./RemoteFilePicker";
 import { ReadOnlyVaultNotice, VaultField, readOnlyVault } from "./VaultField";
+import { GroupTreePicker } from "./GroupTreePicker";
+import { DrawerDeleteButton, DrawerSaveButton, FormDrawer, type FormSection } from "./FormDrawer";
+import { assertNever } from "../lib/exhaustive";
+import { groupPath } from "../lib/hostTree";
 
 /** What the form submits: the identity/grouping fields plus exactly the
  * engine-specific config that engine actually has (see `SqlEngineConfig`),
@@ -13,7 +17,7 @@ import { ReadOnlyVaultNotice, VaultField, readOnlyVault } from "./VaultField";
 export type SqlConnectionFormData = {
   id: SqlConnectionId | null;
   label: string;
-  groupId: null;
+  groupId: GroupId | null;
   tags: string[];
   /** Plaintext password, stored in the vault by the backend — `null` leaves
    * whichever password is already stored untouched. */
@@ -65,9 +69,27 @@ function mongoProbeTarget(uri: string): ProbeTarget | null {
   return { address, port: port ? Number(port) : 27017 };
 }
 
-/** Right-panel form for creating/editing a SQL connection — same slot and
- * layout as `HostForm`/`GroupForm` (see `App.tsx`'s `showRightPanel`), rather
- * than an inline expansion in `SqlConnectionsPanel`'s list. */
+/** Les sections du tiroir. SQLite n'a ni authentification ni réseau : c'est
+ * un fichier. */
+type SqlFormSection = "connexion" | "auth" | "reseau" | "organisation";
+
+function sqlSectionsFor(engine: SqlEngine): SqlFormSection[] {
+  switch (engine) {
+    case "sqlite":
+      return ["connexion", "organisation"];
+    case "mysql":
+    case "postgres":
+    case "redis":
+    case "mongodb":
+      return ["connexion", "auth", "reseau", "organisation"];
+    default:
+      return assertNever(engine, "moteur");
+  }
+}
+
+/** Form for creating/editing a database connection, in the same drawer as
+ * `HostForm`/`GroupForm` (`FormDrawer`), rather than an inline expansion in
+ * `SqlConnectionsPanel`'s list. */
 export function SqlConnectionForm({ workspace, connection, vaults = [], vaultId: initialVaultId = null, onCancel, onSave: onSaveProp, onDeleteConnection }: SqlConnectionFormProps) {
   const [vaultId, setVaultId] = useState<VaultId | "">(initialVaultId ?? "");
   const readOnlyIn = readOnlyVault(vaults, initialVaultId);
@@ -85,7 +107,12 @@ export function SqlConnectionForm({ workspace, connection, vaults = [], vaultId:
   const existingSqlite = connection?.engine === "sqlite" ? connection : null;
   const existingMongo = connection?.engine === "mongodb" ? connection : null;
 
+  const [section, setSection] = useState<SqlFormSection>("connexion");
   const [label, setLabel] = useState(connection?.label ?? "");
+  const [groupId, setGroupId] = useState<GroupId | null>(connection?.groupId ?? null);
+  // Le formulaire ne montre pas les étiquettes : il garde celles qui y sont
+  // (un import AWS en pose), au lieu de les effacer à l'enregistrement.
+  const tags = connection?.tags ?? [];
   const [engine, setEngine] = useState<SqlEngine>(connection?.engine ?? "mysql");
   // One tunnel for the whole form, shared by the server engines and MongoDB:
   // switching engine mid-edit keeps it, exactly like every other flat field
@@ -130,8 +157,9 @@ export function SqlConnectionForm({ workspace, connection, vaults = [], vaultId:
   };
 
   const submit = () => {
+    setSection("connexion");
     if (!label.trim()) {
-      setError("Champs de connexion SQL invalides");
+      setError("Le nom est requis");
       return;
     }
     if (engine === "sqlite") {
@@ -145,8 +173,8 @@ export function SqlConnectionForm({ workspace, connection, vaults = [], vaultId:
         engine: "sqlite",
         path: path.trim(),
         sqliteHostId: sqliteHostId || null,
-        groupId: null,
-        tags: [],
+        groupId,
+        tags,
         secret: null,
       });
       return;
@@ -166,8 +194,8 @@ export function SqlConnectionForm({ workspace, connection, vaults = [], vaultId:
         tls: mongoTls,
         tlsCaFile: mongoCaFile.trim() || null,
         tlsInsecure: mongoInsecure,
-        groupId: null,
-        tags: [],
+        groupId,
+        tags,
         secret: password || null,
       });
       return;
@@ -175,8 +203,13 @@ export function SqlConnectionForm({ workspace, connection, vaults = [], vaultId:
     const p = Number(port);
     // `username` is optional for Redis (empty means legacy `requirepass`-only
     // auth, still the common case) — required for MySQL/PostgreSQL.
-    if (!address.trim() || (engine !== "redis" && !username.trim()) || !Number.isInteger(p) || p < 1 || p > 65535) {
-      setError("Champs de connexion SQL invalides");
+    if (!address.trim() || !Number.isInteger(p) || p < 1 || p > 65535) {
+      setError("Adresse ou port invalide");
+      return;
+    }
+    if (engine !== "redis" && !username.trim()) {
+      setSection("auth");
+      setError("L'utilisateur est requis");
       return;
     }
     onSave({
@@ -191,267 +224,295 @@ export function SqlConnectionForm({ workspace, connection, vaults = [], vaultId:
       username: username.trim(),
       database: database.trim() || null,
       tls,
-      groupId: null,
-      tags: [],
+      groupId,
+      tags,
       secret: password || null,
     });
   };
 
-  return (
-    <div data-form className="flex min-h-0 flex-1 flex-col border-l border-[var(--c-border)]">
-      <div className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--c-border)] px-5">
-        <h2 className="text-[13px] font-semibold text-[var(--c-text)]">
-          {connection ? "Modifier la connexion" : "Nouvelle connexion"}
-        </h2>
-        <div className="flex items-center gap-1.5">
-          <button onClick={onCancel} className="btn btn-ghost">Annuler</button>
-          <button onClick={submit} disabled={readOnlyIn !== null} className="btn btn-primary">{connection ? "Enregistrer" : "Ajouter"}</button>
-        </div>
+  const visibleSections = sqlSectionsFor(engine);
+  const activeSection = visibleSections.includes(section) ? section : "connexion";
+  const folderPath = groupPath(workspace.groups, groupId);
+  const viaHost = (id: HostId) => workspace.hosts.find((h) => h.id === id)?.label ?? "hôte inconnu";
+  const target = engine === "sqlite"
+    ? (path.trim() ? path.trim().replace(/\\/g, "/").split("/").pop() : "fichier à choisir")
+    : engine === "mongodb"
+      ? (mongoProbeTarget(connectionString)?.address ?? (connectionString.trim() ? "chaîne de connexion" : "chaîne à saisir"))
+      : (address.trim() ? `${address.trim()}:${port}` : "adresse à saisir");
+  const tunnelSummary = tunnel.kind === "direct" ? "Directe" : tunnel.kind === "sshHost" ? `via ${viaHost(tunnel.hostId)}` : `SSM · ${tunnel.target}`;
+  const SECTIONS: Record<SqlFormSection, FormSection<SqlFormSection>> = {
+    connexion: { id: "connexion", label: "Connexion", icon: <IconDatabase size={13} />, summary: `${sqlEngineLabel(engine)} · ${target}` },
+    auth: { id: "auth", label: "Authentification", icon: <IconKeychain size={13} />, summary: username.trim() || "Sans utilisateur" },
+    reseau: { id: "reseau", label: "Réseau", icon: <IconTunnels size={13} />, summary: tunnelSummary },
+    organisation: { id: "organisation", label: "Organisation", icon: <IconFolder size={13} />, summary: folderPath.length ? folderPath[folderPath.length - 1] : "Racine" },
+  };
+  const vaultName = vaults.find((v) => v.id === (vaultId || initialVaultId))?.name ?? null;
+
+  const passwordField = (
+    <div className="space-y-1">
+      <span className="field-label">Mot de passe</span>
+      <input
+        value={password}
+        onChange={(e) => setPassword(e.target.value)}
+        type="password"
+        placeholder={connection ? "Laisser vide pour ne pas changer" : engine === "mongodb" ? "Mot de passe (optionnel)" : "Mot de passe"}
+        className={inputFullClass}
+      />
+    </div>
+  );
+
+  const renderConnexion = () => (
+    <div className="space-y-4">
+      <div>
+        <span className="field-label">Nom</span>
+        <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Nom" data-autofocus className={inputFullClass} />
       </div>
-      <fieldset disabled={readOnlyIn !== null} className="contents min-w-0">
-      <div className="sidebar-scroll min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
-        {readOnlyIn && <ReadOnlyVaultNotice vault={readOnlyIn} what="cette connexion" />}
-        {error && <p className="callout callout-danger">{error}</p>}
 
-        <div>
-          <span className="field-label">Nom</span>
-          <input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="Nom" autoFocus className={inputFullClass} />
+      <div>
+        <span className="field-label">Moteur</span>
+        <select value={engine} onChange={(e) => onEngineChange(e.target.value as SqlEngine)} className={selectClass}>
+          <option value="mysql">MySQL</option>
+          <option value="postgres">PostgreSQL</option>
+          <option value="sqlite">SQLite</option>
+          <option value="redis">Redis</option>
+          <option value="mongodb">MongoDB</option>
+        </select>
+      </div>
+
+      {engine === "sqlite" ? (
+        <div className="space-y-1">
+          <span className="field-label">Fichier SQLite</span>
+          <div className="flex gap-1.5">
+            <input
+              value={path}
+              onChange={(e) => { setPath(e.target.value); setSqliteHostId(""); }}
+              placeholder="Chemin du fichier .sqlite / .db"
+              className={`${inputClass} input-mono w-full`}
+            />
+            <button type="button" onClick={browseLocalFile} className="btn btn-ghost shrink-0">
+              Parcourir…
+            </button>
+          </div>
+          <button type="button" onClick={() => setShowRemotePicker(true)} className="px-0.5 text-[11px] text-[var(--c-accent-text)] hover:underline">
+            …ou choisir un fichier sur un hôte enregistré
+          </button>
+          {sqliteHostId ? (
+            <p className="help-text px-0.5" title="Copié localement à la connexion, renvoyé automatiquement à la fermeture propre de l'onglet.">
+              Sur l'hôte « {workspace.hosts.find((h) => h.id === sqliteHostId)?.label ?? "?"} », copié le temps de l'onglet.
+            </p>
+          ) : (
+            <p className="help-text px-0.5">Fichier local à cette machine.</p>
+          )}
         </div>
-
-        <VaultField vaults={vaults} value={vaultId} onChange={setVaultId} readOnly={readOnlyIn !== null} hint="L'hôte de son tunnel, s'il y en a un, est proposé." />
-
-        <div>
-          <span className="field-label">Moteur</span>
-          <select value={engine} onChange={(e) => onEngineChange(e.target.value as SqlEngine)} className={selectClass}>
-            <option value="mysql">MySQL</option>
-            <option value="postgres">PostgreSQL</option>
-            <option value="sqlite">SQLite</option>
-            <option value="redis">Redis</option>
-            <option value="mongodb">MongoDB</option>
-          </select>
-        </div>
-
-        {engine === "sqlite" ? (
+      ) : engine === "mongodb" ? (
+        <>
           <div className="space-y-1">
-            <span className="field-label">Fichier SQLite</span>
-            <div className="flex gap-1.5">
+            <span className="field-label">Chaîne de connexion</span>
+            <textarea
+              value={connectionString}
+              onChange={(e) => setConnectionString(e.target.value)}
+              placeholder="mongodb://hôte:27017/ma_base ou mongodb+srv://cluster.xyz.mongodb.net/ma_base"
+              rows={2}
+              spellCheck={false}
+              className={`${inputClass} w-full resize-y font-mono`}
+            />
+            <p className="help-text px-0.5" title="mongodb://utilisateur:motdepasse@hôte/base marche aussi ; les champs de la section Authentification sont insérés à la connexion.">
+              Les identifiants vont de préférence dans la section Authentification.
+            </p>
+          </div>
+          <label className="flex items-center gap-2">
+            <input type="checkbox" checked={mongoTls} onChange={(e) => setMongoTls(e.target.checked)} className="h-3.5 w-3.5" />
+            <span className="text-[12px] text-[var(--c-text-secondary)]">
+              Connexion chiffrée (TLS)
+              <span className="ml-1 text-[var(--c-text-faint)]">— exigé par DocumentDB</span>
+            </span>
+          </label>
+          {mongoTls && (
+            <>
               <input
-                value={path}
-                onChange={(e) => { setPath(e.target.value); setSqliteHostId(""); }}
-                placeholder="Chemin du fichier .sqlite / .db"
+                value={mongoCaFile}
+                onChange={(e) => setMongoCaFile(e.target.value)}
+                placeholder="Bundle CA (optionnel) — vide : magasin de certificats du système"
                 className={`${inputClass} input-mono w-full`}
               />
-              <button type="button" onClick={browseLocalFile} className="btn btn-ghost shrink-0">
-                Parcourir…
-              </button>
+              <label className="flex items-start gap-2">
+                <input type="checkbox" checked={mongoInsecure} onChange={(e) => setMongoInsecure(e.target.checked)} className="mt-0.5 h-3.5 w-3.5" />
+                <span
+                  className="text-[12px] text-[var(--c-text-secondary)]"
+                  title="Le certificat du serveur ne peut pas correspondre à l'adresse locale d'un tunnel. Le cas typique est DocumentDB, qui n'accepte que TLS et n'est jamais joignable publiquement."
+                >
+                  Ne pas vérifier le certificat
+                  <span className="ml-1 text-[var(--c-text-faint)]">— nécessaire pour combiner TLS et un tunnel</span>
+                </span>
+              </label>
+            </>
+          )}
+        </>
+      ) : (
+        <>
+          <div className="grid grid-cols-[minmax(0,1fr)_96px] gap-3">
+            <div className="min-w-0 space-y-1">
+              <span className="field-label">Adresse</span>
+              <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Adresse" className={`${inputClass} input-mono w-full`} />
             </div>
-            <button type="button" onClick={() => setShowRemotePicker(true)} className="px-0.5 text-[11px] text-[var(--c-accent-text)] hover:underline">
-              …ou choisir un fichier sur un hôte enregistré
-            </button>
-            {sqliteHostId ? (
-              <p className="help-text px-0.5">
-                Sur l'hôte « {workspace.hosts.find((h) => h.id === sqliteHostId)?.label ?? "?"} » — copié
-                localement à la connexion, renvoyé automatiquement à la fermeture propre de l'onglet.
-              </p>
-            ) : (
-              <p className="help-text px-0.5">
-                Fichier local à cette machine.
-              </p>
-            )}
+            <div className="space-y-1">
+              <span className="field-label">Port</span>
+              <input value={port} onChange={(e) => setPort(e.target.value)} placeholder="Port" inputMode="numeric" className={`${inputClass} input-mono w-full`} />
+            </div>
           </div>
-        ) : engine === "mongodb" ? (
-          <>
-            <div className="space-y-1">
-              <span className="field-label">Chaîne de connexion</span>
-              <textarea
-                value={connectionString}
-                onChange={(e) => setConnectionString(e.target.value)}
-                placeholder="mongodb://hôte:27017/ma_base ou mongodb+srv://cluster.xyz.mongodb.net/ma_base"
-                rows={2}
-                spellCheck={false}
-                className={`${inputClass} w-full resize-y font-mono`}
-              />
-              <p className="help-text px-0.5">
-                Peut inclure directement les identifiants (mongodb://utilisateur:motdepasse@hôte/base), ou les
-                laisser dans les champs ci-dessous — insérés automatiquement à la connexion.
-              </p>
-            </div>
-
-            <div className="space-y-1">
-              <DbTunnelPicker
-                workspace={workspace}
-                value={tunnel}
-                onChange={setTunnel}
-                probeTarget={mongoProbeTarget(connectionString)}
-              />
-              <label className="flex items-center gap-2">
-                <input type="checkbox" checked={mongoTls} onChange={(e) => setMongoTls(e.target.checked)} className="h-3.5 w-3.5" />
-                <span className="text-[12px] text-[var(--c-text-secondary)]">
-                  Connexion chiffrée (TLS)
-                  <span className="ml-1 text-[var(--c-text-faint)]">— exigé par DocumentDB</span>
-                </span>
-              </label>
-              {mongoTls && (
-                <>
-                  <input
-                    value={mongoCaFile}
-                    onChange={(e) => setMongoCaFile(e.target.value)}
-                    placeholder="Bundle CA (optionnel) — vide : magasin de certificats du système"
-                    className={`${inputClass} input-mono w-full`}
-                  />
-                  <label className="flex items-start gap-2">
-                    <input type="checkbox" checked={mongoInsecure} onChange={(e) => setMongoInsecure(e.target.checked)} className="mt-0.5 h-3.5 w-3.5" />
-                    <span className="text-[12px] text-[var(--c-text-secondary)]">
-                      Ne pas vérifier le certificat
-                      <span className="ml-1 text-[var(--c-text-faint)]">
-                        — nécessaire pour combiner TLS et un tunnel : le certificat du serveur ne peut
-                        pas correspondre à l'adresse locale du tunnel. Le cas typique est DocumentDB,
-                        qui n'accepte que TLS et n'est jamais joignable publiquement.
-                      </span>
-                    </span>
-                  </label>
-                </>
-              )}
-              {tunnel.kind !== "direct" && !isTunnelableMongoUri(connectionString) && (
-                <p className="px-0.5 text-[11.5px] leading-relaxed text-[var(--c-warn)]">
-                  Un tunnel ne fonctionne qu'avec une chaîne mongodb:// mono-hôte — mongodb+srv:// ou une
-                  liste d'hôtes séparés par des virgules ne peut pas passer par un tunnel TCP unique. La
-                  connexion échouera tant que ce tunnel est sélectionné avec cette chaîne.
-                </p>
-              )}
-            </div>
-
-            <div className="space-y-1">
-              <span className="field-label">Utilisateur (optionnel)</span>
-              <input
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder="Si non inclus dans la chaîne de connexion"
-                className={inputFullClass}
-              />
-            </div>
-
-            <div className="space-y-1">
-              <span className="field-label">Mot de passe</span>
-              <input
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                type="password"
-                placeholder={connection ? "Laisser vide pour ne pas changer" : "Mot de passe (optionnel)"}
-                className={inputFullClass}
-              />
-            </div>
-          </>
-        ) : (
-          <>
-            <DbTunnelPicker
-              workspace={workspace}
-              value={tunnel}
-              onChange={setTunnel}
-              probeTarget={address.trim() && Number.isInteger(Number(port)) ? { address: address.trim(), port: Number(port) } : null}
-            />
-
-            <div className="flex gap-1.5">
-              <div className="min-w-0 flex-1 space-y-1">
-                <span className="field-label">Adresse</span>
-                <input value={address} onChange={(e) => setAddress(e.target.value)} placeholder="Adresse" className={`${inputClass} input-mono w-full`} />
-              </div>
-              <div className="w-20 shrink-0 space-y-1">
-                <span className="field-label">Port</span>
-                <input value={port} onChange={(e) => setPort(e.target.value)} placeholder="Port" inputMode="numeric" className={`${inputClass} input-mono w-full`} />
-              </div>
-            </div>
-            {/* Redis only: MySQL and PostgreSQL negotiate TLS through sqlx's
-                own defaults and have never needed a switch here. */}
-            {engine === "redis" && (
-              <label className="flex items-center gap-2">
-                <input type="checkbox" checked={tls} onChange={(e) => setTls(e.target.checked)} className="h-3.5 w-3.5" />
-                <span className="text-[12px] text-[var(--c-text-secondary)]">
-                  Connexion chiffrée (TLS)
-                  <span className="ml-1 text-[var(--c-text-faint)]">— requis par ElastiCache avec chiffrement en transit</span>
-                </span>
-              </label>
-            )}
-
-            <div className="space-y-1">
-              <span className="field-label">
-                Utilisateur{engine === "redis" ? " (optionnel)" : ""}
+          {/* Redis only: MySQL and PostgreSQL negotiate TLS through sqlx's
+              own defaults and have never needed a switch here. */}
+          {engine === "redis" && (
+            <label className="flex items-center gap-2">
+              <input type="checkbox" checked={tls} onChange={(e) => setTls(e.target.checked)} className="h-3.5 w-3.5" />
+              <span className="text-[12px] text-[var(--c-text-secondary)]">
+                Connexion chiffrée (TLS)
+                <span className="ml-1 text-[var(--c-text-faint)]">— requis par ElastiCache avec chiffrement en transit</span>
               </span>
-              <input
-                value={username}
-                onChange={(e) => setUsername(e.target.value)}
-                placeholder={engine === "redis" ? "Utilisateur ACL (optionnel)" : "Utilisateur"}
-                className={inputFullClass}
-              />
-              {engine === "redis" && !username.trim() && (
-                <p className="help-text px-0.5">
-                  Laissé vide : authentification par mot de passe seul (`requirepass`), le cas le plus courant.
-                </p>
+            </label>
+          )}
+          {engine === "redis" ? (
+            <div className="space-y-1">
+              <span className="field-label">Base (0-15)</span>
+              <select value={database || "0"} onChange={(e) => setDatabase(e.target.value)} className={selectClass}>
+                {Array.from({ length: 16 }, (_, i) => (
+                  <option key={i} value={i}>{i}</option>
+                ))}
+              </select>
+            </div>
+          ) : (
+            <div className="space-y-1">
+              <span className="field-label">Base de données (optionnel)</span>
+              <input value={database} onChange={(e) => setDatabase(e.target.value)} placeholder="Base de données (optionnel)" className={inputFullClass} />
+              {engine === "postgres" && !database.trim() && (
+                <p className="help-text px-0.5">Laissée vide : toutes les bases du serveur sont listées.</p>
               )}
             </div>
+          )}
+        </>
+      )}
+    </div>
+  );
 
-            <div className="space-y-1">
-              <span className="field-label">Mot de passe</span>
-              <input
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-                type="password"
-                placeholder={connection ? "Laisser vide pour ne pas changer" : "Mot de passe"}
-                className={inputFullClass}
-              />
-            </div>
+  const renderAuth = () => (
+    <div className="space-y-4">
+      {engine === "mongodb" ? (
+        <div className="space-y-1">
+          <span className="field-label">Utilisateur (optionnel)</span>
+          <input
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder="Si non inclus dans la chaîne de connexion"
+            className={inputFullClass}
+          />
+        </div>
+      ) : (
+        <div className="space-y-1">
+          <span className="field-label">
+            Utilisateur{engine === "redis" ? " (optionnel)" : ""}
+          </span>
+          <input
+            value={username}
+            onChange={(e) => setUsername(e.target.value)}
+            placeholder={engine === "redis" ? "Utilisateur ACL (optionnel)" : "Utilisateur"}
+            className={inputFullClass}
+          />
+          {engine === "redis" && !username.trim() && (
+            <p className="help-text px-0.5">Laissé vide : mot de passe seul (`requirepass`), le cas le plus courant.</p>
+          )}
+        </div>
+      )}
+      {passwordField}
+    </div>
+  );
 
-            {engine === "redis" ? (
-              <div className="space-y-1">
-                <span className="field-label">Base (0-15)</span>
-                <select value={database || "0"} onChange={(e) => setDatabase(e.target.value)} className={selectClass}>
-                  {Array.from({ length: 16 }, (_, i) => (
-                    <option key={i} value={i}>{i}</option>
-                  ))}
-                </select>
-              </div>
-            ) : (
-              <div className="space-y-1">
-                <span className="field-label">Base de données (optionnel)</span>
-                <input value={database} onChange={(e) => setDatabase(e.target.value)} placeholder="Base de données (optionnel)" className={inputFullClass} />
-                {engine === "postgres" && !database.trim() && (
-                  <p className="help-text px-0.5">
-                    Laissé vide : la connexion listera toutes les bases du serveur au lieu d'une seule.
-                  </p>
-                )}
-              </div>
-            )}
-          </>
-        )}
+  const renderReseau = () => (
+    <div className="space-y-4">
+      <DbTunnelPicker
+        workspace={workspace}
+        value={tunnel}
+        onChange={setTunnel}
+        probeTarget={engine === "mongodb"
+          ? mongoProbeTarget(connectionString)
+          : address.trim() && Number.isInteger(Number(port)) ? { address: address.trim(), port: Number(port) } : null}
+      />
+      {engine === "mongodb" && tunnel.kind !== "direct" && !isTunnelableMongoUri(connectionString) && (
+        <p
+          className="callout callout-warn"
+          title="mongodb+srv:// ou une liste d'hôtes séparés par des virgules ne peut pas passer par un tunnel TCP unique."
+        >
+          Un tunnel ne marche qu'avec une chaîne mongodb:// à un seul hôte : la connexion échouera avec celle-ci.
+        </p>
+      )}
+    </div>
+  );
 
-        {connection && onDeleteConnection && (
-          <div className="border-t border-[var(--c-border)] pt-3">
-            {confirmDelete ? (
-              <div className="callout callout-danger space-y-2">
-                <p className="font-medium">Supprimer cette connexion définitivement ?</p>
-                <div className="flex gap-2">
-                  <button onClick={() => onDeleteConnection(connection.id)} className="btn btn-danger">
-                    Oui, supprimer
-                  </button>
-                  <button onClick={() => setConfirmDelete(false)} className="btn btn-ghost">
-                    Annuler
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button onClick={() => setConfirmDelete(true)} className="btn btn-ghost text-[var(--c-danger)] hover:bg-[color-mix(in_srgb,var(--c-danger)_10%,transparent)]">
-                <IconTrash size={13} /> Supprimer cette connexion
-              </button>
-            )}
-          </div>
-        )}
+  const renderOrganisation = () => (
+    <div className="space-y-4">
+      <div className="space-y-1">
+        <span className="field-label">Dossier</span>
+        <GroupTreePicker groups={workspace.groups} value={groupId} onChange={setGroupId} customIcons={workspace.customIcons} />
+      </div>
+      <VaultField vaults={vaults} value={vaultId} onChange={setVaultId} readOnly={readOnlyIn !== null} hint="L'hôte de son tunnel, s'il y en a un, est proposé." />
+    </div>
+  );
+
+  const renderSection = () => {
+    switch (activeSection) {
+      case "connexion": return renderConnexion();
+      case "auth": return renderAuth();
+      case "reseau": return renderReseau();
+      case "organisation": return renderOrganisation();
+      default: return assertNever(activeSection, "section du formulaire de connexion");
+    }
+  };
+
+  return (
+    <FormDrawer
+      title={connection ? connection.label : "Nouvelle connexion"}
+      subtitle={
+        <>
+          {vaultName && <span className="truncate">{vaultName}</span>}
+          {vaultName && <span aria-hidden="true">·</span>}
+          <span className="truncate">{folderPath.length ? folderPath.join(" › ") : "Racine"}</span>
+        </>
+      }
+      icon={<IconDatabase size={16} />}
+      sections={visibleSections.map((id) => SECTIONS[id])}
+      active={activeSection}
+      onSection={setSection}
+      onCancel={onCancel}
+      onSubmit={submit}
+      submitDisabled={readOnlyIn !== null}
+      footer={
+        <>
+          {connection && onDeleteConnection && readOnlyIn === null && (
+            <DrawerDeleteButton
+              what="cette connexion"
+              confirming={confirmDelete}
+              onAsk={() => setConfirmDelete(true)}
+              onConfirm={() => onDeleteConnection(connection.id)}
+              onCancel={() => setConfirmDelete(false)}
+            />
+          )}
+          <span className="flex-1" />
+          <button type="button" onClick={onCancel} className="btn btn-ghost">Annuler</button>
+          <DrawerSaveButton label={connection ? "Enregistrer" : "Ajouter"} onClick={submit} disabled={readOnlyIn !== null} />
+        </>
+      }
+    >
+      <fieldset disabled={readOnlyIn !== null} className="contents min-w-0">
+      <div data-sql-form-section={activeSection} className="space-y-4">
+        {readOnlyIn && <ReadOnlyVaultNotice vault={readOnlyIn} what="cette connexion" />}
+        {error && <p className="callout callout-danger">{error}</p>}
+        {renderSection()}
       </div>
       </fieldset>
 
       {showRemotePicker && (
         <RemoteFilePicker workspace={workspace} onCancel={() => setShowRemotePicker(false)} onSelect={onRemoteFilePicked} />
       )}
-    </div>
+    </FormDrawer>
   );
 }
 

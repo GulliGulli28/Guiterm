@@ -110,6 +110,7 @@ fn main() {
             // ── module « hosts » ─────────────────────────────────────────
             commands::hosts::get_workspace,
             commands::hosts::save_host,
+            commands::hosts::test_host_connection,
             commands::hosts::get_host_secrets,
             commands::hosts::list_key_usage,
             commands::hosts::bulk_edit_hosts,

@@ -1,11 +1,13 @@
 import { useState } from "react";
 import type { GroupId, GuiVaultVault, VaultId, Workspace } from "../lib/types";
 import { ACCENT_COLORS, type UiAccent } from "../lib/preferences";
-import { IconTrash, IconFolder, IconClose } from "./ui-icons";
+import { IconFolder, IconClose } from "./ui-icons";
 import { HostIcon } from "./icons";
 import { IconPicker } from "./IconPicker";
 import { GroupTreePicker } from "./GroupTreePicker";
 import { ReadOnlyVaultNotice, VaultField, readOnlyVault } from "./VaultField";
+import { DrawerDeleteButton, DrawerSaveButton, FormDrawer } from "./FormDrawer";
+import { groupPath } from "../lib/hostTree";
 
 export interface GroupFormData {
   id: GroupId | null;
@@ -53,49 +55,56 @@ export function GroupForm({ workspace, group, vaults = [], onCancel, onSave, onD
     onSave({ id: group.id, name: trimmed, parentId, icon, color, ...vaultField });
   };
 
+  const path = groupPath(workspace.groups, parentId);
+  const subtitle = <span className="truncate">{path.length ? `Dans ${path.join(" › ")}` : "À la racine"}</span>;
+
   return (
-    <div data-form className="flex min-h-0 flex-1 flex-col border-l border-[var(--c-border)]">
-      <div className="flex h-12 shrink-0 items-center justify-between border-b border-[var(--c-border)] px-5">
-        <h2 className="text-[13px] font-semibold text-[var(--c-text)]">
-          {group.id ? "Modifier le dossier" : "Nouveau dossier"}
-        </h2>
-        <div className="flex items-center gap-1.5">
-          <button onClick={onCancel} className="btn btn-ghost">Annuler</button>
-          <button onClick={submit} disabled={readOnlyIn !== null} className="btn btn-primary">Enregistrer</button>
-        </div>
-      </div>
+    <FormDrawer
+      title={group.id ? group.name : "Nouveau dossier"}
+      subtitle={subtitle}
+      icon={icon ? <HostIcon iconId={icon} customIcons={workspace.customIcons} size={18} /> : <IconFolder size={16} />}
+      onCancel={onCancel}
+      onSubmit={submit}
+      submitDisabled={readOnlyIn !== null}
+      footer={
+        <>
+          {group.id && onDeleteGroup && readOnlyIn === null && (
+            <DrawerDeleteButton
+              what="ce dossier"
+              confirming={confirmDelete}
+              onAsk={() => setConfirmDelete(true)}
+              onConfirm={() => onDeleteGroup(group.id!)}
+              onCancel={() => setConfirmDelete(false)}
+            />
+          )}
+          <span className="flex-1" />
+          <button type="button" onClick={onCancel} className="btn btn-ghost">Annuler</button>
+          <DrawerSaveButton onClick={submit} disabled={readOnlyIn !== null} />
+        </>
+      }
+    >
       <fieldset disabled={readOnlyIn !== null} className="contents min-w-0">
-      <div className="sidebar-scroll min-h-0 flex-1 space-y-4 overflow-y-auto p-5">
+      <div className="max-w-[460px] space-y-4">
         {readOnlyIn && <ReadOnlyVaultNotice vault={readOnlyIn} what="ce dossier" />}
         {error && <p className="callout callout-danger">{error}</p>}
 
-        {/* Icon */}
-        <div className="space-y-1">
-          <span className="field-label">Icône</span>
+        <div className="grid grid-cols-[56px_minmax(0,1fr)] items-end gap-3">
           <div className="relative">
-            <div className="flex items-center gap-2">
-              <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-[var(--c-border)] bg-[var(--c-bg3)] text-[var(--c-text-muted)]">
-                {icon ? (
-                  <HostIcon iconId={icon} customIcons={workspace.customIcons} size={18} />
-                ) : (
-                  <IconFolder size={14} />
-                )}
-              </div>
-              <button type="button" onClick={() => setShowIconPicker((v) => !v)} className="btn btn-secondary">
-                {icon ? "Changer l'icône" : "Choisir une icône"}
+            <span className="field-label">Icône</span>
+            <button
+              type="button"
+              onClick={() => setShowIconPicker((v) => !v)}
+              aria-label={icon ? "Changer l'icône" : "Choisir une icône"}
+              title={icon ? "Changer l'icône" : "Choisir une icône"}
+              className="flex h-[30px] w-[56px] items-center justify-center rounded-lg border border-[var(--c-border)] bg-[var(--c-bg3)] text-[var(--c-text-muted)] hover:border-[var(--c-border-strong)]"
+            >
+              {icon ? <HostIcon iconId={icon} customIcons={workspace.customIcons} size={18} /> : <IconFolder size={15} />}
+            </button>
+            {icon && (
+              <button type="button" onClick={() => setIcon(null)} className="mt-1 text-[11px] text-[var(--c-text-muted)] hover:text-[var(--c-text)]">
+                Retirer
               </button>
-              {icon && (
-                <button
-                  type="button"
-                  onClick={() => setIcon(null)}
-                  aria-label="Retirer l'icône"
-                  title="Retirer l'icône"
-                  className="btn btn-ghost btn-icon"
-                >
-                  <IconClose size={12} />
-                </button>
-              )}
-            </div>
+            )}
             {showIconPicker && (
               <IconPicker
                 value={icon}
@@ -105,6 +114,17 @@ export function GroupForm({ workspace, group, vaults = [], onCancel, onSave, onD
                 onClose={() => setShowIconPicker(false)}
               />
             )}
+          </div>
+          <div>
+            <span className="field-label">Nom</span>
+            <input
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
+              placeholder="Mon dossier"
+              className="input w-full"
+              data-autofocus
+            />
           </div>
         </div>
 
@@ -136,19 +156,6 @@ export function GroupForm({ workspace, group, vaults = [], onCancel, onSave, onD
           </div>
         </div>
 
-        {/* Name */}
-        <div className="space-y-1">
-          <span className="field-label">Nom</span>
-          <input
-            value={name}
-            onChange={(e) => setName(e.target.value)}
-            onKeyDown={(e) => { if (e.key === "Enter") submit(); }}
-            placeholder="Mon dossier"
-            className="input w-full"
-            autoFocus
-          />
-        </div>
-
         {/* Parent folder */}
         <div className="space-y-1">
           <span className="field-label">Dossier parent</span>
@@ -162,30 +169,8 @@ export function GroupForm({ workspace, group, vaults = [], onCancel, onSave, onD
         </div>
 
         <VaultField vaults={vaults} value={vaultId} onChange={setVaultId} readOnly={readOnlyIn !== null} hint="Tout ce que le dossier contient le suit." />
-
-        {group.id && onDeleteGroup && (
-          <div className="border-t border-[var(--c-border)] pt-3">
-            {confirmDelete ? (
-              <div className="callout callout-danger space-y-2">
-                <p className="font-medium">Supprimer ce dossier définitivement ?</p>
-                <div className="flex gap-2">
-                  <button onClick={() => onDeleteGroup(group.id!)} className="btn btn-danger">
-                    Oui, supprimer
-                  </button>
-                  <button onClick={() => setConfirmDelete(false)} className="btn btn-ghost">
-                    Annuler
-                  </button>
-                </div>
-              </div>
-            ) : (
-              <button onClick={() => setConfirmDelete(true)} className="btn btn-ghost text-[var(--c-danger)] hover:bg-[color-mix(in_srgb,var(--c-danger)_10%,transparent)]">
-                <IconTrash size={13} /> Supprimer ce dossier
-              </button>
-            )}
-          </div>
-        )}
       </div>
       </fieldset>
-    </div>
+    </FormDrawer>
   );
 }

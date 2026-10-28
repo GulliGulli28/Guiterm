@@ -366,7 +366,7 @@ async fn a_proxy_command_applies_to_the_first_hop_only() {
         Err(err) => err,
     };
     assert!(
-        err.to_string().contains("jump host"),
+        err.to_string().contains("sert ici de bastion"),
         "unexpected error: {err}"
     );
 }

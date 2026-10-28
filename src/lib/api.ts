@@ -3,7 +3,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { RdpPointerUpdate } from "./rdpCursor";
 import type { ExportPreview, SshAgentConfirm, SshAgentStatus } from "./types";
 import type { GuiVaultAuditEntry, GuiVaultAwsApplied, GuiVaultAwsSaved, GuiVaultBrowseEntry, GuiVaultBrowseValue, GuiVaultEntity, GuiVaultInvitation, GuiVaultLoginStep, GuiVaultTotpCode, GuiVaultTotpSetup, GuiVaultMember, GuiVaultReport, GuiVaultSession, GuiVaultStatus, GuiVaultTransferPlan, GuiVaultUserLookup, GuiVaultVault, VaultId, VaultPlace, VaultRole } from "./types";
-import type { ActivityEvent, ActivityFilter, CommandEntry, AuthMethod, BulkEdit, DiagTool, NetdiagOutcome, AwsCallerIdentity, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSessionAlert, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, AwsSsoSessionStatus, CloudInstance, CloudScope, CloudSelection, ArchiveFormat, CollectionInfo, ConflictPolicy, CopyConflict, ColumnInfo, CollectFactsResult, ComposeResult, DbTunnel, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FileDiff, FleetOutcome, FleetRun, FleetTarget, GroupId, HostDrift, HostId, HostKind, HostSecrets, ImportSelection, Inventory, InventoryDiff, InventorySelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneComparison, PaneDiskSpace, PaneFindOutcome, PaneListed, PaneOpened, PaneSource, PersistentShellMode, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, ReachabilityOutcome, RedisKeyDetail, RemoteSearchMode, RemoteSearchOutcome, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, RollbackPlan, Runbook, RunbookApprovalRequest, RunbookId, RunbookRun, RunbookRunStatus, ScanPage, SessionListing, SessionOptions, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SkippedTarget, SshAuthPrompt, SshConfigHost, SsmProbe, SyncItem, TableInfo, TerminalOpened, TransferProgressEvent, VaultStatus, Workspace } from "./types";
+import type { ActivityEvent, ActivityFilter, CommandEntry, AuthMethod, ConnectionTest, BulkEdit, DiagTool, NetdiagOutcome, AwsCallerIdentity, AwsDatabase, AwsDatabaseSelection, AwsImportAuth, AwsImportSelection, AwsInstance, AwsProfile, AwsSessionAlert, AwsSsoAccount, AwsSsoProfileSpec, AwsSsoSession, AwsSsoSessionStatus, CloudInstance, CloudScope, CloudSelection, ArchiveFormat, CollectionInfo, ConflictPolicy, CopyConflict, ColumnInfo, CollectFactsResult, ComposeResult, DbTunnel, DockerContainer, DockerContainerAction, EnvVar, Entry, ExecutionGroup, FileDiff, FleetOutcome, FleetRun, FleetTarget, GroupId, HostDrift, HostId, HostKind, HostSecrets, ImportSelection, Inventory, InventoryDiff, InventorySelection, K8sPod, KeyAlgorithm, KeyId, KnownHostEntry, MongoQueryResult, PaneComparison, PaneDiskSpace, PaneFindOutcome, PaneListed, PaneOpened, PaneSource, PersistentShellMode, PortForwardId, PortForwardKind, ProxyProbe, QueryResult, RdpClientMessage, RdpFrame, ReachabilityOutcome, RedisKeyDetail, RemoteSearchMode, RemoteSearchOutcome, RedisReply, RemoteEditListed, RemoteEditOutcome, RemoteEditSync, RollbackPlan, Runbook, RunbookApprovalRequest, RunbookId, RunbookRun, RunbookRunStatus, ScanPage, SessionListing, SessionOptions, SnippetId, SqlConnectionId, SqlEngineConfig, SqlExportDestination, SqlExportGroup, SkippedTarget, SshAuthPrompt, SshConfigHost, SsmProbe, SyncItem, TableInfo, TerminalOpened, TransferProgressEvent, VaultStatus, Workspace } from "./types";
 
 /** Mirrors the 12-byte little-endian header `commands::rdp_view::connect_rdp_view`
  * writes ahead of each frame's raw RGBA8 pixels (see its doc comment for why
@@ -40,32 +40,39 @@ function writeBytes(command: string, sessionId: string, bytes: Uint8Array): Prom
   return invoke<void>(command, bytes, { headers: { [SESSION_ID_HEADER]: sessionId } });
 }
 
+/** Ce que le formulaire d'hôte envoie — à l'enregistrement comme à l'essai. */
+export interface SaveHostInput {
+  id: HostId | null;
+  label: string;
+  kind: HostKind;
+  address: string;
+  port: number;
+  username: string;
+  auth: AuthMethod;
+  dockerViaHostId: HostId | null;
+  jumpVia: HostId[];
+  proxyCommand: string | null;
+  groupId: GroupId | null;
+  tags: string[];
+  startupSnippets: SnippetId[];
+  envVars: EnvVar[];
+  icon: string | null;
+  /** `null` = ne pas toucher au secret enregistré, `""` = l'effacer,
+   * sinon le remplacer (le formulaire affiche la valeur enregistrée). */
+  secret: string | null;
+  keepaliveIntervalSecs: number | null;
+  agentForward: boolean;
+  persistentShell: PersistentShellMode;
+}
+
 export const api = {
   getWorkspace: () => invoke<Workspace>("get_workspace"),
 
-  saveHost: (input: {
-    id: HostId | null;
-    label: string;
-    kind: HostKind;
-    address: string;
-    port: number;
-    username: string;
-    auth: AuthMethod;
-    dockerViaHostId: HostId | null;
-    jumpVia: HostId[];
-    proxyCommand: string | null;
-    groupId: GroupId | null;
-    tags: string[];
-    startupSnippets: SnippetId[];
-    envVars: EnvVar[];
-    icon: string | null;
-    /** `null` = ne pas toucher au secret enregistré, `""` = l'effacer,
-     * sinon le remplacer (le formulaire affiche la valeur enregistrée). */
-    secret: string | null;
-    keepaliveIntervalSecs: number | null;
-    agentForward: boolean;
-    persistentShell: PersistentShellMode;
-  }) => invoke<Workspace>("save_host", { input }),
+  saveHost: (input: SaveHostInput) => invoke<Workspace>("save_host", { input }),
+  /** Se connecte à l'hôte tel qu'il est saisi, sans rien enregistrer (ni
+   * l'hôte, ni le secret tapé, ni sa clé d'hôte), puis se déconnecte. SSH
+   * seulement. */
+  testHostConnection: (input: SaveHostInput) => invoke<ConnectionTest>("test_host_connection", { input }),
   /** Le mot de passe et la passphrase enregistrés pour un hôte — échoue si
    * le coffre est verrouillé. */
   getHostSecrets: (hostId: HostId) => invoke<HostSecrets>("get_host_secrets", { hostId }),

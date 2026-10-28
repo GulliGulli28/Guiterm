@@ -856,6 +856,15 @@ export interface VaultStatus {
 /** Outcome of trying a proxy command out, from `test_proxy_command`.
  * `reached` is the only good one: it means the helper carried us all the way
  * to something that answered with an SSH identification string. */
+/** L'étape où une connexion SSH a échoué — miroir de `core::ssh::ConnectStage`. */
+export type ConnectStage = "resolve" | "reach" | "proxy" | "handshake" | "hostKey" | "auth" | "relay";
+
+/** Résultat de « Tester la connexion » — miroir de `core::ssh::ConnectionTest`. */
+export type ConnectionTest = { elapsedMs: number } & (
+  | { kind: "connected"; hostKey: { fingerprint: string; known: boolean } | null; bastions: number }
+  | { kind: "failed"; stage: ConnectStage; host: string; message: string }
+);
+
 export type ProxyProbe =
   | { kind: "reached"; banner: string }
   | { kind: "silent" }

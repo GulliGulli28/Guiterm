@@ -96,12 +96,60 @@ const scenes = [
     await settle(page);
     await page.getByRole("button", { name: /Nouvel hôte/ }).first().click();
     await settle(page, 400);
+    // Le tiroir : cinq sections pour un hôte SSH, Connexion ouverte.
+    const sections = await page.evaluate(() => Array.from(document.querySelectorAll("[data-form] [data-form-section]"), (b) => b.getAttribute("data-form-section")));
+    if (sections.join(",") !== "connexion,auth,reseau,session,organisation") throw new Error(`sections du formulaire d'hôte : ${JSON.stringify(sections)}`);
+    const form = page.locator("[data-form]");
+    await form.getByLabel("Nom", { exact: true }).fill("web-03");
+    await form.getByLabel("Adresse", { exact: true }).fill("203.0.113.12");
+    await form.getByLabel("Utilisateur", { exact: true }).fill("deploy");
+    // Un bastion, pour voir `-J` dans la commande et le résumé de Réseau.
+    await page.locator("[data-form-section='reseau']").click();
+    await form.getByRole("button", { name: /Ajouter un bastion/ }).click();
+    await page.locator("[data-form] .popover button", { hasText: "bastion" }).first().click();
+    await settle(page, 200);
+    await page.locator("[data-form-section='connexion']").click();
+    const command = await page.locator("[data-form] [data-ssh-command] code").textContent();
+    if (command !== "ssh -J jump@bastion.exemple.fr deploy@203.0.113.12") throw new Error(`commande équivalente : ${command}`);
+    const summary = await page.locator("[data-form-section='reseau']").textContent();
+    if (!/1 bastion/.test(summary ?? "")) throw new Error(`résumé de la section Réseau : ${summary}`);
+    await form.getByRole("button", { name: /Tester la connexion/ }).click();
+    await page.waitForSelector("[data-form] [data-connection-test='connected']", { timeout: 5_000 });
+    const verdict = await page.locator("[data-connection-test]").textContent();
+    if (!/412 ms via 1 bastion/.test(verdict ?? "") || !/Nouvelle empreinte/.test(verdict ?? "")) throw new Error(`verdict de l'essai : ${verdict}`);
+    await settle(page, 200);
+  }],
+  // Un échec dit son étape et mène à la section qui peut le corriger.
+  ["03b-formulaire-echec", async (page) => {
+    const form = page.locator("[data-form]");
+    await form.getByLabel("Adresse", { exact: true }).fill("10.9.9.9");
+    // Le verdict précédent ne vaut plus pour ces champs : il le dit.
+    const stale = await page.locator("[data-connection-test]").textContent();
+    if (!/avant vos dernières modifications/.test(stale ?? "")) throw new Error(`verdict périmé non signalé : ${stale}`);
+    await form.getByRole("button", { name: /Tester la connexion/ }).click();
+    await page.waitForSelector("[data-form] [data-connection-test='failed'][data-stage='auth']", { timeout: 5_000 });
+    await form.getByRole("button", { name: /Vérifier la section Authentification/ }).click();
+    const current = await page.locator("[data-form] [data-form-section][aria-current='page']").getAttribute("data-form-section");
+    if (current !== "auth") throw new Error(`l'échec n'ouvre pas la section Authentification : ${current}`);
+    await settle(page, 200);
+  }],
+  // RDP : ni réseau SSH, ni agent, ni le texte périmé du lanceur système.
+  ["03c-formulaire-rdp", async (page) => {
+    await page.locator("[data-form-section='connexion']").click();
+    await page.locator("[data-form] [role='radio']", { hasText: "RDP" }).click();
+    const sections = await page.evaluate(() => Array.from(document.querySelectorAll("[data-form] [data-form-section]"), (b) => b.getAttribute("data-form-section")));
+    if (sections.join(",") !== "connexion,auth,organisation") throw new Error(`sections d'un hôte RDP : ${JSON.stringify(sections)}`);
+    await page.locator("[data-form-section='auth']").click();
+    const text = await page.locator("[data-form]").textContent();
+    if (/agent SSH/i.test(text ?? "") || /client RDP du système/.test(text ?? "")) throw new Error("le formulaire RDP parle encore d'agent SSH ou du lanceur système");
+    if (!(await page.locator("[data-form] [data-testid='host-secret']").count())) throw new Error("le formulaire RDP n'a pas de champ mot de passe");
+    await settle(page, 200);
   }],
   ["04-transfert", async (page) => {
-    await page.getByRole("button", { name: /Annuler/ }).first().click().catch(() => {});
+    await page.locator("[data-form] button", { hasText: "Annuler" }).click().catch(() => {});
     await clickNav(page, "SFTP");
     await page.locator("[data-sidebar-panel] button", { hasText: "pg-primary" }).first().click();
-    await page.waitForSelector("text=docker-compose", { timeout: 10_000 });
+    await page.waitForSelector("text=docker-compose >> visible=true", { timeout: 10_000 });
     await settle(page, 600);
   }],
   // Le panneau Transfert range aussi ses hôtes par vault : un hôte partagé
@@ -177,7 +225,13 @@ const scenes = [
   // enregistré, et « je l'ai changé mais rien ne change » est invérifiable.
   ["16b-formulaire-mot-de-passe", async (page) => {
     await page.locator('[role="menu"] button', { hasText: "Modifier" }).click();
-    await settle(page, 500);
+    await settle(page, 300);
+    // Le mot de passe est dans la section Authentification, résumée dans la
+    // navigation sans l'ouvrir.
+    const summary = await page.locator("[data-form-section='auth']").textContent();
+    if (!/Mot de passe/.test(summary ?? "")) throw new Error(`résumé de la section Authentification : ${summary}`);
+    await page.locator("[data-form-section='auth']").click();
+    await settle(page, 300);
     const before = await page.evaluate(() => {
       const input = document.querySelector("[data-form] [data-testid='host-secret']");
       return { type: input?.type, value: input?.value };
@@ -227,6 +281,13 @@ const scenes = [
     await clickNav(page, "Bases de données");
     await page.getByRole("button", { name: /Nouvelle connexion/ }).first().click();
     await settle(page, 400);
+  }],
+  // Une connexion de base se range dans un dossier, comme un hôte.
+  ["19b-base-dossier", async (page) => {
+    await page.locator("[data-form-section='organisation']").click();
+    await settle(page, 200);
+    const fields = await page.evaluate(() => Array.from(document.querySelectorAll("[data-form] .field-label"), (e) => e.textContent?.trim()));
+    if (!fields.includes("Dossier")) throw new Error(`formulaire de connexion sans champ Dossier : ${JSON.stringify(fields)}`);
   }],
   ["20-nouveau-dossier", async (page) => {
     await page.getByRole("button", { name: /Annuler/ }).first().click().catch(() => {});
@@ -500,7 +561,10 @@ const scenes = [
     await page.locator("[data-host-row='workstation-win'] button[title='Options']").click();
     await settle(page, 200);
     await page.locator('[role="menu"] button', { hasText: "Modifier" }).click();
-    await settle(page, 500);
+    await settle(page, 300);
+    // La navigation reste utilisable dans un formulaire grisé.
+    await page.locator("[data-form-section='organisation']").click();
+    await settle(page, 300);
     const form = await page.evaluate(() => {
       const f = document.querySelector("[data-form]");
       return {
@@ -519,7 +583,9 @@ const scenes = [
     await page.locator("[data-host-row='web-01'] button[title='Options']").click();
     await settle(page, 200);
     await page.locator('[role="menu"] button', { hasText: "Modifier" }).click();
-    await settle(page, 400);
+    await settle(page, 200);
+    await page.locator("[data-form-section='organisation']").click();
+    await settle(page, 300);
     const editable = await page.evaluate(() => {
       const f = document.querySelector("[data-form]");
       const sel = f?.querySelector("[data-vault-field]");
@@ -1060,7 +1126,7 @@ try {
     try {
       await run(page);
     } catch (e) {
-      errors.push(`${name}: ${e.message.split("\n")[0]}`);
+      errors.push(`${name}: ${process.env.TOUR_VERBOSE ? e.message : e.message.split("\n")[0]}`);
     }
     if (!only || name.includes(only)) {
       await page.screenshot({ path: path.join(outDir, `${name}${suffix}.png`) });
@@ -1080,7 +1146,7 @@ try {
       await settle(fresh, 600);
       await run(fresh);
     } catch (e) {
-      errors.push(`${name}: ${e.message.split("\n")[0]}`);
+      errors.push(`${name}: ${process.env.TOUR_VERBOSE ? e.message : e.message.split("\n")[0]}`);
     }
     await fresh.screenshot({ path: path.join(outDir, `${name}${suffix}.png`) });
     console.log(`  ${name}${suffix}.png`);

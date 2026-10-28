@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { sshCommandLine } from "../lib/sshCommand";
 import { focusFirstMenuItem, handleMenuKey } from "../lib/menuKeyboard";
 import { save } from "@tauri-apps/plugin-dialog";
 import { writeText } from "@tauri-apps/plugin-clipboard-manager";
@@ -311,14 +312,7 @@ export function HostsPanel({
 
   /** La commande `ssh` équivalente, bastions compris — à coller dans un autre
    * terminal ou une doc. */
-  const sshCommandFor = (host: Host): string => {
-    const endpoint = (h: Host) => `${h.username ? `${h.username}@` : ""}${h.address}`;
-    const jumps = host.jumpVia
-      .map((id) => workspace.hosts.find((h) => h.id === id))
-      .filter((h): h is Host => !!h)
-      .map((h) => `${endpoint(h)}${h.port !== 22 ? `:${h.port}` : ""}`);
-    return ["ssh", host.port !== 22 ? `-p ${host.port}` : null, jumps.length ? `-J ${jumps.join(",")}` : null, endpoint(host)].filter(Boolean).join(" ");
-  };
+  const sshCommandFor = (host: Host): string => sshCommandLine(host, workspace.hosts);
   const copySshCommand = (host: Host) => {
     const command = sshCommandFor(host);
     writeText(command).then(() => onNotify?.(`Commande copiée : ${command}`)).catch((e) => onError?.(String(e)));

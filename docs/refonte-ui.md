@@ -272,6 +272,46 @@ Le plan d'origine :
 
 ### Tranche 4 — Formulaire d'hôte
 
+**Livrée le 2026-10-28.** Ce qui a été fait, et les écarts avec le plan :
+- `FormDrawer.tsx` : le tiroir commun (720 px, voile, `useModalSurface`,
+  Échap = Annuler, Ctrl+S = Enregistrer, `data-form` conservé). Les
+  formulaires quittent la colonne de droite, qui ne porte plus que le
+  navigateur GuiVault. Le voile ne ferme rien au clic : un clic à côté ne
+  doit pas jeter une saisie.
+- `HostForm.tsx` : une section affichée à la fois, résumé de chacune dans la
+  navigation (`lib/hostFormSections.ts`, testé). RDP : Connexion,
+  Authentification, Organisation — plus d'agent SSH ni de texte du lanceur
+  système (constat 1). Docker et Kubernetes : pas d'authentification. Une
+  erreur de validation ouvre la section du champ fautif.
+- « Équivalent en ligne de commande » : `lib/sshCommand.ts`, partagé avec
+  « Copier la commande ssh » du menu d'hôte, qui gagne au passage `-i`, le
+  certificat, la commande de proxy, `-A` et le keepalive.
+- « Tester la connexion » : `ssh::test_connection` (`core`). Les étapes sont
+  désormais faites une à une dans `connect_chain` (résolution, TCP, poignée
+  de main, authentification, relais par le bastion) et un échec porte son
+  étape (`ConnectStage`, `StagedError`) — un premier pas vers le « échec par
+  étape » de la tranche 6. Un essai n'approuve **aucune** clé d'hôte
+  (`known_hosts::compare`, lecture seule), utilise le secret tapé et non
+  celui du coffre, a un délai de 10 s par étape réseau, et ne passe pas par
+  le pool. Le verdict dit quand les champs ont changé depuis.
+- Les champs faits de plusieurs contrôles (bastions, snippets, variables,
+  étiquettes, type) sont des `FieldGroup` et non plus des `<label>` : un clic
+  dans le vide activait le premier bouton du groupe (« Monter »).
+- `GroupForm` : même tiroir, **sans navigation** — quatre champs ne
+  justifient pas de sections. `SqlConnectionForm` : Connexion,
+  Authentification, Réseau (le tunnel), Organisation ; il gagne le champ
+  Dossier et garde les étiquettes existantes (il les effaçait à chaque
+  enregistrement). En attendant l'arborescence de la tranche 7, le panneau
+  Bases affiche le dossier sur la ligne de la connexion.
+- Garde-fous : `connection_test_integration.rs` (7 cas contre de vrais
+  `sshd` : succès sans approbation de clé, chaque étape d'échec, passphrase
+  tapée), `hostFormSections.test.ts`, `sshCommand.test.ts`, scènes `03`,
+  `03b`, `03c`, `16b`, `19b`, `39a2`, `39a3` du tour avec assertions,
+  scénario E2E `runHostConnectionTestScenario` ; les scénarios E2E qui
+  remplissent un champ ouvrent d'abord sa section (`openFormSection`).
+
+Le plan d'origine :
+
 - **Frontend.**
   - `HostForm.tsx` (1007 lignes) découpé en sections : Connexion,
     Authentification, Réseau, Session, Organisation, avec un résumé par section
@@ -377,11 +417,12 @@ Le plan d'origine :
 
 ## Écarts avec la maquette — pistes pour la suite
 
-Ce que les maquettes des écrans **déjà livrés** (tranches 0 à 3) montrent et
+Ce que les maquettes des écrans **déjà livrés** (tranches 0 à 4) montrent et
 que l'app ne fait pas encore. Inventaire fait le 2026-10-28 en relisant les
 planches du canevas (`Accueil`, `Import`, `Terminal`, `MenuHote`, `Palette`,
-`PremierLancement`) contre le code. Les tranches 4 à 9 ne sont pas encore
-comparées : leurs écarts s'ajouteront ici à leur livraison.
+`PremierLancement`, puis `FormulaireHote` à la tranche 4) contre le code. Les
+tranches 5 à 9 ne sont pas encore comparées : leurs écarts s'ajouteront ici à
+leur livraison.
 
 C'est une réserve de fonctionnalités, pas une liste de dettes. Chaque ligne
 dit ce que montre la maquette, ce qui existe aujourd'hui, et ce qu'il faudrait
@@ -447,6 +488,16 @@ partagé, ou une décision de design à prendre d'abord.
 | **« Nouveau dossier « ssh config » »** créé à la volée. | On choisit un dossier existant. | Une entrée « Nouveau dossier… » dans `GroupTreePicker`, qui crée le groupe avant l'import. Utile aussi au formulaire d'hôte. | S |
 | **Un pied de fenêtre commun** (« Ranger dans » + bouton Importer) pour toutes les sources. | Chaque source a le sien ; AWS range par tag, Azure et GCP ont « Groupe de destination » dans leurs identifiants. | Remonter la destination dans `ImportHostsDialog` et la passer aux sources. Garder dans chaque source ce qui lui est propre (identifiants du lot, dossier depuis un tag AWS). | M |
 
+### Formulaire d'hôte (tranche 4)
+
+| Écart | Aujourd'hui | Ce qu'il faudrait | Taille |
+|---|---|---|---|
+| **« Passer par » en puces dans Connexion**, à côté de l'adresse. | La chaîne de bastions est dans Réseau, en liste ordonnée (monter, descendre). | Afficher les bastions en puces sous l'utilisateur, en gardant l'ordre modifiable dans Réseau. | S |
+| **Bouton Supprimer dans le pied avec une icône**, et confirmation dans une boîte. | Supprimer, puis « Oui, supprimer / Non » sur place dans le pied. | Rien de bloquant ; une `ConfirmDialog` si la confirmation sur place gêne. | S |
+| **Résultat d'essai horodaté** (« il y a 3 s »). | « Obtenu avant vos dernières modifications » quand les champs ont changé. | Retenir l'heure de l'essai et l'afficher en relatif. | S |
+| **Tester un hôte Docker ou Kubernetes.** | « Tester la connexion » n'existe que pour SSH. | `docker version` / `kubectl auth can-i` à travers les mêmes chemins que l'onglet. | M |
+| **Dossiers des connexions de base en arborescence.** | Le dossier s'affiche sur la ligne. | Prévu tranche 7 (constat 2). | M |
+
 ### Écarts assumés, à ne pas rattraper
 
 Des choix faits en connaissance de cause. Ils sont listés ici pour qu'une
@@ -459,6 +510,9 @@ relecture de la maquette ne les reprenne pas comme des oublis :
 - **Les tags et l'OS d'un hôte sont dans l'infobulle**, pas sur la ligne : la
   ligne reste à deux lignes (tranche 2).
 - **Activité n'a pas de numéro `Alt+n`** : ce n'est pas un panneau (tranche 1).
+- **Le formulaire de dossier n'a pas de sections** : quatre champs (tranche 4).
+- **Le voile du tiroir ne ferme pas le formulaire** au clic : Échap ou
+  Annuler, pour ne jamais perdre une saisie par un clic à côté (tranche 4).
 
 ## Hors périmètre, dit d'avance
 

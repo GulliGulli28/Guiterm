@@ -13,6 +13,7 @@ use russh::client::{self, AuthResult};
 use russh::keys::ssh_key::{HashAlg, PublicKey};
 use russh::keys::{PrivateKeyWithHashAlg, decode_secret_key, load_secret_key};
 use russh::{Channel, ChannelMsg, Disconnect};
+use serde::Serialize;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
@@ -39,16 +40,41 @@ pub struct HostKeyMismatch {
 pub struct AppHandler {
     identity: String,
     label: String,
+    trust: Trust,
     pub host_key_mismatch: Arc<Mutex<Option<HostKeyMismatch>>>,
+    /// La clé que le serveur a présentée, une fois acceptée.
+    seen_key: Arc<Mutex<Option<SeenKey>>>,
     remote_forward_routes: RemoteForwardRoutes,
 }
 
+/// Ce que la poignée de main fait d'une clé encore jamais vue.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Trust {
+    /// Une connexion ordinaire : approuvée à la première vue (TOFU).
+    Record,
+    /// Une connexion d'essai : comparée, jamais enregistrée — voir
+    /// [`known_hosts::compare`].
+    CheckOnly,
+}
+
+/// La clé d'hôte qu'une connexion a acceptée.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SeenKey {
+    /// Empreinte SHA-256, au format d'OpenSSH (`SHA256:…`).
+    pub fingerprint: String,
+    /// La clé était déjà approuvée pour cet hôte avant cette connexion.
+    pub known: bool,
+}
+
 impl AppHandler {
-    fn new(identity: String, label: String, remote_forward_routes: RemoteForwardRoutes) -> Self {
+    fn new(identity: String, label: String, remote_forward_routes: RemoteForwardRoutes, trust: Trust) -> Self {
         Self {
             identity,
             label,
+            trust,
             host_key_mismatch: Arc::new(Mutex::new(None)),
+            seen_key: Arc::new(Mutex::new(None)),
             remote_forward_routes,
         }
     }
@@ -64,16 +90,31 @@ impl client::Handler for AppHandler {
         let identity = self.identity.clone();
         let label = self.label.clone();
         let key = server_public_key.clone();
+        let trust = self.trust;
         // known_hosts::check_and_trust does synchronous disk I/O — run it off the
         // tokio worker thread so a slow/contended handshake doesn't stall other
         // async work sharing it.
-        let verdict = tokio::task::spawn_blocking(move || {
-            known_hosts::check_and_trust(&identity, &label, &key)
+        let verdict = tokio::task::spawn_blocking(move || match trust {
+            Trust::Record => known_hosts::check_and_trust(&identity, &label, &key),
+            // Ramené au verdict ordinaire : « nouvelle » se lit alors
+            // « inconnue, et laissée inconnue ».
+            Trust::CheckOnly => known_hosts::compare(&identity, &key).map(|known| match known {
+                known_hosts::Known::Same => Verdict::AlreadyTrusted,
+                known_hosts::Known::Unknown => Verdict::NewlyTrusted,
+                known_hosts::Known::Changed { previous_fingerprint } => Verdict::Mismatch { previous_fingerprint },
+            }),
         })
         .await
         .unwrap_or_else(|e| Err(anyhow::anyhow!("la vérification de la clé d'hôte a échoué de façon inattendue : {e}")));
+        let fingerprint = || server_public_key.fingerprint(HashAlg::Sha256).to_string();
         match verdict {
-            Ok(Verdict::AlreadyTrusted | Verdict::NewlyTrusted) => Ok(true),
+            Ok(verdict @ (Verdict::AlreadyTrusted | Verdict::NewlyTrusted)) => {
+                *self.seen_key.lock_recover() = Some(SeenKey {
+                    fingerprint: fingerprint(),
+                    known: verdict == Verdict::AlreadyTrusted,
+                });
+                Ok(true)
+            }
             Ok(Verdict::Mismatch {
                 previous_fingerprint,
             }) => {
@@ -148,6 +189,8 @@ impl client::Handler for AppHandler {
 pub struct Connection {
     chain: Vec<client::Handle<AppHandler>>,
     remote_forward_routes: RemoteForwardRoutes,
+    /// La clé du dernier saut, vue pendant sa poignée de main.
+    target_key: Arc<Mutex<Option<SeenKey>>>,
     /// The helper process the first hop's transport runs over, when the host
     /// uses a proxy command. Never read — held so that dropping the connection
     /// kills the helper, which is what tears the tunnel down. Without this the
@@ -170,6 +213,11 @@ impl Connection {
     /// registered after the fact are picked up by the already-running handler.
     pub fn remote_forward_routes(&self) -> RemoteForwardRoutes {
         self.remote_forward_routes.clone()
+    }
+
+    /// La clé d'hôte que la cible a présentée, et si elle était déjà connue.
+    pub fn target_host_key(&self) -> Option<SeenKey> {
+        self.target_key.lock_recover().clone()
     }
 
     /// Whether every hop in the chain is still usable. Consulted by
@@ -273,22 +321,46 @@ fn mismatch_error(
     }
 }
 
+/// Un secret tapé dans le formulaire d'un hôte et pas encore enregistré :
+/// la connexion d'essai l'utilise à la place de celui du coffre.
+#[derive(Clone, Copy)]
+struct TypedSecret<'a> {
+    host: HostId,
+    /// Vide = « aucun » — le formulaire montre le secret enregistré, un champ
+    /// vidé est donc une décision.
+    value: &'a str,
+}
+
+/// Le mot de passe ou la passphrase de `host` : celui qu'on vient de taper
+/// s'il le concerne, sinon celui du coffre.
+fn host_secret(host: &Host, kind: SecretKind, typed: Option<TypedSecret>) -> anyhow::Result<Option<String>> {
+    match typed {
+        Some(t) if t.host == host.id => Ok(Some(t.value.to_string()).filter(|v| !v.is_empty())),
+        _ => vault::load(host.id, kind),
+    }
+}
+
 async fn authenticate(
     handle: &mut client::Handle<AppHandler>,
     host: &Host,
     workspace: &Workspace,
+    typed: Option<TypedSecret<'_>>,
 ) -> anyhow::Result<()> {
     let result = match &host.auth {
         AuthMethod::Password => {
-            let password = vault::load(host.id, SecretKind::Password)?
+            let password = host_secret(host, SecretKind::Password, typed)?
                 .ok_or_else(|| anyhow::anyhow!("aucun mot de passe enregistré pour « {} »", host.label))?;
             handle
                 .authenticate_password(host.username.clone(), password)
                 .await?
         }
         AuthMethod::PrivateKey { path, key_id, cert_path } => {
-            let lookup_id = key_id.unwrap_or(host.id);
-            let passphrase = vault::load(lookup_id, SecretKind::KeyPassphrase)?;
+            // Une clé du trousseau garde sa passphrase sous son propre id :
+            // le formulaire de l'hôte n'en a pas.
+            let passphrase = match key_id {
+                Some(kid) => vault::load(*kid, SecretKind::KeyPassphrase)?,
+                None => host_secret(host, SecretKind::KeyPassphrase, typed)?,
+            };
             // Prefer embedded key content over reading the file from disk: it lives
             // in the encrypted master vault when unlocked, otherwise in the
             // workspace (0600). Fall back to the original key file if neither has it.
@@ -337,7 +409,7 @@ async fn authenticate(
         }
         AuthMethod::Agent => return authenticate_with_agent(handle, host).await,
         AuthMethod::KeyboardInteractive => {
-            return authenticate_keyboard_interactive(handle, host).await;
+            return authenticate_keyboard_interactive(handle, host, typed).await;
         }
     };
     ensure_success(result, &host.label)
@@ -386,6 +458,7 @@ fn autofilled_answers(echoes: &[bool], stored_password: &mut Option<String>) -> 
 async fn authenticate_keyboard_interactive(
     handle: &mut client::Handle<AppHandler>,
     host: &Host,
+    typed: Option<TypedSecret<'_>>,
 ) -> anyhow::Result<()> {
     use crate::interactive_auth::{InfoRequest, PromptField};
     use russh::client::KeyboardInteractiveAuthResponse;
@@ -400,7 +473,7 @@ async fn authenticate_keyboard_interactive(
         )
     })?;
 
-    let mut stored_password = vault::load(host.id, SecretKind::Password)?;
+    let mut stored_password = host_secret(host, SecretKind::Password, typed)?;
     let mut response = handle
         .authenticate_keyboard_interactive_start(host.username.clone(), None)
         .await?;
@@ -516,6 +589,66 @@ fn ensure_success(result: AuthResult, host_label: &str) -> anyhow::Result<()> {
     }
 }
 
+/// L'étape d'une connexion où quelque chose a échoué.
+///
+/// Le message seul ne suffit pas à l'interface : « Connection refused » et
+/// « Permission denied » appellent des gestes différents (vérifier le port,
+/// vérifier la clé), et le formulaire d'hôte veut ouvrir la bonne section.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum ConnectStage {
+    /// Le nom de l'hôte ne se résout pas.
+    Resolve,
+    /// Rien n'accepte la connexion TCP à cette adresse et ce port.
+    Reach,
+    /// La commande de proxy n'a pas établi de tunnel.
+    Proxy,
+    /// La poignée de main SSH n'aboutit pas (pas un serveur SSH, coupure).
+    Handshake,
+    /// La clé de l'hôte a changé depuis qu'elle a été approuvée.
+    HostKey,
+    /// Le serveur refuse l'utilisateur ou la méthode d'authentification.
+    Auth,
+    /// Un bastion n'a pas pu joindre le saut suivant.
+    Relay,
+}
+
+/// Un échec de connexion, avec son étape et le saut où il a eu lieu.
+#[derive(Debug)]
+pub struct StagedError {
+    pub stage: ConnectStage,
+    /// Le libellé du saut concerné (un bastion, ou la cible).
+    pub host: String,
+    pub error: anyhow::Error,
+}
+
+/// Ce qui distingue une connexion d'essai d'une connexion ordinaire.
+#[derive(Default, Clone, Copy)]
+struct ChainOptions<'a> {
+    /// Ne rien approuver dans `known_hosts.json`.
+    check_only: bool,
+    typed: Option<TypedSecret<'a>>,
+    /// Délai par étape réseau. Aucun pour une connexion ordinaire, dont le
+    /// comportement ne change pas ; jamais sur l'authentification, qui peut
+    /// attendre qu'on tape un code.
+    step_timeout: Option<Duration>,
+}
+
+async fn within<T, E: std::fmt::Display>(
+    limit: Option<Duration>,
+    what: impl FnOnce() -> String,
+    future: impl std::future::Future<Output = Result<T, E>>,
+) -> anyhow::Result<T> {
+    let result = match limit {
+        Some(limit) => match tokio::time::timeout(limit, future).await {
+            Ok(result) => result,
+            Err(_) => anyhow::bail!("{} : pas de réponse au bout de {} s", what(), limit.as_secs()),
+        },
+        None => future.await,
+    };
+    result.map_err(|e| anyhow::anyhow!("{} : {e}", what()))
+}
+
 /// Connects to `target`, transparently chaining through its bastion hosts (if any).
 ///
 /// Traced (host label, address, hop count, outcome) — "I can't connect and I
@@ -529,18 +662,115 @@ pub async fn connect(workspace: &Workspace, target: HostId) -> anyhow::Result<Co
     let hops = chain.len() - 1;
     tracing::info!(host = %target_label, bastions = hops, "connexion SSH : début");
     let started = std::time::Instant::now();
-    let result = connect_chain(workspace, chain).await;
+    let result = connect_chain(workspace, chain, ChainOptions::default()).await;
     match &result {
         Ok(_) => tracing::info!(host = %target_label, elapsed_ms = started.elapsed().as_millis() as u64, "connexion SSH : établie"),
-        Err(e) => tracing::warn!(host = %target_label, error = %e, "connexion SSH : échec"),
+        Err(e) => tracing::warn!(host = %target_label, error = %e.error, "connexion SSH : échec"),
     }
-    result
+    result.map_err(|e| e.error)
+}
+
+/// Ce qu'a donné une connexion d'essai.
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ConnectionTest {
+    pub elapsed_ms: u64,
+    #[serde(flatten)]
+    pub outcome: ConnectionTestOutcome,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "kind", rename_all = "camelCase", rename_all_fields = "camelCase")]
+pub enum ConnectionTestOutcome {
+    Connected {
+        /// La clé de la cible : connue, ou vue pour la première fois — et
+        /// dans ce cas toujours pas approuvée.
+        host_key: Option<SeenKey>,
+        bastions: usize,
+    },
+    Failed {
+        stage: ConnectStage,
+        host: String,
+        message: String,
+    },
+}
+
+/// Délai par étape réseau d'un essai : de quoi traverser un bastion lent,
+/// sans laisser le bouton tourner sur une adresse qui ne répondra jamais.
+const TEST_STEP_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Se connecte à `candidate` comme le ferait un onglet, **sans rien garder** :
+/// hors du pool de connexions, sans écrire le workspace ni approuver de clé
+/// d'hôte, puis se déconnecte.
+///
+/// `candidate` est l'hôte tel que le formulaire le décrit, enregistré ou non
+/// (un id inconnu du workspace : un hôte en cours de création). Ses bastions,
+/// eux, sont ceux du workspace. `typed` est le secret tapé dans le formulaire
+/// (`None` : celui du coffre).
+pub async fn test_connection(workspace: &Workspace, candidate: Host, typed: Option<&str>) -> ConnectionTest {
+    let started = std::time::Instant::now();
+    let target_label = label_of(&candidate);
+    let target_id = candidate.id;
+    let mut workspace = workspace.clone();
+    match workspace.hosts.iter_mut().find(|h| h.id == target_id) {
+        Some(existing) => *existing = candidate,
+        None => workspace.hosts.push(candidate),
+    }
+    tracing::info!(host = %target_label, "connexion d'essai : début");
+    let outcome = match workspace.jump_chain(target_id) {
+        Err(e) => ConnectionTestOutcome::Failed {
+            stage: ConnectStage::Relay,
+            host: target_label.clone(),
+            message: e.to_string(),
+        },
+        Ok(chain) => {
+            let bastions = chain.len() - 1;
+            let options = ChainOptions {
+                check_only: true,
+                typed: typed.map(|value| TypedSecret { host: target_id, value }),
+                step_timeout: Some(TEST_STEP_TIMEOUT),
+            };
+            match connect_chain(&workspace, chain, options).await {
+                Ok(mut connection) => {
+                    let host_key = connection.target_host_key();
+                    connection.disconnect().await;
+                    ConnectionTestOutcome::Connected { host_key, bastions }
+                }
+                Err(e) => ConnectionTestOutcome::Failed {
+                    stage: e.stage,
+                    host: e.host,
+                    message: e.error.to_string(),
+                },
+            }
+        }
+    };
+    let elapsed_ms = started.elapsed().as_millis() as u64;
+    match &outcome {
+        ConnectionTestOutcome::Connected { .. } => tracing::info!(host = %target_label, elapsed_ms, "connexion d'essai : réussie"),
+        ConnectionTestOutcome::Failed { stage, message, .. } => tracing::warn!(host = %target_label, ?stage, error = %message, "connexion d'essai : échec"),
+    }
+    ConnectionTest { elapsed_ms, outcome }
 }
 
 /// The body of [`connect`], split out so the tracing wrapper above can report
 /// one outcome for the whole chain rather than being threaded through every
 /// early return.
-async fn connect_chain(workspace: &Workspace, chain: Vec<&Host>) -> anyhow::Result<Connection> {
+///
+/// Chaque étape réseau est faite à part (résolution, TCP, poignée de main,
+/// authentification) plutôt que par `client::connect`, qui enchaîne les trois
+/// premières : c'est ce qui permet de dire laquelle a échoué. `client::connect`
+/// ne fait rien d'autre (`TcpStream::connect`, `set_nodelay`, `connect_stream`).
+async fn connect_chain(
+    workspace: &Workspace,
+    chain: Vec<&Host>,
+    options: ChainOptions<'_>,
+) -> Result<Connection, StagedError> {
+    let staged = |stage: ConnectStage, host: &Host| {
+        let label = host.label.clone();
+        move |error: anyhow::Error| StagedError { stage, host: label, error }
+    };
+    let trust = if options.check_only { Trust::CheckOnly } else { Trust::Record };
+    let limit = options.step_timeout;
 
     // Keepalive is configured off the *target* host only — bastions just relay bytes,
     // so what matters for keeping the interactive session alive is the last hop.
@@ -565,11 +795,11 @@ async fn connect_chain(workspace: &Workspace, chain: Vec<&Host>) -> anyhow::Resu
     // — a host silently connected the wrong way is exactly the kind of thing
     // nobody notices until it matters.
     if let Some(host) = chain[1..].iter().find(|h| proxy_command_of(h).is_some()) {
-        anyhow::bail!(
-            "'{}' has a proxy command but is used as a jump host here — a proxy command can only \
-             apply to the first hop of a chain",
+        return Err(staged(ConnectStage::Proxy, host)(anyhow::anyhow!(
+            "« {} » a une commande de proxy mais sert ici de bastion — une commande de proxy \
+             ne s'applique qu'au premier saut d'une chaîne",
             host.label
-        );
+        )));
     }
 
     let first_routes = if chain.len() == 1 {
@@ -577,8 +807,15 @@ async fn connect_chain(workspace: &Workspace, chain: Vec<&Host>) -> anyhow::Resu
     } else {
         Default::default()
     };
-    let first_handler = AppHandler::new(identity_of(first), label_of(first), first_routes);
+    let first_handler = AppHandler::new(identity_of(first), label_of(first), first_routes, trust);
     let first_mismatch = first_handler.host_key_mismatch.clone();
+    let mut target_key = first_handler.seen_key.clone();
+    // Une clé changée fait échouer la poignée de main : c'est alors l'étape
+    // « empreinte », pas « poignée de main », et son message dit quoi faire.
+    let handshake_failure = |mismatch: &Arc<Mutex<Option<HostKeyMismatch>>>, host: &Host, fallback: anyhow::Error| {
+        let stage = if mismatch.lock_recover().is_some() { ConnectStage::HostKey } else { ConnectStage::Handshake };
+        staged(stage, host)(mismatch_error(mismatch, || fallback))
+    };
     let (proxy, mut handle) = match proxy_command_of(first) {
         Some(template) => {
             let (mut proxy, transport) = crate::proxy_command::spawn(
@@ -586,84 +823,96 @@ async fn connect_chain(workspace: &Workspace, chain: Vec<&Host>) -> anyhow::Resu
                 &first.address,
                 first.port,
                 &first.username,
-            )?;
+            )
+            .map_err(staged(ConnectStage::Proxy, first))?;
             // Not a `map_err`: the helper's own output is what actually
             // explains this failure (an expired cloud login, a mistyped
             // instance id), and collecting it means awaiting — a helper that
             // dies instantly otherwise loses the race and the user is told
             // only "Broken pipe".
-            let handle = match client::connect_stream(config.clone(), transport, first_handler)
-                .await
-            {
+            let attempt = within(limit, || format!("poignée de main avec « {} »", first.label), client::connect_stream(config.clone(), transport, first_handler)).await;
+            let handle = match attempt {
                 Ok(handle) => handle,
                 Err(e) => {
+                    if first_mismatch.lock_recover().is_some() {
+                        return Err(handshake_failure(&first_mismatch, first, e));
+                    }
                     let detail = proxy.failure_detail().await;
-                    return Err(mismatch_error(&first_mismatch, || {
-                        // Message built in `proxy_command` so the remediation
-                        // comes with it: the raw helper output alone told the
-                        // user what broke and never what to do about it.
-                        anyhow::anyhow!(crate::proxy_command::failure_message(
-                            &first.label,
-                            &e.to_string(),
-                            &detail
-                        ))
-                    }));
+                    // Message built in `proxy_command` so the remediation
+                    // comes with it: the raw helper output alone told the
+                    // user what broke and never what to do about it.
+                    return Err(staged(ConnectStage::Proxy, first)(anyhow::anyhow!(
+                        crate::proxy_command::failure_message(&first.label, &e.to_string(), &detail)
+                    )));
                 }
             };
             (Some(proxy), handle)
         }
         None => {
-            let handle = client::connect(
-                config.clone(),
-                (first.address.as_str(), first.port),
-                first_handler,
+            let unreachable = || format!("impossible de joindre « {} »", first.label);
+            let addresses: Vec<std::net::SocketAddr> = within(
+                limit,
+                || format!("impossible de résoudre « {} » ({})", first.address, first.label),
+                tokio::net::lookup_host((first.address.as_str(), first.port)),
             )
             .await
-            .map_err(|e| {
-                mismatch_error(&first_mismatch, || {
-                    anyhow::anyhow!("impossible de joindre « {} » : {e}", first.label)
-                })
-            })?;
+            .map_err(staged(ConnectStage::Resolve, first))?
+            .collect();
+            let socket = within(limit, unreachable, tokio::net::TcpStream::connect(addresses.as_slice()))
+                .await
+                .map_err(staged(ConnectStage::Reach, first))?;
+            if config.nodelay
+                && let Err(e) = socket.set_nodelay(true)
+            {
+                tracing::debug!(error = %e, "set_nodelay a échoué");
+            }
+            let handle = within(limit, unreachable, client::connect_stream(config.clone(), socket, first_handler))
+                .await
+                .map_err(|e| handshake_failure(&first_mismatch, first, e))?;
             (None, handle)
         }
     };
-    authenticate(&mut handle, first, workspace).await?;
+    authenticate(&mut handle, first, workspace, options.typed)
+        .await
+        .map_err(staged(ConnectStage::Auth, first))?;
 
     let mut hops = vec![handle];
     for (i, next) in chain[1..].iter().enumerate() {
         let is_target = i + 2 == chain.len();
         let previous = hops.last().expect("hops is never empty");
-        let channel = previous
-            .channel_open_direct_tcpip(
-                next.address.clone(),
-                next.port as u32,
-                "127.0.0.1".to_string(),
-                0,
-            )
-            .await
-            .map_err(|e| anyhow::anyhow!("le bastion n'a pas pu joindre « {} » : {e}", next.label))?;
+        let channel = within(
+            limit,
+            || format!("le bastion n'a pas pu joindre « {} »", next.label),
+            previous.channel_open_direct_tcpip(next.address.clone(), next.port as u32, "127.0.0.1".to_string(), 0),
+        )
+        .await
+        .map_err(staged(ConnectStage::Relay, next))?;
         let stream = channel.into_stream();
         let routes = if is_target {
             remote_forward_routes.clone()
         } else {
             Default::default()
         };
-        let next_handler = AppHandler::new(identity_of(next), label_of(next), routes);
+        let next_handler = AppHandler::new(identity_of(next), label_of(next), routes, trust);
         let next_mismatch = next_handler.host_key_mismatch.clone();
-        let mut next_handle = client::connect_stream(config.clone(), stream, next_handler)
+        target_key = next_handler.seen_key.clone();
+        let mut next_handle = within(
+            limit,
+            || format!("la poignée de main SSH avec « {} » a échoué", next.label),
+            client::connect_stream(config.clone(), stream, next_handler),
+        )
+        .await
+        .map_err(|e| handshake_failure(&next_mismatch, next, e))?;
+        authenticate(&mut next_handle, next, workspace, options.typed)
             .await
-            .map_err(|e| {
-                mismatch_error(&next_mismatch, || {
-                    anyhow::anyhow!("SSH handshake with '{}' failed: {e}", next.label)
-                })
-            })?;
-        authenticate(&mut next_handle, next, workspace).await?;
+            .map_err(staged(ConnectStage::Auth, next))?;
         hops.push(next_handle);
     }
 
     Ok(Connection {
         chain: hops,
         remote_forward_routes,
+        target_key,
         _proxy: proxy,
         saturated: AtomicBool::new(false),
     })

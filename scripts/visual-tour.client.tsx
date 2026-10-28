@@ -323,6 +323,15 @@ const responses: Record<string, Invoke> = {
   guivault_totp_status: async () => false,
   has_anthropic_api_key: async () => false,
   get_host_secrets: async () => ({ password: "hunter2-mais-plus-long", passphrase: null }),
+  // « Tester la connexion » : réussie, sauf vers 10.9.9.9, que le serveur
+  // refuse à l'authentification — de quoi voir les deux verdicts.
+  test_host_connection: async (_cmd, args) => {
+    const input = (args as { input: { label: string; address: string; jumpVia: string[] } }).input;
+    if (input.address === "10.9.9.9") {
+      return { elapsedMs: 188, kind: "failed", stage: "auth", host: input.label, message: "authentification refusée pour « " + input.label + " »" };
+    }
+    return { elapsedMs: 412, kind: "connected", hostKey: { fingerprint: "SHA256:Zk3uYqZ3m0Jc1v8Qe2nXo9b7HdPq4sLw6tRy5uVa1Ck", known: false }, bastions: input.jumpVia.length };
+  },
   list_remote_edits: async () => [],
   check_host_status: async () => ({ reachable: true }),
   list_persistent_sessions: async () => ({ tmuxAvailable: true, sessions: [] }),

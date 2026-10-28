@@ -111,6 +111,39 @@ pub fn check_and_trust(identity: &str, label: &str, key: &PublicKey) -> anyhow::
     }
 }
 
+/// Ce que [`compare`] sait d'une clé, sans rien enregistrer.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Known {
+    /// La clé déjà approuvée pour cette identité.
+    Same,
+    /// Aucune clé approuvée pour cette identité : une connexion ordinaire
+    /// l'approuverait à la première vue.
+    Unknown,
+    /// Une autre clé est approuvée pour cette identité.
+    Changed { previous_fingerprint: String },
+}
+
+/// La même comparaison que [`check_and_trust`], **en lecture seule**.
+///
+/// Pour la connexion d'essai d'un hôte que le formulaire n'a pas encore
+/// enregistré : son identité est un id tiré pour l'occasion, et approuver la
+/// clé sous cet id laisserait dans `known_hosts.json` une entrée que rien ne
+/// retrouvera jamais. Même pour un hôte existant, un essai ne doit pas
+/// décider de la confiance à la place de la vraie connexion.
+pub fn compare(identity: &str, key: &PublicKey) -> anyhow::Result<Known> {
+    let encoded = key.to_openssh()?;
+    let store = read()?;
+    Ok(match store.0.get(identity) {
+        Some(entry) if entry.public_key == encoded => Known::Same,
+        Some(entry) => Known::Changed {
+            previous_fingerprint: PublicKey::from_openssh(&entry.public_key)
+                .map(|k| k.fingerprint(HashAlg::Sha256).to_string())
+                .unwrap_or_else(|_| entry.public_key.clone()),
+        },
+        None => Known::Unknown,
+    })
+}
+
 /// Lists every trusted `(identity, label, openssh-encoded public key)`, sorted by label.
 pub fn list() -> Vec<(String, String, String)> {
     // Listing is display-only, not a trust decision, so an unreadable store just

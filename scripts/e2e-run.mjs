@@ -246,6 +246,7 @@ async function runScenarios(browser) {
   await runZoomScenario(browser);
   await runFullscreenScenario(browser);
   await runProxyCommandFieldScenario(browser);
+  await runHostConnectionTestScenario(browser);
   await runAwsImportPanelScenario(browser);
   await runAwsDatabasePanelScenario(browser);
   await runAwsIdentitiesPanelScenario(browser);
@@ -684,8 +685,15 @@ function comboToKeys(combo) {
 
 async function clickButtonByText(browser, text) {
   const found = await browser.execute((label) => {
+    // Le libellé sans le raccourci affiché à côté (« Enregistrer Ctrl S ») :
+    // le bouton reste « Enregistrer » pour qui le cherche.
+    const labelOf = (b) => {
+      const copy = b.cloneNode(true);
+      copy.querySelectorAll(".kbd").forEach((k) => k.remove());
+      return copy.textContent?.trim();
+    };
     const button = Array.from(document.querySelectorAll("button"))
-      .find((b) => b.textContent?.trim() === label);
+      .find((b) => labelOf(b) === label);
     if (!button) return false;
     button.click();
     return true;
@@ -762,6 +770,7 @@ async function clickButtonContaining(browser, text) {
 async function runProxyCommandFieldScenario(browser) {
   await clickButtonByText(browser, "Ajouter…");
   await clickButtonByText(browser, "Nouvel hôte");
+  await openFormSection(browser, "reseau");
 
   const field = () => browser.execute(() => {
     const labels = Array.from(document.querySelectorAll("label, div"));
@@ -797,6 +806,61 @@ async function runProxyCommandFieldScenario(browser) {
 }
 
 /**
+ * « Tester la connexion » du formulaire d'hôte, pour de vrai : la commande
+ * `test_host_connection` part par `invoke`, sur un hôte **jamais enregistré**.
+ *
+ * 127.0.0.1:1 est refusé tout de suite : le verdict doit nommer l'étape
+ * (« Connexion au port ») et mener à la section Connexion. Et rien ne doit
+ * avoir été écrit — l'hôte n'existe toujours pas dans le workspace. La
+ * commande équivalente est relue au passage : elle suit les champs.
+ */
+async function runHostConnectionTestScenario(browser) {
+  const LABEL = `e2e-essai-${Date.now()}`;
+  await clickButtonByText(browser, "Ajouter…");
+  await clickButtonByText(browser, "Nouvel hôte");
+  await setFieldByLabel(browser, "Nom", LABEL);
+  await setFieldByLabel(browser, "Adresse", "127.0.0.1");
+  await setFieldByLabel(browser, "Port", "1");
+  await setFieldByLabel(browser, "Utilisateur", "e2e");
+
+  const command = await browser.execute(() => document.querySelector("[data-form] [data-ssh-command] code")?.textContent ?? null);
+  if (command !== "ssh -p 1 e2e@127.0.0.1") throw new Error(`commande équivalente : ${JSON.stringify(command)}`);
+
+  await clickButtonContaining(browser, "Tester la connexion");
+  const verdict = await browser.waitUntil(async () => await browser.execute(() => {
+    const el = document.querySelector("[data-form] [data-connection-test]");
+    return el ? { kind: el.getAttribute("data-connection-test"), stage: el.getAttribute("data-stage"), text: el.textContent } : false;
+  }), { timeout: 20_000, timeoutMsg: "« Tester la connexion » n a rendu aucun verdict" });
+  if (verdict.kind !== "failed" || verdict.stage !== "reach") {
+    throw new Error(`verdict attendu : échec à l étape « reach », reçu ${JSON.stringify(verdict)}`);
+  }
+
+  const saved = await browser.execute(async (label) => {
+    const ws = await window.__TAURI_INTERNALS__.invoke("get_workspace");
+    return ws.hosts.some((h) => h.label === label);
+  }, LABEL);
+  if (saved) throw new Error("un essai de connexion a enregistré l hôte");
+
+  // Un hôte qui n'est pas SSH est refusé avec un message, pas une panique.
+  const refused = await browser.execute(async () => {
+    try {
+      await window.__TAURI_INTERNALS__.invoke("test_host_connection", { input: {
+        id: null, label: "x", kind: "rdp", address: "127.0.0.1", port: 3389, username: "x", auth: "password",
+        dockerViaHostId: null, jumpVia: [], proxyCommand: null, groupId: null, tags: [], startupSnippets: [],
+        envVars: [], icon: null, secret: null, keepaliveIntervalSecs: null, agentForward: false, persistentShell: "off",
+      } });
+      return null;
+    } catch (e) {
+      return String(e);
+    }
+  });
+  if (!refused || !/SSH/.test(refused)) throw new Error(`un essai RDP devait être refusé : ${JSON.stringify(refused)}`);
+
+  await clickButtonByText(browser, "Annuler");
+  console.log("Tester la connexion : OK (étape nommée, rien d enregistré, commande équivalente à jour).");
+}
+
+/**
  * The "Tester" button really runs the command and renders the verdict.
  *
  * Driven with a program that cannot exist, so the expected outcome is the same
@@ -814,7 +878,9 @@ async function runProxyTestButtonScenario(browser) {
   // appearing to.
   const fillFieldLabelled = async (labelPrefix, value) => {
     const filled = await browser.execute((prefix, text) => {
-      const holder = Array.from(document.querySelectorAll("label"))
+      // `[role=group]` : un champ fait de plusieurs contrôles (la commande
+      // de proxy et ses exemples) est un groupe nommé, pas un `<label>`.
+      const holder = Array.from(document.querySelectorAll("[data-form] label, [data-form] [role='group']"))
         .find((el) => el.textContent?.trim().startsWith(prefix));
       const control = holder?.querySelector("textarea, input");
       if (!control) return false;
@@ -830,7 +896,9 @@ async function runProxyTestButtonScenario(browser) {
 
   // The address is substituted into the command, so the button stays disabled
   // until there is one.
+  await openFormSection(browser, "connexion");
   await fillFieldLabelled("Adresse", "127.0.0.1");
+  await openFormSection(browser, "reseau");
   await fillFieldLabelled("Commande de proxy", "guiterm-programme-qui-nexiste-pas");
   await clickButtonByText(browser, "Tester la commande");
 
@@ -1545,8 +1613,9 @@ async function runCertificateFieldScenario(browser) {
   }
 
   await browser.waitUntil(async () => await browser.execute(() =>
-    document.querySelector('select') !== null
+    document.querySelector("[data-form]") !== null
   ), { timeout: 5_000, timeoutMsg: "le formulaire d hôte ne s est pas ouvert" });
+  await openFormSection(browser, "auth");
 
   // Switch the auth method to "Clé privée" through React's own event, not by
   // assigning `.value` — a direct assignment updates the DOM without telling
@@ -1727,13 +1796,12 @@ async function runActivityScenario(browser) {
  * puis émettre l'événement que React écoute. */
 async function setFieldByLabel(browser, label, value) {
   const ok = await browser.execute((wanted, v) => {
-    // Scopé au formulaire d'hôte : le panneau d'édition en lot peut être
-    // ouvert en même temps et porte des champs « Adresse »/« Utilisateur »
-    // homonymes. Sans ce scope, la saisie partait dedans et le formulaire
-    // refusait avec « Adresse et utilisateur sont requis » — constaté.
-    const heading = Array.from(document.querySelectorAll("h2"))
-      .find((h) => h.textContent?.trim() === "Nouvel hôte" || h.textContent?.trim() === "Modifier l'hôte");
-    const form = heading?.closest("[data-form]") ?? heading?.closest("div");
+    // Scopé au formulaire (le tiroir `[data-form]`) : le panneau d'édition
+    // en lot peut être ouvert en même temps et porte des champs
+    // « Adresse »/« Utilisateur » homonymes. Sans ce scope, la saisie partait
+    // dedans et le formulaire refusait avec « Adresse et utilisateur sont
+    // requis » — constaté.
+    const form = document.querySelector("[data-form]");
     const holder = Array.from((form ?? document).querySelectorAll("label"))
       .find((l) => l.querySelector("span")?.textContent?.trim() === wanted);
     const input = holder?.querySelector("input");
@@ -1743,7 +1811,23 @@ async function setFieldByLabel(browser, label, value) {
     input.dispatchEvent(new Event("input", { bubbles: true }));
     return true;
   }, label, value);
-  if (!ok) throw new Error(`champ « ${label} » introuvable dans le formulaire`);
+  if (!ok) {
+    const section = await browser.execute(() => document.querySelector("[data-form] [data-form-section][aria-current='page']")?.getAttribute("data-form-section") ?? null);
+    throw new Error(`champ « ${label} » introuvable dans le formulaire (section ouverte : ${section})`);
+  }
+}
+
+/** Ouvre une section du tiroir de formulaire (`data-form-section`) : un
+ * formulaire n'affiche que la sienne. C'est ce que vérifie au passage chaque
+ * scénario qui l'appelle — le champ cherché ensuite vit dans cette section,
+ * pas ailleurs. */
+async function openFormSection(browser, section) {
+  await browser.waitUntil(async () => await browser.execute((id) => {
+    const button = document.querySelector(`[data-form] [data-form-section='${id}']`);
+    if (!(button instanceof HTMLElement)) return false;
+    button.click();
+    return button.getAttribute("aria-current") === "page";
+  }, section), { timeout: 5_000, timeoutMsg: `la section « ${section} » du formulaire est introuvable` });
 }
 
 /** Même chose, mais pour un champ désigné par son `placeholder` : le
@@ -2691,6 +2775,7 @@ async function runSqlTabScenario(browser) {
   await setFieldByPlaceholder(browser, HEADING, "Nom", LABEL);
   await setFieldByPlaceholder(browser, HEADING, "Adresse", "127.0.0.1");
   await setFieldByPlaceholder(browser, HEADING, "Port", "1");
+  await openFormSection(browser, "auth");
   await setFieldByPlaceholder(browser, HEADING, "Utilisateur", "e2e");
   await clickButtonByText(browser, "Ajouter");
 
@@ -4120,6 +4205,8 @@ async function runSsmTunnelScenario(browser) {
     console.log("Tunnel SSM : ignoré (bouton « Nouvelle connexion » introuvable).");
     return;
   }
+  // Le tunnel vit dans la section Réseau du formulaire.
+  await openFormSection(browser, "reseau");
 
   await browser.waitUntil(async () => await browser.execute(() =>
     Array.from(document.querySelectorAll("select")).some((s) => Array.from(s.options).some((o) => o.value === "ssm"))
@@ -4443,6 +4530,7 @@ async function runHostTreePickerScenario(browser) {
     await setFieldByLabel(browser, "Nom", HOST);
     await setFieldByLabel(browser, "Adresse", "127.0.0.1");
     await setFieldByLabel(browser, "Utilisateur", "e2e");
+    await openFormSection(browser, "organisation");
 
     // L'étiquette se valide à Entrée — c'est ce que le formulaire écoute.
     await browser.execute((tag) => {
@@ -4653,6 +4741,7 @@ async function runHostPasswordScenario(browser) {
   await setFieldByLabel(browser, "Adresse", "127.0.0.1");
   await setFieldByLabel(browser, "Port", "1");
   await setFieldByLabel(browser, "Utilisateur", "e2e");
+  await openFormSection(browser, "auth");
   const authSet = await browser.execute(() => {
     const field = Array.from(document.querySelectorAll("[data-form] label"))
       .find((l) => l.querySelector("span")?.textContent?.trim() === "Authentification");
@@ -4697,6 +4786,7 @@ async function runHostPasswordScenario(browser) {
     }, LABEL);
     if (!menuOpened) throw new Error("le menu de l hôte de test est introuvable");
     await clickButtonByText(browser, "Modifier");
+    await openFormSection(browser, "auth");
     const shown = await browser.waitUntil(async () => {
       const state = await browser.execute(() => {
         const input = document.querySelector("[data-form] [data-testid='host-secret']");
@@ -4756,6 +4846,7 @@ async function runPersistentSessionScenario(browser) {
 
   // Le champ existe-t-il seulement ? Un réglage backend sans son champ est
   // précisément la panne que ce dépôt a déjà livrée une fois.
+  await openFormSection(browser, "session");
   const selected = await browser.execute((fieldLabel) => {
     const field = Array.from(document.querySelectorAll("label"))
       .find((l) => l.querySelector("span")?.textContent?.trim() === fieldLabel);

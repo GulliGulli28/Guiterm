@@ -1,5 +1,6 @@
 import { sqlConnectionTarget, sqlConnectionVia, sqlConnectionViaHostId, sqlEngineLabel, type Host, type SqlConnection, type Workspace } from "../lib/types";
-import { IconDatabase, IconPlus, IconEdit, IconDownload, IconTunnels } from "./ui-icons";
+import { IconDatabase, IconPlus, IconEdit, IconDownload, IconTunnels, IconFolder } from "./ui-icons";
+import { groupPath } from "../lib/hostTree";
 import { EntityRow, EntityMono } from "./EntityRow";
 import { VaultSectionList } from "./VaultSectionList";
 import type { VaultSection } from "../lib/vaultSections";
@@ -24,8 +25,8 @@ interface SqlConnectionsPanelProps {
 }
 
 /** List-only — creating/editing (and deleting, from inside that form) goes
- * through `SqlConnectionForm` in the app's right panel, same as hosts/groups
- * (`App.tsx`'s `showRightPanel`), not an inline expansion in this list. */
+ * through `SqlConnectionForm` in the form drawer, same as hosts/groups
+ * (`FormDrawer`), not an inline expansion in this list. */
 export function SqlConnectionsPanel({ workspace, vaultSections, onConnect, onNewConnection, onEditConnection, onImportAws, onConnectHost, onWorkspaceUpdate, onNotify, onError }: SqlConnectionsPanelProps) {
   return (
     <div className="flex h-full min-w-0 flex-col">
@@ -47,6 +48,10 @@ export function SqlConnectionsPanel({ workspace, vaultSections, onConnect, onNew
           // un texte à afficher, mais aucun hôte d'ici où aller.
           const viaHostId = sqlConnectionViaHostId(conn);
           const viaHost = viaHostId ? workspace.hosts.find((h) => h.id === viaHostId) ?? null : null;
+          // Le dossier, en attendant l'arborescence vault › dossier ›
+          // connexion : sans lui, le champ Dossier du formulaire n'aurait
+          // aucun effet visible.
+          const folder = groupPath(workspace.groups, conn.groupId ?? null);
           return (
             <EntityRow
               key={conn.id}
@@ -58,6 +63,9 @@ export function SqlConnectionsPanel({ workspace, vaultSections, onConnect, onNew
               secondary={
                 <>
                   <EntityMono>{sqlConnectionTarget(conn)}</EntityMono>
+                  {folder.length > 0 && (
+                    <span data-sql-folder className="flex min-w-0 items-center gap-1 truncate"><IconFolder size={10} /> {folder.join(" › ")}</span>
+                  )}
                   {via && !viaHost && <span>{via}</span>}
                   {via && viaHost && (
                     <button

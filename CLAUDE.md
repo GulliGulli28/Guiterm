@@ -619,6 +619,13 @@ limité (pas de curseur rendu, molette approximative), voir
   l'appareil (récents, `lib/snippetUsage.ts`) vivent en `localStorage` et ne
   se synchronisent pas : c'est un usage, pas une donnée.
 
+- **Un formulaire d'entité s'ouvre dans `FormDrawer`** (tiroir modal,
+  sections avec résumé, Ctrl+S) et n'affiche **qu'une section à la fois** :
+  un scénario E2E ou une scène du tour ouvre d'abord la section du champ
+  (`openFormSection`, `[data-form-section='…']`). Un champ fait de plusieurs
+  contrôles est un `FieldGroup`, jamais un `<label>` (le premier bouton
+  prenait les clics dans le vide).
+
 - **Une boîte ouverte par-dessus une modale doit prendre le focus.**
   `useModalSurface` laisse Échap et Tab à la boîte qui contient la cible de
   la touche ; un panneau sans le hook (`AwsSsoSetupPanel`,
