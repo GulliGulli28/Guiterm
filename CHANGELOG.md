@@ -25,8 +25,22 @@ This changelog starts 2026-07-21 — for earlier versions, see
   a un champ Dossier, et le panneau Bases affiche le dossier de chaque
   connexion.
 
+- **Réglages : une recherche** qui trouve un réglage de n'importe quelle
+  catégorie et y mène.
+- **Clés et empreintes : le détail d'une clé** (type, empreinte, clé
+  publique, hôtes qui l'utilisent, installation sur un hôte) et l'empreinte
+  SHA-256 de chaque hôte connu, telle que `ssh-keygen -lf` l'affiche.
+
 ### Changed
 
+- **Réglages, Activité, Clés et empreintes, Cloud et GuiVault s'ouvrent en
+  page**, dans un onglet unique et sur toute la largeur, au lieu de
+  s'empiler dans la barre latérale ; le panneau latéral se replie tant
+  qu'une page est affichée. Les panneaux Clés et Known Hosts sont réunis
+  dans la page Clés et empreintes (avec l'agent SSH) : le bouton
+  « Empreintes » quitte la barre, donc `Alt+9` ouvre désormais Runbooks et
+  `Alt+0` Réseau. L'Activité devient un tableau, GuiVault montre ses vaults
+  en cartes et la fiche d'un vault en onglets (Contenu, Membres, Sécurité).
 - **Les formulaires d'hôte, de dossier et de connexion s'ouvrent dans un
   tiroir** par-dessus la zone principale, au lieu de la colonne de droite.
   Le formulaire d'hôte est découpé en sections (Connexion, Authentification,
@@ -36,6 +50,10 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ### Fixed
 
+- **Clés d'hôtes** : deux connexions simultanées vers deux hôtes encore
+  inconnus (onglets rouverts au lancement, par exemple) pouvaient effacer
+  l'approbation de l'une — l'hôte repassait pour inconnu à la connexion
+  suivante.
 - **Formulaire d'un hôte RDP** : il proposait encore « Transférer l'agent
   SSH » et parlait du client RDP du système, retiré depuis.
 - **Formulaire de connexion de base de données** : enregistrer effaçait les

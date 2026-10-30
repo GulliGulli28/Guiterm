@@ -74,6 +74,10 @@ surprises de cache dupliqué ou d'échecs de résolution de binaire natif.
 **Accès écran réel : oui, via WSLg.** Ce WSL a un vrai serveur X actif
 (`DISPLAY=:0`, `xdpyinfo`/`xrandr` répondent, résolution réelle détectée).
 
+**Nouveau poste** : l'inventaire complet des outils (Windows, WSL, dépôts) et
+ce qu'il faut recopier de `~/.claude/` pour reprendre avec la mémoire du
+projet est dans `docs/poste-de-dev.md`.
+
 ## `npm run verify` — tout vérifier en une commande
 
 Les contrôles vivent dans deux chaînes d'outils (Node et Cargo) et six
