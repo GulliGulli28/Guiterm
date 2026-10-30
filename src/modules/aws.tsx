@@ -1,22 +1,25 @@
 import { lazy } from "react";
 import { defineModule } from "./types";
 
-const AwsIdentitiesPanel = lazy(() => import("../components/AwsIdentitiesPanel").then((m) => ({ default: m.AwsIdentitiesPanel })));
+const CloudPage = lazy(() => import("../components/CloudPage").then((m) => ({ default: m.CloudPage })));
 
+/** Identités cloud : les sessions AWS SSO et leurs profils, et où en sont
+ * `gcloud` et `az` — une page, qui tenait dans la barre latérale. */
 export const awsModule = defineModule({
   id: "aws",
-  label: "Identités AWS",
+  label: "Identités cloud",
   commandDomains: ["aws", "aws_sso"],
-  panel: {
-    kind: "aws",
-    render: (ctx, a) => (
-      <AwsIdentitiesPanel
+  tab: {
+    kind: "cloud",
+    render: (_tab, ctx, _isActive, a) => (
+      <CloudPage
         onConfigureSso={a.configureSso}
         onReconnectSso={a.reconnectSso}
         onAddProfiles={a.addAwsProfiles}
         onWorkspaceUpdate={ctx.refreshWorkspace}
         refreshToken={a.awsRefreshToken}
         alerts={a.awsAlerts}
+        onImportHosts={a.importHosts}
       />
     ),
   },

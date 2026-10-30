@@ -7,6 +7,9 @@ import { useAwsAccountNames } from "../hooks/useAwsAccountNames";
 import { IconCloud, IconPlus, IconRefresh, IconTrash, IconVault } from "./ui-icons";
 
 interface AwsIdentitiesPanelProps {
+  /** Rendu dans la page Cloud : pas de défilement propre, et le bouton de
+   * nouvelle session est dans l'en-tête de la page. */
+  inPage?: boolean;
   /** Hosts pinning this profile are refreshed from here after a reassignment,
    * so the rest of the app sees it without a reload. */
   onWorkspaceUpdate: (workspace: Workspace) => void;
@@ -46,7 +49,7 @@ type Check = { kind: "ok"; identity: AwsCallerIdentity } | { kind: "error"; mess
  * credential: the sign-in state comes from the CLI's own token cache, and the
  * identity check from `sts get-caller-identity`.
  */
-export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfiles, onWorkspaceUpdate, refreshToken, alerts }: AwsIdentitiesPanelProps) {
+export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfiles, onWorkspaceUpdate, refreshToken, alerts, inPage = false }: AwsIdentitiesPanelProps) {
   const [sessions, setSessions] = useState<AwsSsoSessionStatus[]>([]);
   const [profiles, setProfiles] = useState<AwsProfile[]>([]);
   /** Profile name → hosts that pin it in their proxy command. */
@@ -182,21 +185,24 @@ export function AwsIdentitiesPanel({ onConfigureSso, onReconnectSso, onAddProfil
   const empty = loaded && groups.length === 0;
 
   return (
-    <div className="flex h-full min-w-0 flex-col">
-      <div className="sidebar-scroll min-h-0 min-w-0 flex-1 space-y-2 overflow-y-auto pb-2 pl-2 pt-2">
-        <div className="flex gap-1.5">
-          <button
-            onClick={onConfigureSso}
-            className="btn btn-primary flex-1 justify-center"
-          >
-            <IconPlus size={13} /> Nouvelle session SSO
-          </button>
+    <div className={inPage ? "min-w-0" : "flex h-full min-w-0 flex-col"}>
+      <div className={inPage ? "min-w-0 space-y-3" : "sidebar-scroll min-h-0 min-w-0 flex-1 space-y-2 overflow-y-auto pb-2 pl-2 pt-2"}>
+        {/* Dans la page Cloud, « Nouvelle session SSO » est dans l'en-tête. */}
+        <div className={`flex gap-1.5 ${inPage ? "justify-end" : ""}`}>
+          {!inPage && (
+            <button
+              onClick={onConfigureSso}
+              className="btn btn-primary flex-1 justify-center"
+            >
+              <IconPlus size={13} /> Nouvelle session SSO
+            </button>
+          )}
           <button
             onClick={load}
             title="Rafraîchir"
-            className="btn btn-ghost shrink-0 justify-center"
+            className={`btn btn-ghost shrink-0 justify-center ${inPage ? "btn-sm" : ""}`}
           >
-            <IconRefresh size={13} />
+            <IconRefresh size={13} />{inPage && " Rafraîchir"}
           </button>
         </div>
 

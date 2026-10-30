@@ -11,14 +11,17 @@ import type { TabMeta } from "./types";
  * en a jamais deux du même genre, et la barre latérale replie son panneau
  * tant qu'une page est au premier plan.
  */
-export type PageKind = "settings" | "activity";
+export type PageKind = "settings" | "activity" | "keys" | "cloud" | "guivault";
 
-export const PAGE_KINDS: readonly PageKind[] = ["settings", "activity"];
+export const PAGE_KINDS: readonly PageKind[] = ["settings", "activity", "keys", "cloud", "guivault"];
 
 /** Le titre de l'onglet et de la page. */
 export const PAGE_LABELS: Record<PageKind, string> = {
   settings: "Réglages",
   activity: "Activité",
+  keys: "Clés et empreintes",
+  cloud: "Identités cloud",
+  guivault: "GuiVault",
 };
 
 export function isPageKind(kind: string): kind is PageKind {

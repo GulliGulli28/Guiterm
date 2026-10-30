@@ -1,5 +1,5 @@
 import { assertNever } from "./exhaustive";
-import type { CloudCliError } from "./types";
+import type { CloudCliError, CloudFailure } from "./types";
 
 /**
  * Les sources de la fenêtre « Importer des hôtes » (`ImportHostsDialog`).
@@ -42,6 +42,25 @@ export function awsStatus(profiles: number | null): SourceStatus {
   if (profiles === null) return { tone: "muted", text: "Lecture des profils…" };
   if (profiles === 0) return { tone: "warn", text: "Aucun profil configuré" };
   return { tone: "ok", text: plural(profiles, "profil", "profils") };
+}
+
+/** Ce qu'a donné le sondage d'une CLI cloud : le nombre de projets ou
+ * d'abonnements, la raison typée de son refus, ou `null` pendant le sondage. */
+export type CloudProbe = { scopes: number } | { reason: CloudCliError | null } | null;
+
+/** Lance le sondage d'une CLI cloud (lister ses projets) et range le
+ * résultat ; rend de quoi l'oublier si le composant disparaît avant. Partagé
+ * par la fenêtre d'import et la page Cloud. */
+export function probeCli(list: () => Promise<unknown[]>, set: (p: CloudProbe) => void): () => void {
+  let cancelled = false;
+  list()
+    .then((found) => { if (!cancelled) set({ scopes: found.length }); })
+    .catch((e) => {
+      if (cancelled) return;
+      const failure = e as Partial<CloudFailure> | null;
+      set({ reason: failure && typeof failure === "object" && failure.reason ? failure.reason : null });
+    });
+  return () => { cancelled = true; };
 }
 
 /** Le sondage d'une CLI cloud (`gcloud`, `az`) : la liste de ses projets ou

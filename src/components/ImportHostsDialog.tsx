@@ -2,8 +2,8 @@ import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { useModalSurface } from "../hooks/useModalSurface";
 import { api } from "../lib/api";
 import { assertNever } from "../lib/exhaustive";
-import { awsStatus, cloudCliStatus, IMPORT_SOURCES, sshConfigStatus, type ImportSource, type SourceStatus } from "../lib/importSources";
-import type { AwsSsoSession, CloudCliError, CloudFailure, SshConfigHost, Workspace } from "../lib/types";
+import { awsStatus, cloudCliStatus, IMPORT_SOURCES, probeCli, sshConfigStatus, type CloudProbe, type ImportSource, type SourceStatus } from "../lib/importSources";
+import type { AwsSsoSession, SshConfigHost, Workspace } from "../lib/types";
 import { AnsibleImportPanel } from "./AnsibleImportPanel";
 import { AwsImportPanel } from "./AwsImportPanel";
 import { AzureImportPanel } from "./AzureImportPanel";
@@ -11,20 +11,6 @@ import { FileImportSource } from "./FileImportSource";
 import { GcpImportPanel } from "./GcpImportPanel";
 import { alreadyImported, SshConfigImportSource } from "./SshConfigImportSource";
 import { IconChecklist, IconClose, IconCloud, IconDownload, IconFile } from "./ui-icons";
-
-type CloudProbe = { scopes: number } | { reason: CloudCliError | null } | null;
-
-function probeCli(list: () => Promise<unknown[]>, set: (p: CloudProbe) => void): () => void {
-  let cancelled = false;
-  list()
-    .then((found) => { if (!cancelled) set({ scopes: found.length }); })
-    .catch((e) => {
-      if (cancelled) return;
-      const failure = e as Partial<CloudFailure> | null;
-      set({ reason: failure && typeof failure === "object" && failure.reason ? failure.reason : null });
-    });
-  return () => { cancelled = true; };
-}
 
 function sourceIcon(source: ImportSource): ReactNode {
   switch (source) {

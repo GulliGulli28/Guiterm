@@ -194,6 +194,14 @@ const responses: Record<string, Invoke> = {
     ],
     groups: 2, snippets: 3, keys: 1, portForwards: 0, hasAutomation: true,
   }),
+  // La page Clés : type, empreinte et clé publique de chaque clé, qui elle
+  // les utilise, et l'agent SSH.
+  describe_keys: async () => [
+    { id: "k-1", info: { algorithm: "ed25519", fingerprint: "SHA256:q4u3c0mZpL8vN2xYwT7rJ6kF1sDhE9aBcG5oQ3fN0s", publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGx0d2Vic2VydmVyMDF0ZXN0a2V5" }, passphraseStored: true },
+    { id: "k-2", info: { algorithm: "ed25519", fingerprint: "SHA256:Hk2Lr8pWmN4bV6cX0zQ1aS3dF5gH7jK9lP2oI4u9QaE", publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHBnLXByaW1hcnl0ZXN0a2V5MDE" }, passphraseStored: false },
+  ],
+  list_key_usage: async () => ({ "k-1": ["bastion"], "k-2": ["web-01", "pg-primary"] }),
+  ssh_agent_status: async () => ({ enabled: true, running: true, endpoint: "/run/user/1000/gui-termius/ssh-agent.sock", error: null, keys: [] }),
   list_known_hosts: async () => [
     { identity: "203.0.113.10:22", label: "web-01", publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIGx0d2Vic2VydmVyMDF0ZXN0a2V5" },
     { identity: "10.0.4.20:22", label: "pg-primary", publicKey: "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIHBnLXByaW1hcnl0ZXN0a2V5MDE" },

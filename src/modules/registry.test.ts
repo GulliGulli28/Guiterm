@@ -18,6 +18,9 @@ const EVERY_TAB_KIND: Record<TabMeta["kind"], true> = {
   runbook: true,
   activity: true,
   settings: true,
+  keys: true,
+  cloud: true,
+  guivault: true,
   netdiag: true,
   sql: true,
 };
@@ -26,18 +29,14 @@ const ALL_KINDS = Object.keys(EVERY_TAB_KIND) as TabMeta["kind"][];
 
 // Même énumération, pour l'axe panneaux.
 const EVERY_PANEL: Record<SidebarPanelKind, true> = {
-  knownHosts: true,
   hosts: true,
   sftp: true,
   snippets: true,
   tunnels: true,
-  keychain: true,
   database: true,
-  aws: true,
   fleet: true,
   runbook: true,
   netdiag: true,
-  guivault: true,
 };
 
 const ALL_PANELS = Object.keys(EVERY_PANEL) as SidebarPanelKind[];
@@ -75,7 +74,9 @@ describe("registre de modules", () => {
   it("n'est pas vide — sinon les couvertures ci-dessus se vérifieraient à vide", () => {
     expect(MODULES.length).toBeGreaterThanOrEqual(14);
     expect(ALL_KINDS.length).toBeGreaterThanOrEqual(8);
-    expect(ALL_PANELS.length).toBeGreaterThanOrEqual(9);
+    // Huit depuis la tranche 5 de la refonte : Réglages, Clés, Known Hosts,
+    // Cloud et GuiVault sont devenus des pages (des onglets).
+    expect(ALL_PANELS.length).toBeGreaterThanOrEqual(8);
   });
 });
 

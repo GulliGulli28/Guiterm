@@ -73,7 +73,8 @@ rapides : terminal, fichiers, menu.
 navigation clavier s'y accrochent). La refonte réorganise ; elle ne retire
 aucune fonction. Une exception assumée : `Alt+1…0` comptent les boutons
 visibles du rail, et Known Hosts n'est plus en tête. Depuis la tranche 1,
-`Alt+1` ouvre Hôtes, `Alt+2` Fichiers, et `Alt+0` toujours Runbooks.
+`Alt+1` ouvre Hôtes, `Alt+2` Fichiers. Depuis la tranche 5 (Known Hosts a
+rejoint la page Clés), `Alt+9` ouvre Runbooks et `Alt+0` Réseau.
 
 ## À corriger quelle que soit la refonte
 
@@ -329,6 +330,54 @@ Le plan d'origine :
 
 ### Tranche 5 — Pages pleine largeur
 
+**Livrée le 2026-10-30**, en sous-tranches (5a : l'infrastructure, Réglages et
+Activité ; 5b–5d : Clés et empreintes, Cloud, GuiVault). Ce qui a été fait, et
+les écarts avec le plan :
+- `lib/pages.ts` : une page est un onglet (`TabMeta`) d'un genre unique —
+  `settings`, `activity`, `keys`, `cloud`, `guivault` — restauré au
+  lancement. Une page au premier plan **replie le panneau latéral** (comme
+  sur les maquettes) sans oublier lequel était ouvert ; un bouton de panneau
+  la quitte pour le dernier onglet de travail, ou l'accueil, et c'est le
+  panneau demandé qui s'affiche. Refermer Réglages (`Ctrl+,`) revient aussi
+  au dernier onglet de travail, pas à l'onglet voisin.
+- Le rendu d'un onglet reçoit les actions des panneaux (`SidebarActions`) :
+  une page est un ancien panneau, elle lit le même état. Les boutons du rail
+  qui ouvrent une page portent `page` dans `lib/sidebarButtons.ts`
+  (`panelOf` dit si un bouton ouvre un panneau).
+- **Réglages** : une page à deux colonnes, avec une recherche qui trouve un
+  réglage de n'importe quelle catégorie et y mène (`lib/settingsIndex.ts`,
+  dont un test vérifie que chaque libellé existe à l'écran). Le focus va aux
+  catégories à chaque retour sur la page. Écart : les réglages ne sont pas
+  encore tous « une ligne, un interrupteur » — les cases à cocher restent.
+- **Activité** : un tableau groupé par jour, filtres en puces, « Échecs »
+  quand il y en a, export en menu.
+- **Clés et empreintes** (`KeysPage`) : remplace les panneaux Clés et Known
+  Hosts. Onglets Mes clés (tableau : type, empreinte, hôtes, vault ; détail
+  à droite avec clé publique, installation sur un hôte, passphrase,
+  suppression), Empreintes d'hôtes (empreinte SHA-256 calculée comme
+  `ssh-keygen -lf`, `lib/hostKeys.ts`), Agent SSH. Nouvelle commande
+  `describe_keys` (`keygen::describe` : type et empreinte d'une clé OpenSSH
+  chiffrée sans sa passphrase). Le bouton « Empreintes » du rail disparaît :
+  `Alt+9` ouvre désormais Runbooks et `Alt+0` Réseau. Écart : l'import de
+  `~/.ssh/config` ne se lance plus depuis Known Hosts — l'accueil et
+  « Ajouter… » du panneau Hôtes le gardent.
+- **Cloud** (`CloudPage`) : AWS (sessions SSO, profils, accès GuiVault) et
+  l'état de `gcloud` et `az` dans leurs onglets, avec « Importer des
+  hôtes » sur la bonne source. Écart : Google Cloud et Azure n'ont pas
+  d'identités à gérer ici — leurs CLI s'en chargent.
+- **GuiVault** : la page du compte (vaults en cartes avec leur état,
+  invitations, compte et appareil à droite), et la fiche d'un vault en
+  sous-page avec fil d'Ariane et onglets Contenu, Membres, Sécurité. Écart :
+  le bandeau d'un retour en arrière reste le bloc détaillé, pas l'alerte
+  compacte de la maquette.
+- Garde-fous : scènes `07`, `09`, `13`–`13c`, `32`, `33`, `48`, `50` du tour
+  avec assertions ; E2E : chaque bouton de page ouvre un onglet qui rend du
+  contenu et replie le panneau, `Ctrl+,` sur la page, Cloud et GuiVault lus
+  dans leur page ; `hostKeys.test.ts` (empreinte contre `ssh-keygen`),
+  `settingsIndex.test.ts`, tests de `keygen::describe`.
+
+Le plan d'origine :
+
 - **Frontend.**
   - Nouveaux `kind` d'onglet « page », un par page, chacun singleton.
   - `modules/settings.tsx` : `SettingsPanel.tsx` devient une page avec
@@ -417,11 +466,12 @@ Le plan d'origine :
 
 ## Écarts avec la maquette — pistes pour la suite
 
-Ce que les maquettes des écrans **déjà livrés** (tranches 0 à 4) montrent et
+Ce que les maquettes des écrans **déjà livrés** (tranches 0 à 5) montrent et
 que l'app ne fait pas encore. Inventaire fait le 2026-10-28 en relisant les
 planches du canevas (`Accueil`, `Import`, `Terminal`, `MenuHote`, `Palette`,
-`PremierLancement`, puis `FormulaireHote` à la tranche 4) contre le code. Les
-tranches 5 à 9 ne sont pas encore comparées : leurs écarts s'ajouteront ici à
+`PremierLancement`, puis `FormulaireHote` à la tranche 4, `Parametres`, `Cles`,
+`Aws`, `GuiVault`, `Vault` et `Activite` à la tranche 5) contre le code. Les
+tranches 6 à 9 ne sont pas encore comparées : leurs écarts s'ajouteront ici à
 leur livraison.
 
 C'est une réserve de fonctionnalités, pas une liste de dettes. Chaque ligne
@@ -498,6 +548,17 @@ partagé, ou une décision de design à prendre d'abord.
 | **Tester un hôte Docker ou Kubernetes.** | « Tester la connexion » n'existe que pour SSH. | `docker version` / `kubectl auth can-i` à travers les mêmes chemins que l'onglet. | M |
 | **Dossiers des connexions de base en arborescence.** | Le dossier s'affiche sur la ligne. | Prévu tranche 7 (constat 2). | M |
 
+### Pages (tranche 5)
+
+| Écart | Aujourd'hui | Ce qu'il faudrait | Taille |
+|---|---|---|---|
+| **Un réglage = une ligne et un interrupteur** (`.switch`, description sous le titre). | Les cases à cocher et les pavés d'aide d'avant, dans la nouvelle page. | Une primitive `.set` / `.switch` dans `index.css`, puis catégorie par catégorie. Va avec la passe de textes de la tranche 9. | M |
+| **Aperçu du terminal** à côté des réglages de thème et de police. | Pas d'aperçu. | Un petit terminal statique rendu avec le thème choisi. | S |
+| **Clés : « Présentée par l'agent SSH » et « Demander avant chaque usage »** dans le détail d'une clé. | Ces deux choix vivent dans l'onglet Agent SSH. | Lire et écrire `ssh_agent.json` depuis le détail (commandes existantes de l'agent). | S |
+| **GuiVault : bascule Compte / Cet appareil et Synchroniser** dans l'en-tête de la page. | Dans la carte du compte, à droite, et dans le menu de l'avatar. | Remonter ces deux actions dans l'en-tête. | S |
+| **GuiVault : membres dans la colonne de droite** de la fiche d'un vault, à côté du contenu. | Les membres ont leur onglet. | Une colonne de 320 px sur l'onglet Contenu, quand la fenêtre est assez large. | S |
+| **Activité : « Rejouer » un enregistrement, « Voir » un échec de flotte** depuis la ligne. | La ligne dit le résultat, sans lien. | Ouvrir le lecteur d'enregistrement, ou l'onglet Flotte sur ce lancement. | M |
+
 ### Écarts assumés, à ne pas rattraper
 
 Des choix faits en connaissance de cause. Ils sont listés ici pour qu'une
@@ -513,6 +574,9 @@ relecture de la maquette ne les reprenne pas comme des oublis :
 - **Le formulaire de dossier n'a pas de sections** : quatre champs (tranche 4).
 - **Le voile du tiroir ne ferme pas le formulaire** au clic : Échap ou
   Annuler, pour ne jamais perdre une saisie par un clic à côté (tranche 4).
+- **Une page garde son état tant que son onglet est ouvert** (catégorie des
+  Réglages, onglet de la page Clés) : c'est un onglet comme un autre
+  (tranche 5).
 
 ## Hors périmètre, dit d'avance
 

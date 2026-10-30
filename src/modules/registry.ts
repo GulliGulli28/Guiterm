@@ -7,7 +7,6 @@ import { activityModule } from "./activity";
 import { awsModule } from "./aws";
 import { hostsModule } from "./hosts";
 import { keychainModule } from "./keychain";
-import { knownHostsModule } from "./knownHosts";
 import { settingsModule } from "./settings";
 import { sftpModule } from "./sftp";
 import { snippetsModule } from "./snippets";
@@ -48,7 +47,6 @@ export const MODULES = [
   localTerminalModule,
   sqlModule,
   hostsModule,
-  knownHostsModule,
   sftpModule,
   snippetsModule,
   tunnelsModule,

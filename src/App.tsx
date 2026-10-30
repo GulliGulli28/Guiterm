@@ -39,7 +39,7 @@ import { KIND_LABELS as VAULT_KIND_LABELS } from "./lib/vaultTree";
 import { copySecret } from "./lib/secretClipboard";
 import { neighbourPanel, sidebarButtonAt } from "./lib/keyboardNav";
 import { cycleZone, focusZone } from "./lib/focusZonesDom";
-import { SIDEBAR_BUTTONS, isSidebarButtonVisible, type SidebarButtonId } from "./lib/sidebarButtons";
+import { SIDEBAR_BUTTONS, isSidebarButtonVisible, panelOf, type SidebarButtonId } from "./lib/sidebarButtons";
 import { SnippetPicker } from "./components/SnippetPicker";
 import { ConfirmDialog } from "./components/ConfirmDialog";
 import { VaultUnlockModal } from "./components/VaultUnlockModal";
@@ -619,15 +619,23 @@ export default function App() {
 
   // ── Les panneaux de la barre latérale, au clavier ─────────────────────
   const visibleSidebarButtons = SIDEBAR_BUTTONS.filter((b) => isSidebarButtonVisible(b.id, preferences.hiddenSidebarButtons));
-  /** Le panneau courant s'il a un bouton. */
+  /** Le bouton courant : celui de la page affichée, sinon celui du panneau. */
   const currentPanelId = (): SidebarButtonId | null =>
-    visibleSidebarButtons.find((b) => b.id === sidebarPanel)?.id ?? null;
+    (activePage ? visibleSidebarButtons.find((b) => b.page === activePage)?.id : undefined)
+      ?? visibleSidebarButtons.find((b) => b.id === sidebarPanel)?.id ?? null;
   /** Ouvre un panneau **et lui donne le focus** : ouvrir sans pouvoir y
    * naviguer obligerait à reprendre la souris juste après. Les deux panneaux
    * qui ont un onglet de travail l'ouvrent aussi, comme au clic. */
   function openSidebarPanel(id: SidebarButtonId) {
-    if (activePage) leavePage(id);
-    showTargetsPanel(id);
+    const panel = panelOf(id);
+    // Un bouton de page (Clés…) ouvre sa page, comme au clic.
+    if (!panel) {
+      const page = SIDEBAR_BUTTONS.find((b) => b.id === id)?.page;
+      if (page) { setHomeOpen(false); openPage(page); }
+      return;
+    }
+    if (activePage) leavePage(panel);
+    showTargetsPanel(panel);
     if (id === "fleet") openFleetTab();
     if (id === "netdiag") openNetdiagTab(null);
     focusSidebarPanelSoon();
@@ -671,6 +679,10 @@ export default function App() {
     const open = tabs.find((t) => t.kind === "settings");
     if (open && open.id === activeTabId && !homeOpen) {
       closeTab(open.id);
+      // Revenir là où l'on travaillait, pas sur l'onglet voisin — qui peut
+      // être une autre page.
+      const back = tabs.find((t) => t.id === lastWorkTabId.current && !isPageTab(t));
+      if (back) setActiveTabId(back.id);
       focusTerminal();
       return;
     }
@@ -786,7 +798,7 @@ export default function App() {
     // sont prises, et ce qui évite d'avoir à retenir une position.
     ...visibleSidebarButtons.map((b, i) => ({
       id: `sidebar.open.${b.id}`,
-      label: `Panneau — ${b.label}`,
+      label: `${b.page ? "Page" : "Panneau"} — ${b.label}`,
       group: "Panneaux" as const,
       hint: (preferences.keyboardShortcuts[`sidebar.panel${i + 1}`] || undefined)?.replace("Shift", "Maj"),
       keywords: b.hint ?? "",
@@ -974,7 +986,7 @@ export default function App() {
         })}
         onShowSnippets={() => leave(() => showTargetsPanel("snippets"))}
         onOpenGuiVault={(vaultId) => leave(() => sidebarActions.openVault(vaultId))}
-        onOpenAwsIdentities={() => leave(() => showTargetsPanel("aws"))}
+        onOpenAwsIdentities={() => leave(() => openPage("cloud"))}
         onShowTunnels={() => leave(() => showTargetsPanel("tunnels"))}
         onLocalTerminal={() => leave(() => openLocalTerminal())}
       />
@@ -1172,7 +1184,7 @@ export default function App() {
     onGuivaultStatusChange: refreshGuivaultStatus,
     guivaultSyncing,
     guivaultFocus,
-    openVault: (vaultId) => { setGuivaultFocus((f) => ({ vaultId, epoch: (f?.epoch ?? 0) + 1 })); showTargetsPanel("guivault"); },
+    openVault: (vaultId) => { setGuivaultFocus((f) => ({ vaultId, epoch: (f?.epoch ?? 0) + 1 })); setHomeOpen(false); openPage("guivault"); },
     updatePreferences,
 
   };
@@ -1477,7 +1489,7 @@ export default function App() {
               onPaste={pasteIntoActiveTerminal}
               onNotify={(m) => pushNotification("success", m)}
               onError={reportError}
-              onOpenAccount={() => { showTargetsPanel("guivault"); focusSidebarPanelSoon(); }}
+              onOpenAccount={() => { setHomeOpen(false); openPage("guivault"); }}
               onClose={() => { setVaultBrowserOpen(false); focusTerminal(); }}
             />
           )}

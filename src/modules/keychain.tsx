@@ -2,25 +2,25 @@ import { lazy } from "react";
 import { vaultSections } from "../lib/vaultSections";
 import { defineModule } from "./types";
 
-const KeychainPanel = lazy(() => import("../components/KeychainPanel").then((m) => ({ default: m.KeychainPanel })));
+const KeysPage = lazy(() => import("../components/KeysPage").then((m) => ({ default: m.KeysPage })));
 
+/** « Clés et empreintes » : le trousseau, les clés d'hôtes approuvées
+ * (anciennement le panneau Known Hosts) et l'agent SSH, sur une page. */
 export const keychainModule = defineModule({
   id: "keychain",
-  label: "Clés",
-  commandDomains: ["keys"],
-  panel: {
-    kind: "keychain",
-    render: (ctx, a) => (
-      <KeychainPanel
+  label: "Clés et empreintes",
+  commandDomains: ["keys", "known_hosts"],
+  tab: {
+    kind: "keys",
+    render: (_tab, ctx, _isActive, a) => (
+      <KeysPage
         workspace={ctx.workspace}
         vaultSections={vaultSections(a.guivaultStatus)}
-        onWorkspaceUpdate={ctx.refreshWorkspace}
-        onNotify={(m) => ctx.pushNotification("info", m)}
-        onError={ctx.reportError}
         onAddKey={a.addKey}
         onGenerateKey={a.generateKey}
         onDeleteKey={a.deleteKey}
         onRenameKey={a.renameKey}
+        onError={ctx.reportError}
       />
     ),
   },

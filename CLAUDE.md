@@ -438,7 +438,7 @@ pas de dossier, seau « Runbooks » dans les arbres de vault) ; l'interface web
 de GuiVault les écrit au même format. `SYNC_FORMAT` 3 force la relecture de
 ceux qu'elle avait écrits avant. **Accès AWS** (`guivault/aws.rs`) : un item
 `aws` de `guivault-items` (session SSO + profils, ou clés) ↔ `~/.aws/config`.
-Panneau Identités AWS : l'icône coffre d'une session l'enregistre
+Page Identités cloud : l'icône coffre d'une session l'enregistre
 (`guivault_aws_save_session` — met à jour l'item de même URL et même nom
 de session où qu'il soit, garde les profils des autres postes), la section
 « Dans GuiVault » écrit un accès sur ce poste (`guivault_aws_apply`, section
@@ -511,8 +511,9 @@ hôtes correspondants utilisent sont présentées. La confirmation passe par un
 `ssh-agent-confirm`, fenêtre ramenée au premier plan, réponse
 `ssh_agent_answer`, refus au bout d'une minute) — même forme que
 `interactive_auth`. Un agent **transféré** (la demande vient d'un serveur)
-redemande toujours. Frontend : `SshAgentSettings.tsx` (Paramètres › Agent
-SSH), `SshAgentConfirmModal.tsx` (file dans `App.tsx`).
+redemande toujours. Frontend : `SshAgentSettings.tsx` (Réglages › Agent SSH,
+et l'onglet Agent SSH de la page Clés), `SshAgentConfirmModal.tsx` (file dans
+`App.tsx`).
 
 Tests : `core/tests/ssh_agent_integration.rs` contre les vrais outils
 OpenSSH — `ssh-add -L`, `ssh-keygen -Y sign -n git` puis vérification, refus,
@@ -625,6 +626,14 @@ limité (pas de curseur rendu, molette approximative), voir
   (`openFormSection`, `[data-form-section='…']`). Un champ fait de plusieurs
   contrôles est un `FieldGroup`, jamais un `<label>` (le premier bouton
   prenait les clics dans le vide).
+
+- **Ce qu'on gère est une page, pas un panneau** (`lib/pages.ts`) :
+  Réglages, Activité, Clés et empreintes, Cloud, GuiVault sont des onglets
+  uniques (`data-page="…"`), et la barre latérale replie son panneau tant
+  qu'une page est au premier plan. Un scénario E2E ou une scène du tour les
+  cherche par `[data-page]`, plus par `[data-sidebar-panel]` ; un sélecteur
+  global (« Ajouter… ») peut tomber sur le bouton du panneau replié — le
+  restreindre à la page.
 
 - **Une boîte ouverte par-dessus une modale doit prendre le focus.**
   `useModalSurface` laisse Échap et Tab à la boîte qui contient la cible de
@@ -812,7 +821,7 @@ elle existe probablement déjà.**
 dans la mémoire long-terme `infra-control-plane-pivot.md` et dans
 `docs/dev-history.md`) :
 - **Refonte de l'interface** — maquettes validées le 2026-10-27, en cours
-  d'implémentation par tranches (0 à 4 livrées le 2026-10-28) : décisions,
+  d'implémentation par tranches (0 à 4 livrées le 2026-10-28, 5 le 2026-10-30) : décisions,
   constats à corriger et plan dans `docs/refonte-ui.md`. Tant qu'elle n'est
   pas finie, un écran retouché suit les maquettes du canevas « Guiterm —
   Refonte UI », pas l'ancien style. Ce que les maquettes montrent et que

@@ -94,7 +94,7 @@ describe("sélection d'hôtes", () => {
     // deux fichiers-là qui portent le champ, plus leurs onglets.
     "components/FleetTargetsPanel.tsx",
     "components/HostForm.tsx",
-    "components/KeychainPanel.tsx",
+    "components/KeysPage.tsx",
     "components/NetDiagTargetsPanel.tsx",
     "components/RemoteSavePathPicker.tsx",
     "components/SplitPane.tsx",

@@ -1066,8 +1066,8 @@ function KeyProvenance({ keyFrom, members, onPinned }: { keyFrom: GuiVaultKeyFro
   );
 }
 
-function VaultDetail({ vault, vaults, workspace, onBack, onStatusChange, onError, onNotify }: {
-  vault: GuiVaultVault; vaults: GuiVaultVault[]; workspace: Workspace; onBack: () => void; onStatusChange: () => void; onError: (m: string) => void; onNotify: (m: string) => void;
+function VaultDetail({ vault, vaults, rollbacks, workspace, onBack, onStatusChange, onError, onNotify }: {
+  vault: GuiVaultVault; vaults: GuiVaultVault[]; rollbacks: GuiVaultRollback[]; workspace: Workspace; onBack: () => void; onStatusChange: () => void; onError: (m: string) => void; onNotify: (m: string) => void;
 }) {
   const isPersonal = vault.kind === "personal";
   const manage = !isPersonal && canManage(vault.role);
@@ -1081,6 +1081,9 @@ function VaultDetail({ vault, vaults, workspace, onBack, onStatusChange, onError
   const [confirm, setConfirm] = useState<null | { kind: "remove"; m: GuiVaultMember } | { kind: "leave" } | { kind: "delete" } | { kind: "rotate" } | { kind: "transfer"; m: GuiVaultMember }>(null);
   const [keepLocal, setKeepLocal] = useState(true);
   const [audit, setAudit] = useState<GuiVaultAuditEntry[] | null>(null);
+  /** L'onglet de la fiche — un vault personnel n'a que son contenu. */
+  const [tab, setTab] = useState<"contenu" | "membres" | "securite">("contenu");
+  const suspended = rollbacks.some((r) => r.vaultId === vault.id);
 
   const [bound, setBound] = useState(0);
   useEffect(() => {
@@ -1117,31 +1120,72 @@ function VaultDetail({ vault, vaults, workspace, onBack, onStatusChange, onError
   const pending = invitations.filter((i) => i.status === "pending" || i.status === "awaiting_key");
 
   return (
-    <div className="space-y-3">
-      <div className="flex min-w-0 flex-wrap items-center gap-2">
-        <button onClick={onBack} className="btn btn-ghost btn-sm">← Vaults</button>
-        {renaming === null ? (
-          <p className="min-w-[6rem] flex-1 truncate text-[13px] font-medium text-[var(--c-text)]" onDoubleClick={() => manage && setRenaming(vault.name)} title={manage ? "Double-clic pour renommer" : vault.name}>{vault.name}</p>
-        ) : (
-          <input
-            value={renaming}
-            autoFocus
-            onChange={(e) => setRenaming(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === "Escape") setRenaming(null);
-              if (e.key === "Enter") { const n = renaming.trim(); setRenaming(null); if (n && n !== vault.name) act(api.guivaultRenameVault(vault.id, n), onStatusChange); }
-            }}
-            className={`${inputClass} min-w-0 flex-1`}
-          />
-        )}
+    <div className="space-y-[18px]" data-vault-detail={vault.name}>
+      <nav aria-label="Fil d'Ariane" className="flex items-center gap-1.5 text-[12.5px]">
+        <button type="button" onClick={onBack} data-vault-back className="text-[var(--c-text-muted)] hover:text-[var(--c-text)] hover:underline">GuiVault</button>
+        <span className="text-[var(--c-text-faint)]">/</span>
+        <span className="text-[var(--c-text)]">{vault.name}</span>
+      </nav>
+      <div className="flex min-w-0 flex-wrap items-center gap-3">
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-lg border border-[var(--c-border)] bg-[var(--c-bg3)] text-[var(--c-text-secondary)]"><IconVault size={18} /></span>
+        <div className="min-w-0 flex-1">
+          {renaming === null ? (
+            <h1 className="truncate text-[20px] font-semibold text-[var(--c-text)]" onDoubleClick={() => manage && setRenaming(vault.name)} title={manage ? "Double-clic pour renommer" : vault.name}>{vault.name}</h1>
+          ) : (
+            <input
+              value={renaming}
+              autoFocus
+              aria-label="Nom du vault"
+              onChange={(e) => setRenaming(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Escape") setRenaming(null);
+                if (e.key === "Enter") { const n = renaming.trim(); setRenaming(null); if (n && n !== vault.name) act(api.guivaultRenameVault(vault.id, n), onStatusChange); }
+              }}
+              className={`${inputClass} w-full max-w-[420px]`}
+            />
+          )}
+          <p className="mt-0.5 text-[12.5px] text-[var(--c-text-muted)]">
+            {isPersonal ? "Vous seul" : `Vous êtes ${ROLE_LABELS[vault.role].toLowerCase()}`}
+            {!isPersonal && ` · ${members.length} membre${members.length > 1 ? "s" : ""}`}
+            {` · ${bound} élément${bound > 1 ? "s" : ""}`}
+          </p>
+        </div>
         <span className="tag" title={ROLE_HINTS[vault.role]}>{ROLE_LABELS[vault.role]}</span>
       </div>
-      <VaultContents vault={vault} vaults={vaults} onChanged={onStatusChange} onError={onError} onNotify={onNotify} />
-
-      {!isPersonal && <KeyProvenance keyFrom={vault.keyFrom} members={members} onPinned={() => { reload(); onStatusChange(); }} />}
 
       {!isPersonal && (
-      <div className="space-y-1">
+        <div role="tablist" className="flex gap-1 border-b border-[var(--c-border)]">
+          {([
+            ["contenu", "Contenu", <span key="n" className="text-[var(--c-text-faint)]">{bound}</span>],
+            ["membres", "Membres", <span key="n" className="text-[var(--c-text-faint)]">{members.length}</span>],
+            ["securite", "Sécurité", suspended ? <span key="n" className="chip chip-danger h-[18px]">Suspendu</span>
+              : vault.keyFrom.kind === "member" && !vault.keyFromPinnedAs ? <span key="n" className="chip chip-warn h-[18px]">À vérifier</span> : null],
+          ] as ["contenu" | "membres" | "securite", string, React.ReactNode][]).map(([id, label, extra]) => (
+            <button
+              key={id}
+              type="button"
+              role="tab"
+              aria-selected={tab === id}
+              data-vault-tab={id}
+              onClick={() => setTab(id)}
+              className={`-mb-px flex items-center gap-1.5 border-b-2 px-3 py-2 text-[13px] ${
+                tab === id ? "border-[var(--c-accent)] font-medium text-[var(--c-text)]" : "border-transparent text-[var(--c-text-muted)] hover:text-[var(--c-text)]"
+              }`}
+            >
+              {label} {extra}
+            </button>
+          ))}
+        </div>
+      )}
+
+      {(isPersonal || tab === "contenu") && (
+        <VaultContents vault={vault} vaults={vaults} onChanged={onStatusChange} onError={onError} onNotify={onNotify} />
+      )}
+
+      {!isPersonal && tab === "securite" && <KeyProvenance keyFrom={vault.keyFrom} members={members} onPinned={() => { reload(); onStatusChange(); }} />}
+
+      {!isPersonal && tab === "membres" && (
+      <div className="max-w-[760px] space-y-1">
         <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">Membres</p>
         {members.map((m) => (
           <div key={m.userId} className="card min-w-0 space-y-1 p-2">
@@ -1177,8 +1221,8 @@ function VaultDetail({ vault, vaults, workspace, onBack, onStatusChange, onError
 
       )}
 
-      {manage && (
-        <div className="space-y-1.5">
+      {manage && tab === "membres" && (
+        <div className="max-w-[760px] space-y-1.5">
           <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">Inviter</p>
           <div className="flex flex-wrap gap-1.5">
             <input value={inviteEmail} onChange={(e) => { setInviteEmail(e.target.value); setLookup(null); }} onKeyDown={(e) => { if (e.key === "Enter") doLookup(); }} placeholder="E-mail" type="email" className={`${inputClass} min-w-[9rem] flex-1`} />
@@ -1233,8 +1277,11 @@ function VaultDetail({ vault, vaults, workspace, onBack, onStatusChange, onError
         </div>
       )}
 
-      {!isPersonal && (
-      <div className="flex flex-wrap justify-end gap-1.5 border-t border-[var(--c-border)] pt-2">
+      {!isPersonal && tab === "securite" && suspended && (
+        <p className="callout callout-danger">Ce vault est revenu en arrière sur le serveur : rien n'est envoyé ni reçu tant que la reprise n'est pas faite (page GuiVault).</p>
+      )}
+      {!isPersonal && tab === "securite" && (
+      <div className="flex flex-wrap gap-1.5 border-t border-[var(--c-border)] pt-3">
         {manage && (
           <button onClick={() => { if (audit === null) api.guivaultVaultAudit(vault.id).then(setAudit).catch((e) => onError(String(e))); else setAudit(null); }} className="btn btn-ghost btn-sm">{audit === null ? "Journal" : "Masquer le journal"}</button>
         )}
@@ -1243,7 +1290,7 @@ function VaultDetail({ vault, vaults, workspace, onBack, onStatusChange, onError
         {vault.role === "owner" && <button onClick={() => setConfirm({ kind: "delete" })} className="btn btn-danger btn-sm">Supprimer le vault</button>}
       </div>
       )}
-      {audit && (
+      {audit && tab === "securite" && (
         <div className="space-y-0.5">
           {audit.length === 0 && <p className="text-[11.5px] text-[var(--c-text-muted)]">Journal vide.</p>}
           {audit.map((e) => (
@@ -1356,63 +1403,95 @@ export function GuiVaultPanel({ workspace, status, onStatusChange, focus, onErro
   const selectedVault = status?.vaults.find((v) => v.id === selected) ?? null;
 
   return (
-    <div className="flex h-full min-w-0 flex-col">
-      <div className="sidebar-scroll -mx-1 min-h-0 min-w-0 flex-1 overflow-y-auto px-1 pb-2">
+    <div data-page="guivault" className="sidebar-scroll h-full overflow-y-auto bg-[var(--c-bg2)]">
+      <div className="mx-auto max-w-[1080px] space-y-5 px-9 py-7">
         {status === null && <p className="text-[12px] text-[var(--c-text-muted)]">Chargement…</p>}
         {status && !status.configured && (
-          <ConnectForm
-            accounts={status.accounts}
-            localCount={workspace.hosts.length + workspace.groups.length + workspace.snippets.length + workspace.keychain.length + workspace.sqlConnections.length}
-            onDone={onStatusChange}
-            onError={onError}
-            onNotify={onNotify}
-          />
+          <div className="mx-auto max-w-[480px] space-y-4">
+            <h1 className="text-[20px] font-semibold text-[var(--c-text)]">GuiVault</h1>
+            <ConnectForm
+              accounts={status.accounts}
+              localCount={workspace.hosts.length + workspace.groups.length + workspace.snippets.length + workspace.keychain.length + workspace.sqlConnections.length}
+              onDone={onStatusChange}
+              onError={onError}
+              onNotify={onNotify}
+            />
+          </div>
         )}
-        {status && status.configured && !status.unlocked && <UnlockForm status={status} onDone={onStatusChange} onError={onError} />}
+        {status && status.configured && !status.unlocked && (
+          <div className="mx-auto max-w-[480px] space-y-4">
+            <h1 className="text-[20px] font-semibold text-[var(--c-text)]">GuiVault</h1>
+            <UnlockForm status={status} onDone={onStatusChange} onError={onError} />
+          </div>
+        )}
         {status && unlocked && selectedVault && (
-          <VaultDetail vault={selectedVault} vaults={status.vaults} workspace={workspace} onBack={() => setSelected(null)} onStatusChange={onStatusChange} onError={onError} onNotify={onNotify} />
+          <VaultDetail vault={selectedVault} vaults={status.vaults} rollbacks={status.rollbacks} workspace={workspace} onBack={() => setSelected(null)} onStatusChange={onStatusChange} onError={onError} onNotify={onNotify} />
         )}
         {status && unlocked && !selectedVault && (
-          <div className="space-y-3">
-            <RollbackAlerts rollbacks={status.rollbacks} onStatusChange={onStatusChange} onError={onError} onNotify={onNotify} />
-            <AccountCard status={status} onStatusChange={onStatusChange} onError={onError} onNotify={onNotify} />
-            <ReceivedInvitations invitations={received} onChange={() => { loadReceived(); onStatusChange(); }} onError={onError} />
-            <div className="space-y-1.5">
-              <div className="flex items-center justify-between">
-                <p className="text-[11px] font-semibold uppercase tracking-wide text-[var(--c-text-secondary)]">Vaults</p>
-                <button onClick={() => setCreating((v) => !v)} className="btn btn-ghost btn-sm"><IconPlus size={12} /> Nouveau</button>
+          <>
+            <div className="flex items-center gap-3">
+              <span className="flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-[var(--c-accent-dim)] text-[15px] font-semibold text-[var(--c-accent-text)]">
+                {(status.email ?? "?").slice(0, 2).toUpperCase()}
+              </span>
+              <div className="min-w-0 flex-1">
+                <h1 className="truncate text-[20px] font-semibold text-[var(--c-text)]">{status.email ?? "GuiVault"}</h1>
+                <p className="mt-0.5 flex items-center gap-2 text-[12.5px] text-[var(--c-text-muted)]">
+                  {status.serverUrl && <span className="font-mono">{status.serverUrl.replace(/^https?:\/\//, "")}</span>}
+                  {status.serverUrl && <span className="text-[var(--c-text-faint)]">·</span>}
+                  <span>{status.viewLocal ? "Profil local affiché" : status.lastSyncAt ? `Synchronisé ${formatWhen(status.lastSyncAt)}` : "Jamais synchronisé"}</span>
+                </p>
               </div>
-              {creating && (
-                <div className="flex gap-1.5">
-                  <input value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") createVault(); if (e.key === "Escape") setCreating(false); }} placeholder="Nom du vault partagé" autoFocus className={`${inputClass} min-w-0 flex-1`} />
-                  <button onClick={createVault} disabled={!newName.trim()} className="btn btn-primary btn-sm">Créer</button>
-                </div>
-              )}
-              <p className="text-[11.5px] text-[var(--c-text-muted)]">Ouvrir un vault pour voir son contenu, en déplacer ou copier une partie ailleurs, ou y ajouter des entités de cet appareil ou d'un autre vault.</p>
-              {status.vaults.map((v) => {
-                const count = accountEntities.filter((e) => (v.kind === "personal" ? e.vaultId === null : e.vaultId === v.id)).length;
-                return (
-                  <button
-                    key={v.id}
-                    type="button"
-                    onClick={() => setSelected(v.id)}
-                    className="card flex w-full min-w-0 flex-wrap items-center gap-x-2 gap-y-1 p-2 text-left hover:bg-[var(--c-hover)]"
-                  >
-                    <IconVault size={14} className="shrink-0 text-[var(--c-text-muted)]" />
-                    <span className="min-w-[6rem] flex-1 truncate text-[12.5px] text-[var(--c-text)]" title={v.name}>{v.name}</span>
-                    <span className="text-[11px] tabular-nums text-[var(--c-text-muted)]" title="Entités dans ce vault">{count}</span>
-                    {v.kind === "shared" && <span className="tag" title={ROLE_HINTS[v.role]}>{ROLE_LABELS[v.role]}</span>}
-                    {v.keyFrom.kind === "member" && !v.keyFromPinnedAs && (
-                      <span className="tag" style={{ color: "var(--c-warn)" }} title="La clé de ce vault vous a été remise par quelqu'un dont vous n'avez pas vérifié l'empreinte — ouvrir le vault pour la vérifier">clé non vérifiée</span>
-                    )}
-                    {status.rollbacks.some((r) => r.vaultId === v.id) && (
-                      <span className="tag text-[var(--c-danger)]" title="Revenu en arrière sur le serveur : synchronisation suspendue">suspendu</span>
-                    )}
-                  </button>
-                );
-              })}
             </div>
-          </div>
+
+            <RollbackAlerts rollbacks={status.rollbacks} onStatusChange={onStatusChange} onError={onError} onNotify={onNotify} />
+
+            <div className="flex items-start gap-5">
+              <div className="min-w-0 flex-1 space-y-5">
+                <ReceivedInvitations invitations={received} onChange={() => { loadReceived(); onStatusChange(); }} onError={onError} />
+                <section className="space-y-2.5" aria-label="Vaults">
+                  <div className="flex items-center justify-between">
+                    <h2 className="text-[15px] font-semibold text-[var(--c-text)]">Vaults</h2>
+                    <button onClick={() => setCreating((v) => !v)} className="btn btn-secondary btn-sm"><IconPlus size={12} /> Nouveau vault</button>
+                  </div>
+                  {creating && (
+                    <div className="flex max-w-[480px] gap-1.5">
+                      <input value={newName} onChange={(e) => setNewName(e.target.value)} onKeyDown={(e) => { if (e.key === "Enter") createVault(); if (e.key === "Escape") setCreating(false); }} placeholder="Nom du vault partagé" autoFocus className={`${inputClass} min-w-0 flex-1`} />
+                      <button onClick={createVault} disabled={!newName.trim()} className="btn btn-primary btn-sm">Créer</button>
+                    </div>
+                  )}
+                  <div className="grid grid-cols-[repeat(auto-fill,minmax(220px,1fr))] gap-3">
+                    {status.vaults.map((v) => {
+                      const entities = accountEntities.filter((e) => (v.kind === "personal" ? e.vaultId === null : e.vaultId === v.id));
+                      const suspended = status.rollbacks.some((r) => r.vaultId === v.id);
+                      const unverified = v.keyFrom.kind === "member" && !v.keyFromPinnedAs;
+                      return (
+                        <button
+                          key={v.id}
+                          type="button"
+                          onClick={() => setSelected(v.id)}
+                          data-vault-card={v.name}
+                          className={`card flex min-w-0 flex-col gap-3 p-4 text-left hover:bg-[var(--c-hover)] ${suspended ? "border-[color-mix(in_srgb,var(--c-danger)_45%,transparent)]" : ""}`}
+                        >
+                          <span className="flex min-w-0 items-center gap-2">
+                            <IconVault size={14} className="shrink-0 text-[var(--c-text-muted)]" />
+                            <span className="min-w-0 flex-1 truncate text-[13.5px] font-semibold text-[var(--c-text)]" title={v.name}>{v.name}</span>
+                            <span className="chip" title={ROLE_HINTS[v.role]}>{v.kind === "personal" ? "Vous seul" : ROLE_LABELS[v.role]}</span>
+                          </span>
+                          <span className="text-[12px] text-[var(--c-text-muted)]">{entities.length} élément{entities.length > 1 ? "s" : ""}</span>
+                          <span className={`text-[12px] ${suspended ? "text-[var(--c-danger)]" : unverified ? "text-[var(--c-warn)]" : "text-[var(--c-ok)]"}`}>
+                            {suspended ? "Synchro suspendue" : unverified ? "Clé remise par une empreinte non vérifiée" : "À jour"}
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              </div>
+              <aside className="w-[340px] shrink-0" aria-label="Compte et appareil">
+                <AccountCard status={status} onStatusChange={onStatusChange} onError={onError} onNotify={onNotify} />
+              </aside>
+            </div>
+          </>
         )}
       </div>
     </div>

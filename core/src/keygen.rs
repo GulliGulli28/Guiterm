@@ -67,6 +67,41 @@ pub fn public_key_line(private_pem: &str, passphrase: Option<&str>) -> anyhow::R
         .map_err(|e| anyhow::anyhow!("encodage de la clé publique impossible : {e}"))
 }
 
+/// Ce que la page Clés montre d'une clé du trousseau sans la déchiffrer :
+/// son type, son empreinte et sa ligne publique.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyInfo {
+    /// « ed25519 », « RSA 4096 », « ECDSA »…
+    pub algorithm: String,
+    /// Empreinte SHA-256, au format d'OpenSSH (`SHA256:…`).
+    pub fingerprint: String,
+    /// La ligne `authorized_keys` (sans commentaire).
+    pub public_key: String,
+}
+
+/// Décrit une clé privée (PEM ou OpenSSH). La partie publique d'une clé
+/// OpenSSH se lit sans la passphrase ; un PEM chiffré en demande une. `None`
+/// si la clé ne se lit pas — le fichier a disparu, ou la passphrase manque.
+pub fn describe(private_key: &str, passphrase: Option<&str>) -> Option<KeyInfo> {
+    use russh::keys::ssh_key::{Algorithm, HashAlg, PublicKey};
+    let public: PublicKey = crate::ssh_agent::keyring::public_key(private_key, passphrase)?;
+    let algorithm = match public.algorithm() {
+        Algorithm::Ed25519 => "ed25519".to_string(),
+        Algorithm::Rsa { .. } => match public.key_data().rsa() {
+            Some(rsa) => format!("RSA {}", rsa.key_size()),
+            None => "RSA".to_string(),
+        },
+        Algorithm::Ecdsa { .. } => "ECDSA".to_string(),
+        other => other.as_str().trim_start_matches("ssh-").to_string(),
+    };
+    Some(KeyInfo {
+        algorithm,
+        fingerprint: public.fingerprint(HashAlg::Sha256).to_string(),
+        public_key: public.to_openssh().ok()?,
+    })
+}
+
 /// Computes the new `authorized_keys` content after adding `public_key_line`,
 /// or `None` if the key (by key material, ignoring the comment) is already
 /// present and the file doesn't need to change. Pure and I/O-free so the
@@ -146,6 +181,30 @@ mod tests {
 
         let derived = public_key_line(&generated.private_pem, Some("hunter2")).expect("derive public");
         assert_eq!(derived, generated.public_line);
+    }
+
+    #[test]
+    fn describe_reads_an_encrypted_openssh_key_without_its_passphrase() {
+        // C'est ce qui permet à la page Clés d'afficher type et empreinte
+        // d'une clé protégée, sans rien demander.
+        let generated = generate(KeyAlgorithm::Ed25519, "perso", Some("phrase")).expect("generate");
+        let info = describe(&generated.private_pem, None).expect("décrite sans passphrase");
+        assert_eq!(info.algorithm, "ed25519");
+        assert!(info.fingerprint.starts_with("SHA256:"), "{}", info.fingerprint);
+        assert!(generated.public_line.starts_with(&info.public_key), "{} / {}", info.public_key, generated.public_line);
+    }
+
+    #[test]
+    fn describe_gives_the_rsa_size() {
+        let generated = generate(KeyAlgorithm::Rsa, "rsa", None).expect("generate");
+        let info = describe(&generated.private_pem, None).expect("décrite");
+        assert!(info.algorithm.starts_with("RSA "), "{}", info.algorithm);
+        assert!(info.algorithm.trim_start_matches("RSA ").parse::<usize>().unwrap() >= 2048, "{}", info.algorithm);
+    }
+
+    #[test]
+    fn describe_refuses_garbage() {
+        assert_eq!(describe("pas une clé", None), None);
     }
 
     const KEY_A: &str = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA1234 alice@laptop";

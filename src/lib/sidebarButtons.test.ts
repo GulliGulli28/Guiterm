@@ -13,7 +13,6 @@ import {
 // attrape alors l'oubli symétrique dans `SIDEBAR_BUTTONS`. C'est le seul
 // moyen d'énumérer une union de littéraux à l'exécution.
 const EVERY_BUTTON: Record<SidebarButtonId, true> = {
-  knownHosts: true,
   hosts: true,
   sftp: true,
   snippets: true,
@@ -30,19 +29,15 @@ const EVERY_BUTTON: Record<SidebarButtonId, true> = {
 // Même chose côté panneaux : un `SidebarPanelKind` sans bouton serait un
 // panneau qu'aucun clic n'atteint — la façon exacte dont MongoDB était devenu
 // inatteignable.
-const EVERY_PANEL: Record<Exclude<SidebarPanelKind, "settings">, true> = {
-  knownHosts: true,
+const EVERY_PANEL: Record<SidebarPanelKind, true> = {
   hosts: true,
   sftp: true,
   snippets: true,
   tunnels: true,
   database: true,
-  keychain: true,
-  aws: true,
   fleet: true,
   runbook: true,
   netdiag: true,
-  guivault: true,
 };
 
 describe("catalogue des boutons de barre latérale", () => {

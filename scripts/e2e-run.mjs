@@ -3846,14 +3846,11 @@ async function runFleetTabScenario(browser) {
  */
 async function runSidebarPanelsScenario(browser) {
   const panels = [
-    ["knownHosts", "Known Hosts"],
     ["hosts", "Hôtes"],
     ["sftp", "SFTP"],
     ["snippets", "Snippets"],
     ["tunnels", "Tunnels"],
     ["database", "Bases de données"],
-    ["keychain", "Clés"],
-    ["aws", "Identités AWS"],
     // Ces deux-là ouvrent aussi leur onglet de travail (voir `Sidebar.tsx`) ;
     // ce qui est vérifié ici est seulement que leur panneau monte.
     ["fleet", "Opérations de flotte"],
@@ -3880,12 +3877,13 @@ async function runSidebarPanelsScenario(browser) {
 
   // Les pages (`lib/pages.ts`) : le bouton ouvre un onglet unique, qui rend
   // du contenu, et le panneau latéral se replie le temps qu'il est affiché.
-  const pages = ["settings", "activity"];
-  for (const page of pages) {
-    await browser.execute((p) => {
-      const btn = document.querySelector(`aside nav button[data-sidebar-button="${p}"]`);
+  // [bouton du rail, page qu'il ouvre]
+  const pages = [["settings", "settings"], ["activity", "activity"], ["keychain", "keys"], ["aws", "cloud"], ["guivault", "guivault"]];
+  for (const [button, page] of pages) {
+    await browser.execute((b) => {
+      const btn = document.querySelector(`aside nav button[data-sidebar-button="${b}"]`);
       if (btn instanceof HTMLElement) btn.click();
-    }, page);
+    }, button);
     await browser.waitUntil(async () => await browser.execute((p) => {
       const host = document.querySelector(`[data-page="${p}"]`);
       const panelWidth = document.querySelector("[data-sidebar-panel]")?.parentElement?.getBoundingClientRect().width;
@@ -4396,7 +4394,8 @@ async function runAwsIdentitiesPanelScenario(browser) {
     Array.from(document.querySelectorAll("button")).some((b) => b.textContent?.trim() === "Nouvelle session SSO")
   ), { timeout: 10_000, timeoutMsg: "l onglet Identités AWS ne rend rien — onglet inerte ou panneau jamais monté" });
 
-  const panelText = () => browser.execute(() => document.querySelector("aside")?.textContent ?? "");
+  // Une page depuis la tranche 5 : son texte est dans la zone principale.
+  const panelText = () => browser.execute(() => document.querySelector("[data-page='cloud']")?.textContent ?? "");
   await browser.waitUntil(async () => {
     const text = await panelText();
     return text.includes("Aucune identité AWS")
@@ -5029,21 +5028,12 @@ async function runHomeScenario(browser) {
   if (!preview.ok) throw new Error(`preview_ssh_config_import : ${JSON.stringify(preview)}`);
 
   // La fenêtre d'import : depuis l'accueil au premier lancement, depuis le
-  // panneau Known Hosts sinon — les deux ouvrent « Importer des hôtes » sur
-  // `~/.ssh/config`.
+  // menu « Ajouter… » du panneau Hôtes sinon — les deux ouvrent « Importer
+  // des hôtes » sur `~/.ssh/config`.
   if (variant === "first-launch") {
     await browser.execute(() => document.querySelector("[data-welcome-choice='ssh-config'] button")?.click());
   } else {
-    await browser.execute(() => {
-      const btn = Array.from(document.querySelectorAll("aside nav button"))
-        .find((b) => b.getAttribute("data-sidebar-button") === "knownHosts");
-      if (btn instanceof HTMLElement) btn.click();
-    });
-    await browser.waitUntil(async () => await browser.execute(() =>
-      Array.from(document.querySelectorAll("button")).some((b) => b.textContent?.includes("Importer ~/.ssh/config"))
-    ), { timeout: 5_000, timeoutMsg: "le panneau Known Hosts n offre pas l import" });
-    await browser.execute(() => Array.from(document.querySelectorAll("button"))
-      .find((b) => b.textContent?.includes("Importer ~/.ssh/config"))?.click());
+    await openImportSource(browser, "sshConfig");
   }
   await browser.waitUntil(async () => await browser.execute(() => {
     const source = document.querySelector("[data-import-source='sshConfig'][aria-checked='true'] [data-import-status]");
@@ -5315,13 +5305,13 @@ async function runGuiVaultPanelScenario(browser) {
     if (tab instanceof HTMLElement) tab.click();
   });
   await browser.waitUntil(async () => await browser.execute(() => {
-    const panel = document.querySelector('[data-sidebar-panel="guivault"]');
+    const panel = document.querySelector('[data-page="guivault"]');
     if (!panel) return false;
     const text = panel.textContent || "";
     // Not configured: the connect form. Configured: the account card or the
     // unlock form. Any of the three proves the panel mounted with content.
     return text.includes("Se connecter") || text.includes("Synchroniser") || text.includes("Déverrouiller");
-  }), { timeout: 10_000, timeoutMsg: "le panneau GuiVault ne s est pas charge (ni formulaire de connexion, ni compte)" });
+  }), { timeout: 10_000, timeoutMsg: "la page GuiVault ne s est pas chargée (ni formulaire de connexion, ni compte)" });
   console.log(`GuiVault : OK (guivault_status répond — ${status.configured ? "compte configuré" : "aucun compte"}, ${listed.count} entité(s) listée(s), panneau atteignable).`);
 
   // « Coller depuis GuiVault » : la commande répond sur l'IPC — la liste

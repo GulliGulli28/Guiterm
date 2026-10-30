@@ -1,3 +1,4 @@
+import type { PageKind } from "./pages";
 /** Les panneaux de la barre latérale.
  *
  * Défini ici plutôt que dans `Sidebar.tsx` : ce fichier, le registre de
@@ -5,8 +6,8 @@
  * composant obligeait `lib/` à type-dépendre de `components/` — la mauvaise
  * direction. `Sidebar.tsx` n'est plus qu'un consommateur parmi d'autres. */
 export type SidebarPanelKind =
-  | "knownHosts" | "hosts" | "sftp" | "snippets" | "tunnels"
-  | "keychain" | "database" | "aws" | "fleet" | "runbook" | "netdiag" | "guivault";
+  | "hosts" | "sftp" | "snippets" | "tunnels"
+  | "database" | "fleet" | "runbook" | "netdiag";
 
 /** Boutons de la barre verticale de gauche que l'utilisateur peut masquer.
  *
@@ -23,7 +24,7 @@ export type SidebarPanelKind =
  * contrairement à ce que ferait une vraie désactivation de module
  * (cf. `docs/architecture-extensions.md`, étape 3).
  */
-export type SidebarButtonId = SidebarPanelKind;
+export type SidebarButtonId = SidebarPanelKind | "keychain" | "aws" | "guivault";
 
 /** Les trois groupes du rail, de haut en bas : ce qu'on parcourt pour se
  * connecter, les outils qui travaillent sur plusieurs machines, puis le
@@ -41,6 +42,8 @@ export interface SidebarButtonDef {
   /** Complément d'infobulle, pour les boutons dont le libellé seul ne dit pas
    * ce qu'ils ouvrent. */
   hint?: string;
+  /** Le bouton ouvre une page (`lib/pages.ts`), pas un panneau. */
+  page?: PageKind;
 }
 
 /** Ordre d'affichage dans le rail — et dans la liste des réglages, pour la
@@ -53,13 +56,12 @@ export const SIDEBAR_BUTTONS: readonly SidebarButtonDef[] = [
   { id: "snippets",   label: "Snippets", short: "Snippets", group: "connexions" },
   { id: "database",   label: "Bases de données", short: "Bases", group: "connexions" },
   { id: "tunnels",    label: "Tunnels", short: "Tunnels", group: "connexions" },
-  { id: "keychain",   label: "Clés", short: "Clés", group: "connexions" },
-  { id: "knownHosts", label: "Known Hosts", short: "Empreintes", group: "connexions", hint: "empreintes des hôtes déjà vus" },
-  { id: "aws",        label: "Identités AWS", short: "Cloud", group: "connexions" },
+  { id: "keychain",   label: "Clés", short: "Clés", group: "connexions", hint: "clés, empreintes des hôtes et agent SSH", page: "keys" },
+  { id: "aws",        label: "Identités cloud", short: "Cloud", group: "connexions", hint: "sessions AWS, Google Cloud et Azure", page: "cloud" },
   { id: "fleet",      label: "Opérations de flotte", short: "Flotte", group: "outils", hint: "exécuter une commande sur plusieurs hôtes à la fois" },
   { id: "runbook",    label: "Runbooks", short: "Runbooks", group: "outils", hint: "des procédures ordonnées, étape par étape, sur les mêmes cibles" },
   { id: "netdiag",    label: "Diagnostic réseau", short: "Réseau", group: "outils", hint: "ping, traceroute, DNS, TCP, HTTP depuis ou vers vos hôtes" },
-  { id: "guivault",   label: "GuiVault", short: "GuiVault", group: "compte", hint: "synchronisation chiffrée et vaults partagés avec votre équipe" },
+  { id: "guivault",   label: "GuiVault", short: "GuiVault", group: "compte", hint: "synchronisation chiffrée et vaults partagés avec votre équipe", page: "guivault" },
 ];
 
 /** `hosts` est le point d'entrée : sans lui, plus rien ne permet d'ouvrir une
@@ -80,6 +82,12 @@ export function isSidebarButtonVisible(
  * ainsi un panneau masqué dans une session précédente — ou masqué pendant
  * qu'il était ouvert — retombe sur « Hôtes » sans qu'un état incohérent puisse
  * survivre à un rechargement. */
+/** Le panneau qu'ouvre ce bouton, ou `null` pour un bouton de page. */
+export function panelOf(id: SidebarButtonId): SidebarPanelKind | null {
+  const def = SIDEBAR_BUTTONS.find((b) => b.id === id);
+  return def?.page ? null : (id as SidebarPanelKind);
+}
+
 export function resolveVisiblePanel(
   panel: SidebarPanelKind,
   hidden: readonly SidebarButtonId[],

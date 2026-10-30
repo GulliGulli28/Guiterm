@@ -77,6 +77,36 @@ pub fn generate_private_key(
     Ok(workspace.clone())
 }
 
+/// Ce que la page Clés affiche d'une clé : type, empreinte, ligne publique,
+/// et si sa passphrase est au coffre.
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct KeyDescription {
+    pub id: KeyId,
+    /// `None` : la clé ne se lit pas (fichier disparu, PEM chiffré sans
+    /// passphrase enregistrée). La page le dit plutôt que de cacher la clé.
+    pub info: Option<keygen::KeyInfo>,
+    pub passphrase_stored: bool,
+}
+
+/// Toutes les clés du trousseau, décrites. Sans erreur globale : une clé
+/// illisible n'empêche pas de voir les autres.
+#[tauri::command]
+pub fn describe_keys(state: State<'_, AppState>) -> Vec<KeyDescription> {
+    let keys = state.workspace.lock_recover().keychain.clone();
+    keys.iter()
+        .map(|key| {
+            let passphrase = vault::load(key.id, SecretKind::KeyPassphrase).ok().flatten();
+            KeyDescription {
+                id: key.id,
+                info: termius_core::ssh_agent::keyring::key_content(key)
+                    .and_then(|content| keygen::describe(&content, passphrase.as_deref())),
+                passphrase_stored: passphrase.is_some(),
+            }
+        })
+        .collect()
+}
+
 #[tauri::command]
 pub fn get_public_key(state: State<'_, AppState>, key_id: KeyId) -> Result<String, String> {
     let workspace = state.workspace.lock_recover();

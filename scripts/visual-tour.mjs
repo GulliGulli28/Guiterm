@@ -164,14 +164,33 @@ const scenes = [
   }],
   ["05-snippets", async (page) => { await clickNav(page, "Snippets"); }],
   ["06-tunnels", async (page) => { await clickNav(page, "Tunnels"); }],
-  ["07-cles", async (page) => { await clickNav(page, "Clés"); }],
+  // Clés et empreintes : une page, le tableau des clés et leur détail.
+  ["07-cles", async (page) => {
+    await clickNav(page, "Clés");
+    await page.waitForSelector("[data-page='keys'] [data-key-row]", { timeout: 5_000 });
+    const rows = await page.evaluate(() => Array.from(document.querySelectorAll("[data-key-row]"), (r) => r.textContent ?? ""));
+    if (rows.length !== 2 || !/SHA256:Hk2Lr8pW…9QaE/.test(rows[1]) || !/web-01, pg-primary/.test(rows[1])) throw new Error(`tableau des clés : ${JSON.stringify(rows)}`);
+    await page.locator("[data-key-row='deploy-prod']").click();
+    await page.waitForSelector("[data-key-detail]", { timeout: 5_000 });
+    await settle(page, 300);
+  }],
   ["08-bases", async (page) => { await clickNav(page, "Bases de données"); }],
-  ["09-known-hosts", async (page) => { await clickNav(page, "Known Hosts"); }],
+  // Les empreintes d'hôtes (ex-panneau Known Hosts) : l'empreinte est
+  // calculée comme le fait ssh-keygen.
+  ["09-known-hosts", async (page) => {
+    await clickNav(page, "Clés");
+    await page.locator("[data-keys-tab='hosts']").click();
+    await page.waitForFunction(() => document.querySelectorAll("[data-known-host]").length === 2 && !document.querySelector("[data-known-hosts-table]")?.textContent?.includes("…"), null, { timeout: 5_000 });
+    await settle(page, 200);
+  }],
   // L'import de ~/.ssh/config reconnaît ce qui est déjà là et ne le recoche
   // pas. Il s'ouvre dans la fenêtre « Importer des hôtes », dont la colonne de
   // gauche dit d'avance où en est chaque source.
   ["09b-import-ssh-config", async (page) => {
-    await page.getByRole("button", { name: /Importer ~\/\.ssh\/config/ }).click();
+    await clickNav(page, "Hôtes");
+    await page.getByRole("button", { name: /^Ajouter/ }).first().click();
+    await page.getByRole("button", { name: "Importer des hôtes…" }).click();
+    await page.locator("[data-import-source='sshConfig']").click();
     await page.waitForSelector("[data-import-hosts] [data-import-source='sshConfig'][aria-checked='true']", { timeout: 5_000 });
     await page.waitForSelector("[data-ssh-config-import] tr[data-alias]", { timeout: 5_000 });
     const rows = await page.evaluate(() => Array.from(document.querySelectorAll("[data-ssh-config-import] tr[data-alias]")).map((tr) => ({
@@ -410,11 +429,14 @@ const scenes = [
   ["32-guivault", async (page) => {
     await clickNav(page, "GuiVault");
     await settle(page, 500);
+    // Une page : les vaults en cartes, le compte et l'appareil à droite.
+    const cards = await page.evaluate(() => Array.from(document.querySelectorAll("[data-page='guivault'] [data-vault-card]"), (c) => c.getAttribute("data-vault-card")));
+    if (!cards.includes("Équipe infra") || cards.length < 3) throw new Error(`cartes de vaults : ${JSON.stringify(cards)}`);
   }],
   // Le contenu d'un vault : arborescence à cocher, barre de sélection avec
   // Déplacer / Copier / Supprimer. Cocher un dossier coche son sous-arbre.
   ["33-guivault-vault", async (page) => {
-    await page.locator("[data-sidebar-panel] button", { hasText: "Équipe infra" }).first().click();
+    await page.locator("[data-page='guivault'] [data-vault-card='Équipe infra']").click();
     await settle(page, 600);
     await page.locator('[data-vault-tree] input[aria-label="Tout sélectionner — Production"]').click();
     await settle(page, 300);
@@ -464,7 +486,7 @@ const scenes = [
     await page.keyboard.press("Escape");
     await settle(page, 300);
     if (await page.locator("[data-transfer-confirm]").count()) throw new Error("Échap n'a pas fermé la confirmation");
-    await page.getByRole("button", { name: /Ajouter…/ }).first().click();
+    await page.locator("[data-page='guivault'] button", { hasText: "Ajouter…" }).first().click();
     await settle(page, 600);
     const dialog = await page.evaluate(() => {
       const d = document.querySelector("[data-vault-add-dialog]");
@@ -497,7 +519,7 @@ const scenes = [
     await settle(page, 500);
   }],
   ["35-guivault-etroit-compte", async (page) => {
-    await page.getByRole("button", { name: /Vaults/ }).first().click();
+    await page.locator("[data-vault-back]").click();
     await settle(page, 300);
     await page.getByRole("button", { name: /Plus d'options/ }).first().click();
     await settle(page, 500);
@@ -520,7 +542,7 @@ const scenes = [
     await settle(page, 400);
   }],
   ["37-guivault-minimal-vault", async (page) => {
-    await page.locator("[data-sidebar-panel] button", { hasText: "Équipe infra" }).first().click();
+    await page.locator("[data-page='guivault'] [data-vault-card='Équipe infra']").click();
     await settle(page, 600);
   }],
   ["38-hotes-minimal-vaults", async (page) => {
@@ -627,7 +649,7 @@ const scenes = [
     await settle(page, 300);
     await page.locator('[role="menu"] [role="menuitem"]', { hasText: "Ouvrir le vault" }).click();
     await settle(page, 600);
-    const title = await page.evaluate(() => document.querySelector('[data-sidebar-panel="guivault"]')?.textContent ?? "");
+    const title = await page.evaluate(() => document.querySelector('[data-page="guivault"]')?.textContent ?? "");
     if (!/Équipe infra/.test(title) || !/Membres/.test(title)) throw new Error("le détail du vault ne s'est pas ouvert");
   }],
   // Clés, snippets, bases : les mêmes dossiers de vault.
@@ -640,8 +662,10 @@ const scenes = [
   ["41-cles-vaults", async (page) => {
     await clickNav(page, "Clés");
     await settle(page, 300);
-    const sections = await page.evaluate(() => Array.from(document.querySelectorAll('[data-sidebar-panel="keychain"] [data-vault-section]')).map((e) => e.getAttribute("data-vault-section")));
-    if (!sections.includes("Lecture seule — prod bancaire")) throw new Error(`dossiers de vault (clés) : ${JSON.stringify(sections)}`);
+    // La page Clés dit dans quel vault chaque clé est rangée.
+    const placed = await page.evaluate(() => document.querySelector("[data-key-row='deploy-prod']")?.textContent ?? "");
+    if (!placed.includes("Lecture seule — prod bancaire")) throw new Error(`vault d'une clé : ${placed}`);
+    await clickNav(page, "Hôtes");
     // Le profil affiché est global : il vit dans le menu du compte, en bas
     // du rail, et il dit l'état du compte.
     await page.locator("[data-account-menu]").click();
@@ -937,6 +961,8 @@ const scenes = [
   // coffre, un accès du coffre s'écrit dans ~/.aws/config.
   ["50-aws-guivault", async (page) => {
     await page.locator("[data-sidebar-button='aws']").first().click();
+    // Une page : AWS, et l'état de gcloud et az dans leurs onglets.
+    await page.waitForSelector("[data-page='cloud'] [data-cloud-tab='gcp']", { timeout: 5_000 });
     await page.getByText("Dans GuiVault").first().waitFor({ timeout: 5_000 });
     await page.getByRole("button", { name: "Enregistrer org dans GuiVault" }).click();
     await page.getByText("« AWS — org » enregistré dans Personnel (2 profils).").waitFor({ timeout: 5_000 });
@@ -993,16 +1019,18 @@ const scenes = [
   ["48-clavier-tous-les-panneaux", async (page) => {
     const panel = () => page.evaluate(() => document.querySelector("[data-sidebar-panel]")?.getAttribute("data-sidebar-panel"));
     const zone = () => page.evaluate(() => document.activeElement?.getAttribute("data-focus-zone"));
-    await page.keyboard.press("Alt+0");
+    // Neuvième bouton : Runbooks (Known Hosts a rejoint la page Clés).
+    await page.keyboard.press("Alt+9");
     await settle(page, 400);
-    if ((await panel()) !== "runbook") throw new Error(`Alt+0 devrait ouvrir le dixième panneau (Runbooks) : ${await panel()}`);
-    if ((await zone()) !== "sidebar-panel") throw new Error("Alt+0 n'a pas donné le focus au panneau");
+    if ((await panel()) !== "runbook") throw new Error(`Alt+9 devrait ouvrir le neuvième panneau (Runbooks) : ${await panel()}`);
+    if ((await zone()) !== "sidebar-panel") throw new Error("Alt+9 n'a pas donné le focus au panneau");
+    await page.keyboard.press("Alt+0");
+    await settle(page, 500);
+    if ((await panel()) !== "netdiag") throw new Error(`Alt+0 devrait ouvrir le dixième panneau (Réseau) : ${await panel()}`);
+    // Le bouton suivant est GuiVault, une page ; Alt+Page préc. en revient.
     await page.keyboard.press("Alt+PageDown");
     await settle(page, 500);
-    if ((await panel()) !== "netdiag") throw new Error(`Alt+Page suiv. : ${await panel()}`);
-    await page.keyboard.press("Alt+PageDown");
-    await settle(page, 500);
-    if ((await panel()) !== "guivault") throw new Error(`Alt+Page suiv. ×2 : ${await panel()}`);
+    if (!(await page.locator("[data-page='guivault']").isVisible())) throw new Error(`Alt+Page suiv. n'a pas ouvert la page GuiVault`);
     await page.keyboard.press("Alt+PageUp");
     await settle(page, 400);
     if ((await panel()) !== "netdiag") throw new Error(`Alt+Page préc. : ${await panel()}`);
@@ -1012,14 +1040,20 @@ const scenes = [
     await page.keyboard.type("panneau");
     await settle(page, 200);
     const rows = await page.evaluate(() => Array.from(document.querySelectorAll(".modal button")).map((b) => b.querySelector("span")?.textContent ?? ""));
-    for (const expected of ["Panneau — Runbooks", "Panneau — Diagnostic réseau", "Panneau — GuiVault"]) {
+    for (const expected of ["Panneau — Runbooks", "Panneau — Diagnostic réseau"]) {
       if (!rows.includes(expected)) throw new Error(`« ${expected} » absent de la palette : ${JSON.stringify(rows)}`);
     }
-    await page.keyboard.type(" clés");
+    // Clés est une page : la palette l'ouvre aussi, par son nom.
+    await page.keyboard.press("Escape");
+    await page.keyboard.press("Control+k");
+    await settle(page, 300);
+    await page.keyboard.type("page clés");
     await settle(page, 200);
     await page.keyboard.press("Enter");
     await settle(page, 500);
-    if ((await panel()) !== "keychain" || (await zone()) !== "sidebar-panel") throw new Error(`la palette n'a pas ouvert et focalisé le panneau : ${await panel()} / ${await zone()}`);
+    if (!(await page.locator("[data-page='keys']").isVisible())) throw new Error("la palette n'a pas ouvert la page Clés");
+    await page.keyboard.press("Alt+1");
+    await settle(page, 300);
   }],
   // Dans la bande, Entrée ouvre le panneau **et y va** ; dans les
   // Paramètres, ↑/↓ et Entrée passent d'une catégorie à l'autre.

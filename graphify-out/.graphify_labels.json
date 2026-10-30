@@ -257,7 +257,13 @@
   "255": "check_drift",
   "256": "run",
   "257": "RedisSession",
+  "258": "irreversible_operations",
+  "259": "quote",
   "260": "Self",
   "261": ".put_item",
-  "268": "permissionDenied.ts"
+  "262": "ShellSession",
+  "263": ".new_server",
+  "264": "RedisSession",
+  "265": "[Unreleased]",
+  "266": ".duplicate_host"
 }

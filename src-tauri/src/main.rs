@@ -283,6 +283,7 @@ fn main() {
             commands::keys::suggest_certificate_path,
             commands::keys::generate_private_key,
             commands::keys::get_public_key,
+            commands::keys::describe_keys,
             commands::keys::deploy_public_key,
 
             // ── module « aws » ───────────────────────────────────────────

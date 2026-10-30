@@ -1,11 +1,11 @@
 import { Suspense, useRef, type ComponentType } from "react";
 import { useRowNavigation } from "../hooks/useRowNavigation";
 import { alertTone, describeAlert } from "../lib/awsIdentities";
-import { SIDEBAR_BUTTONS, isSidebarButtonVisible, type SidebarButtonDef, type SidebarButtonId, type SidebarPanelKind } from "../lib/sidebarButtons";
+import { SIDEBAR_BUTTONS, isSidebarButtonVisible, panelOf, type SidebarButtonDef, type SidebarButtonId, type SidebarPanelKind } from "../lib/sidebarButtons";
 
 import { renderModulePanel } from "../modules/registry";
 import type { AppContext, SidebarActions } from "../modules/types";
-import { IconHosts, IconSnippets, IconTunnels, IconKeychain, IconSettings, IconTransfer, IconShield, IconDatabase, IconFleet, IconCloud, IconNetDiag, IconRunbook, IconVault, IconActivity } from "./ui-icons";
+import { IconHosts, IconSnippets, IconTunnels, IconKeychain, IconSettings, IconTransfer, IconDatabase, IconFleet, IconCloud, IconNetDiag, IconRunbook, IconVault, IconActivity } from "./ui-icons";
 import { TabLoadingFallback } from "./TabLoadingFallback";
 import { profileBarNeeded } from "./ProfileBar";
 import { AccountMenu } from "./AccountMenu";
@@ -39,7 +39,6 @@ interface SidebarProps {
 // l'icône. Le `Record` rend l'oubli impossible : ajouter un bouton sans son
 // icône est une erreur `tsc`.
 const BUTTON_ICONS: Record<SidebarButtonId, ComponentType<{ size?: number }>> = {
-  knownHosts: IconShield,
   hosts:      IconHosts,
   sftp:       IconTransfer,
   snippets:   IconSnippets,
@@ -144,12 +143,16 @@ export function Sidebar({ panel, onPanelChange, panelVisible: panelOpen, onPanel
   // travail : le panneau ne porte que le choix des cibles, l'ouvrir seul
   // donnerait un cul-de-sac.
   const activate = (id: SidebarButtonId, byMouse: boolean) => {
-    if (activePage) onLeavePage(id);
-    else if (byMouse && panelVisible && panel === id) {
+    const page = SIDEBAR_BUTTONS.find((b) => b.id === id)?.page;
+    if (page) { onOpenPage(page); return; }
+    const target = panelOf(id);
+    if (!target) return;
+    if (activePage) onLeavePage(target);
+    else if (byMouse && panelVisible && panel === target) {
       onPanelVisibleChange(false);
       return;
     }
-    onPanelChange(id);
+    onPanelChange(target);
     onPanelVisibleChange(true);
     if (id === "fleet") actions.openFleet();
     if (id === "netdiag") actions.openNetDiag();
@@ -173,7 +176,7 @@ export function Sidebar({ panel, onPanelChange, panelVisible: panelOpen, onPanel
         // The reason goes in the tooltip rather than the badge: a bare dot
         // says "something", and the hosts are what makes it a decision.
         title={alerting ? [b.label, ...actions.awsAlerts.map(describeAlert)].join("\n") : label}
-        active={panelVisible && panel === b.id}
+        active={b.page ? activePage === b.page : panelVisible && panel === b.id}
         onClick={(byMouse) => activate(b.id, byMouse)}
         alert={alerting ? tone : null}
         data-sidebar-button={b.id}
@@ -231,12 +234,11 @@ export function Sidebar({ panel, onPanelChange, panelVisible: panelOpen, onPanel
                   } else {
                     // Un autre compte : il faut s'y connecter, c'est le panneau
                     // GuiVault qui le propose (déconnexion du courant comprise).
-                    onPanelChange("guivault");
-                    onPanelVisibleChange(true);
+                    onOpenPage("guivault");
                   }
                 }}
                 onSyncNow={() => api.guivaultSync().then(actions.onGuivaultStatusChange).catch((e) => ctx.reportError(String(e)))}
-                onOpenGuiVault={() => { onPanelChange("guivault"); onPanelVisibleChange(true); }}
+                onOpenGuiVault={() => onOpenPage("guivault")}
               />
             </div>
           )}

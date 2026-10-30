@@ -841,6 +841,15 @@ export interface GuiVaultSession {
   current: boolean;
 }
 
+/** Une clé du trousseau décrite pour la page Clés — miroir de
+ * `commands::keys::KeyDescription`. `info` est absent quand la clé ne se lit
+ * pas (fichier disparu, PEM chiffré sans passphrase enregistrée). */
+export interface KeyDescription {
+  id: KeyId;
+  info: { algorithm: string; fingerprint: string; publicKey: string } | null;
+  passphraseStored: boolean;
+}
+
 export interface KnownHostEntry {
   identity: string;
   label: string;
