@@ -812,7 +812,7 @@ elle existe probablement déjà.**
 dans la mémoire long-terme `infra-control-plane-pivot.md` et dans
 `docs/dev-history.md`) :
 - **Refonte de l'interface** — maquettes validées le 2026-10-27, en cours
-  d'implémentation par tranches (0 à 3 livrées le 2026-10-28) : décisions,
+  d'implémentation par tranches (0 à 4 livrées le 2026-10-28) : décisions,
   constats à corriger et plan dans `docs/refonte-ui.md`. Tant qu'elle n'est
   pas finie, un écran retouché suit les maquettes du canevas « Guiterm —
   Refonte UI », pas l'ancien style. Ce que les maquettes montrent et que

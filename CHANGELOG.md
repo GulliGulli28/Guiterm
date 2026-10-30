@@ -9,7 +9,39 @@ This changelog starts 2026-07-21 — for earlier versions, see
 
 ## [Unreleased]
 
+### Added
+
+- **Formulaire d'hôte : « Tester la connexion ».** Se connecte avec ce qui
+  est saisi, même avant d'enregistrer, et avec le mot de passe tapé — sans
+  rien garder : ni l'hôte, ni le secret, ni la clé de l'hôte. Une réussite
+  donne la durée et l'empreinte (déjà connue ou nouvelle) ; un échec nomme
+  l'étape (nom, port, poignée de main, clé de l'hôte, authentification,
+  bastion) et ouvre la section du formulaire qui peut le corriger.
+- **Formulaire d'hôte : l'équivalent en ligne de commande**, copiable, mis à
+  jour à chaque champ. « Copier la commande ssh » du menu d'un hôte reprend
+  désormais aussi la clé, le certificat, la commande de proxy, le transfert
+  d'agent et le keepalive.
+- **Connexions de base de données rangées dans un dossier** : le formulaire
+  a un champ Dossier, et le panneau Bases affiche le dossier de chaque
+  connexion.
+
+### Changed
+
+- **Les formulaires d'hôte, de dossier et de connexion s'ouvrent dans un
+  tiroir** par-dessus la zone principale, au lieu de la colonne de droite.
+  Le formulaire d'hôte est découpé en sections (Connexion, Authentification,
+  Réseau, Session, Organisation), chacune résumée dans la navigation ; une
+  erreur ouvre la section du champ en cause. Échap annule, Ctrl+S
+  enregistre.
+
 ### Fixed
+
+- **Formulaire d'un hôte RDP** : il proposait encore « Transférer l'agent
+  SSH » et parlait du client RDP du système, retiré depuis.
+- **Formulaire de connexion de base de données** : enregistrer effaçait les
+  étiquettes de la connexion (posées par un import AWS, par exemple).
+- **Formulaire d'hôte** : un clic dans le vide d'une liste (bastions,
+  snippets, variables) déclenchait son premier bouton (« Monter »).
 
 - **SSH, serveurs à `MaxSessions` bas** : ouvrir un canal (terminal, SFTP,
   commande) juste après en avoir refermé un pouvait être refusé à tort
