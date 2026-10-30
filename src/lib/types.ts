@@ -1,4 +1,5 @@
 import { assertNever } from "./exhaustive";
+import type { PageKind } from "./pages";
 
 export type HostId = string;
 export type GroupId = string;
@@ -1419,7 +1420,9 @@ export type TabMeta =
       runbookId: RunbookId;
       status?: "connected" | "placeholder";
     }
-  | { id: string; kind: "activity"; label: string; status?: "connected" | "placeholder" }
+  /** Une page (`lib/pages.ts`) : unique par genre, sans hôte ni état à
+   * restaurer au-delà de son existence. */
+  | { id: string; kind: PageKind; label: string; status?: "connected" | "placeholder" }
   | {
       id: string;
       kind: "netdiag";

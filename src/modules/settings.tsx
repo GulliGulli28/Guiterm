@@ -3,24 +3,26 @@ import { defineModule } from "./types";
 
 const SettingsPanel = lazy(() => import("../components/SettingsPanel").then((m) => ({ default: m.SettingsPanel })));
 
-// Le seul panneau non masquable, et pour cause : c'est de là qu'on masque les
-// autres (cf. `lib/sidebarButtons.ts`). Il est déclaré ici comme les autres —
-// le registre décide *où le rendu vit*, pas *ce qui est optionnel*.
+// Une page, plus un panneau : les réglages s'empilaient dans 560 px de barre
+// latérale pendant que la zone principale restait vide (refonte, tranche 5).
+// Le seul bouton du rail non masquable avec Hôtes — c'est de là qu'on masque
+// les autres (cf. `lib/sidebarButtons.ts`).
 export const settingsModule = defineModule({
   id: "settings",
-  label: "Paramètres",
+  label: "Réglages",
   commandDomains: ["export"],
-  panel: {
+  tab: {
     kind: "settings",
-    render: (ctx, a) => (
+    render: (_tab, ctx, isActive, a) => (
       <SettingsPanel
         workspace={ctx.workspace}
         onWorkspaceUpdate={ctx.refreshWorkspace}
         onError={ctx.reportError}
         preferences={ctx.preferences}
-        onPreferencesChange={a.updatePreferences}
+        onPreferencesChange={ctx.updatePreferences}
         vaultStatus={a.vaultStatus}
         onVaultStatusChange={a.onVaultStatusChange}
+        active={isActive}
       />
     ),
   },

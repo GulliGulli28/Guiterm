@@ -6,13 +6,13 @@
  * direction. `Sidebar.tsx` n'est plus qu'un consommateur parmi d'autres. */
 export type SidebarPanelKind =
   | "knownHosts" | "hosts" | "sftp" | "snippets" | "tunnels"
-  | "keychain" | "database" | "aws" | "fleet" | "runbook" | "netdiag" | "guivault" | "settings";
+  | "keychain" | "database" | "aws" | "fleet" | "runbook" | "netdiag" | "guivault";
 
 /** Boutons de la barre verticale de gauche que l'utilisateur peut masquer.
  *
- * Tous changent de panneau : ce sont exactement les `SidebarPanelKind` moins
- * « Paramètres », qui n'en fait pas partie parce qu'il est le chemin de retour
- * vers ce réglage lui-même. `fleet` et `netdiag` ouvrent *en plus* leur onglet
+ * Tous changent de panneau. Réglages et Activité n'en font pas partie : ce
+ * sont des pages (`lib/pages.ts`), et Réglages est le chemin de retour vers ce
+ * réglage lui-même. `fleet` et `netdiag` ouvrent *en plus* leur onglet
  * de travail (voir `Sidebar.tsx`) — ils faisaient auparavant seulement ça,
  * sans panneau, et leur arborescence de cibles vivait à l'intérieur de
  * l'onglet.
@@ -23,7 +23,7 @@ export type SidebarPanelKind =
  * contrairement à ce que ferait une vraie désactivation de module
  * (cf. `docs/architecture-extensions.md`, étape 3).
  */
-export type SidebarButtonId = Exclude<SidebarPanelKind, "settings">;
+export type SidebarButtonId = SidebarPanelKind;
 
 /** Les trois groupes du rail, de haut en bas : ce qu'on parcourt pour se
  * connecter, les outils qui travaillent sur plusieurs machines, puis le
@@ -84,6 +84,5 @@ export function resolveVisiblePanel(
   panel: SidebarPanelKind,
   hidden: readonly SidebarButtonId[],
 ): SidebarPanelKind {
-  if (panel === "settings") return panel;
   return isSidebarButtonVisible(panel, hidden) ? panel : "hosts";
 }

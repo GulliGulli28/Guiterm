@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { ComponentType } from "react";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { getVersion } from "@tauri-apps/api/app";
@@ -11,7 +11,9 @@ import { TERMINAL_THEMES, FONT_FAMILIES, UI_FONT_FAMILIES, GEIST_UI_FONT, ACCENT
 import { EntityRow, EntityMono, EntityTags, GroupRow } from "./EntityRow";
 import { SHORTCUT_ACTIONS, comboConflicts, defaultShortcuts, comboFromEvent, shellBindingWarning, shortcutLabel } from "../lib/shortcuts";
 import { SIDEBAR_BUTTONS, ALWAYS_VISIBLE_SIDEBAR_BUTTONS, isSidebarButtonVisible } from "../lib/sidebarButtons";
-import { IconUpload, IconDownload, IconPalette, IconTerminal, IconTransfer, IconKeyboard, IconBell, IconSettings, IconSun, IconMoon, IconRefresh, IconShield, IconCheck, IconWarning, IconFolderFilled, IconFileFilled, IconFolder, IconKeychain } from "./ui-icons";
+import { IconUpload, IconDownload, IconPalette, IconTerminal, IconTransfer, IconKeyboard, IconBell, IconSettings, IconSun, IconMoon, IconRefresh, IconShield, IconCheck, IconWarning, IconFolderFilled, IconFileFilled, IconFolder, IconKeychain, IconSearch } from "./ui-icons";
+import { searchSettings, type SettingsCategory } from "../lib/settingsIndex";
+import { useRowNavigation } from "../hooks/useRowNavigation";
 import { VaultSettings } from "./VaultSettings";
 import { AdaptiveEngineSettings } from "./AdaptiveEngineSettings";
 import { SshAgentSettings } from "./SshAgentSettings";
@@ -19,6 +21,8 @@ import { SshAgentSettings } from "./SshAgentSettings";
 type UpdateStatus = "idle" | "checking" | "upToDate" | "available" | "installing" | "error";
 
 interface SettingsPanelProps {
+  /** La page est au premier plan — le focus va alors à ses catégories. */
+  active?: boolean;
   workspace: Workspace;
   onWorkspaceUpdate: (ws: Workspace) => void;
   onError: (msg: string) => void;
@@ -30,7 +34,6 @@ interface SettingsPanelProps {
 
 type ImportPending = { path: string };
 
-type SettingsCategory = "apparence" | "terminal" | "sftp" | "securite" | "agent" | "raccourcis" | "notifications" | "general";
 
 const CATEGORIES: { key: SettingsCategory; label: string; Icon: ComponentType<{ size?: number; className?: string }> }[] = [
   { key: "apparence", label: "Apparence", Icon: IconPalette },
@@ -118,8 +121,38 @@ function ToggleRow({ label, checked, onChange, disabled, title }: { label: strin
   );
 }
 
-export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferences, onPreferencesChange, vaultStatus, onVaultStatusChange }: SettingsPanelProps) {
+export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferences, onPreferencesChange, vaultStatus, onVaultStatusChange, active = true }: SettingsPanelProps) {
   const [category, setCategory] = useState<SettingsCategory>("apparence");
+  const [query, setQuery] = useState("");
+  /** Le réglage choisi dans la recherche, à amener sous les yeux une fois sa
+   * catégorie rendue. */
+  const [reveal, setReveal] = useState<string | null>(null);
+  const contentRef = useRef<HTMLDivElement>(null);
+  // Les catégories se parcourent au clavier comme une liste de la barre
+  // latérale (↑/↓, Entrée), une lettre part dans la recherche. Le focus y
+  // arrive à l'ouverture de la page : `Ctrl+,` puis les flèches suffisent.
+  const navRef = useRef<HTMLElement>(null);
+  const searchRef = useRef<HTMLInputElement>(null);
+  const navKeys = useRowNavigation(navRef, { onType: () => searchRef.current });
+  // À chaque retour sur la page, pas seulement au montage : elle reste
+  // ouverte en onglet, `Ctrl+,` la ramène sans la remonter.
+  useEffect(() => { if (active) navRef.current?.focus(); }, [active]);
+  const categoryLabels = Object.fromEntries(CATEGORIES.map((c) => [c.key, c.label])) as Record<SettingsCategory, string>;
+  const results = searchSettings(query, categoryLabels);
+  useEffect(() => {
+    if (!reveal) return;
+    const root = contentRef.current;
+    const target = Array.from(root?.querySelectorAll<HTMLElement>("p, label, span, button") ?? [])
+      .find((el) => el.textContent?.trim().startsWith(reveal));
+    if (target) {
+      target.scrollIntoView({ block: "center" });
+      target.setAttribute("data-setting-revealed", "");
+      const t = window.setTimeout(() => target.removeAttribute("data-setting-revealed"), 1600);
+      setReveal(null);
+      return () => window.clearTimeout(t);
+    }
+    setReveal(null);
+  }, [reveal, category]);
   const [importPending, setImportPending] = useState<ImportPending | null>(null);
   const [importKeepAutomation, setImportKeepAutomation] = useState(false);
   const [done, setDone] = useState<string | null>(null);
@@ -231,40 +264,80 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
   };
 
   return (
-    <div className="-m-3 flex h-[calc(100%+1.5rem)] min-w-0">
-      {/* Les catégories, avec leur nom : une colonne d'icônes seules
-          demandait de survoler chacune pour savoir ce qu'elle cachait. */}
-      {/* `data-nav-row` : les catégories se parcourent aux flèches comme
-          n'importe quelle liste de la barre latérale (`useRowNavigation`),
-          Entrée en ouvre une. Tab passe ensuite dans les réglages eux-mêmes,
-          qui sont des champs de formulaire, donc focalisables nativement. */}
-      <nav className="flex w-[10rem] shrink-0 flex-col gap-px border-r border-[var(--c-border)] p-2.5">
-        <p className="eyebrow px-2 pb-1.5 pt-1">Paramètres</p>
-        {CATEGORIES.map((c) => {
-          const active = category === c.key;
-          return (
-            <button
-              key={c.key}
-              onClick={() => setCategory(c.key)}
-              title={c.label}
-              tabIndex={-1}
-              data-nav-row=""
-              data-settings-category={c.key}
-              data-active={active ? "true" : undefined}
-              className="list-row h-7 min-h-0 gap-2 px-2 text-[12.5px]"
-            >
-              <c.Icon size={14} className={`shrink-0 ${active ? "text-[var(--c-accent-text)]" : "text-[var(--c-text-muted)]"}`} />
-              <span className={`truncate ${active ? "font-medium text-[var(--c-text)]" : "text-[var(--c-text-secondary)]"}`}>{c.label}</span>
-            </button>
-          );
-        })}
-      </nav>
+    <div data-page="settings" className="sidebar-scroll h-full overflow-y-auto">
+      <div className="mx-auto flex max-w-[1080px] items-start gap-9 px-9 py-7">
+      {/* Le titre, la recherche et les catégories, dans une colonne qui ne
+          défile pas avec les réglages. */}
+      <div className="sticky top-0 w-[220px] shrink-0 space-y-3.5">
+        <h1 className="px-2.5 text-[20px] font-semibold text-[var(--c-text)]">Réglages</h1>
+        <label className="input flex items-center gap-2">
+          <IconSearch size={13} className="shrink-0 text-[var(--c-text-muted)]" />
+          <input
+            ref={searchRef}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Escape" && query) { e.stopPropagation(); setQuery(""); } }}
+            placeholder="Rechercher un réglage"
+            aria-label="Rechercher un réglage"
+            data-settings-search
+            className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-[var(--c-text-muted)]"
+          />
+        </label>
+        {query.trim() ? (
+          <div className="space-y-px" data-settings-results>
+            {results.length === 0 && <p className="px-2.5 py-1 text-[12px] text-[var(--c-text-muted)]">Aucun réglage ne correspond.</p>}
+            {results.map((r) => (
+              <button
+                key={`${r.category}:${r.label}`}
+                type="button"
+                onClick={() => { setCategory(r.category); setQuery(""); setReveal(r.label); }}
+                className="list-row h-auto min-h-0 flex-col items-start gap-0 px-2.5 py-1.5"
+              >
+                <span className="text-[12.5px] text-[var(--c-text)]">{r.label}</span>
+                <span className="text-[11px] text-[var(--c-text-muted)]">{categoryLabels[r.category]}</span>
+              </button>
+            ))}
+          </div>
+        ) : (
+          /* `data-nav-row` : les catégories se parcourent aux flèches,
+             Entrée en ouvre une. */
+          <nav
+            ref={navRef}
+            tabIndex={0}
+            aria-label="Catégories"
+            data-settings-nav
+            onKeyDown={navKeys.onKeyDown}
+            onMouseDownCapture={navKeys.onMouseDownCapture}
+            onFocus={navKeys.onFocus}
+            className="nav-zone flex flex-col gap-px rounded-lg outline-none"
+          >
+            {CATEGORIES.map((c) => {
+              const active = category === c.key;
+              return (
+                <button
+                  key={c.key}
+                  onClick={() => setCategory(c.key)}
+                  title={c.label}
+                  data-nav-row=""
+                  data-settings-category={c.key}
+                  data-active={active ? "true" : undefined}
+                  aria-current={active ? "page" : undefined}
+                  className="list-row h-8 min-h-0 gap-2.5 px-2.5 text-[13px]"
+                >
+                  <c.Icon size={14} className={`shrink-0 ${active ? "text-[var(--c-accent-text)]" : "text-[var(--c-text-muted)]"}`} />
+                  <span className={`truncate ${active ? "font-medium text-[var(--c-text)]" : "text-[var(--c-text-secondary)]"}`}>{c.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        )}
+      </div>
 
       {/* Category content */}
-      <div className="sidebar-scroll min-w-0 flex-1 space-y-6 overflow-y-auto px-6 py-5">
-        <p className="text-[14px] font-semibold text-[var(--c-text)]">
+      <div ref={contentRef} className="min-w-0 flex-1 space-y-6">
+        <h2 className="text-[20px] font-semibold text-[var(--c-text)]">
           {CATEGORIES.find((c) => c.key === category)?.label}
-        </p>
+        </h2>
 
         {done && (
           <div className="callout flex items-center gap-2 text-[var(--c-ok)]"><IconCheck size={13} /> {done}</div>
@@ -1021,6 +1094,7 @@ export function SettingsPanel({ workspace, onWorkspaceUpdate, onError, preferenc
             </section>
           </>
         )}
+      </div>
       </div>
     </div>
   );

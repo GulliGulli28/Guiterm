@@ -10,6 +10,7 @@ import { TabLoadingFallback } from "./TabLoadingFallback";
 import { profileBarNeeded } from "./ProfileBar";
 import { AccountMenu } from "./AccountMenu";
 import { api } from "../lib/api";
+import type { PageKind } from "../lib/pages";
 
 interface SidebarProps {
   panel: SidebarPanelKind;
@@ -22,8 +23,13 @@ interface SidebarProps {
   /** Pendant un glisser de la poignée : pas de transition, la largeur suit
    * la souris. */
   resizing: boolean;
-  /** L'activité n'est pas un panneau mais un onglet : le rail l'ouvre. */
-  onOpenActivity: () => void;
+  /** La page au premier plan, s'il y en a une (`lib/pages.ts`) : le panneau
+   * se replie pour lui laisser la largeur, et son bouton du rail est actif. */
+  activePage: PageKind | null;
+  onOpenPage: (kind: PageKind) => void;
+  /** Un bouton de panneau cliqué pendant qu'une page est affichée : revenir
+   * au travail (dernier onglet, ou l'accueil) avant d'ouvrir le panneau. */
+  onLeavePage: (panel: SidebarPanelKind) => void;
   ctx: AppContext;
   actions: SidebarActions;
 }
@@ -100,7 +106,10 @@ function RailButton({ icon: Icon, label, title, active, onClick, alert, ...data 
  * contentait de faire suivre. Ce qui reste ici est le shell — comme le shell
  * d'onglets d'`App.tsx`, il est noyau et non extensible.
  */
-export function Sidebar({ panel, onPanelChange, panelVisible, onPanelVisibleChange, panelWidth, resizing, onOpenActivity, ctx, actions }: SidebarProps) {
+export function Sidebar({ panel, onPanelChange, panelVisible: panelOpen, onPanelVisibleChange, panelWidth, resizing, activePage, onOpenPage, onLeavePage, ctx, actions }: SidebarProps) {
+  // Replié le temps d'une page, sans perdre l'état choisi par l'utilisateur
+  // (`panelOpen`) : revenir à un terminal le rouvre tel qu'il était.
+  const panelVisible = panelOpen && !activePage;
   const tone = alertTone(actions.awsAlerts);
   const hidden = ctx.preferences.hiddenSidebarButtons;
   const visibleButtons = SIDEBAR_BUTTONS.filter((b) => isSidebarButtonVisible(b.id, hidden));
@@ -135,7 +144,8 @@ export function Sidebar({ panel, onPanelChange, panelVisible, onPanelVisibleChan
   // travail : le panneau ne porte que le choix des cibles, l'ouvrir seul
   // donnerait un cul-de-sac.
   const activate = (id: SidebarButtonId, byMouse: boolean) => {
-    if (byMouse && panelVisible && panel === id) {
+    if (activePage) onLeavePage(id);
+    else if (byMouse && panelVisible && panel === id) {
       onPanelVisibleChange(false);
       return;
     }
@@ -196,8 +206,8 @@ export function Sidebar({ panel, onPanelChange, panelVisible, onPanelVisibleChan
           icon={IconActivity}
           label="Activité"
           title="Activité — commandes, opérations de flotte et enregistrements"
-          active={false}
-          onClick={() => onOpenActivity()}
+          active={activePage === "activity"}
+          onClick={() => onOpenPage("activity")}
           data-sidebar-button="activity"
         />
         <div className="mt-auto flex shrink-0 flex-col items-stretch gap-0.5 pt-2">
@@ -206,12 +216,8 @@ export function Sidebar({ panel, onPanelChange, panelVisible, onPanelVisibleChan
             icon={IconSettings}
             label="Réglages"
             title={["Paramètres", settingsCombo].filter(Boolean).join(" — ")}
-            active={panelVisible && panel === "settings"}
-            onClick={() => {
-              if (panelVisible && panel === "settings") onPanelChange("hosts");
-              else { onPanelChange("settings"); onPanelVisibleChange(true); }
-              focusPanel();
-            }}
+            active={activePage === "settings"}
+            onClick={() => onOpenPage("settings")}
             data-sidebar-button="settings"
           />
           {profileBarNeeded(actions.guivaultStatus) && (

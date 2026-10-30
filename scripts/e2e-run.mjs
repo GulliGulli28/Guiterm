@@ -1342,15 +1342,18 @@ async function runKeyboardZonesScenario(browser) {
   await browser.keys(["Control", "Shift", " "]);
   await browser.waitUntil(inTerminal, { timeout: 5_000, timeoutMsg: "Ctrl+Maj+Espace n a pas rendu le focus au terminal" });
 
+  // Réglages est une page (onglet unique) : le focus arrive dans ses
+  // catégories, et un second Ctrl+, la referme et rend le terminal.
   await browser.keys(["Control", ","]);
-  await browser.waitUntil(async () => (await browser.execute(() => document.querySelector("[data-sidebar-panel]")?.getAttribute("data-sidebar-panel"))) === "settings" && (await zone()) === "sidebar-panel", {
-    timeout: 5_000,
-    timeoutMsg: "Ctrl+, n a pas ouvert les paramètres avec le focus",
+  await browser.waitUntil(async () => await browser.execute(() =>
+    !!document.querySelector("[data-page='settings']") && !!document.activeElement?.closest("[data-settings-nav]")), {
+    timeout: 10_000,
+    timeoutMsg: "Ctrl+, n a pas ouvert la page Réglages avec le focus",
   });
   await browser.keys(["Control", ","]);
-  await browser.waitUntil(async () => (await browser.execute(() => document.querySelector("[data-sidebar-panel]")?.getAttribute("data-sidebar-panel"))) !== "settings" && (await inTerminal()), {
+  await browser.waitUntil(async () => !(await browser.execute(() => !!document.querySelector("[data-page='settings']"))) && (await inTerminal()), {
     timeout: 5_000,
-    timeoutMsg: "le second Ctrl+, n a pas refermé les paramètres ni rendu le terminal",
+    timeoutMsg: "le second Ctrl+, n a pas refermé la page Réglages ni rendu le terminal",
   });
   await browser.keys(["Alt", "1"]);
   await browser.waitUntil(async () => (await browser.execute(() => document.querySelector("[data-sidebar-panel]")?.getAttribute("data-sidebar-panel"))) === "hosts", { timeout: 5_000, timeoutMsg: "Alt+1 n a pas ramené le panneau Hôtes" });
@@ -1681,7 +1684,7 @@ async function runActivityScenario(browser) {
   await browser.keys("Enter");
 
   await browser.waitUntil(async () => await browser.execute(() =>
-    Array.from(document.querySelectorAll("h2")).some((h) => h.textContent?.trim() === "Activité")
+    Array.from(document.querySelectorAll("[data-page='activity'] h1")).some((h) => h.textContent?.trim() === "Activité")
   ), { timeout: 10_000, timeoutMsg: "l onglet Activité ne s est pas ouvert depuis la palette" });
 
   // The command this very run typed into the local terminal, read back
@@ -1708,8 +1711,8 @@ async function runActivityScenario(browser) {
     });
     console.log("list_activity a répondu :", JSON.stringify(probe));
     const rendered = await browser.execute(() => {
-      const heading = Array.from(document.querySelectorAll("h2")).find((h) => h.textContent?.trim() === "Activité");
-      const panel = heading?.closest("div.flex.h-full");
+      const heading = Array.from(document.querySelectorAll("[data-page='activity'] h1")).find((h) => h.textContent?.trim() === "Activité");
+      const panel = heading?.closest("[data-page]");
       return {
         headingFound: !!heading,
         panelHidden: panel?.parentElement?.className ?? "<pas de parent>",
@@ -3855,7 +3858,6 @@ async function runSidebarPanelsScenario(browser) {
     // ce qui est vérifié ici est seulement que leur panneau monte.
     ["fleet", "Opérations de flotte"],
     ["netdiag", "Diagnostic réseau"],
-    ["settings", "Paramètres"],
   ];
 
   for (const [kind, title] of panels) {
@@ -3876,6 +3878,21 @@ async function runSidebarPanelsScenario(browser) {
     }, kind), { timeout: 15_000, timeoutMsg: `le panneau « ${kind} » est resté vide` });
   }
 
+  // Les pages (`lib/pages.ts`) : le bouton ouvre un onglet unique, qui rend
+  // du contenu, et le panneau latéral se replie le temps qu'il est affiché.
+  const pages = ["settings", "activity"];
+  for (const page of pages) {
+    await browser.execute((p) => {
+      const btn = document.querySelector(`aside nav button[data-sidebar-button="${p}"]`);
+      if (btn instanceof HTMLElement) btn.click();
+    }, page);
+    await browser.waitUntil(async () => await browser.execute((p) => {
+      const host = document.querySelector(`[data-page="${p}"]`);
+      const panelWidth = document.querySelector("[data-sidebar-panel]")?.parentElement?.getBoundingClientRect().width;
+      return !!host && (host.textContent || "").trim().length > 0 && panelWidth === 0;
+    }, page), { timeout: 15_000, timeoutMsg: `la page « ${page} » est restée vide, ou le panneau latéral ne s est pas replié` });
+  }
+
   // Remettre la barre sur son panneau d'origine pour les scénarios suivants.
   await browser.execute(() => {
     const btn = Array.from(document.querySelectorAll("aside nav button"))
@@ -3883,7 +3900,7 @@ async function runSidebarPanelsScenario(browser) {
     if (btn instanceof HTMLElement) btn.click();
   });
 
-  console.log(`Panneaux de la barre latérale : OK (${panels.length} panneaux ouverts, chacun rend du contenu).`);
+  console.log(`Panneaux de la barre latérale : OK (${panels.length} panneaux ouverts, chacun rend du contenu ; ${pages.length} pages en onglet).`);
 }
 
 /** Titres des boutons de la barre verticale, libellé seul (l'infobulle de
@@ -3940,10 +3957,9 @@ async function runSshAgentScenario(browser) {
   const initial = await invoke("ssh_agent_status");
   if (!initial || initial.__error) throw new Error(`ssh_agent_status : ${JSON.stringify(initial)}`);
 
-  // Le bouton de la barre ouvre **et referme** les Paramètres : le scénario
-  // précédent peut les avoir laissés ouverts.
+  // Les Réglages sont une page : le bouton du rail l'ouvre ou la ramène.
   await browser.execute(() => {
-    if (document.querySelector('[data-sidebar-panel="settings"]')) return;
+    if (document.querySelector('[data-page="settings"]')) return;
     const btn = Array.from(document.querySelectorAll("aside nav button"))
       .find((b) => (b.getAttribute("title") || "").split(" — ")[0] === "Paramètres");
     if (btn instanceof HTMLElement) btn.click();

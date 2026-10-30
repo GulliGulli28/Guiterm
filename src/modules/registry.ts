@@ -104,7 +104,7 @@ type ClaimedPanelKind = PanelKindOf<typeof MODULES[number]>;
 type PanelWithoutModule = Exclude<SidebarPanelKind, ClaimedPanelKind>;
 export type _EveryPanelHasAModule = AssertNever<PanelWithoutModule>;
 
-type AnyTabRenderer = (tab: TabMeta, ctx: AppContext, isActive: boolean) => ReactNode;
+type AnyTabRenderer = (tab: TabMeta, ctx: AppContext, isActive: boolean, actions: SidebarActions) => ReactNode;
 
 // Le seul `as` du registre, et il est localisé ici : chaque module déclare un
 // `kind` et une fonction de rendu qui vont ensemble (`defineModule` le lie),
@@ -128,9 +128,9 @@ const PANEL_RENDERERS = new Map<SidebarPanelKind, AnyPanelRenderer>(
  * `Map` interrogée avec une clé absente, et le masquer derrière un `!` ferait
  * disparaître la seule trace d'un registre incohérent. `null` reste un rendu
  * légitime (onglet dont l'hôte ou la connexion a été supprimé). */
-export function renderModuleTab(tab: TabMeta, ctx: AppContext, isActive: boolean): ReactNode | undefined {
+export function renderModuleTab(tab: TabMeta, ctx: AppContext, isActive: boolean, actions: SidebarActions): ReactNode | undefined {
   const render = TAB_RENDERERS.get(tab.kind);
-  return render ? render(tab, ctx, isActive) : undefined;
+  return render ? render(tab, ctx, isActive, actions) : undefined;
 }
 
 /** Toutes les actions que les modules offrent sur cet objet, dans l'ordre du

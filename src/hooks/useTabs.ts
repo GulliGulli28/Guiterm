@@ -7,6 +7,7 @@ import { isHostBoundTab } from "../lib/types";
 import type { AppPreferences } from "../lib/preferences";
 import type { NotificationKind } from "../lib/notifications";
 import { loadTabs, restorablePanes, restoredTabStatus, saveTabs } from "../lib/tabPersistence";
+import { PAGE_LABELS, isPageKind, type PageKind } from "../lib/pages";
 import type { TerminalTabHandle } from "../components/TerminalTab";
 
 let nextTabId = 0;
@@ -110,19 +111,21 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
     setActiveTabId(id);
   }, [tabs]);
 
-  /** Same single-tab rule as `openFleet`, for the same reason: the journal is
-   * global, not scoped to anything, so a second one would show the same thing
-   * twice. */
-  const openActivity = useCallback(() => {
-    const existing = tabs.find((t) => t.kind === "activity");
+  /** Ouvre une page (`lib/pages.ts`), ou ramène celle qui est déjà ouverte :
+   * même règle d'unicité que `openFleet`, pour la même raison — une page ne
+   * montre rien de propre à un hôte, une seconde redirait la première. */
+  const openPage = useCallback((kind: PageKind) => {
+    const existing = tabs.find((t) => t.kind === kind);
     if (existing) {
       setActiveTabId(existing.id);
       return;
     }
     const id = `tab-${nextTabId++}`;
-    setTabs((prev) => [...prev, { id, kind: "activity", label: "Activité" }]);
+    setTabs((prev) => [...prev, { id, kind, label: PAGE_LABELS[kind] }]);
     setActiveTabId(id);
   }, [tabs]);
+
+  const openActivity = useCallback(() => openPage("activity"), [openPage]);
 
   /** Opens the diagnostics tab, optionally aimed at an address already known.
    *
@@ -239,6 +242,9 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
       if (p.kind === "local-terminal") {
         return [{ id, kind: "local-terminal", label: p.label, status: "placeholder", shell: p.shell }];
       }
+      // Une page n'a ni session ni hôte : elle se rouvre telle quelle, sous
+      // son titre d'aujourd'hui plutôt que celui qu'elle portait alors.
+      if (isPageKind(p.kind)) return [{ id, kind: p.kind, label: PAGE_LABELS[p.kind] }];
       // "fleet"/"sql" tabs are deliberately never restored (a fleet run and
       // a SQL session are both point-in-time things, not something to
       // silently reopen) — narrowed explicitly rather than just falling
@@ -499,7 +505,7 @@ export function useTabs({ workspace, preferences, terminalRefs, pushNotification
   return {
     tabs, setTabs, activeTabId, setActiveTabId,
     pendingCloseTabId, setPendingCloseTabId,
-    openTab, openPersistentSession, openLocalTerminal, openFleet, openActivity, openNetdiag, openSql, openRunbook, reconnectTab,
+    openTab, openPersistentSession, openLocalTerminal, openFleet, openActivity, openPage, openNetdiag, openSql, openRunbook, reconnectTab,
     rememberSessionKey,
     rememberPanes,
     closeTab, detachTab, requestCloseTab,

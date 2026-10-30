@@ -195,7 +195,31 @@ const scenes = [
   ["10-flotte", async (page) => { await clickNav(page, "Opérations de flotte"); await settle(page, 500); }],
   ["11-runbooks", async (page) => { await clickNav(page, "Runbooks"); }],
   ["12-diagnostic", async (page) => { await clickNav(page, "Diagnostic réseau"); await settle(page, 500); }],
-  ["13-parametres", async (page) => { await clickNav(page, "Paramètres"); await settle(page, 400); }],
+  ["13-parametres", async (page) => {
+    await clickNav(page, "Paramètres");
+    await settle(page, 400);
+    // Une page pleine largeur, en onglet : le panneau latéral se replie.
+    const state = await page.evaluate(() => ({
+      page: !!document.querySelector("[data-page='settings']"),
+      tab: Array.from(document.querySelectorAll("[data-tab-id]"), (t) => t.textContent?.trim()).includes("Réglages"),
+      panelWidth: document.querySelector("[data-sidebar-panel]")?.parentElement?.getBoundingClientRect().width,
+    }));
+    if (!state.page || !state.tab || state.panelWidth !== 0) throw new Error(`page Réglages : ${JSON.stringify(state)}`);
+  }],
+  // La recherche trouve un réglage d'une autre catégorie et y mène.
+  ["13b-parametres-recherche", async (page) => {
+    await page.locator("[data-settings-search]").fill("tmux souris");
+    await settle(page, 200);
+    const results = await page.locator("[data-settings-results] button").allTextContents();
+    if (results.length !== 1 || !/Molette et souris/.test(results[0])) throw new Error(`recherche « tmux souris » : ${JSON.stringify(results)}`);
+    await settle(page, 200);
+  }],
+  ["13c-parametres-resultat", async (page) => {
+    await page.locator("[data-settings-results] button").first().click();
+    await settle(page, 400);
+    const heading = await page.locator("[data-page='settings'] h2").textContent();
+    if (heading !== "Général" || !(await page.locator("[data-setting-revealed]").count())) throw new Error(`le résultat ne mène pas au réglage : ${heading}`);
+  }],
   ["14-palette", async (page) => {
     await page.keyboard.press("Control+K");
     await settle(page, 400);
@@ -351,6 +375,8 @@ const scenes = [
   ["29-apparence", async (page) => {
     await page.setViewportSize({ width: 1440, height: 900 });
     await clickNav(page, "Paramètres");
+    // La page est restée ouverte en onglet, sur la dernière catégorie vue.
+    await page.locator("[data-settings-category='apparence']").click();
     await settle(page, 400);
   }],
   // Dossiers au maximum, accent libre : le réglage doit se voir dans la liste.
@@ -950,12 +976,14 @@ const scenes = [
     // Les paramètres, aller-retour.
     await page.keyboard.press("Control+,");
     await settle(page, 400);
-    const settings = await page.evaluate(() => ({ panel: document.querySelector("[data-sidebar-panel]")?.getAttribute("data-sidebar-panel"), zone: document.activeElement?.closest("[data-focus-zone]")?.getAttribute("data-focus-zone") }));
-    if (settings.panel !== "settings" || settings.zone !== "sidebar-panel") throw new Error(`Ctrl+, : ${JSON.stringify(settings)}`);
+    // Une page : le panneau se replie, le focus arrive dans ses catégories.
+    const settings = await page.evaluate(() => ({ page: !!document.querySelector("[data-page='settings']"), inNav: !!document.activeElement?.closest("[data-settings-nav]"), panelWidth: document.querySelector("[data-sidebar-panel]")?.parentElement?.getBoundingClientRect().width }));
+    if (!settings.page || !settings.inNav || settings.panelWidth !== 0) throw new Error(`Ctrl+, : ${JSON.stringify(settings)}`);
     await page.keyboard.press("Control+,");
     await settle(page, 400);
-    const closed = await page.evaluate(() => ({ panel: document.querySelector("[data-sidebar-panel]")?.getAttribute("data-sidebar-panel"), inTerm: document.activeElement?.closest(".xterm") !== null }));
-    if (closed.panel !== "snippets" || !closed.inTerm) throw new Error(`second Ctrl+, : ${JSON.stringify(closed)}`);
+    // Refermée : le panneau revient tel qu'il était, le focus au terminal.
+    const closed = await page.evaluate(() => ({ page: !!document.querySelector("[data-page='settings']"), panel: document.querySelector("[data-sidebar-panel]")?.getAttribute("data-sidebar-panel"), panelWidth: document.querySelector("[data-sidebar-panel]")?.parentElement?.getBoundingClientRect().width, inTerm: document.activeElement?.closest(".xterm") !== null }));
+    if (closed.page || closed.panel !== "snippets" || !closed.panelWidth || !closed.inTerm) throw new Error(`second Ctrl+, : ${JSON.stringify(closed)}`);
     await page.keyboard.press("Alt+1");
     await settle(page, 300);
   }],
@@ -1022,7 +1050,7 @@ const scenes = [
     await settle(page, 300);
     const moved = await current();
     if (!first || moved === first) throw new Error(`↑/↓ + Entrée ne changent pas de catégorie : ${first} → ${moved}`);
-    const heading = await page.evaluate(() => document.querySelector("[data-sidebar-panel='settings'] .sidebar-scroll p")?.textContent?.trim());
+    const heading = await page.evaluate(() => document.querySelector("[data-page='settings'] h2")?.textContent?.trim());
     const label = await page.evaluate((k) => document.querySelector(`[data-settings-category='${k}']`)?.textContent?.trim(), moved);
     if (heading !== label) throw new Error(`le contenu ne suit pas la catégorie : « ${heading} » pour « ${label} »`);
     await page.keyboard.press("Control+,");

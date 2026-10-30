@@ -97,9 +97,9 @@ describe("resolveVisiblePanel", () => {
     expect(resolveVisiblePanel("tunnels", ["tunnels"])).toBe("hosts");
   });
 
-  it("garde les paramètres accessibles — c'est d'où on décoche", () => {
-    // `settings` n'est pas masquable, mais il traverse la même fonction : s'il
-    // retombait sur « Hôtes », le réglage se refermerait au premier clic.
-    expect(resolveVisiblePanel("settings", ["tunnels", "aws"])).toBe("settings");
+  it("ne rend pas Réglages masquable — c'est d'où on décoche", () => {
+    // Réglages est une page (`lib/pages.ts`), avec son bouton fixe dans le
+    // rail : il ne doit pas réapparaître parmi les boutons qu'on masque.
+    expect(SIDEBAR_BUTTONS.map((b) => b.id as string)).not.toContain("settings");
   });
 });

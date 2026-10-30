@@ -10,6 +10,7 @@ import type {
   GuiVaultStatus, VaultId,
 } from "../lib/types";
 import type { SidebarPanelKind } from "../lib/sidebarButtons";
+import type { PageKind } from "../lib/pages";
 import type { AppObject } from "../lib/appObject";
 
 /** Ce qu'un module reçoit de l'app pour rendre ses contributions.
@@ -127,7 +128,10 @@ export type TabOfKind<K extends TabMeta["kind"], T = TabMeta> = T extends { kind
  */
 export interface TabContribution<K extends TabMeta["kind"]> {
   kind: K;
-  render(tab: TabOfKind<K>, ctx: AppContext, isActive: boolean): ReactNode;
+  /** `actions` : ce qu'un panneau reçoit. Les pages (`lib/pages.ts`) en ont
+   * besoin — elles **sont** d'anciens panneaux, et le statut du coffre ou de
+   * GuiVault qu'elles affichent vit dans `App`. Les autres onglets l'ignorent. */
+  render(tab: TabOfKind<K>, ctx: AppContext, isActive: boolean, actions: SidebarActions): ReactNode;
 }
 
 /** Ouvrir quelque chose ailleurs dans l'app.
@@ -177,6 +181,8 @@ export interface TabOpeners {
    * `seed` pré-remplit la destination, quand l'onglet est ouvert sur une
    * adresse désignée ailleurs plutôt que sur une question encore à écrire. */
   openNetDiag: (sourceHostId?: HostId | null, seed?: { destination?: string; tcpPort?: number; targetKeys?: string[] }) => void;
+  /** Ouvre une page (Réglages, Activité…) ou ramène celle qui l'est déjà. */
+  openPage: (kind: PageKind) => void;
 }
 
 /** Ce qu'un panneau de barre latérale peut demander à l'app, en plus

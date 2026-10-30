@@ -1,10 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useState, type ComponentType } from "react";
 import { save } from "@tauri-apps/plugin-dialog";
 import { api } from "../lib/api";
 import { ACTIVITY_KINDS, activityKindLabel, formatActivityTime, groupByDay } from "../lib/activity";
 import type { ActivityEvent, ActivityFilter, ActivityKind, HostId, Workspace } from "../lib/types";
 import { HostTreePicker } from "./HostTreePicker";
-import { IconHosts } from "./ui-icons";
+import { IconActivity, IconChevronDown, IconFleet, IconHosts, IconSearch, IconTerminal, IconUpload } from "./ui-icons";
 
 interface ActivityTabProps {
   workspace: Workspace;
@@ -26,12 +26,11 @@ const PERIODS: { id: string; label: string; days: number | null }[] = [
   { id: "30", label: "30 derniers jours", days: 30 },
 ];
 
-// Une seule teinte : ce qui distingue les genres est le libellé, pas une
-// couleur à mémoriser. L'accent marque le filtre actif.
-const KIND_TONE: Record<ActivityKind, string> = {
-  fleetRun: "tag-accent",
-  command: "",
-  recording: "",
+// L'icône du genre, comme dans le rail : la couleur reste au résultat.
+const KIND_ICON: Record<ActivityKind, ComponentType<{ size?: number }>> = {
+  fleetRun: IconFleet,
+  command: IconTerminal,
+  recording: IconActivity,
 };
 
 /**
@@ -53,6 +52,8 @@ export function ActivityTab({ workspace, onError, onExported }: ActivityTabProps
   const [hostId, setHostId] = useState<HostId | "">("");
   const [search, setSearch] = useState("");
   const [loading, setLoading] = useState(false);
+  const [failedOnly, setFailedOnly] = useState(false);
+  const [exportOpen, setExportOpen] = useState(false);
 
   const buildFilter = useCallback((): ActivityFilter => {
     const days = PERIODS.find((p) => p.id === period)?.days ?? null;
@@ -98,47 +99,90 @@ export function ActivityTab({ workspace, onError, onExported }: ActivityTabProps
     });
   };
 
-  const groups = groupByDay(events ?? []);
+  // « Échecs » se filtre ici, sur ce qui est déjà chargé : le journal n'a pas
+  // de critère d'échec côté backend, et il n'en a pas besoin pour une poignée
+  // de lignes.
+  const failures = (events ?? []).filter((e) => e.failed).length;
+  const shown = failedOnly ? (events ?? []).filter((e) => e.failed) : events ?? [];
+  const groups = groupByDay(shown);
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[var(--c-bg2)]">
-      <div className="shrink-0 space-y-2 border-b border-[var(--c-border)] px-4 py-3">
-        <div className="flex items-center gap-2">
-          <h2 className="flex-1 text-[13px] font-semibold text-[var(--c-text)]">Activité</h2>
-          <button
-            onClick={() => runExport("csv")}
-            disabled={!events?.length}
-            className="btn btn-secondary btn-sm text-[var(--c-text-secondary)]"
-          >
-            Exporter en CSV
-          </button>
-          <button
-            onClick={() => runExport("json")}
-            disabled={!events?.length}
-            className="btn btn-secondary btn-sm text-[var(--c-text-secondary)]"
-          >
-            Exporter en JSON
-          </button>
+    <div data-page="activity" className="sidebar-scroll h-full overflow-y-auto bg-[var(--c-bg2)]">
+      <div className="mx-auto max-w-[1100px] space-y-[18px] px-9 py-7">
+        <div className="flex items-start gap-3">
+          <div className="min-w-0 flex-1">
+            <h1 className="text-[20px] font-semibold text-[var(--c-text)]">Activité</h1>
+            <p
+              className="mt-1 text-[12.5px] text-[var(--c-text-muted)]"
+              title="Les commandes proviennent de l'historique de saisie : une entrée par commande distincte, datée de sa dernière utilisation — pas une ligne par exécution. Les opérations de flotte et les enregistrements sont, eux, listés un par un."
+            >
+              Commandes, opérations de flotte et enregistrements de session, sur cet appareil.
+            </p>
+          </div>
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setExportOpen((v) => !v)}
+              disabled={!events?.length}
+              aria-expanded={exportOpen}
+              className="btn btn-secondary"
+            >
+              <IconUpload size={13} /> Exporter <IconChevronDown size={10} className="text-[var(--c-text-muted)]" />
+            </button>
+            {exportOpen && (
+              <div className="popover absolute right-0 top-full z-20 mt-1 w-40 p-1" role="menu">
+                <button type="button" role="menuitem" onClick={() => { setExportOpen(false); void runExport("csv"); }} className="menu-item">En CSV</button>
+                <button type="button" role="menuitem" onClick={() => { setExportOpen(false); void runExport("json"); }} className="menu-item">En JSON</button>
+              </div>
+            )}
+          </div>
         </div>
 
-        <div className="flex flex-wrap items-center gap-1.5">
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="input flex w-[300px] items-center gap-2">
+            <IconSearch size={13} className="shrink-0 text-[var(--c-text-muted)]" />
+            <input
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder="Rechercher une commande"
+              aria-label="Rechercher dans l'activité"
+              className="min-w-0 flex-1 bg-transparent outline-none placeholder:text-[var(--c-text-muted)]"
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => setKinds(new Set())}
+            aria-pressed={kinds.size === 0}
+            className={`chip h-7 ${kinds.size === 0 ? "chip-accent" : ""}`}
+          >
+            Tout
+          </button>
           {ACTIVITY_KINDS.map((kind) => {
-            const active = kinds.size === 0 || kinds.has(kind);
+            const active = kinds.has(kind);
             return (
               <button
                 key={kind}
+                type="button"
                 onClick={() => toggleKind(kind)}
                 aria-pressed={active}
-                className={`btn btn-sm ${active ? "btn-toggled" : "btn-secondary text-[var(--c-text-muted)]"}`}
+                className={`chip h-7 ${active ? "chip-accent" : ""}`}
               >
                 {activityKindLabel(kind)}
               </button>
             );
           })}
-        </div>
-
-        <div className="flex flex-wrap gap-1.5">
-          <select value={period} onChange={(e) => setPeriod(e.target.value)} className={inputClass}>
+          {failures > 0 && (
+            <button
+              type="button"
+              onClick={() => setFailedOnly((v) => !v)}
+              aria-pressed={failedOnly}
+              className={`chip h-7 ${failedOnly ? "chip-danger" : ""}`}
+            >
+              Échecs · {failures}
+            </button>
+          )}
+          <span className="flex-1" />
+          <select value={period} onChange={(e) => setPeriod(e.target.value)} aria-label="Période" className={`${inputClass} w-auto`}>
             {PERIODS.map((p) => (
               <option key={p.id} value={p.id}>{p.label}</option>
             ))}
@@ -152,65 +196,61 @@ export function ActivityTab({ workspace, onError, onExported }: ActivityTabProps
             specials={[{ value: "", label: "Tous les hôtes", icon: <IconHosts size={12} /> }]}
             className={`${inputClass} flex w-48 items-center justify-between gap-2 text-left`}
           />
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Rechercher dans les commandes…"
-            className={`${inputClass} min-w-0 flex-1`}
-          />
         </div>
 
-        {/* Said once, at the top, rather than repeated on every command row:
-            the journal reads the ghost-text history, which keeps one entry per
-            distinct command. Leaving it out would make an audit trail look
-            more complete than it is. */}
-        <p className="help-text">
-          Les commandes proviennent de l'historique de saisie : une entrée par commande distincte,
-          datée de sa dernière utilisation — pas une ligne par exécution. Les opérations de flotte et
-          les enregistrements sont, eux, listés un par un.
-        </p>
-      </div>
-
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3">
         {loading && events === null && <p className="text-[12.5px] text-[var(--c-text-muted)]">Lecture du journal…</p>}
-        {events !== null && events.length === 0 && (
+        {events !== null && shown.length === 0 && (
           <p className="text-[12.5px] text-[var(--c-text-muted)]">
-            Aucun évènement pour ces filtres. Les opérations de flotte, les commandes saisies dans un
-            terminal et les enregistrements de session apparaissent ici au fur et à mesure.
+            Aucun évènement pour ces filtres. Les opérations de flotte, les commandes et les enregistrements apparaissent ici au fil de l'eau.
           </p>
         )}
 
-        {groups.map((group) => (
-          <div key={group.day} className="mb-4">
-            <h3 className="eyebrow sticky top-0 z-10 bg-[var(--c-bg2)] py-1">
-              {group.day}
-            </h3>
-            <div className="space-y-1">
-              {group.events.map((event, i) => (
-                <div
-                  key={`${event.kind}-${event.atMs}-${i}`}
-                  className={`rounded-md border px-2.5 py-2 ${
-                    event.failed ? "border-[color-mix(in_srgb,var(--c-danger)_35%,transparent)] bg-[color-mix(in_srgb,var(--c-danger)_8%,transparent)]" : "border-[var(--c-border)] bg-[var(--c-bg3)]"
-                  }`}
-                >
-                  <div className="flex items-baseline gap-2">
-                    <span className={`tag ${KIND_TONE[event.kind]}`}>
-                      {activityKindLabel(event.kind)}
-                    </span>
-                    <span className="min-w-0 flex-1 truncate font-mono text-[12px] text-[var(--c-text)]" title={event.summary}>
-                      {event.summary}
-                    </span>
-                    <span className="shrink-0 font-mono text-[10.5px] tabular-nums text-[var(--c-text-faint)]">{formatActivityTime(event.atMs)}</span>
-                  </div>
-                  <p className="mt-0.5 truncate text-[11px] text-[var(--c-text-muted)]" title={event.detail}>
-                    {event.target}
-                    {event.detail && <> · {event.detail}</>}
-                  </p>
-                </div>
+        {shown.length > 0 && (
+          <div className="card overflow-hidden p-0">
+            <table className="w-full table-fixed border-collapse text-[12.5px]" data-activity-table>
+              <thead>
+                <tr className="border-b border-[var(--c-border)] text-left text-[11.5px] text-[var(--c-text-muted)]">
+                  <th className="w-[90px] px-3.5 py-2 font-medium">Heure</th>
+                  <th className="w-[150px] px-3.5 py-2 font-medium">Type</th>
+                  <th className="px-3.5 py-2 font-medium">Commande</th>
+                  <th className="w-[180px] px-3.5 py-2 font-medium">Où</th>
+                  <th className="w-[200px] px-3.5 py-2 font-medium">Résultat</th>
+                </tr>
+              </thead>
+              {groups.map((group) => (
+                <tbody key={group.day}>
+                  <tr>
+                    <td colSpan={5} className="bg-[var(--c-bg3)] px-3.5 py-1.5 text-[11.5px] font-medium text-[var(--c-text-muted)]">{group.day}</td>
+                  </tr>
+                  {group.events.map((event, i) => {
+                    const Icon = KIND_ICON[event.kind];
+                    return (
+                      <tr
+                        key={`${event.kind}-${event.atMs}-${i}`}
+                        data-activity-row={event.kind}
+                        className={`border-t border-[var(--c-border)] ${event.failed ? "bg-[color-mix(in_srgb,var(--c-danger)_8%,transparent)]" : ""}`}
+                      >
+                        <td className="px-3.5 py-2 font-mono text-[11.5px] tabular-nums text-[var(--c-text-muted)]">{formatActivityTime(event.atMs)}</td>
+                        <td className="px-3.5 py-2">
+                          <span className="flex items-center gap-1.5 text-[var(--c-text-secondary)]"><Icon size={13} /> {activityKindLabel(event.kind)}</span>
+                        </td>
+                        <td className={`truncate px-3.5 py-2 text-[var(--c-text)] ${event.kind === "recording" ? "" : "font-mono text-[12px]"}`} title={event.summary}>{event.summary}</td>
+                        <td className="truncate px-3.5 py-2 text-[var(--c-text-secondary)]" title={event.target}>{event.target}</td>
+                        <td className="truncate px-3.5 py-2" title={event.detail}>
+                          {event.failed
+                            ? <span className="chip chip-danger">{event.detail || "Échec"}</span>
+                            : event.detail
+                              ? <span className={event.kind === "fleetRun" ? "chip chip-ok" : "text-[var(--c-text-muted)]"}>{event.detail}</span>
+                              : <span className="text-[var(--c-text-faint)]">—</span>}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
               ))}
-            </div>
+            </table>
           </div>
-        ))}
+        )}
       </div>
     </div>
   );

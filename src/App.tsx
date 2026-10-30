@@ -3,6 +3,7 @@ import { check as checkForUpdate } from "@tauri-apps/plugin-updater";
 import { api, onSshAgentConfirm, onSshAuthPrompt } from "./lib/api";
 import type { AwsSsoSession, GroupId, GuiVaultBrowseEntry, GuiVaultStatus, Host, HostId, Snippet, SnippetId, PaneSource, SqlConnection, SshAgentConfirm, SshAuthPrompt, TabMeta, VaultId, VaultStatus, Workspace } from "./lib/types";
 import { isHostBoundTab } from "./lib/types";
+import { isPageTab } from "./lib/pages";
 import { Sidebar } from "./components/Sidebar";
 import { HostForm } from "./components/HostForm";
 import { SessionBar, isTerminalLikeTab } from "./components/SessionBar";
@@ -66,7 +67,6 @@ export default function App() {
   const [sidebarVisible, setSidebarVisible] = useState(true);
   const [sidebarPanel, setSidebarPanel] = useState<SidebarPanelKind>("hosts");
   /** Le panneau d'avant les paramètres, pour y revenir en les fermant. */
-  const panelBeforeSettings = useRef<SidebarPanelKind>("hosts");
   const [editingHost, setEditingHost] = useState<Host | "new" | null>(null);
   const [editingGroup, setEditingGroup] = useState<GroupFormData | null>(null);
   const [editingSqlConnection, setEditingSqlConnection] = useState<SqlConnection | "new" | null>(null);
@@ -413,7 +413,7 @@ export default function App() {
   const {
     tabs, setTabs, activeTabId, setActiveTabId,
     pendingCloseTabId, setPendingCloseTabId,
-    openTab, openPersistentSession, openLocalTerminal, openFleet, openActivity, openNetdiag, openSql, openRunbook, reconnectTab,
+    openTab, openPersistentSession, openLocalTerminal, openFleet, openActivity, openPage, openNetdiag, openSql, openRunbook, reconnectTab,
     rememberSessionKey,
     rememberPanes,
     closeTab, detachTab, requestCloseTab,
@@ -433,6 +433,13 @@ export default function App() {
   // dépendance — y ajouter `tabs` rejouerait l'effet à chaque ouverture ou
   // fermeture d'un onglet quelconque.
   useEffect(() => {
+    // Revenir d'une page vers un panneau précis : c'est lui qui prime, pas
+    // celui de l'onglet retrouvé (voir `leavePage`).
+    if (panelAfterPage.current) {
+      setSidebarPanel(panelAfterPage.current);
+      panelAfterPage.current = null;
+      return;
+    }
     const kind = tabs.find((t) => t.id === activeTabId)?.kind;
     if (kind === "fleet" || kind === "netdiag") setSidebarPanel(kind);
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -612,13 +619,14 @@ export default function App() {
 
   // ── Les panneaux de la barre latérale, au clavier ─────────────────────
   const visibleSidebarButtons = SIDEBAR_BUTTONS.filter((b) => isSidebarButtonVisible(b.id, preferences.hiddenSidebarButtons));
-  /** Le panneau courant s'il a un bouton (les Paramètres n'en ont pas). */
+  /** Le panneau courant s'il a un bouton. */
   const currentPanelId = (): SidebarButtonId | null =>
     visibleSidebarButtons.find((b) => b.id === sidebarPanel)?.id ?? null;
   /** Ouvre un panneau **et lui donne le focus** : ouvrir sans pouvoir y
    * naviguer obligerait à reprendre la souris juste après. Les deux panneaux
    * qui ont un onglet de travail l'ouvrent aussi, comme au clic. */
   function openSidebarPanel(id: SidebarButtonId) {
+    if (activePage) leavePage(id);
     showTargetsPanel(id);
     if (id === "fleet") openFleetTab();
     if (id === "netdiag") openNetdiagTab(null);
@@ -657,16 +665,38 @@ export default function App() {
   function focusSidebarPanelSoon() {
     requestAnimationFrame(() => focusZone("sidebar-panel", focusTerminal));
   }
+  /** `Ctrl+,` : ouvre la page Réglages, ou la referme si c'est elle qu'on
+   * regarde — elle ne garde rien qu'il vaille la peine de laisser ouvert. */
   function toggleSettings() {
-    if (sidebarVisible && sidebarPanel === "settings") {
-      setSidebarPanel(panelBeforeSettings.current);
+    const open = tabs.find((t) => t.kind === "settings");
+    if (open && open.id === activeTabId && !homeOpen) {
+      closeTab(open.id);
       focusTerminal();
       return;
     }
-    panelBeforeSettings.current = sidebarPanel === "settings" ? "hosts" : sidebarPanel;
-    setSidebarVisible(true);
-    setSidebarPanel("settings");
-    focusSidebarPanelSoon();
+    setHomeOpen(false);
+    openPage("settings");
+  }
+
+  /** Le dernier onglet qui n'était pas une page : quitter une page pour un
+   * panneau y revient, plutôt que de laisser la page sous un panneau qu'elle
+   * repousserait aussitôt. */
+  const lastWorkTabId = useRef<string | null>(null);
+  const panelAfterPage = useRef<SidebarPanelKind | null>(null);
+  useEffect(() => {
+    const tab = tabs.find((t) => t.id === activeTabId);
+    if (tab && !isPageTab(tab)) lastWorkTabId.current = tab.id;
+  }, [activeTabId, tabs]);
+  /** `panel` : le panneau qu'on quitte la page pour ouvrir. */
+  function leavePage(panel?: SidebarPanelKind) {
+    const back = tabs.find((t) => t.id === lastWorkTabId.current && !isPageTab(t));
+    if (back) {
+      panelAfterPage.current = panel ?? null;
+      setActiveTabId(back.id);
+    } else {
+      setHomeOpen(true);
+    }
+    if (panel) { setSidebarPanel(panel); setSidebarVisible(true); }
   }
 
   // ── Coller depuis GuiVault ────────────────────────────────────────────────
@@ -1028,6 +1058,7 @@ export default function App() {
     quickSSH: (cmd) => openLocalTerminal(cmd),
     connectSql: (conn) => openSql(conn),
     probeReachability: (host) => openNetdiagTab(host.id),
+    openPage: (kind) => { setHomeOpen(false); openPage(kind); },
     searchFiles: (host) => setSearchHost(host),
     resumeSession: openPersistentSession,
     openTerminalIn,
@@ -1064,15 +1095,17 @@ export default function App() {
   // GuiVault.
   const showRightPanel = vaultBrowserOpen;
   const activeTab = tabs.find((t) => t.id === activeTabId);
+  // Une page au premier plan prend toute la largeur : la barre latérale replie
+  // son panneau, sans oublier lequel était ouvert ni s'il l'était.
+  const activePage = !homeOpen && isPageTab(activeTab) ? activeTab.kind : null;
   const activeHostId = activeTab && isHostBoundTab(activeTab) ? activeTab.hostId : null;
 
   // Ce que les panneaux de la barre latérale peuvent demander à l'app. Même
   // contenu qu'avant, mais déclaré **une** fois : `SidebarProps` et les 90
   // lignes de passe-plat de `Sidebar.tsx` ont disparu avec.
   const sidebarActions: SidebarActions = {
-    // Échap dans une liste : les paramètres se ferment, tout revient au
-    // terminal.
-    focusTerminal: () => { if (sidebarPanel === "settings") toggleSettings(); else focusTerminal(); },
+    // Échap dans une liste : tout revient au terminal.
+    focusTerminal: () => focusTerminal(),
     ...tabOpeners,
 
     newHost: () => { setEditingHost("new"); setNewHostDefaultGroupId(null); setNewHostDefaultVaultId(undefined); setEditingGroup(null); setEditingSqlConnection(null); },
@@ -1297,18 +1330,17 @@ export default function App() {
           onPanelChange={setSidebarPanel}
           panelVisible={sidebarVisible}
           onPanelVisibleChange={setSidebarVisible}
-          // Les paramètres ont besoin de place (deux colonnes, des
-          // échantillons de thème) : le panneau s'élargit à leur ouverture et
-          // revient à la largeur choisie ensuite.
-          panelWidth={sidebarPanel === "settings" ? Math.max(sidebar.value, 600) : sidebar.value}
+          panelWidth={sidebar.value}
           resizing={isDragging}
-          onOpenActivity={() => openActivity()}
+          activePage={activePage}
+          onOpenPage={(kind) => { setHomeOpen(false); openPage(kind); }}
+          onLeavePage={leavePage}
           ctx={moduleContext}
           actions={sidebarActions}
         />
 
         {/* Sidebar resize handle */}
-        {sidebarVisible && (
+        {sidebarVisible && !activePage && (
           <div
             onMouseDown={sidebar.onMouseDown}
             className="group relative z-10 -mx-0.5 flex w-1.5 shrink-0 cursor-col-resize items-center justify-center"
@@ -1389,7 +1421,7 @@ export default function App() {
                   return (
                     <div key={tab.id} className={isActive ? "absolute inset-0 flex flex-col" : "hidden"}>
                       <Suspense fallback={<TabLoadingFallback />}>
-                        {renderModuleTab(tab, moduleContext, isActive)}
+                        {renderModuleTab(tab, moduleContext, isActive, sidebarActions)}
                       </Suspense>
                     </div>
                   );

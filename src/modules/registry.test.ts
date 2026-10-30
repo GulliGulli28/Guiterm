@@ -17,6 +17,7 @@ const EVERY_TAB_KIND: Record<TabMeta["kind"], true> = {
   fleet: true,
   runbook: true,
   activity: true,
+  settings: true,
   netdiag: true,
   sql: true,
 };
@@ -37,7 +38,6 @@ const EVERY_PANEL: Record<SidebarPanelKind, true> = {
   runbook: true,
   netdiag: true,
   guivault: true,
-  settings: true,
 };
 
 const ALL_PANELS = Object.keys(EVERY_PANEL) as SidebarPanelKind[];
@@ -120,12 +120,13 @@ describe("renderModuleTab", () => {
     registerTerminalHandle: () => {},
   } as unknown as AppContext;
 
+  const actions = {} as SidebarActions;
   const tabOfKind = (kind: TabMeta["kind"], hostId = HOST_ID, sqlConnectionId = CONNECTION_ID) =>
     ({ id: "t", kind, label: "x", hostId, sqlConnectionId }) as unknown as TabMeta;
 
   it("rend un contenu pour chaque kind d'onglet, sans exception", () => {
     for (const kind of ALL_KINDS) {
-      const out = renderModuleTab(tabOfKind(kind), ctx, true);
+      const out = renderModuleTab(tabOfKind(kind), ctx, true, actions);
       // `undefined` signifierait « aucun module ne revendique ce kind » :
       // depuis que le dispatch d'App.tsx a disparu, l'onglet s'ouvrirait
       // définitivement vide. C'est la panne à attraper ici.
@@ -139,8 +140,8 @@ describe("renderModuleTab", () => {
     // (hôte ou connexion effacé pendant que l'onglet était ouvert), là où
     // `undefined` signalerait un registre incohérent.
     for (const kind of ["terminal", "transfer", "rdp-view"] as const) {
-      expect(renderModuleTab(tabOfKind(kind, "disparu"), ctx, true)).toBeNull();
+      expect(renderModuleTab(tabOfKind(kind, "disparu"), ctx, true, actions)).toBeNull();
     }
-    expect(renderModuleTab(tabOfKind("sql", HOST_ID, "disparue"), ctx, true)).toBeNull();
+    expect(renderModuleTab(tabOfKind("sql", HOST_ID, "disparue"), ctx, true, actions)).toBeNull();
   });
 });
