@@ -7,7 +7,7 @@
 //! puisqu'un hôte en cours de création n'a qu'un id tiré pour l'occasion.
 mod common;
 
-use common::{ClientKey, TestSshd, free_port, run_ok, test_host};
+use common::{ClientKey, TestSshd, run_ok, test_host};
 use russh::keys::ssh_key::{HashAlg, PublicKey};
 use std::process::Command;
 use termius_core::known_hosts;
@@ -75,8 +75,12 @@ async fn a_refused_key_fails_at_authentication() {
 
 #[tokio::test]
 async fn a_closed_port_fails_at_reaching_it() {
+    // Le port 1 et pas `free_port()` : un port pris dans la plage éphémère
+    // peut, sous Linux, se connecter à lui-même (la socket cliente reçoit ce
+    // même numéro comme port source) — la connexion « aboutit » alors, et
+    // l'échec tombe à la poignée de main. Vu une fois sur cinq en parallèle.
     let mut host = Host::new("essai-port", "127.0.0.1", "personne");
-    host.port = free_port();
+    host.port = 1;
     let report = ssh::test_connection(&Workspace::default(), host, None).await;
     assert_eq!(failed(&report.outcome).0, ConnectStage::Reach);
 }
@@ -97,7 +101,7 @@ async fn a_bastion_that_cannot_reach_the_target_is_named() {
     let bastion_sshd = TestSshd::start("essai-bastion", &key.public);
     let bastion = test_host(&bastion_sshd, &key, "essai-bastion");
     let mut target = Host::new("essai-derriere", "127.0.0.1", "personne");
-    target.port = free_port();
+    target.port = 1;
     target.jump_via = vec![bastion.id];
 
     let mut workspace = Workspace::default();

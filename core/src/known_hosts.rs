@@ -60,6 +60,16 @@ fn read() -> anyhow::Result<Store> {
     read_at(&path()?)
 }
 
+/// Sérialise les lire-modifier-écrire du fichier dans ce processus.
+///
+/// L'écriture est atomique (`secure_file::write_private`), mais pas la
+/// séquence lecture → ajout → écriture : deux connexions simultanées vers deux
+/// hôtes neufs lisaient le même état, et la seconde écriture effaçait
+/// l'approbation de la première — l'hôte repassait pour inconnu à la
+/// connexion suivante. Vu sur les tests d'intégration, qui se connectent en
+/// parallèle ; une app qui rouvre plusieurs onglets au lancement fait pareil.
+static WRITE_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
 fn write(store: &Store) -> anyhow::Result<()> {
     let p = path()?;
     if let Some(parent) = p.parent() {
@@ -74,6 +84,7 @@ fn write(store: &Store) -> anyhow::Result<()> {
 /// display purposes and refreshed on every trusted connection (e.g. after a rename).
 pub fn check_and_trust(identity: &str, label: &str, key: &PublicKey) -> anyhow::Result<Verdict> {
     let encoded = key.to_openssh()?;
+    let _guard = WRITE_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let mut store = read()?;
     match store.0.get(identity) {
         Some(entry) if entry.public_key == encoded => {
@@ -174,6 +185,7 @@ pub fn identities_with_key(key: &PublicKey) -> Vec<String> {
 
 /// Revokes trust for `identity` — the next connection to it will be treated as newly seen.
 pub fn remove(identity: &str) -> anyhow::Result<()> {
+    let _guard = WRITE_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
     let mut store = read()?;
     store.0.remove(identity);
     write(&store)
