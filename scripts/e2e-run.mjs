@@ -1212,6 +1212,17 @@ async function runBulkEditScenario(browser) {
  * the moment a second terminal exists: the inactive one is still in the DOM,
  * has zero size, and WebDriver rejects it as not interactable. Focusing
  * xterm's hidden textarea directly is also closer to what a keystroke needs. */
+/** Referme l'onglet d'une page (`lib/pages.ts`) par son bouton de fermeture.
+ * Sans effet si la page n'est pas ouverte. */
+async function closePageTab(browser, label) {
+  await browser.execute((wanted) => {
+    const tab = Array.from(document.querySelectorAll("[data-tab-id]"))
+      .find((t) => (t.textContent || "").trim() === wanted);
+    const close = tab?.querySelector("button[aria-label=\"Fermer l'onglet\"]");
+    if (close instanceof HTMLElement) close.click();
+  }, label);
+}
+
 async function focusVisibleTerminal(browser) {
   // Attendu, et non lu une seule fois : un onglet fraîchement ouvert apparaît
   // dans le DOM *avant* que xterm y soit monté et dimensionné.
@@ -3956,8 +3967,8 @@ async function runSshAgentScenario(browser) {
   if (!initial || initial.__error) throw new Error(`ssh_agent_status : ${JSON.stringify(initial)}`);
 
   // Les Réglages sont une page : le bouton du rail l'ouvre ou la ramène.
+  // Toujours cliquer : la page peut être ouverte mais en arrière-plan.
   await browser.execute(() => {
-    if (document.querySelector('[data-page="settings"]')) return;
     const btn = Array.from(document.querySelectorAll("aside nav button"))
       .find((b) => (b.getAttribute("title") || "").split(" — ")[0] === "Paramètres");
     if (btn instanceof HTMLElement) btn.click();
@@ -4023,9 +4034,13 @@ async function runSidebarButtonsScenario(browser) {
       .find((b) => (b.getAttribute("title") || "").split(" — ")[0] === "Paramètres");
     if (btn instanceof HTMLElement) btn.click();
   });
-  await browser.waitUntil(async () => await browser.execute(() =>
-    Array.from(document.querySelectorAll("p")).some((p) => p.textContent?.trim() === "Boutons de la barre latérale")
-  ), { timeout: 10_000, timeoutMsg: "la section « Boutons de la barre latérale » ne s est pas affichée dans Apparence" });
+  // La page Réglages reste ouverte en onglet sur la dernière catégorie vue :
+  // choisir Apparence, plutôt que de compter qu'on y arrive.
+  await browser.waitUntil(async () => await browser.execute(() => {
+    const cat = document.querySelector('[data-settings-category="apparence"]');
+    if (cat instanceof HTMLElement) cat.click();
+    return Array.from(document.querySelectorAll("p")).some((p) => p.textContent?.trim() === "Boutons de la barre latérale");
+  }), { timeout: 10_000, timeoutMsg: "la section « Boutons de la barre latérale » ne s est pas affichée dans Apparence" });
 
   // « Hôtes » est le point d'entrée : la case doit exister mais rester
   // inactionnable, sinon l'utilisateur peut s'enfermer hors de ses connexions.
@@ -5312,7 +5327,10 @@ async function runGuiVaultPanelScenario(browser) {
     // unlock form. Any of the three proves the panel mounted with content.
     return text.includes("Se connecter") || text.includes("Synchroniser") || text.includes("Déverrouiller");
   }), { timeout: 10_000, timeoutMsg: "la page GuiVault ne s est pas chargée (ni formulaire de connexion, ni compte)" });
-  console.log(`GuiVault : OK (guivault_status répond — ${status.configured ? "compte configuré" : "aucun compte"}, ${listed.count} entité(s) listée(s), panneau atteignable).`);
+  // Une page reste ouverte en onglet, au premier plan : la refermer rend la
+  // main à l'onglet de travail que les scénarios suivants attendent.
+  await closePageTab(browser, "GuiVault");
+  console.log(`GuiVault : OK (guivault_status répond — ${status.configured ? "compte configuré" : "aucun compte"}, ${listed.count} entité(s) listée(s), page atteignable).`);
 
   // « Coller depuis GuiVault » : la commande répond sur l'IPC — la liste
   // (compte déverrouillé, sans aucune valeur dedans) ou l'erreur typée
